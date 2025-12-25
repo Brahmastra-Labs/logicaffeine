@@ -1,0 +1,15 @@
+{
+  "id": "A_1.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cheapest poet in Paris.",
+  "options": [
+    "I is P",
+    "i is P",
+    "I is p",
+    "i is p"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"The cheapest poet\" stands for a single person, and so translates into a small letter."
+}

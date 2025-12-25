@@ -1,0 +1,15 @@
+{
+  "id": "J_4.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It must be that you aren't filthy",
+  "options": [
+    "$ \\\\square \\\\sim F $",
+    "$ \\\\sim \\\\square F $",
+    "$ (\\\\square \\\\sim F) $",
+    "$ \\\\sim \\\\square (F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

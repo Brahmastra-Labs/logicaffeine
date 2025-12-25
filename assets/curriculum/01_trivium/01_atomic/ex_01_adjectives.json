@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 1,
+  "prompt": "Translate this observation:",
+  "template": "{ProperName} is {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Apply the adjective as a predicate to the constant."
+}

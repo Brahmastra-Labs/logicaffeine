@@ -1,0 +1,15 @@
+{
+  "id": "N_14.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Believe that C is true",
+  "options": [
+    "$ u:C $",
+    "$ \\\\underline{u} :\\\\underline{C} $",
+    "$ u:C $",
+    "$ \\\\underline{u} :C $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}

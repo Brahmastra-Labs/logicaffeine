@@ -1,0 +1,15 @@
+{
+  "id": "J_4.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Necessarily, if you're a biologist then you're cruel",
+  "options": [
+    "$ \\\\square (B \\\\supset C) $",
+    "Ambiguous between 1 & 4",
+    "$ \\\\square B \\\\supset C $",
+    "$ (B \\\\supset \\\\square C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

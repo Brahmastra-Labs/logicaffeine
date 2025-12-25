@@ -1,0 +1,15 @@
+{
+  "id": "N_14.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want everyone to boast",
+  "options": [
+    "$ u:(x)B\\\\underline{x} $",
+    "$ u:(x)Bx $",
+    "$ (x)x:B\\\\underline{u} $",
+    "$ \\\\underline{u} :(x)B\\\\underline{x} $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: B represents belief - 'believes that'. The subscript indicates who holds the belief or knowledge."
+}

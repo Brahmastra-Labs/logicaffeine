@@ -1,0 +1,15 @@
+{
+  "id": "J_4.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If F is necessary then P is necessary",
+  "options": [
+    "$ (\\\\square F \\\\supset \\\\square P) $",
+    "$ \\\\square (F \\\\supset \\\\square P) $",
+    "$ \\\\square F \\\\supset \\\\square P $",
+    "$ \\\\square (F \\\\supset P) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

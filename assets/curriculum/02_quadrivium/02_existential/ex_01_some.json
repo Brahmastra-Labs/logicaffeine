@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this existential claim:",
+  "template": "Some {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Existential: ∃x(Restrictor(x) ∧ Scope(x)). Use ∧ not →."
+}

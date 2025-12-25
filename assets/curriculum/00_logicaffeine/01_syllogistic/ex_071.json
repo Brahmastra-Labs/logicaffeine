@@ -1,0 +1,15 @@
+{
+  "id": "A_1.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some criminals are strong",
+  "options": [
+    "all C is S",
+    "some C is not S",
+    "C is not S",
+    "no C is S"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}

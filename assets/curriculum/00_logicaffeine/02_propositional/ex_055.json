@@ -1,0 +1,15 @@
+{
+  "id": "C_6.55",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If P, then D and N",
+  "options": [
+    "$ P \\\\supset D \\\\cdot N $",
+    "$ ((P \\\\supset D) \\\\cdot N) $",
+    "$ (P \\\\supset D) \\\\cdot N $",
+    "$ (P \\\\supset (D \\\\cdot N)) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

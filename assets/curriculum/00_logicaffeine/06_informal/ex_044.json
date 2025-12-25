@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.55",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A kitten is a young female cat.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (kittens can be male)."
+}

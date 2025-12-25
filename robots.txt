@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://logicaffeine.com/sitemap.xml

@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.58",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A bird is an animal that can fly.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (consider ostriches) and 2 (consider bats)."
+}

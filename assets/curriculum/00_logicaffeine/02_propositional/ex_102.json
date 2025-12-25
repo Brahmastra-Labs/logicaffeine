@@ -1,0 +1,15 @@
+{
+  "id": "C_6.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're humorous provided that you're miserable",
+  "options": [
+    "$ (H \\\\equiv M) $",
+    "$ (H \\\\supset M) $",
+    "$ (M \\\\supset H) $",
+    "$ H \\\\supset M $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

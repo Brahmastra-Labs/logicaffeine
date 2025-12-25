@@ -1,0 +1,15 @@
+{
+  "id": "C_6.58",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're either tough and cautious or else frivolous",
+  "options": [
+    "$ (T \\\\cdot C) \\\\vee F $",
+    "$ (T \\\\cdot (C \\\\vee F)) $",
+    "$ T \\\\cdot C \\\\vee F $",
+    "$ ((T \\\\cdot C) \\\\vee F) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

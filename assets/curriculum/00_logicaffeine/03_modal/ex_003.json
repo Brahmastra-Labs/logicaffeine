@@ -1,0 +1,15 @@
+{
+  "id": "J_4.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's necessary that S is possible",
+  "options": [
+    "$ \\\\square S $",
+    "$ (\\\\square \\\\lozenge S) $",
+    "$ \\\\square \\\\lozenge S $",
+    "$ \\\\square(\\\\lozenge S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

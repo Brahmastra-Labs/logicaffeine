@@ -1,0 +1,14 @@
+{
+  "id": "ex_03",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Which logical form represents 'Alice runs'?",
+  "options": [
+    "Runs(Alice)",
+    "Alice(Runs)",
+    "∀x(Runs(x))",
+    "Runs ∧ Alice"
+  ],
+  "correct": 0,
+  "hint": "A predicate takes the subject as its argument."
+}

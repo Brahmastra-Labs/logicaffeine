@@ -1,0 +1,15 @@
+{
+  "id": "C_6.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're bitter unless you're short",
+  "options": [
+    "$ (B \\\\equiv S) $",
+    "$ B \\\\equiv S $",
+    "$ (B \\\\supset \\\\, \\\\sim S) $",
+    "$ (B \\\\vee S) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

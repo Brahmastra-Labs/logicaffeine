@@ -1,0 +1,15 @@
+{
+  "id": "A_1.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the richest judge in Hamburg",
+  "options": [
+    "I is j",
+    "i is J",
+    "I is J",
+    "i is j"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"j\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}

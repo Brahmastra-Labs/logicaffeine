@@ -1,0 +1,15 @@
+{
+  "id": "L_12.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You ought not to help Madonna",
+  "options": [
+    "$ O\\\\sim Hum $",
+    "$ \\\\sim H\\\\underline{u} m $",
+    "$ O\\\\sim H\\\\underline{u} m $",
+    "$ O\\\\sim Hu\\\\underline{m} $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

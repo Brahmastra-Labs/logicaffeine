@@ -1,0 +1,15 @@
+{
+  "id": "J_4.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're a convict, then it's necessary that you're bold",
+  "options": [
+    "$ \\\\square (C \\\\supset B) $",
+    "Ambiguous between 1 & 3",
+    "$ (C \\\\supset \\\\square B) $",
+    "$ \\\\square C \\\\supset B $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

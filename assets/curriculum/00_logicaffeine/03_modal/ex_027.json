@@ -1,0 +1,15 @@
+{
+  "id": "J_4.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either P is necessary or C is necessary",
+  "options": [
+    "$ \\\\square (P \\\\vee \\\\square C) $",
+    "$ (\\\\square P \\\\vee \\\\square C) $",
+    "$ \\\\square P \\\\vee \\\\square C $",
+    "$ \\\\square (P \\\\vee C) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

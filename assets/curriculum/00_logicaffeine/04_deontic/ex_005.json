@@ -1,0 +1,15 @@
+{
+  "id": "L_12.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Insult Donna",
+  "options": [
+    "$ Iud $",
+    "$ Oi\\\\underline{u} d $",
+    "$ I\\\\underline{u} d $",
+    "$ I\\\\underline{d} $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

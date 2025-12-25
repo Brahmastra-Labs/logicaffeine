@@ -1,0 +1,15 @@
+{
+  "id": "C_6.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both S and C",
+  "options": [
+    "$ \\\\sim (S \\\\cdot C) $",
+    "$ (\\\\sim S \\\\cdot C) $",
+    "$ (\\\\sim S \\\\cdot \\\\, \\\\sim C) $",
+    "$ \\\\sim S \\\\cdot C $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}

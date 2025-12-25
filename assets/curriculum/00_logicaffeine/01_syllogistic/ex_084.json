@@ -1,0 +1,15 @@
+{
+  "id": "A_1.36",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "One or more poets are cheap",
+  "options": [
+    "some P is C",
+    "C is P",
+    "P is C",
+    "some P is not C"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}

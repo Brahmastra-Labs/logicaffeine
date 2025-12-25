@@ -1,0 +1,15 @@
+{
+  "id": "C_6.59",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both weak and either charming or prosperous",
+  "options": [
+    "$ (W \\\\cdot (C \\\\vee P)) $",
+    "$ (W \\\\cdot C) \\\\vee P $",
+    "$ W \\\\cdot C \\\\vee P $",
+    "$ ((W \\\\cdot C) \\\\vee P) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

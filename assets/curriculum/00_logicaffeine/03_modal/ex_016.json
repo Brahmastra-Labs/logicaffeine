@@ -1,0 +1,15 @@
+{
+  "id": "J_4.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "M is consistent with D",
+  "options": [
+    "$ (M \\\\cdot D) $",
+    "$ (\\\\lozenge M \\\\cdot D) $",
+    "$ (\\\\lozenge M \\\\cdot \\\\lozenge D) $",
+    "$ \\\\lozenge (M \\\\cdot D) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

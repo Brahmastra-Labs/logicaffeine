@@ -1,0 +1,15 @@
+{
+  "id": "A_1.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the slowest diabetic in Boston.",
+  "options": [
+    "I is d",
+    "I is D",
+    "i is d",
+    "i is D"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The slowest diabetic\" stands for a single person, and so translates into a small letter."
+}

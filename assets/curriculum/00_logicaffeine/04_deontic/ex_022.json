@@ -1,0 +1,15 @@
+{
+  "id": "L_12.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Forfeit and speak",
+  "options": [
+    "$ (F\\\\underline{u}\\\\cdot S\\\\underline{u}  ) $",
+    "$ (Fu\\\\cdot S\\\\underline{u} ) $",
+    "$ (Fu\\\\cdot Su) $",
+    "$ (F\\\\underline{u}\\\\cdot Su ) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "A_1.36",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the shortest diabetic in Berlin.",
+  "options": [
+    "i is d",
+    "I is d",
+    "i is D",
+    "I is D"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}

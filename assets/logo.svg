@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="blue-glow" cx="30%" cy="30%" r="55%" fx="30%" fy="30%">
+      <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#60a5fa" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="purple-glow" cx="65%" cy="60%" r="55%" fx="65%" fy="60%">
+      <stop offset="0%" stop-color="#a78bfa" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="border-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.2)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.05)"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="#0f0f14"/>
+  <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="rgba(255,255,255,0.06)"/>
+  <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="url(#blue-glow)"/>
+  <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="url(#purple-glow)"/>
+  <rect x="4" y="4" width="120" height="120" rx="28" ry="28" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+</svg>

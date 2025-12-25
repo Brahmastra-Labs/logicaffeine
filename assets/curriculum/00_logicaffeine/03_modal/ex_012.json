@@ -1,0 +1,15 @@
+{
+  "id": "J_4.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If Jim is a politician, then Jim couldn't be bold",
+  "options": [
+    "$ (P \\\\supset \\\\square \\\\sim B) $",
+    "$ \\\\square (P \\\\supset \\\\sim B) $",
+    "$ \\\\square P \\\\supset \\\\sim B $",
+    "Ambiguous between 1 & 2"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

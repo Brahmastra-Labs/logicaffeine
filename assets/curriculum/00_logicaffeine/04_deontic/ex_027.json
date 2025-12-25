@@ -1,0 +1,15 @@
+{
+  "id": "L_12.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let someone despair",
+  "options": [
+    "$ O(\\\\exists x)D\\\\underline{x} $",
+    "$ (\\\\exists x)Dx $",
+    "$ (\\\\exists x)D\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Dx $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

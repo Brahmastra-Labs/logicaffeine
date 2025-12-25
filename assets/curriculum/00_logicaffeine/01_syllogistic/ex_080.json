@@ -1,0 +1,15 @@
+{
+  "id": "A_1.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "One or more dentists are mean",
+  "options": [
+    "M is D",
+    "D is M",
+    "some D is not M",
+    "some D is M"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+}

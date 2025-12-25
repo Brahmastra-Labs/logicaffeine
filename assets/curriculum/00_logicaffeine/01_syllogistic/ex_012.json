@@ -1,0 +1,15 @@
+{
+  "id": "A_1.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All judges in Madrid appreciate people who are tactful.",
+  "options": [
+    "J is A",
+    "all J is A",
+    "all A is J",
+    "all j is A"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"J\" refers to a class of things, so use uppercase. The predicate \"A\" refers to a class/property, so use uppercase."
+}

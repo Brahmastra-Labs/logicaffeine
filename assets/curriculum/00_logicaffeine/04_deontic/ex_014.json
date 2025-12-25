@@ -1,0 +1,15 @@
+{
+  "id": "L_12.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Look and conform",
+  "options": [
+    "$ (Lu\\\\cdot Cu) $",
+    "$ (L\\\\underline{u}\\\\cdot C\\\\underline{u}  ) $",
+    "$ (Lu\\\\cdot C\\\\underline{u} ) $",
+    "$ (L\\\\underline{u}\\\\cdot Cu  ) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

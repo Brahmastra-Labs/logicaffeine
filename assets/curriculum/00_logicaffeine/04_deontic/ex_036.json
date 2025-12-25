@@ -1,0 +1,15 @@
+{
+  "id": "L_12.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let no one talk",
+  "options": [
+    "$ \\\\sim (\\\\exists x)T\\\\underline{x} $",
+    "$ O\\\\sim (\\\\exists x)T\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Tx $",
+    "$ \\\\sim (\\\\exists x)Tx $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

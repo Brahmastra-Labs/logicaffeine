@@ -1,0 +1,15 @@
+{
+  "id": "A_1.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the smartest biologist in Kiev.",
+  "options": [
+    "I is b",
+    "I is B",
+    "i is b",
+    "i is B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}

@@ -1,0 +1,24 @@
+# Rust
+target/
+Cargo.lock
+
+# Dioxus
+dist/
+.dioxus/
+
+# Node
+node_modules/
+.wrangler/
+
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local

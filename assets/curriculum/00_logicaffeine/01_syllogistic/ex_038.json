@@ -1,0 +1,15 @@
+{
+  "id": "A_1.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Adriano is a boastful person in Barcelona.",
+  "options": [
+    "M is B",
+    "m is b",
+    "M is b",
+    "m is B"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"m\" refers to a specific individual, so use lowercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}

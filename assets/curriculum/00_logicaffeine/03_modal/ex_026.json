@@ -1,0 +1,15 @@
+{
+  "id": "J_4.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Necessarily, if you're a customer then you're strong",
+  "options": [
+    "$ \\\\square (C \\\\supset S) $",
+    "$ \\\\square C \\\\supset S $",
+    "Ambiguous between 1 & 4",
+    "$ (C \\\\supset \\\\square S) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

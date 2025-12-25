@@ -1,0 +1,15 @@
+{
+  "id": "C_6.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being wild is sufficient for you to be dangerous",
+  "options": [
+    "$ (W \\\\equiv D) $",
+    "$ (\\\\sim W \\\\supset \\\\, \\\\sim D) $",
+    "$ (W \\\\supset D) $",
+    "$ W \\\\supset D $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

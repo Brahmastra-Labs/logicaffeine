@@ -1,0 +1,15 @@
+{
+  "id": "C_6.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're rough only if you're selfish",
+  "options": [
+    "$ (R \\\\equiv S) $",
+    "$ R \\\\supset S $",
+    "$ (R \\\\supset S) $",
+    "$ (S \\\\supset R) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

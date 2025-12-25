@@ -1,0 +1,15 @@
+{
+  "id": "J_4.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't necessary that N is true",
+  "options": [
+    "$ \\\\sim \\\\square (N) $",
+    "$ \\\\sim (\\\\square N) $",
+    "$ \\\\square \\\\sim N $",
+    "$ \\\\sim \\\\square N $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

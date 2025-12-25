@@ -1,0 +1,15 @@
+{
+  "id": "L_12.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's permissible for you to sell",
+  "options": [
+    "$ OS\\\\underline{u} $",
+    "$ RSu $",
+    "$ OSu $",
+    "$ RS\\\\underline{u} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

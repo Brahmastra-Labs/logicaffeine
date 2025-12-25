@@ -1,0 +1,15 @@
+{
+  "id": "J_4.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Peter could be forgetful",
+  "options": [
+    "$ (\\\\lozenge (F)) $",
+    "$ \\\\lozenge F $",
+    "$ \\\\lozenge (F) $",
+    "$ (\\\\lozenge F) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

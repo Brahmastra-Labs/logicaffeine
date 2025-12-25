@@ -1,0 +1,15 @@
+{
+  "id": "C_6.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't tough then you aren't lonely",
+  "options": [
+    "$ (\\\\sim T \\\\supset \\\\, \\\\sim L) $",
+    "$ (\\\\sim T \\\\supset L) $",
+    "$ \\\\sim T \\\\supset L $",
+    "$ \\\\sim (T \\\\supset L) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}

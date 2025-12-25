@@ -1,0 +1,15 @@
+{
+  "id": "A_1.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some dishonest plumbers are cowardly.",
+  "options": [
+    "some P is c",
+    "P is C",
+    "P is c",
+    "some P is C"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}

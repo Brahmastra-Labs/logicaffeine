@@ -1,0 +1,15 @@
+{
+  "id": "C_6.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're bright then you're cheerful, or you're powerful",
+  "options": [
+    "$ (B \\\\supset (C \\\\vee P)) $",
+    "$ ((B \\\\supset C) \\\\vee P) $",
+    "$ B \\\\supset C \\\\vee P $",
+    "$ (B \\\\supset C) \\\\vee P $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

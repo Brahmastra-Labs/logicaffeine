@@ -1,0 +1,15 @@
+{
+  "id": "C_6.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're strong then you're talented, or you're cautious",
+  "options": [
+    "$ (S \\\\supset T) \\\\vee C $",
+    "$ (S \\\\supset (T \\\\vee C)) $",
+    "$ S \\\\supset T \\\\vee C $",
+    "$ ((S \\\\supset T) \\\\vee C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

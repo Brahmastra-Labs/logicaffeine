@@ -1,0 +1,14 @@
+{
+  "id": "ex_03",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Why is ∀x(Dog(x) ∧ Barks(x)) WRONG for 'All dogs bark'?",
+  "options": [
+    "It claims everything is a barking dog",
+    "It uses the wrong quantifier",
+    "Dog should be lowercase",
+    "Barks should come before Dog"
+  ],
+  "correct": 0,
+  "hint": "Think about what ∀x(P(x) ∧ Q(x)) actually says about every object in the domain."
+}

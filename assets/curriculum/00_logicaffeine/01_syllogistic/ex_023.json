@@ -1,0 +1,15 @@
+{
+  "id": "A_1.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the brightest convict.",
+  "options": [
+    "u is not C",
+    "u is not c",
+    "U is not C",
+    "U is not c"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The brightest\" stands for a single person, and so translates into a small letter."
+}

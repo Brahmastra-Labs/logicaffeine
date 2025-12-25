@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"True\" means \"proved to be true\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 and especially 3."
+}

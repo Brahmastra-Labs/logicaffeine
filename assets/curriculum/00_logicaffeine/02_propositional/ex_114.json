@@ -1,0 +1,15 @@
+{
+  "id": "C_6.52",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're bold, then you're candid and selfish",
+  "options": [
+    "$ (B \\\\supset C) \\\\cdot S $",
+    "$ (B \\\\supset (C \\\\cdot S)) $",
+    "$ B \\\\supset C \\\\cdot S $",
+    "$ ((B \\\\supset C) \\\\cdot S) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

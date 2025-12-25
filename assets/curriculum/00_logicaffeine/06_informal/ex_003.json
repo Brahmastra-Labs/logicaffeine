@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Philosophy is the study of the human condition.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1."
+}

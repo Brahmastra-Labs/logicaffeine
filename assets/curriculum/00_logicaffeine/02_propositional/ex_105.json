@@ -1,0 +1,15 @@
+{
+  "id": "C_6.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Provided that T, S",
+  "options": [
+    "$ T \\\\supset S $",
+    "$ (T \\\\equiv S) $",
+    "$ (T \\\\supset S) $",
+    "$ (S \\\\supset T) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

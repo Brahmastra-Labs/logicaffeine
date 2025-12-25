@@ -1,0 +1,15 @@
+{
+  "id": "L_12.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're sellin, then cheer",
+  "options": [
+    "$ (Su\\\\supset OC\\\\underline{u} ) $",
+    "$ (Su\\\\supset Cu) $",
+    "$ (S\\\\underline{u}\\\\supset C\\\\underline{u}  ) $",
+    "$ (Su\\\\supset C\\\\underline{u} ) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

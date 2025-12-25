@@ -1,0 +1,15 @@
+{
+  "id": "L_12.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sing, Tom",
+  "options": [
+    "$ OS\\\\underline{t} $",
+    "$ S\\\\underline{t} $",
+    "$ St $",
+    "$ S\\\\underline{u}t $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

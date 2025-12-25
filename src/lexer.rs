@@ -1,0 +1,1222 @@
+use crate::intern::Interner;
+use crate::lexicon::{self, Aspect, Definiteness, Lexicon, Time};
+use crate::token::{BlockType, FocusKind, MeasureKind, Span, Token, TokenType};
+
+pub struct Lexer<'a> {
+    words: Vec<WordItem>,
+    pos: usize,
+    lexicon: Lexicon,
+    interner: &'a mut Interner,
+    input_len: usize,
+    in_let_context: bool,
+    source: String,
+}
+
+struct WordItem {
+    word: String,
+    trailing_punct: Option<char>,
+    start: usize,
+    end: usize,
+    punct_pos: Option<usize>,
+}
+
+impl<'a> Lexer<'a> {
+    pub fn new(input: &str, interner: &'a mut Interner) -> Self {
+        let words = Self::split_into_words(input);
+        let input_len = input.len();
+
+        Lexer {
+            words,
+            pos: 0,
+            lexicon: Lexicon::new(),
+            interner,
+            input_len,
+            in_let_context: false,
+            source: input.to_string(),
+        }
+    }
+
+    fn split_into_words(input: &str) -> Vec<WordItem> {
+        let mut items = Vec::new();
+        let mut current_word = String::new();
+        let mut word_start = 0;
+        let chars: Vec<char> = input.chars().collect();
+        let mut char_idx = 0;
+        let mut skip_count = 0;
+
+        for (i, c) in input.char_indices() {
+            if skip_count > 0 {
+                skip_count -= 1;
+                char_idx += 1;
+                continue;
+            }
+            let next_pos = i + c.len_utf8();
+            match c {
+                ' ' | '\t' | '\n' | '\r' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    word_start = next_pos;
+                }
+                '.' => {
+                    // Check if this is a decimal point (digit before and after)
+                    let prev_is_digit = !current_word.is_empty()
+                        && current_word.chars().last().map_or(false, |ch| ch.is_ascii_digit());
+                    let next_is_digit = char_idx + 1 < chars.len()
+                        && chars[char_idx + 1].is_ascii_digit();
+
+                    if prev_is_digit && next_is_digit {
+                        // This is a decimal point, include it in the current word
+                        current_word.push(c);
+                    } else {
+                        // This is a sentence period
+                        if !current_word.is_empty() {
+                            items.push(WordItem {
+                                word: std::mem::take(&mut current_word),
+                                trailing_punct: Some(c),
+                                start: word_start,
+                                end: i,
+                                punct_pos: Some(i),
+                            });
+                        } else {
+                            items.push(WordItem {
+                                word: String::new(),
+                                trailing_punct: Some(c),
+                                start: i,
+                                end: next_pos,
+                                punct_pos: Some(i),
+                            });
+                        }
+                        word_start = next_pos;
+                    }
+                }
+                '#' => {
+                    // Check for ## block header (markdown-style)
+                    if char_idx + 1 < chars.len() && chars[char_idx + 1] == '#' {
+                        // This is a ## block header
+                        // Skip the second # and capture the next word as a block header
+                        if !current_word.is_empty() {
+                            items.push(WordItem {
+                                word: std::mem::take(&mut current_word),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i,
+                                punct_pos: None,
+                            });
+                        }
+                        // Skip whitespace after ##
+                        let header_start = i;
+                        let mut j = char_idx + 2;
+                        while j < chars.len() && (chars[j] == ' ' || chars[j] == '\t') {
+                            j += 1;
+                        }
+                        // Capture the block type word
+                        let mut block_word = String::from("##");
+                        while j < chars.len() && chars[j].is_alphabetic() {
+                            block_word.push(chars[j]);
+                            j += 1;
+                        }
+                        if block_word.len() > 2 {
+                            items.push(WordItem {
+                                word: block_word,
+                                trailing_punct: None,
+                                start: header_start,
+                                end: header_start + (j - char_idx),
+                                punct_pos: None,
+                            });
+                        }
+                        skip_count = j - char_idx - 1;
+                        word_start = header_start + (j - char_idx);
+                    } else {
+                        // Single # - treat as comment, skip to end of line
+                        while char_idx + 1 < chars.len() && chars[char_idx + 1] != '\n' {
+                            skip_count += 1;
+                            char_idx += 1;
+                        }
+                        if !current_word.is_empty() {
+                            items.push(WordItem {
+                                word: std::mem::take(&mut current_word),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i,
+                                punct_pos: None,
+                            });
+                        }
+                        word_start = next_pos;
+                    }
+                }
+                '(' | ')' | ',' | '?' | '!' | ':' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: Some(c),
+                            start: word_start,
+                            end: i,
+                            punct_pos: Some(i),
+                        });
+                    } else {
+                        items.push(WordItem {
+                            word: String::new(),
+                            trailing_punct: Some(c),
+                            start: i,
+                            end: next_pos,
+                            punct_pos: Some(i),
+                        });
+                    }
+                    word_start = next_pos;
+                }
+                '\'' => {
+                    // Handle contractions: expand "don't" → "do" + "not", etc.
+                    let remaining: String = chars[char_idx + 1..].iter().collect();
+                    let remaining_lower = remaining.to_lowercase();
+
+                    if remaining_lower.starts_with("t ") || remaining_lower.starts_with("t.") ||
+                       remaining_lower.starts_with("t,") || remaining_lower == "t" ||
+                       (char_idx + 1 < chars.len() && chars[char_idx + 1] == 't' &&
+                        (char_idx + 2 >= chars.len() || !chars[char_idx + 2].is_alphabetic())) {
+                        // This is a contraction ending in 't (don't, doesn't, won't, can't, etc.)
+                        let word_lower = current_word.to_lowercase();
+                        if word_lower == "don" || word_lower == "doesn" || word_lower == "didn" {
+                            // do/does/did + not
+                            let base = if word_lower == "don" { "do" }
+                                      else if word_lower == "doesn" { "does" }
+                                      else { "did" };
+                            items.push(WordItem {
+                                word: base.to_string(),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i,
+                                punct_pos: None,
+                            });
+                            items.push(WordItem {
+                                word: "not".to_string(),
+                                trailing_punct: None,
+                                start: i,
+                                end: i + 2,
+                                punct_pos: None,
+                            });
+                            current_word.clear();
+                            word_start = next_pos + 1;
+                            skip_count = 1;
+                        } else if word_lower == "won" {
+                            // will + not
+                            items.push(WordItem {
+                                word: "will".to_string(),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i,
+                                punct_pos: None,
+                            });
+                            items.push(WordItem {
+                                word: "not".to_string(),
+                                trailing_punct: None,
+                                start: i,
+                                end: i + 2,
+                                punct_pos: None,
+                            });
+                            current_word.clear();
+                            word_start = next_pos + 1;
+                            skip_count = 1;
+                        } else if word_lower == "can" {
+                            // cannot
+                            items.push(WordItem {
+                                word: "cannot".to_string(),
+                                trailing_punct: None,
+                                start: word_start,
+                                end: i + 2,
+                                punct_pos: None,
+                            });
+                            current_word.clear();
+                            word_start = next_pos + 1;
+                            skip_count = 1;
+                        } else {
+                            // Unknown contraction, split normally
+                            if !current_word.is_empty() {
+                                items.push(WordItem {
+                                    word: std::mem::take(&mut current_word),
+                                    trailing_punct: Some('\''),
+                                    start: word_start,
+                                    end: i,
+                                    punct_pos: Some(i),
+                                });
+                            }
+                            word_start = next_pos;
+                        }
+                    } else {
+                        // Not a 't contraction, handle normally
+                        if !current_word.is_empty() {
+                            items.push(WordItem {
+                                word: std::mem::take(&mut current_word),
+                                trailing_punct: Some('\''),
+                                start: word_start,
+                                end: i,
+                                punct_pos: Some(i),
+                            });
+                        }
+                        word_start = next_pos;
+                    }
+                }
+                c if c.is_alphabetic() || c.is_ascii_digit() || (c == '.' && !current_word.is_empty() && current_word.chars().all(|ch| ch.is_ascii_digit())) || c == '_' => {
+                    if current_word.is_empty() {
+                        word_start = i;
+                    }
+                    current_word.push(c);
+                }
+                _ => {
+                    word_start = next_pos;
+                }
+            }
+            char_idx += 1;
+        }
+
+        if !current_word.is_empty() {
+            items.push(WordItem {
+                word: current_word,
+                trailing_punct: None,
+                start: word_start,
+                end: input.len(),
+                punct_pos: None,
+            });
+        }
+
+        items
+    }
+
+    fn peek_word(&self, offset: usize) -> Option<&str> {
+        self.words.get(self.pos + offset).map(|w| w.word.as_str())
+    }
+
+    fn peek_sequence(&self, expected: &[&str]) -> bool {
+        for (i, &exp) in expected.iter().enumerate() {
+            match self.peek_word(i + 1) {
+                Some(w) if w.to_lowercase() == exp => continue,
+                _ => return false,
+            }
+        }
+        true
+    }
+
+    fn consume_words(&mut self, count: usize) {
+        self.pos += count;
+    }
+
+    pub fn tokenize(&mut self) -> Vec<Token> {
+        let mut tokens = Vec::new();
+
+        while self.pos < self.words.len() {
+            let item = &self.words[self.pos];
+            let word = item.word.clone();
+            let trailing_punct = item.trailing_punct;
+            let word_start = item.start;
+            let word_end = item.end;
+            let punct_pos = item.punct_pos;
+
+            if word.is_empty() {
+                if let Some(punct) = trailing_punct {
+                    let kind = match punct {
+                        '(' => TokenType::LParen,
+                        ')' => TokenType::RParen,
+                        ',' => TokenType::Comma,
+                        ':' => TokenType::Colon,
+                        '.' | '?' => {
+                            self.in_let_context = false;
+                            TokenType::Period
+                        }
+                        '!' => TokenType::Exclamation,
+                        _ => {
+                            self.pos += 1;
+                            continue;
+                        }
+                    };
+                    let lexeme = self.interner.intern(&punct.to_string());
+                    let span = Span::new(word_start, word_end);
+                    tokens.push(Token::new(kind, lexeme, span));
+                }
+                self.pos += 1;
+                continue;
+            }
+
+            let kind = self.classify_with_lookahead(&word);
+            let lexeme = self.interner.intern(&word);
+            let span = Span::new(word_start, word_end);
+            tokens.push(Token::new(kind, lexeme, span));
+
+            if let Some(punct) = trailing_punct {
+                if punct == '\'' {
+                    if let Some(next_item) = self.words.get(self.pos + 1) {
+                        if next_item.word.to_lowercase() == "s" {
+                            let poss_lexeme = self.interner.intern("'s");
+                            let poss_start = punct_pos.unwrap_or(word_end);
+                            let poss_end = next_item.end;
+                            tokens.push(Token::new(TokenType::Possessive, poss_lexeme, Span::new(poss_start, poss_end)));
+                            self.pos += 1;
+                            if let Some(s_punct) = next_item.trailing_punct {
+                                let kind = match s_punct {
+                                    '(' => TokenType::LParen,
+                                    ')' => TokenType::RParen,
+                                    ',' => TokenType::Comma,
+                                    ':' => TokenType::Colon,
+                                    '.' | '?' => TokenType::Period,
+                                    '!' => TokenType::Exclamation,
+                                    _ => {
+                                        self.pos += 1;
+                                        continue;
+                                    }
+                                };
+                                let s_punct_pos = next_item.punct_pos.unwrap_or(next_item.end);
+                                let lexeme = self.interner.intern(&s_punct.to_string());
+                                tokens.push(Token::new(kind, lexeme, Span::new(s_punct_pos, s_punct_pos + 1)));
+                            }
+                            self.pos += 1;
+                            continue;
+                        }
+                    }
+                    self.pos += 1;
+                    continue;
+                }
+
+                let kind = match punct {
+                    '(' => TokenType::LParen,
+                    ')' => TokenType::RParen,
+                    ',' => TokenType::Comma,
+                    ':' => TokenType::Colon,
+                    '.' | '?' => {
+                        self.in_let_context = false;
+                        TokenType::Period
+                    }
+                    '!' => TokenType::Exclamation,
+                    _ => {
+                        self.pos += 1;
+                        continue;
+                    }
+                };
+                let p_start = punct_pos.unwrap_or(word_end);
+                let lexeme = self.interner.intern(&punct.to_string());
+                tokens.push(Token::new(kind, lexeme, Span::new(p_start, p_start + 1)));
+            }
+
+            self.pos += 1;
+        }
+
+        let eof_lexeme = self.interner.intern("");
+        let eof_span = Span::new(self.input_len, self.input_len);
+        tokens.push(Token::new(TokenType::EOF, eof_lexeme, eof_span));
+
+        self.insert_indentation_tokens(tokens)
+    }
+
+    fn insert_indentation_tokens(&mut self, tokens: Vec<Token>) -> Vec<Token> {
+        let mut result = Vec::new();
+        let mut indent_stack: Vec<usize> = vec![0];
+        let empty_sym = self.interner.intern("");
+
+        for (i, token) in tokens.iter().enumerate() {
+            result.push(token.clone());
+
+            if token.kind == TokenType::Colon {
+                let colon_pos = token.span.end;
+                if let Some(indent) = self.measure_next_line_indent(colon_pos) {
+                    let current_indent = *indent_stack.last().unwrap_or(&0);
+                    if indent > current_indent {
+                        indent_stack.push(indent);
+                        let span = Span::new(colon_pos, colon_pos);
+                        result.push(Token::new(TokenType::Indent, empty_sym, span));
+                    }
+                }
+            }
+
+            if token.kind == TokenType::Period {
+                let period_pos = token.span.end;
+                if let Some(next_indent) = self.measure_next_line_indent(period_pos) {
+                    while indent_stack.len() > 1 {
+                        let current_indent = *indent_stack.last().unwrap();
+                        if next_indent < current_indent {
+                            indent_stack.pop();
+                            let span = Span::new(period_pos, period_pos);
+                            result.push(Token::new(TokenType::Dedent, empty_sym, span));
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        while indent_stack.len() > 1 {
+            indent_stack.pop();
+            let span = Span::new(self.input_len, self.input_len);
+            result.push(Token::new(TokenType::Dedent, empty_sym, span));
+        }
+
+        let eof_pos = result.iter().position(|t| t.kind == TokenType::EOF);
+        if let Some(pos) = eof_pos {
+            let eof = result.remove(pos);
+            result.push(eof);
+        }
+
+        result
+    }
+
+    fn measure_next_line_indent(&self, from_pos: usize) -> Option<usize> {
+        let bytes = self.source.as_bytes();
+        let mut pos = from_pos;
+
+        while pos < bytes.len() && bytes[pos] != b'\n' {
+            pos += 1;
+        }
+
+        if pos >= bytes.len() {
+            return None;
+        }
+
+        pos += 1;
+
+        let mut indent = 0;
+        while pos < bytes.len() {
+            match bytes[pos] {
+                b' ' => indent += 1,
+                b'\t' => indent += 4,
+                b'\n' => {
+                    indent = 0;
+                }
+                _ => break,
+            }
+            pos += 1;
+        }
+
+        if pos >= bytes.len() {
+            return None;
+        }
+
+        Some(indent)
+    }
+
+    fn word_to_number(word: &str) -> Option<u32> {
+        lexicon::word_to_number(&word.to_lowercase())
+    }
+
+    fn is_numeric_literal(word: &str) -> bool {
+        if word.is_empty() {
+            return false;
+        }
+        let chars: Vec<char> = word.chars().collect();
+        let first = chars[0];
+        if first.is_ascii_digit() {
+            return true;
+        }
+        if word.contains('_') && chars.iter().any(|c| c.is_alphabetic()) {
+            return true;
+        }
+        false
+    }
+
+    fn classify_with_lookahead(&mut self, word: &str) -> TokenType {
+        // Handle block headers (##Theorem, ##Main, etc.)
+        if word.starts_with("##") {
+            let block_name = &word[2..];
+            let block_type = match block_name.to_lowercase().as_str() {
+                "theorem" => BlockType::Theorem,
+                "main" => BlockType::Main,
+                "definition" => BlockType::Definition,
+                "proof" => BlockType::Proof,
+                "example" => BlockType::Example,
+                "logic" => BlockType::Logic,
+                "note" => BlockType::Note,
+                _ => BlockType::Note, // Default unknown block types to Note
+            };
+            return TokenType::BlockHeader { block_type };
+        }
+
+        let lower = word.to_lowercase();
+
+        if lower == "each" && self.peek_sequence(&["other"]) {
+            self.consume_words(1);
+            return TokenType::Reciprocal;
+        }
+
+        if lower == "to" {
+            if let Some(next) = self.peek_word(1) {
+                if self.is_verb_like(next) {
+                    return TokenType::To;
+                }
+            }
+            let sym = self.interner.intern("to");
+            return TokenType::Preposition(sym);
+        }
+
+        if lower == "at" {
+            if let Some(next) = self.peek_word(1) {
+                let next_lower = next.to_lowercase();
+                if next_lower == "least" {
+                    if let Some(num_word) = self.peek_word(2) {
+                        if let Some(n) = Self::word_to_number(num_word) {
+                            self.consume_words(2);
+                            return TokenType::AtLeast(n);
+                        }
+                    }
+                }
+                if next_lower == "most" {
+                    if let Some(num_word) = self.peek_word(2) {
+                        if let Some(n) = Self::word_to_number(num_word) {
+                            self.consume_words(2);
+                            return TokenType::AtMost(n);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(n) = Self::word_to_number(&lower) {
+            return TokenType::Cardinal(n);
+        }
+
+        if Self::is_numeric_literal(word) {
+            let sym = self.interner.intern(word);
+            return TokenType::Number(sym);
+        }
+
+        if lower == "if" && self.peek_sequence(&["and", "only", "if"]) {
+            self.consume_words(3);
+            return TokenType::Iff;
+        }
+
+        if lower == "is" {
+            if self.peek_sequence(&["equal", "to"]) {
+                self.consume_words(2);
+                return TokenType::Identity;
+            }
+            if self.peek_sequence(&["identical", "to"]) {
+                self.consume_words(2);
+                return TokenType::Identity;
+            }
+        }
+
+        if (lower == "a" || lower == "an") && word.chars().next().unwrap().is_uppercase() {
+            // Capitalized "A" or "An" - disambiguate article vs proper name
+            // Heuristic: articles are followed by nouns/adjectives, not verbs or keywords
+            if let Some(next) = self.peek_word(1) {
+                let next_lower = next.to_lowercase();
+                let next_starts_lowercase = next.chars().next().map(|c| c.is_lowercase()).unwrap_or(false);
+
+                // If followed by logical keyword, treat as proper name (propositional variable)
+                if matches!(next_lower.as_str(), "if" | "and" | "or" | "implies" | "iff") {
+                    let sym = self.interner.intern(word);
+                    return TokenType::ProperName(sym);
+                }
+
+                // If next word is a verb (like "has", "is", "ran"), A is likely a name
+                // Exception: gerunds (like "running") can follow articles
+                // Exception: words in disambiguation_not_verbs (like "red") are not verbs
+                let is_verb = self.lexicon.lookup_verb(&next_lower).is_some()
+                    && !lexicon::is_disambiguation_not_verb(&next_lower);
+                let is_gerund = next_lower.ends_with("ing");
+                if is_verb && !is_gerund {
+                    let sym = self.interner.intern(word);
+                    return TokenType::ProperName(sym);
+                }
+
+                // It's an article if next word is:
+                // - A known noun or adjective, or
+                // - Lowercase (likely a common word we don't recognize)
+                let is_content_word = self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
+                if is_content_word || next_starts_lowercase {
+                    return TokenType::Article(Definiteness::Indefinite);
+                }
+            }
+            let sym = self.interner.intern(word);
+            return TokenType::ProperName(sym);
+        }
+
+        self.classify_word(word)
+    }
+
+    fn is_noun_like(&self, word: &str) -> bool {
+        if lexicon::is_noun_pattern(word) || lexicon::is_common_noun(word) {
+            return true;
+        }
+        if word.ends_with("er") || word.ends_with("ian") || word.ends_with("ist") {
+            return true;
+        }
+        false
+    }
+
+    fn is_adjective_like(&self, word: &str) -> bool {
+        lexicon::is_adjective(word) || lexicon::is_non_intersective(word)
+    }
+
+    fn classify_word(&mut self, word: &str) -> TokenType {
+        let lower = word.to_lowercase();
+        let first_char = word.chars().next().unwrap();
+
+        // Disambiguate "that" as determiner vs complementizer
+        // "that dog" → Article(Distal), "I know that he ran" → That (complementizer)
+        if lower == "that" {
+            if let Some(next) = self.peek_word(1) {
+                let next_lower = next.to_lowercase();
+                if self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower) {
+                    return TokenType::Article(Definiteness::Distal);
+                }
+            }
+        }
+
+        if let Some(kind) = lexicon::lookup_keyword(&lower) {
+            return kind;
+        }
+
+        if let Some(kind) = lexicon::lookup_pronoun(&lower) {
+            return kind;
+        }
+
+        if let Some(def) = lexicon::lookup_article(&lower) {
+            return TokenType::Article(def);
+        }
+
+        if let Some(time) = lexicon::lookup_auxiliary(&lower) {
+            return TokenType::Auxiliary(time);
+        }
+
+        // Handle imperative keywords that might conflict with prepositions
+        match lower.as_str() {
+            "call" => return TokenType::Call,
+            _ => {}
+        }
+
+        if lexicon::is_preposition(&lower) {
+            let sym = self.interner.intern(&lower);
+            return TokenType::Preposition(sym);
+        }
+
+        match lower.as_str() {
+            "equals" => return TokenType::Equals,
+            "item" => return TokenType::Item,
+            "items" => return TokenType::Items,
+            "let" => {
+                self.in_let_context = true;
+                return TokenType::Let;
+            }
+            "set" => {
+                // Only tokenize as Set keyword if followed by identifier + "to"
+                // This avoids conflict with "set" as a mathematical noun
+                if self.peek_word(2).map_or(false, |w| w.to_lowercase() == "to") {
+                    return TokenType::Set;
+                }
+            }
+            "return" => return TokenType::Return,
+            "be" if self.in_let_context => {
+                self.in_let_context = false;
+                return TokenType::Be;
+            }
+            "while" => return TokenType::While,
+            "assert" => return TokenType::Assert,
+            "otherwise" => return TokenType::Otherwise,
+            "if" => return TokenType::If,
+            "only" => return TokenType::Focus(FocusKind::Only),
+            "even" => return TokenType::Focus(FocusKind::Even),
+            "just" if self.peek_word(1).map_or(false, |w| {
+                !self.is_verb_like(w) || w.to_lowercase() == "john" || w.chars().next().map_or(false, |c| c.is_uppercase())
+            }) => return TokenType::Focus(FocusKind::Just),
+            "much" => return TokenType::Measure(MeasureKind::Much),
+            "little" => return TokenType::Measure(MeasureKind::Little),
+            _ => {}
+        }
+
+        if lexicon::is_scopal_adverb(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            return TokenType::ScopalAdverb(sym);
+        }
+
+        if lexicon::is_temporal_adverb(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            return TokenType::TemporalAdverb(sym);
+        }
+
+        if lexicon::is_non_intersective(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            return TokenType::NonIntersectiveAdjective(sym);
+        }
+
+        if lexicon::is_adverb(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            return TokenType::Adverb(sym);
+        }
+        if lower.ends_with("ly") && !lexicon::is_not_adverb(&lower) && lower.len() > 4 {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            return TokenType::Adverb(sym);
+        }
+
+        if let Some(base) = self.try_parse_superlative(&lower) {
+            let sym = self.interner.intern(&base);
+            return TokenType::Superlative(sym);
+        }
+
+        if let Some(base) = self.try_parse_comparative(&lower) {
+            let sym = self.interner.intern(&base);
+            return TokenType::Comparative(sym);
+        }
+
+        if lexicon::is_performative(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            return TokenType::Performative(sym);
+        }
+
+        if lexicon::is_base_verb_early(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            let class = lexicon::lookup_verb_class(&lower);
+            return TokenType::Verb {
+                lemma: sym,
+                time: Time::Present,
+                aspect: Aspect::Simple,
+                class,
+            };
+        }
+
+        // Check for gerunds/progressive verbs BEFORE ProperName check
+        // "Running" at start of sentence should be Verb, not ProperName
+        if lower.ends_with("ing") && lower.len() > 4 {
+            if let Some(entry) = self.lexicon.lookup_verb(&lower) {
+                let sym = self.interner.intern(&entry.lemma);
+                return TokenType::Verb {
+                    lemma: sym,
+                    time: entry.time,
+                    aspect: entry.aspect,
+                    class: entry.class,
+                };
+            }
+        }
+
+        if first_char.is_uppercase() {
+            let sym = self.interner.intern(word);
+            return TokenType::ProperName(sym);
+        }
+
+        let verb_entry = self.lexicon.lookup_verb(&lower);
+        let is_noun = lexicon::is_common_noun(&lower);
+        let is_adj = self.is_adjective_like(&lower);
+        let is_disambiguated = lexicon::is_disambiguation_not_verb(&lower);
+
+        // Ambiguous: word is Verb AND (Noun OR Adjective), not disambiguated
+        if verb_entry.is_some() && (is_noun || is_adj) && !is_disambiguated {
+            let entry = verb_entry.unwrap();
+            let verb_token = TokenType::Verb {
+                lemma: self.interner.intern(&entry.lemma),
+                time: entry.time,
+                aspect: entry.aspect,
+                class: entry.class,
+            };
+
+            let mut alternatives = Vec::new();
+            if is_noun {
+                alternatives.push(TokenType::Noun(self.interner.intern(word)));
+            }
+            if is_adj {
+                alternatives.push(TokenType::Adjective(self.interner.intern(word)));
+            }
+
+            return TokenType::Ambiguous {
+                primary: Box::new(verb_token),
+                alternatives,
+            };
+        }
+
+        // Disambiguated to noun/adjective (not verb)
+        if let Some(_) = &verb_entry {
+            if is_disambiguated {
+                let sym = self.interner.intern(word);
+                if is_noun {
+                    return TokenType::Noun(sym);
+                }
+                return TokenType::Adjective(sym);
+            }
+        }
+
+        // Pure verb
+        if let Some(entry) = verb_entry {
+            let sym = self.interner.intern(&entry.lemma);
+            return TokenType::Verb {
+                lemma: sym,
+                time: entry.time,
+                aspect: entry.aspect,
+                class: entry.class,
+            };
+        }
+
+        // Pure noun
+        if is_noun {
+            let sym = self.interner.intern(word);
+            return TokenType::Noun(sym);
+        }
+
+        if lexicon::is_base_verb(&lower) {
+            let sym = self.interner.intern(&Self::capitalize(&lower));
+            let class = lexicon::lookup_verb_class(&lower);
+            return TokenType::Verb {
+                lemma: sym,
+                time: Time::Present,
+                aspect: Aspect::Simple,
+                class,
+            };
+        }
+
+        if lower.ends_with("ian")
+            || lower.ends_with("er")
+            || lower == "logic"
+            || lower == "time"
+            || lower == "men"
+            || lower == "book"
+            || lower == "house"
+            || lower == "code"
+            || lower == "user"
+        {
+            let sym = self.interner.intern(word);
+            return TokenType::Noun(sym);
+        }
+
+        if lexicon::is_particle(&lower) {
+            let sym = self.interner.intern(&lower);
+            return TokenType::Particle(sym);
+        }
+
+        let sym = self.interner.intern(word);
+        TokenType::Adjective(sym)
+    }
+
+    fn capitalize(s: &str) -> String {
+        let mut chars = s.chars();
+        match chars.next() {
+            None => String::new(),
+            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        }
+    }
+
+    pub fn is_collective_verb(lemma: &str) -> bool {
+        lexicon::is_collective_verb(&lemma.to_lowercase())
+    }
+
+    pub fn is_mixed_verb(lemma: &str) -> bool {
+        lexicon::is_mixed_verb(&lemma.to_lowercase())
+    }
+
+    pub fn is_ditransitive_verb(lemma: &str) -> bool {
+        lexicon::is_ditransitive_verb(&lemma.to_lowercase())
+    }
+
+    fn is_verb_like(&self, word: &str) -> bool {
+        let lower = word.to_lowercase();
+        if lexicon::is_infinitive_verb(&lower) {
+            return true;
+        }
+        if let Some(entry) = self.lexicon.lookup_verb(&lower) {
+            return entry.lemma.len() > 0;
+        }
+        false
+    }
+
+    pub fn is_subject_control_verb(lemma: &str) -> bool {
+        lexicon::is_subject_control_verb(&lemma.to_lowercase())
+    }
+
+    pub fn is_raising_verb(lemma: &str) -> bool {
+        lexicon::is_raising_verb(&lemma.to_lowercase())
+    }
+
+    pub fn is_object_control_verb(lemma: &str) -> bool {
+        lexicon::is_object_control_verb(&lemma.to_lowercase())
+    }
+
+    fn try_parse_superlative(&self, word: &str) -> Option<String> {
+        if !word.ends_with("est") || word.len() < 5 {
+            return None;
+        }
+
+        let base = &word[..word.len() - 3];
+
+        if base.len() >= 2 {
+            let chars: Vec<char> = base.chars().collect();
+            let last = chars[chars.len() - 1];
+            let second_last = chars[chars.len() - 2];
+            if last == second_last && !"aeiou".contains(last) {
+                let stem = &base[..base.len() - 1];
+                if lexicon::is_gradable_adjective(stem) {
+                    return Some(Self::capitalize(stem));
+                }
+            }
+        }
+
+        if base.ends_with("i") {
+            let stem = format!("{}y", &base[..base.len() - 1]);
+            if lexicon::is_gradable_adjective(&stem) {
+                return Some(Self::capitalize(&stem));
+            }
+        }
+
+        if lexicon::is_gradable_adjective(base) {
+            return Some(Self::capitalize(base));
+        }
+
+        None
+    }
+
+    fn try_parse_comparative(&self, word: &str) -> Option<String> {
+        if !word.ends_with("er") || word.len() < 4 {
+            return None;
+        }
+
+        let base = &word[..word.len() - 2];
+
+        if base.len() >= 2 {
+            let chars: Vec<char> = base.chars().collect();
+            let last = chars[chars.len() - 1];
+            let second_last = chars[chars.len() - 2];
+            if last == second_last && !"aeiou".contains(last) {
+                let stem = &base[..base.len() - 1];
+                if lexicon::is_gradable_adjective(stem) {
+                    return Some(Self::capitalize(stem));
+                }
+            }
+        }
+
+        if base.ends_with("i") {
+            let stem = format!("{}y", &base[..base.len() - 1]);
+            if lexicon::is_gradable_adjective(&stem) {
+                return Some(Self::capitalize(&stem));
+            }
+        }
+
+        if lexicon::is_gradable_adjective(base) {
+            return Some(Self::capitalize(base));
+        }
+
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lexer_handles_apostrophe() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("it's raining", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn lexer_handles_question_mark() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("Is it raining?", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(!tokens.is_empty());
+    }
+
+    #[test]
+    fn ring_is_not_verb() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("ring", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(matches!(tokens[0].kind, TokenType::Noun(_)));
+    }
+
+    #[test]
+    fn debug_that_token() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("The cat that runs", &mut interner);
+        let tokens = lexer.tokenize();
+        for (i, t) in tokens.iter().enumerate() {
+            let lex = interner.resolve(t.lexeme);
+            eprintln!("Token[{}]: {:?} -> {:?}", i, lex, t.kind);
+        }
+        let that_token = tokens.iter().find(|t| interner.resolve(t.lexeme) == "that");
+        if let Some(t) = that_token {
+            // Verify discriminant comparison works
+            let check = std::mem::discriminant(&t.kind) == std::mem::discriminant(&TokenType::That);
+            eprintln!("Discriminant check for That: {}", check);
+            assert!(matches!(t.kind, TokenType::That), "'that' should be TokenType::That, got {:?}", t.kind);
+        } else {
+            panic!("No 'that' token found");
+        }
+    }
+
+    #[test]
+    fn bus_is_not_verb() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("bus", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(matches!(tokens[0].kind, TokenType::Noun(_)));
+    }
+
+    #[test]
+    fn lowercase_a_is_article() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("a car", &mut interner);
+        let tokens = lexer.tokenize();
+        for (i, t) in tokens.iter().enumerate() {
+            let lex = interner.resolve(t.lexeme);
+            eprintln!("Token[{}]: {:?} -> {:?}", i, lex, t.kind);
+        }
+        assert_eq!(tokens[0].kind, TokenType::Article(Definiteness::Indefinite));
+        assert!(matches!(tokens[1].kind, TokenType::Noun(_)), "Expected Noun, got {:?}", tokens[1].kind);
+    }
+
+    #[test]
+    fn open_is_ambiguous() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("open", &mut interner);
+        let tokens = lexer.tokenize();
+
+        if let TokenType::Ambiguous { primary, alternatives } = &tokens[0].kind {
+            assert!(matches!(**primary, TokenType::Verb { .. }), "Primary should be Verb");
+            assert!(alternatives.iter().any(|t| matches!(t, TokenType::Adjective(_))),
+                "Should have Adjective alternative");
+        } else {
+            panic!("Expected Ambiguous token for 'open', got {:?}", tokens[0].kind);
+        }
+    }
+
+    #[test]
+    fn basic_tokenization() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("All men are mortal.", &mut interner);
+        let tokens = lexer.tokenize();
+        assert_eq!(tokens[0].kind, TokenType::All);
+        assert!(matches!(tokens[1].kind, TokenType::Noun(_)));
+        assert_eq!(tokens[2].kind, TokenType::Are);
+    }
+
+    #[test]
+    fn iff_tokenizes_as_single_token() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("A if and only if B", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::Iff),
+            "should contain Iff token: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn is_equal_to_tokenizes_as_identity() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("Socrates is equal to Socrates", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::Identity),
+            "should contain Identity token: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn is_identical_to_tokenizes_as_identity() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("Clark is identical to Superman", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::Identity),
+            "should contain Identity token: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn itself_tokenizes_as_reflexive() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("John loves itself", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::Reflexive),
+            "should contain Reflexive token: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn himself_tokenizes_as_reflexive() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("John sees himself", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::Reflexive),
+            "should contain Reflexive token: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn to_stay_tokenizes_correctly() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("to stay", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::To),
+            "should contain To token: got {:?}",
+            tokens
+        );
+        assert!(
+            tokens.iter().any(|t| matches!(t.kind, TokenType::Verb { .. })),
+            "should contain Verb token for stay: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn possessive_apostrophe_s() {
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new("John's dog", &mut interner);
+        let tokens = lexer.tokenize();
+        assert!(
+            tokens.iter().any(|t| t.kind == TokenType::Possessive),
+            "should contain Possessive token: got {:?}",
+            tokens
+        );
+        assert!(
+            tokens.iter().any(|t| matches!(&t.kind, TokenType::ProperName(_))),
+            "should have John as proper name: got {:?}",
+            tokens
+        );
+    }
+
+    #[test]
+    fn lexer_produces_valid_spans() {
+        let input = "All men are mortal.";
+        let mut interner = Interner::new();
+        let mut lexer = Lexer::new(input, &mut interner);
+        let tokens = lexer.tokenize();
+
+        // "All" at 0..3
+        assert_eq!(tokens[0].span.start, 0);
+        assert_eq!(tokens[0].span.end, 3);
+        assert_eq!(&input[tokens[0].span.start..tokens[0].span.end], "All");
+
+        // "men" at 4..7
+        assert_eq!(tokens[1].span.start, 4);
+        assert_eq!(tokens[1].span.end, 7);
+        assert_eq!(&input[tokens[1].span.start..tokens[1].span.end], "men");
+
+        // "are" at 8..11
+        assert_eq!(tokens[2].span.start, 8);
+        assert_eq!(tokens[2].span.end, 11);
+        assert_eq!(&input[tokens[2].span.start..tokens[2].span.end], "are");
+
+        // "mortal" at 12..18
+        assert_eq!(tokens[3].span.start, 12);
+        assert_eq!(tokens[3].span.end, 18);
+        assert_eq!(&input[tokens[3].span.start..tokens[3].span.end], "mortal");
+
+        // "." at 18..19
+        assert_eq!(tokens[4].span.start, 18);
+        assert_eq!(tokens[4].span.end, 19);
+
+        // EOF at end
+        assert_eq!(tokens[5].span.start, input.len());
+        assert_eq!(tokens[5].kind, TokenType::EOF);
+    }
+}

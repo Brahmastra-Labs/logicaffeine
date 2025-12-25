@@ -1,0 +1,15 @@
+{
+  "id": "A_1.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cleanest musician in Moscow.",
+  "options": [
+    "I is M",
+    "i is M",
+    "I is m",
+    "i is m"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"m\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}

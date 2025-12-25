@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this possibility:",
+  "template": "{ProperName} might {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Possibility uses ◇ (diamond): ◇P means P is true in some possible world."
+}

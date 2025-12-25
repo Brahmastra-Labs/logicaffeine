@@ -1,0 +1,15 @@
+{
+  "id": "L_12.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Flirt only if you laugh",
+  "options": [
+    "$ (F\\\\underline{u} \\\\supset Lu) $",
+    "$ (F\\\\underline{u} \\\\supset L\\\\underline{u} ) $",
+    "$ (OF\\\\underline{y} \\\\supset Lu ) $",
+    "$ (Fu\\\\supset Lu) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+}

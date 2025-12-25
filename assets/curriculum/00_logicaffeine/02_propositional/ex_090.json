@@ -1,0 +1,15 @@
+{
+  "id": "C_6.28",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're polite iff you're nervous",
+  "options": [
+    "$ P \\\\equiv N $",
+    "$ (P \\\\equiv N) $",
+    "$ (P \\\\supset N ) $",
+    "$ (N \\\\supset P) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}

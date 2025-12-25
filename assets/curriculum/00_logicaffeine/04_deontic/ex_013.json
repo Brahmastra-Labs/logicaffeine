@@ -1,0 +1,15 @@
+{
+  "id": "L_12.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sing and despair",
+  "options": [
+    "$ (S\\\\underline{u}\\\\cdot Du ) $",
+    "$ (Su\\\\cdot D\\\\underline{u} ) $",
+    "$ (S\\\\underline{u}\\\\cdot D\\\\underline{u}  ) $",
+    "$ (Su\\\\cdot Du) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "C_6.61",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're clean then you're powerful, or you're lively",
+  "options": [
+    "$ ((C \\\\supset P) \\\\vee L) $",
+    "$ C \\\\supset P \\\\vee L $",
+    "$ (C \\\\supset P) \\\\vee L $",
+    "$ (C \\\\supset (P \\\\vee L)) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

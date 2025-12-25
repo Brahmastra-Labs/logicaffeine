@@ -1,0 +1,15 @@
+{
+  "id": "C_6.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're tall and naive, or else dangerous",
+  "options": [
+    "$ ((T \\\\vee N) \\\\vee D) $",
+    "$ T \\\\cdot N \\\\vee D $",
+    "$ (T \\\\cdot N) \\\\vee D $",
+    "$ (T \\\\cdot (N \\\\vee D)) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

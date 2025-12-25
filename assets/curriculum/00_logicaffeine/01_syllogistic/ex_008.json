@@ -1,0 +1,15 @@
+{
+  "id": "A_1.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All detectives in London hate people who are frantic.",
+  "options": [
+    "all H is D",
+    "all D is H",
+    "all d is H",
+    "D is H"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+}

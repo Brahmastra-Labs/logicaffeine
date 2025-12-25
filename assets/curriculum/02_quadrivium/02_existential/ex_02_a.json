@@ -1,0 +1,11 @@
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this indefinite:",
+  "template": "A {Noun} is {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Indefinite 'a' introduces existential quantification."
+}

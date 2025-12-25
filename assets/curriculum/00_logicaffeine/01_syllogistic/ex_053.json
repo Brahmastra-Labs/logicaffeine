@@ -1,0 +1,15 @@
+{
+  "id": "A_1.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who aren't backpackers aren't rich",
+  "options": [
+    "all B is not R",
+    "B is not R",
+    "no B is R",
+    "some B is not R"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"B\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "C_6.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're smart, then you're bashful and careful",
+  "options": [
+    "$ (S \\\\supset (B \\\\cdot C)) $",
+    "$ ((S \\\\supset B) \\\\cdot C) $",
+    "$ (S \\\\supset B) \\\\cdot C $",
+    "$ S \\\\supset B \\\\cdot C $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

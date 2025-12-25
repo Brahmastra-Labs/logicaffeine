@@ -1,0 +1,15 @@
+{
+  "id": "A_1.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some musicians don't hurt any naive people",
+  "options": [
+    "some M is not H",
+    "some M is H",
+    "M is not H",
+    "some m is not H"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"M\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}

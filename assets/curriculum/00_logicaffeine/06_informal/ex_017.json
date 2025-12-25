@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A warm day is one that is over 86 degrees Fahrenheit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}

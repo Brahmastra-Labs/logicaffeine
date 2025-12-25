@@ -1,0 +1,15 @@
+{
+  "id": "C_6.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "S just if M",
+  "options": [
+    "$ (S \\\\equiv M) $",
+    "$ S \\\\equiv M $",
+    "$ (M \\\\supset S) $",
+    "$ (S \\\\supset M) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}

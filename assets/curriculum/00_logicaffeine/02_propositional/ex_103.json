@@ -1,0 +1,15 @@
+{
+  "id": "C_6.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're strong, then you're naive or persistent",
+  "options": [
+    "$ (S \\\\supset (N \\\\vee P)) $",
+    "$ S \\\\supset N \\\\vee P $",
+    "$ (S \\\\supset N) \\\\vee P $",
+    "$ ((S \\\\supset N) \\\\vee P) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

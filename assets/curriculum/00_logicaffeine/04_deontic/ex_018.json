@@ -1,0 +1,15 @@
+{
+  "id": "L_12.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'Let everyone cheer'is consistent",
+  "options": [
+    "$ \\\\lozenge (x)C\\\\underline{x} $",
+    "$ (x)C\\\\underline{x} $",
+    "$ (\\\\lozenge (x)C\\\\underline{x} ) $",
+    "$ \\\\lozenge (x)Cx $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

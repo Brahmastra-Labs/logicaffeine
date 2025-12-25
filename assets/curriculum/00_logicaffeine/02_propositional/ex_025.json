@@ -1,0 +1,15 @@
+{
+  "id": "C_6.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not C or N",
+  "options": [
+    "$ \\\\sim C \\\\vee N $",
+    "$ \\\\sim(C \\\\vee N) $",
+    "$ (\\\\sim C \\\\vee \\\\sim N) $",
+    "$ (\\\\sim C \\\\vee N) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}

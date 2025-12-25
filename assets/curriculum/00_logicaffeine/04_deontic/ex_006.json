@@ -1,0 +1,15 @@
+{
+  "id": "L_12.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Harm Donna",
+  "options": [
+    "$ H\\\\underline{u} d $",
+    "$ OH\\\\underline{u} d $",
+    "$ Hud $",
+    "$ H\\\\underline{d} $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

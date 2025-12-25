@@ -1,0 +1,15 @@
+{
+  "id": "C_6.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're dull then you're logical, and you're persistent",
+  "options": [
+    "$ (D \\\\supset L) \\\\cdot P $",
+    "$ (D \\\\supset (L \\\\cdot P)) $",
+    "$ ((D \\\\supset L) \\\\cdot P) $",
+    "$ D \\\\supset L \\\\cdot P $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

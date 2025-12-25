@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this universal claim:",
+  "template": "All {Noun:Plural} are {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Universal: ∀x(Restrictor(x) → Scope(x)). Use → not ∧."
+}

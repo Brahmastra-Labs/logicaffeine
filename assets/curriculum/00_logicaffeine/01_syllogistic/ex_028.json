@@ -1,0 +1,15 @@
+{
+  "id": "A_1.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the meanest bandit in Bratislava.",
+  "options": [
+    "i is B",
+    "I is B",
+    "I is b",
+    "i is b"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"The meanest bandit\" stands for a single person, and so translates into a small letter."
+}

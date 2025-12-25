@@ -1,0 +1,15 @@
+{
+  "id": "A_1.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the meanest politician.",
+  "options": [
+    "U is not P",
+    "U is not p",
+    "u is not p",
+    "u is not P"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The meanest politician\" stands for a single person, and so translates into a small letter."
+}

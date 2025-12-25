@@ -1,0 +1,13 @@
+name = "logicaffeine-license-validator"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGIN = "https://logicaffeine.com"
+
+[[routes]]
+pattern = "api.logicaffeine.com/*"
+zone_name = "logicaffeine.com"
+
+# Secret: STRIPE_SECRET_KEY (set via `wrangler secret put STRIPE_SECRET_KEY`)

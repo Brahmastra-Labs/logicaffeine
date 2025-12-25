@@ -1,0 +1,15 @@
+{
+  "id": "C_6.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "T only if G",
+  "options": [
+    "$ (G \\\\supset T) $",
+    "$ T \\\\supset G $",
+    "$ (T \\\\equiv G) $",
+    "$ (T \\\\supset G) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

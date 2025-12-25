@@ -1,0 +1,15 @@
+{
+  "id": "A_1.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the slowest dentist.",
+  "options": [
+    "U is not d",
+    "u is not d",
+    "u is not D",
+    "U is not D"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}

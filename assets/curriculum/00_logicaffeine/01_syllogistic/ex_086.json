@@ -1,0 +1,15 @@
+{
+  "id": "A_1.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some grocers aren't mediocre",
+  "options": [
+    "all G is M",
+    "not some G is M",
+    "some G is M",
+    "G is M"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+}

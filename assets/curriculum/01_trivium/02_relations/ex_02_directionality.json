@@ -1,0 +1,14 @@
+{
+  "id": "ex_02",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "If 'John loves Mary' is Loves(John, Mary), what is 'Mary loves John'?",
+  "options": [
+    "Loves(Mary, John)",
+    "Loves(John, Mary)",
+    "John(Loves, Mary)",
+    "Loves(Mary) ∧ Loves(John)"
+  ],
+  "correct": 0,
+  "hint": "Argument order matters in relations. The subject comes first."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "ambiguity",
+  "difficulty": 4,
+  "prompt": "This sentence has two readings. Identify both:",
+  "template": "Every {Noun} {Verb} a {Noun}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "Consider: does 'a' take wide scope (same object for all) or narrow scope (different object for each)?"
+}

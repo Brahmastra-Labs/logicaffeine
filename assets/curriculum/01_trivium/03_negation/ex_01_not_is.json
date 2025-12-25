@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negation:",
+  "template": "{ProperName} is not {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Negation wraps the entire predication: ¬P(x)."
+}

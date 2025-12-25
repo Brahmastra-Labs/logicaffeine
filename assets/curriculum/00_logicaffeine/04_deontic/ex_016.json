@@ -1,0 +1,15 @@
+{
+  "id": "L_12.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that someone sing",
+  "options": [
+    "$ O(\\\\exists x)S\\\\underline{x} $",
+    "$ (\\\\exists x)Sx $",
+    "$ (\\\\exists x)S\\\\underline{x} $",
+    "$ (\\\\exists x)Sx $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

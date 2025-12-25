@@ -1,0 +1,45 @@
+[package]
+name = "logos"
+version = "0.1.0"
+edition = "2021"
+authors = ["Logicaffeine Team"]
+license = "BUSL-1.1"
+description = "English-to-Logic Transpiler targeting Logicaffeine notation"
+build = "build.rs"
+
+[workspace]
+exclude = ["logos_core"]
+
+[dependencies]
+bumpalo = "3.14"
+dioxus = { version = "0.6", features = ["web", "router"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Document", "Element", "HtmlElement", "Window", "History",
+    "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
+    "Storage", "Navigator", "Clipboard", "UrlSearchParams"
+] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+getrandom = { version = "0.2", features = ["js"] }
+rand = "0.8"
+include_dir = "0.7"
+gloo-timers = { version = "0.3", features = ["futures"] }
+gloo-net = "0.6"
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"

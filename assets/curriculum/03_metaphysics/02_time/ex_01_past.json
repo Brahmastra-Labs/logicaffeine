@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this past event:",
+  "template": "{ProperName} {Verb:Past}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Past tense uses P operator: P(V(x)) means V(x) was true at some past time."
+}

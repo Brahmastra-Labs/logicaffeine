@@ -1,0 +1,15 @@
+{
+  "id": "A_1.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cleanest pharmacist in Dallas",
+  "options": [
+    "i is p",
+    "i is P",
+    "I is p",
+    "I is P"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"p\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}

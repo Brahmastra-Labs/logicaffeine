@@ -1,0 +1,15 @@
+{
+  "id": "C_6.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're rough if you're scholarly",
+  "options": [
+    "$ (R \\\\equiv S) $",
+    "$ (S \\\\supset R) $",
+    "$ R \\\\supset S $",
+    "$ (R \\\\supset S) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

@@ -1,0 +1,15 @@
+{
+  "id": "L_12.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Steal only if you pray",
+  "options": [
+    "$ (OS\\\\underline{u}\\\\supset Pu ) $",
+    "$ (Su\\\\supset Pu) $",
+    "$ (S\\\\underline{u}\\\\supset P\\\\underline{u}  ) $",
+    "$ (S\\\\underline{u}\\\\supset Pu ) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

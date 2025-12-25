@@ -1,0 +1,15 @@
+{
+  "id": "A_1.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "The dancer isn't the most cheerful person.",
+  "options": [
+    "D is not C",
+    "D is not c",
+    "d is not C",
+    "d is not c"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"d\" refers to a specific individual, so use lowercase. The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}

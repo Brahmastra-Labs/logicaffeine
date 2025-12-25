@@ -1,0 +1,15 @@
+{
+  "id": "L_12.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I allowed someone to cheat",
+  "options": [
+    "$ (\\\\exists x)(Ix\\\\cdot C\\\\underline{x} ) $",
+    "$ (\\\\exists x)(Ix\\\\cdot Cx) $",
+    "$ (\\\\exists x)(Ix\\\\cdot C\\\\underline{x} ) $",
+    "$ (\\\\exists x)(I\\\\underline{x} \\\\cdot Cx) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

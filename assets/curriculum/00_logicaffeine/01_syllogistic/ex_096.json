@@ -1,0 +1,15 @@
+{
+  "id": "A_1.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm a short banker in Paris",
+  "options": [
+    "i is B",
+    "I is b",
+    "i is b",
+    "I is B"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"B\" refers to a class/property, so use uppercase."
+}

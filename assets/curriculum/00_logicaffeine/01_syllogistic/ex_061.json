@@ -1,0 +1,15 @@
+{
+  "id": "A_1.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are pharmacists aren't cheap",
+  "options": [
+    "some P is not C",
+    "all P is not C",
+    "P is not C",
+    "no P is C"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}

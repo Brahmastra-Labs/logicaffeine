@@ -1,0 +1,15 @@
+{
+  "id": "J_4.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're mean' is consistent with 'You're bitter'",
+  "options": [
+    "$ (M \\\\cdot B) $",
+    "$ (\\\\lozenge M \\\\cdot B) $",
+    "$ \\\\lozenge (M \\\\cdot B) $",
+    "$ (\\\\lozenge M \\\\cdot B) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

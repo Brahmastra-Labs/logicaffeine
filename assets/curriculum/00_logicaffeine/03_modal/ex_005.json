@@ -1,0 +1,15 @@
+{
+  "id": "J_4.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "D is true",
+  "options": [
+    "$ \\\\square D $",
+    "$ D $",
+    "$ \\\\square (D) $",
+    "$ (\\\\square (D)) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

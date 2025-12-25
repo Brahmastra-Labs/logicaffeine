@@ -1,0 +1,15 @@
+{
+  "id": "A_1.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some Germans don't blame any miserable people.",
+  "options": [
+    "some G is B",
+    "some g is not B",
+    "some G is not B",
+    "G is not B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"G\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}

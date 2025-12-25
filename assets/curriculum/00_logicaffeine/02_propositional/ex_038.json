@@ -1,0 +1,15 @@
+{
+  "id": "C_6.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both bright and either forgetful or confident",
+  "options": [
+    "$ ((B \\\\cdot F) \\\\vee C) $",
+    "$ (B \\\\cdot F) \\\\vee C $",
+    "$ B \\\\cdot F \\\\vee C $",
+    "$ (B \\\\cdot (F \\\\vee C)) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

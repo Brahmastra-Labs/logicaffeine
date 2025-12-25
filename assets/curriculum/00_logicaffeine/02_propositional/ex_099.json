@@ -1,0 +1,15 @@
+{
+  "id": "C_6.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "C is necessary and sufficient for R",
+  "options": [
+    "$ C \\\\equiv R $",
+    "$ (R \\\\supset C) $",
+    "$ (C \\\\supset R) $",
+    "$ (C \\\\equiv R) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}

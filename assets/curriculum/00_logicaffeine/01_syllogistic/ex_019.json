@@ -1,0 +1,15 @@
+{
+  "id": "A_1.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the strongest banker.",
+  "options": [
+    "U is not b",
+    "u is not b",
+    "U is not B",
+    "u is not B"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"The strongest banker\" stands for a single person, and so translates into a small letter."
+}

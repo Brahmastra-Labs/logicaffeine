@@ -1,0 +1,15 @@
+{
+  "id": "C_6.51",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't tough then you're greedy",
+  "options": [
+    "$ (\\\\sim T \\\\supset G) $",
+    "$ \\\\sim T \\\\supset G $",
+    "$ (\\\\sim T \\\\supset \\\\sim G) $",
+    "$ \\\\sim(T \\\\supset G) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}

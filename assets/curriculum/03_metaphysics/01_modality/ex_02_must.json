@@ -1,0 +1,11 @@
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this necessity:",
+  "template": "{ProperName} must {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Necessity uses □ (box): □P means P is true in all possible worlds."
+}

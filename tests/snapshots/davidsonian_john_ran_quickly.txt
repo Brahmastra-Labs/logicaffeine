@@ -1,0 +1,1 @@
+∃e(Run(e) ∧ Agent(e, J) ∧ Quickly(e) ∧ Past(e))

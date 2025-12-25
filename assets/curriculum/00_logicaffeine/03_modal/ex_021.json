@@ -1,0 +1,15 @@
+{
+  "id": "J_4.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If Einstein is a foreigner, then Einstein must be clean",
+  "options": [
+    "Ambiguous between 2 & 4",
+    "$ (F \\\\supset \\\\square C) $",
+    "$ \\\\square F \\\\supset C $",
+    "$ \\\\square (F \\\\supset C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

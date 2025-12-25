@@ -1,0 +1,15 @@
+{
+  "id": "J_4.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "F is self-contradictory",
+  "options": [
+    "$ \\\\sim \\\\lozenge F $",
+    "$ \\\\lozenge \\\\sim F $",
+    "$ \\\\sim \\\\lozenge (F) $",
+    "$ \\\\sim (\\\\lozenge F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

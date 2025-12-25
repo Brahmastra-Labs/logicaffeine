@@ -1,0 +1,15 @@
+{
+  "id": "C_6.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "D if C",
+  "options": [
+    "$ (D \\\\supset C) $",
+    "$ D \\\\supset C $",
+    "$ (D \\\\equiv C) $",
+    "$ (C \\\\supset D) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

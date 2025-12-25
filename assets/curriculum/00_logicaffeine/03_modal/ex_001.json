@@ -1,0 +1,15 @@
+{
+  "id": "J_4.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't possible that you're careful",
+  "options": [
+    "$ \\\\sim \\\\lozenge (C) $",
+    "$ \\\\sim (\\\\lozenge C) $",
+    "$ \\\\sim \\\\lozenge C $",
+    "$ \\\\lozenge \\\\sim C $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

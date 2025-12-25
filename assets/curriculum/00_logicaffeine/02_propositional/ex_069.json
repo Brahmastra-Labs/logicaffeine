@@ -1,0 +1,15 @@
+{
+  "id": "C_6.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being wild is sufficient for you to be childish",
+  "options": [
+    "$ (W \\\\supset C) $",
+    "$ W \\\\supset C $",
+    "$ (W \\\\equiv C) $",
+    "$ (\\\\sim W \\\\supset \\\\, \\\\sim C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

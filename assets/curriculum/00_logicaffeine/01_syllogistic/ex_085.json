@@ -1,0 +1,15 @@
+{
+  "id": "A_1.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is beautiful isn't frantic",
+  "options": [
+    "B is not F",
+    "all F is not B",
+    "all B is not F",
+    "no B is F"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"B\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}

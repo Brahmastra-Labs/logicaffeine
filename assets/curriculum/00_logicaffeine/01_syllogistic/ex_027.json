@@ -1,0 +1,15 @@
+{
+  "id": "A_1.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some notorious fugitives are dishonest.",
+  "options": [
+    "F is D",
+    "F is d",
+    "some F is D",
+    "some F is d"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"F\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}

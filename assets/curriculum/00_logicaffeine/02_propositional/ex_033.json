@@ -1,0 +1,15 @@
+{
+  "id": "C_6.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're cheap and frivolous, or else generous",
+  "options": [
+    "$ ((C \\\\cdot F) \\\\vee G) $",
+    "$ C \\\\cdot F \\\\vee G $",
+    "$ (C \\\\cdot (F \\\\vee G)) $",
+    "$ (C \\\\cdot F) \\\\vee G $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

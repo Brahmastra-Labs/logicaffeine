@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LOGICAFFEINE - Debug Your Thoughts</title>
+
+    <!-- Primary Meta Tags -->
+    <meta name="title" content="LOGICAFFEINE - Debug Your Thoughts">
+    <meta name="description" content="Turn everyday English into rigorous First-Order Logic. Verify arguments, surface hidden assumptions, and build rule systems that actually hold up.">
+    <meta name="keywords" content="logic, first-order logic, FOL, formal logic, reasoning, English to logic, transpiler, formal methods">
+    <meta name="author" content="LOGICAFFEINE">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://logicaffeine.com/">
+    <meta property="og:title" content="LOGICAFFEINE - Debug Your Thoughts">
+    <meta property="og:description" content="Turn everyday English into rigorous First-Order Logic. Verify arguments, surface hidden assumptions, and build rule systems.">
+    <meta property="og:image" content="https://logicaffeine.com/og-image.png">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://logicaffeine.com/">
+    <meta name="twitter:title" content="LOGICAFFEINE - Debug Your Thoughts">
+    <meta name="twitter:description" content="Turn everyday English into rigorous First-Order Logic. Verify arguments, surface hidden assumptions, and build rule systems.">
+    <meta name="twitter:image" content="https://logicaffeine.com/og-image.png">
+
+    <!-- Canonical & Favicon -->
+    <link rel="canonical" href="https://logicaffeine.com/">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+
+    <!-- KaTeX for LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script>
+        window.renderKaTeX = function(elementId, latex, displayMode) {
+            const el = document.getElementById(elementId);
+            if (el && window.katex) {
+                try {
+                    katex.render(latex, el, {
+                        displayMode: displayMode,
+                        throwOnError: false
+                    });
+                } catch (e) {
+                    el.textContent = latex;
+                }
+            }
+        };
+
+        // Audio feedback system
+        const audioCache = {};
+        window.playSound = function(effect) {
+            const sounds = {
+                'xp_gain': 'assets/sounds/xp.mp3',
+                'critical': 'assets/sounds/crit.mp3',
+                'combo_up': 'assets/sounds/combo.mp3',
+                'combo_break': 'assets/sounds/break.mp3',
+                'achievement': 'assets/sounds/achievement.mp3',
+                'level_up': 'assets/sounds/levelup.mp3',
+                'streak_saved': 'assets/sounds/shield.mp3',
+                'streak_lost': 'assets/sounds/lost.mp3',
+                'correct': 'assets/sounds/correct.mp3',
+                'incorrect': 'assets/sounds/incorrect.mp3'
+            };
+            const path = sounds[effect];
+            if (!path) return;
+            try {
+                if (!audioCache[effect]) {
+                    audioCache[effect] = new Audio(path);
+                    audioCache[effect].volume = 0.5;
+                }
+                audioCache[effect].currentTime = 0;
+                audioCache[effect].play().catch(() => {});
+            } catch (e) {}
+        };
+    </script>
+
+    <!-- CodeMirror 6 -->
+    <script type="module">
+        import {EditorView, basicSetup} from 'https://esm.sh/@codemirror/basic-setup@0.20.0';
+        import {EditorState} from 'https://esm.sh/@codemirror/state@6.2.0';
+
+        // Expose to window for Rust/WASM access
+        window.CodeMirror = {
+            EditorView,
+            EditorState,
+            basicSetup
+        };
+
+        // Custom theme matching LOGOS glassmorphism
+        window.logosTheme = EditorView.theme({
+            "&": {
+                backgroundColor: "rgba(255, 255, 255, 0.08)",
+                color: "#e8e8e8",
+                fontSize: "16px",
+                fontFamily: "'SF Mono', 'Fira Code', 'Consolas', monospace",
+                borderRadius: "12px",
+                border: "1px solid rgba(255, 255, 255, 0.2)"
+            },
+            ".cm-content": {
+                caretColor: "#00d4ff",
+                padding: "16px"
+            },
+            ".cm-cursor": {
+                borderLeftColor: "#00d4ff"
+            },
+            "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
+                backgroundColor: "rgba(102, 126, 234, 0.3)"
+            },
+            ".cm-activeLine": {
+                backgroundColor: "rgba(255, 255, 255, 0.05)"
+            },
+            ".cm-gutters": {
+                backgroundColor: "transparent",
+                color: "#666",
+                border: "none"
+            },
+            ".cm-lineNumbers .cm-gutterElement": {
+                padding: "0 12px"
+            }
+        }, {dark: true});
+
+        // Signal that CodeMirror is ready
+        window.dispatchEvent(new Event('codemirror-ready'));
+    </script>
+
+    <style>
+        /* Syntax highlighting classes for tokens */
+        .tok-quantifier { color: #c678dd; font-weight: bold; }
+        .tok-noun { color: #61afef; }
+        .tok-verb { color: #98c379; }
+        .tok-adjective { color: #e5c07b; }
+        .tok-connective { color: #c678dd; }
+        .tok-determiner { color: #56b6c2; }
+        .tok-preposition { color: #abb2bf; }
+        .tok-pronoun { color: #61afef; font-style: italic; }
+        .tok-modal { color: #e06c75; }
+        .tok-punctuation { color: #abb2bf; }
+    </style>
+</head>
+<body>
+    <div id="main"></div>
+</body>
+</html>

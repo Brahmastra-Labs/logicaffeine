@@ -1,0 +1,15 @@
+{
+  "id": "C_6.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "B is sufficient for G",
+  "options": [
+    "$ B \\\\supset G $",
+    "$ (B \\\\equiv G) $",
+    "$ (B \\\\supset G) $",
+    "$ (\\\\sim B \\\\supset \\\\, \\\\sim G) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

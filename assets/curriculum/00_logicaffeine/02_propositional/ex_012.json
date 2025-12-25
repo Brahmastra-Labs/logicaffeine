@@ -1,0 +1,15 @@
+{
+  "id": "C_6.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either both W and C or D",
+  "options": [
+    "$ ((W \\\\cdot C) \\\\vee D) $",
+    "$ (W \\\\cdot (C \\\\vee D)) $",
+    "$ (W \\\\cdot C) \\\\vee D $",
+    "$ W \\\\cdot C \\\\cdot D $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

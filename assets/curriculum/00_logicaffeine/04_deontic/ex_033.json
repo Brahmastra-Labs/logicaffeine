@@ -1,0 +1,15 @@
+{
+  "id": "L_12.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let someone sleep",
+  "options": [
+    "$ (\\\\exists x)Sx $",
+    "$ O(\\\\exists x)S\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Sx $",
+    "$ (\\\\exists x)S\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

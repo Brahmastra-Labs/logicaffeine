@@ -1,0 +1,15 @@
+{
+  "id": "A_1.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the boldest guitarist in New York.",
+  "options": [
+    "I is G",
+    "i is g",
+    "i is G",
+    "I is g"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"g\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}

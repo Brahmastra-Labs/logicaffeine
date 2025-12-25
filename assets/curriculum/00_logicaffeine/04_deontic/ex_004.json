@@ -1,0 +1,15 @@
+{
+  "id": "L_12.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't distrub Tom",
+  "options": [
+    "$ \\\\sim D\\\\underline{t} $",
+    "$ \\\\sim Dut $",
+    "$ \\\\sim D\\\\underline{u} t $",
+    "$ O\\\\sim D\\\\underline{u} t $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negated action:",
+  "template": "{ProperName} does not {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Negation of an action: ¬V(subject)."
+}

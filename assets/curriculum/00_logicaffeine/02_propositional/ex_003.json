@@ -1,0 +1,15 @@
+{
+  "id": "C_6.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't either smart or filthy",
+  "options": [
+    "$ \\\\sim(S \\\\vee F) $",
+    "$ \\\\sim S \\\\vee F $",
+    "$ (\\\\sim S \\\\vee \\\\sim F) $",
+    "$ (\\\\sim S \\\\vee F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}

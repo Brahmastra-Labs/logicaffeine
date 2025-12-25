@@ -1,0 +1,15 @@
+{
+  "id": "J_4.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If D is true, then S couldn't be true",
+  "options": [
+    "$ \\\\square (D \\\\supset \\\\sim S) $",
+    "$ \\\\square D \\\\supset \\\\sim S $",
+    "Ambiguous between 1 & 4",
+    "$ (D \\\\supset \\\\square \\\\sim S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

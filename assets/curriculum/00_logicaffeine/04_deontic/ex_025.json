@@ -1,0 +1,15 @@
+{
+  "id": "L_12.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that no one steal",
+  "options": [
+    "$ (\\\\exists x)Sx $",
+    "$ O\\\\sim (\\\\exists x)S\\\\underline{x} $",
+    "$ \\\\sim (\\\\exists x)Sx $",
+    "$ \\\\sim (\\\\exists x)S\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

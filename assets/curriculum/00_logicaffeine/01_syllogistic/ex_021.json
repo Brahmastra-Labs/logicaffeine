@@ -1,0 +1,15 @@
+{
+  "id": "A_1.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cruelest bachelor in Santa Monica.",
+  "options": [
+    "I is b",
+    "i is B",
+    "i is b",
+    "I is B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The cruelest bachelor\" stands for a single person, and so translates into a small letter."
+}

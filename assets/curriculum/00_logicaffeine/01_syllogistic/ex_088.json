@@ -1,0 +1,15 @@
+{
+  "id": "A_1.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm a wild clown in Berlin",
+  "options": [
+    "i is c",
+    "i is C",
+    "I is C",
+    "I is c"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"C\" refers to a class/property, so use uppercase."
+}

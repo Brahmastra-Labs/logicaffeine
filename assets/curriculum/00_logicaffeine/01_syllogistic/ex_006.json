@@ -1,0 +1,15 @@
+{
+  "id": "A_1.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't a slow druggist.",
+  "options": [
+    "U is not d",
+    "u is not D",
+    "U is not D",
+    "u is not d"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"D\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}

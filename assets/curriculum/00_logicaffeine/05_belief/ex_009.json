@@ -1,0 +1,15 @@
+{
+  "id": "N_14.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want Carol to harm you",
+  "options": [
+    "$ \\\\underline{u}:Hcu $",
+    "$ u:Hcu $",
+    "$ u:H\\\\underline{c} u $",
+    "$ \\\\underline{u}:H\\\\underline{c} u $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}

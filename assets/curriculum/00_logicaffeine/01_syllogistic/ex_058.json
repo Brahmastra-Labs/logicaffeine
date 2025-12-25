@@ -1,0 +1,15 @@
+{
+  "id": "A_1.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are pilots are rich",
+  "options": [
+    "all P is R",
+    "R is P",
+    "some P is R",
+    "P is R"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}

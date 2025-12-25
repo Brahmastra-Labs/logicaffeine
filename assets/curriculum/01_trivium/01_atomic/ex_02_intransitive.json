@@ -1,0 +1,11 @@
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 1,
+  "prompt": "Translate this action:",
+  "template": "{ProperName} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "An intransitive verb takes only one argument: the subject."
+}

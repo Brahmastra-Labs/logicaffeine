@@ -1,0 +1,11 @@
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this future event:",
+  "template": "{ProperName} will {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Future tense uses F operator: F(V(x)) means V(x) will be true at some future time."
+}

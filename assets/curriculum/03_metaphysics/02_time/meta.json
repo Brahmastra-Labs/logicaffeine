@@ -1,0 +1,6 @@
+{
+  "id": "time",
+  "title": "Temporal Logic",
+  "pedagogy": "Past (P) and Future (F) operators locate propositions in time, enabling reasoning about change.",
+  "order": 2
+}

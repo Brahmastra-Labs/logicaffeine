@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Philosophy is what you study in philosophy classes.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "This violates 3."
+}

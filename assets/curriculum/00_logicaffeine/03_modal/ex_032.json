@@ -1,0 +1,15 @@
+{
+  "id": "J_4.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's possible that someone is D",
+  "options": [
+    "$ (\\\\exists x)(\\\\lozenge Dx) $",
+    "$ \\\\lozenge (\\\\exists x)Dx $",
+    "$ (\\\\exists x)\\\\lozenge Dx $",
+    "$ \\\\lozenge ((\\\\exists x)Dx) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

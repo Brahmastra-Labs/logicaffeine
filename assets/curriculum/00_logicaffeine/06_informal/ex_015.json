@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Architecture is frozen music.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "This violates 4."
+}

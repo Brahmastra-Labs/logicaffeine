@@ -1,0 +1,15 @@
+{
+  "id": "A_1.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't a short convict.",
+  "options": [
+    "u is not c",
+    "U is not c",
+    "u is not C",
+    "U is not C"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "C_6.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both not sarcastic and not bashful",
+  "options": [
+    "$ (\\\\sim S \\\\cdot B) $",
+    "$ (\\\\sim S \\\\cdot \\\\sim B) $",
+    "$ \\\\sim(S \\\\cdot \\\\sim B) $",
+    "$ \\\\sim S \\\\cdot \\\\sim B $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}

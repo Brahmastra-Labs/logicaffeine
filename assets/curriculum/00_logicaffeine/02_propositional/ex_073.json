@@ -1,0 +1,15 @@
+{
+  "id": "C_6.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being slow is sufficient for you to be frantic",
+  "options": [
+    "$ S \\\\supset F $",
+    "$ (S \\\\equiv F) $",
+    "$ (S \\\\supset F) $",
+    "$ (\\\\sim S \\\\supset \\\\, \\\\sim F) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

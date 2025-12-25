@@ -1,0 +1,15 @@
+{
+  "id": "C_6.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're bright if you're mediocre",
+  "options": [
+    "$ (M \\\\supset B) $",
+    "$ (B \\\\equiv M) $",
+    "$ (B \\\\supset M) $",
+    "$ B \\\\supset M $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

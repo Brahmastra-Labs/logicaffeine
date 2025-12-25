@@ -1,0 +1,6 @@
+{
+  "id": "existential",
+  "title": "Existential Quantification",
+  "pedagogy": "The existential quantifier ∃ asserts that SOME member exists. Existential statements use ∧ to conjoin restrictor and scope.",
+  "order": 2
+}

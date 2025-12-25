@@ -1,0 +1,15 @@
+{
+  "id": "A_1.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some bandits aren't disgusting",
+  "options": [
+    "all B is D",
+    "some B is D",
+    "not some B is D",
+    "B is D"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}

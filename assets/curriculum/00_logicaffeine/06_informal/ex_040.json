@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Chair\" means \"what you sit on.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "C_6.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Unless you're frightened, you're rough",
+  "options": [
+    "$ (F \\\\supset \\\\, \\\\sim R) $",
+    "$ (F \\\\equiv R) $",
+    "$ (F \\\\vee R) $",
+    "$ F \\\\equiv R $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}

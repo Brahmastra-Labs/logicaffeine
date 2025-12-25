@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A bachelor is an unmarried man who weighs over 50 pounds.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 6,
+  "hint": null,
+  "explanation": "This violates 7."
+}

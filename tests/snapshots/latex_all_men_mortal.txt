@@ -1,0 +1,1 @@
+\forall x((M(x) \supset M2(x)))

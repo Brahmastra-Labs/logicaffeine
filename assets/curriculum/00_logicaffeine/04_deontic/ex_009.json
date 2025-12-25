@@ -1,0 +1,15 @@
+{
+  "id": "L_12.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that no one cheat",
+  "options": [
+    "$ \\\\sim (exists x)C\\\\underline{x} $",
+    "$ O\\\\sim (exists x)C\\\\underline{x} $",
+    "$ (\\\\exists\\\\underline{x}) Cx $",
+    "$ \\\\sim (exists x)Cx $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

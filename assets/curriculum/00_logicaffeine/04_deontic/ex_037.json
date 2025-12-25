@@ -1,0 +1,15 @@
+{
+  "id": "L_12.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's required that you cry",
+  "options": [
+    "$ RC\\\\underline{u} $",
+    "$ OCu $",
+    "$ RCu $",
+    "$ OC\\\\underline{u} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

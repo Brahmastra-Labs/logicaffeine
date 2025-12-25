@@ -1,0 +1,15 @@
+{
+  "id": "C_6.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If P, then C or D",
+  "options": [
+    "$ (P \\\\supset (C \\\\vee D)) $",
+    "$ ((P \\\\supset C) \\\\vee D) $",
+    "$ P \\\\supset C \\\\vee D $",
+    "$ (P \\\\supset C) \\\\vee D $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

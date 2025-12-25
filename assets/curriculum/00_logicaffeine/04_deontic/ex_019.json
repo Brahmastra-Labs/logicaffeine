@@ -1,0 +1,15 @@
+{
+  "id": "L_12.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let no one boast",
+  "options": [
+    "$ O\\\\sim (\\\\exists x)B\\\\underline{x} $",
+    "$ (\\\\exists x)Bx $",
+    "$ \\\\sim (\\\\exists x)Bx $",
+    "$ \\\\sim (\\\\exists x)B\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

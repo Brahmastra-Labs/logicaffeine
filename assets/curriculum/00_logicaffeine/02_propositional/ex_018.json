@@ -1,0 +1,15 @@
+{
+  "id": "C_6.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If S, then H and L",
+  "options": [
+    "$ (S \\\\supset (H \\\\cdot L)) $",
+    "$ S \\\\supset H \\\\cdot L $",
+    "$ ((S \\\\supset H) \\\\cdot L) $",
+    "$ (S \\\\supset H) \\\\cdot L $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

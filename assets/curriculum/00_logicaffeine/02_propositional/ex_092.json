@@ -1,0 +1,15 @@
+{
+  "id": "C_6.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're cruel if you're terrified",
+  "options": [
+    "$ (T \\\\supset C) $",
+    "$ (C \\\\equiv T) $",
+    "$ C \\\\supset T $",
+    "$ (C \\\\supset T) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}

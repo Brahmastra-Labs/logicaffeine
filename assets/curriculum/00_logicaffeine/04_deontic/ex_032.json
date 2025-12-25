@@ -1,0 +1,15 @@
+{
+  "id": "L_12.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're crying but don't cry' is consistent",
+  "options": [
+    "$ (\\\\lozenge Cu\\\\cdot \\\\sim C\\\\underline{u} ) $",
+    "$ \\\\lozenge (Cu\\\\cdot \\\\sim C\\\\underline{u} ) $",
+    "$ (Cu\\\\cdot \\\\sim C\\\\underline{u} ) $",
+    "$ \\\\lozenge (Cu\\\\cdot \\\\sim Cu) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "L_12.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Invest only if you look",
+  "options": [
+    "$ (Iu\\\\supset Lu) $",
+    "$ (Ol\\\\underline{u}\\\\supset Lu) $",
+    "$ (I\\\\underline{u}\\\\supset Lu ) $",
+    "$ (I\\\\underline{u} \\\\supset L\\\\underline{u} ) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

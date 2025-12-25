@@ -1,0 +1,15 @@
+{
+  "id": "L_12.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Defeat Tom",
+  "options": [
+    "$ D\\\\underline{t} $",
+    "$ OD\\\\underline{u}t $",
+    "$ D\\\\underline{u} t $",
+    "$ Dut $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

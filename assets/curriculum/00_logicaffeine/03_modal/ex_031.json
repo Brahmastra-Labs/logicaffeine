@@ -1,0 +1,15 @@
+{
+  "id": "J_4.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's necessary that someone is B",
+  "options": [
+    "$ \\\\square ((\\\\exists x)Bx) $",
+    "$ (\\\\exists x)(\\\\square Bx) $",
+    "$ \\\\square (\\\\exists x)Bx $",
+    "$ (\\\\exists x)\\\\square Bx $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

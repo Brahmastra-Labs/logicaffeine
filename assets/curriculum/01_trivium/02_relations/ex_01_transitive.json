@@ -1,0 +1,11 @@
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this relationship:",
+  "template": "{ProperName} {Verb} {ProperName}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "A transitive verb creates a two-place relation: R(subject, object)."
+}

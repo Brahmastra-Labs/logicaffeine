@@ -1,0 +1,15 @@
+{
+  "id": "J_4.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not being miserable is a necessary property of Sally",
+  "options": [
+    "$ \\\\square \\\\sim Ms $",
+    "$ (\\\\square \\\\sim Ms) $",
+    "$ \\\\square (\\\\sim Ms) $",
+    "$ \\\\sim M \\\\square s $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

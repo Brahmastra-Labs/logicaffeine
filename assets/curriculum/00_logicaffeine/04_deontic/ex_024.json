@@ -1,0 +1,15 @@
+{
+  "id": "L_12.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sleep, Donna",
+  "options": [
+    "$ S\\\\underline{d} $",
+    "$ S\\\\underline{u} d $",
+    "$ OS\\\\underline{d} $",
+    "$ Sd $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

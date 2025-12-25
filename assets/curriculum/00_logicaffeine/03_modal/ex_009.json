@@ -1,0 +1,15 @@
+{
+  "id": "J_4.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "P doesn't entail S",
+  "options": [
+    "Ambiguous between 2 & 4",
+    "$ (P \\\\supset \\\\square \\\\sim S) $",
+    "$ \\\\sim \\\\square (P \\\\supset S) $",
+    "$ \\\\square (P \\\\supset \\\\sim S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}

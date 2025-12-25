@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Murder\" means \"killing of a human being.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (consider accidental killing)."
+}

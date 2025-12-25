@@ -1,0 +1,15 @@
+{
+  "id": "A_1.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some boring druggists are sociable.",
+  "options": [
+    "D is S",
+    "some D is s",
+    "some D is S",
+    "D is s"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}

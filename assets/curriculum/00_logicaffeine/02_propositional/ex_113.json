@@ -1,0 +1,15 @@
+{
+  "id": "C_6.51",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're rich just if you're hideous",
+  "options": [
+    "$ R \\\\equiv H $",
+    "$ (R \\\\equiv H) $",
+    "$ (R \\\\supset H) $",
+    "$ (H \\\\supset R) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}

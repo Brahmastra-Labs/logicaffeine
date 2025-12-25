@@ -1,0 +1,15 @@
+{
+  "id": "L_12.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that everyone boast",
+  "options": [
+    "$ O(x)B\\\\underline{x} $",
+    "$ (x)Bx $",
+    "$ (\\\\underline{x} )Bx $",
+    "$ (x)B\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "A_1.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No prosperous cannibal is gentle.",
+  "options": [
+    "c is not G",
+    "no C is G",
+    "C is not G",
+    "all C is not G"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
+}

@@ -1,0 +1,15 @@
+{
+  "id": "A_1.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm a bright reporter in Lisbon",
+  "options": [
+    "I is r",
+    "i is r",
+    "I is R",
+    "i is R"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"R\" refers to a class/property, so use uppercase."
+}

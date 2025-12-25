@@ -1,0 +1,15 @@
+{
+  "id": "A_1.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some professors are rich",
+  "options": [
+    "P is not R",
+    "some P is not R",
+    "no P is R",
+    "all P is R"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}

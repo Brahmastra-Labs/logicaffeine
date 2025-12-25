@@ -1,0 +1,15 @@
+{
+  "id": "L_12.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't appoint Donna",
+  "options": [
+    "$ \\\\sim A\\\\underline{d} $",
+    "$ \\\\sim Aud $",
+    "$ \\\\sim A\\\\underline{u} d $",
+    "$ O\\\\sim A\\\\underline{u} d $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}

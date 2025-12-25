@@ -1,0 +1,11 @@
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this universal statement:",
+  "template": "Every {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Every N V = ∀x(N(x) → V(x))."
+}

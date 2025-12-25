@@ -1,0 +1,15 @@
+{
+  "id": "N_14.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It ins't evident to you that you're charitable",
+  "options": [
+    "$ \\\\sim Ou:Cu $",
+    "$ \\\\sim Ou:C\\\\underline{u} $",
+    "$ \\\\sim O\\\\underline{u} :Cu $",
+    "$ \\\\sim OCu $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}

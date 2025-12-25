@@ -1,0 +1,18 @@
+{
+  "id": "Q_3.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A game is an amusing competition between various players.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+}

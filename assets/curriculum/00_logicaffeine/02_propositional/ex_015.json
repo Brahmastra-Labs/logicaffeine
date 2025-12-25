@@ -1,0 +1,15 @@
+{
+  "id": "C_6.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're short then you're greedy, or you're hideous",
+  "options": [
+    "$ S \\\\supset G \\\\vee H $",
+    "$ (S \\\\supset G) \\\\vee H $",
+    "$ (S \\\\supset (G \\\\vee H)) $",
+    "$ ((S \\\\supset G) \\\\vee H) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
