@@ -63,10 +63,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "use user_types::*;\n").unwrap();
     }
 
-    // Phase 32: Emit function definitions before main
+    // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, return_type } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, *return_type, interner));
+        if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner));
         }
     }
 
@@ -83,58 +83,157 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     output
 }
 
-/// Phase 32: Generate a function definition.
+/// Phase 32/38: Generate a function definition.
+/// Phase 38: Updated for native functions and TypeExpr types.
 fn codegen_function_def(
     name: Symbol,
-    params: &[(Symbol, Symbol)],
+    params: &[(Symbol, &TypeExpr)],
     body: &[Stmt],
-    return_type: Option<Symbol>,
+    return_type: Option<&TypeExpr>,
+    is_native: bool,
     interner: &Interner,
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
 
-    // Build parameter list
+    // Build parameter list using TypeExpr
     let params_str: Vec<String> = params.iter()
         .map(|(param_name, param_type)| {
             let name = interner.resolve(*param_name);
-            let ty = map_type_to_rust(interner.resolve(*param_type));
+            let ty = codegen_type_expr(param_type, interner);
             format!("{}: {}", name, ty)
         })
         .collect();
 
-    // Infer return type from body if not specified
-    let inferred_return = return_type.map(|s| interner.resolve(s).to_string())
+    // Get return type string from TypeExpr or infer from body
+    let return_type_str = return_type
+        .map(|t| codegen_type_expr(t, interner))
         .or_else(|| infer_return_type_from_body(body, interner));
 
-    // Emit function signature
-    if let Some(ret_ty) = inferred_return {
-        let rust_ret = map_type_to_rust(&ret_ty);
-        if rust_ret != "()" {
-            writeln!(output, "fn {}({}) -> {} {{", func_name, params_str.join(", "), rust_ret).unwrap();
+    // Build function signature
+    let signature = if let Some(ref ret_ty) = return_type_str {
+        if ret_ty != "()" {
+            format!("fn {}({}) -> {}", func_name, params_str.join(", "), ret_ty)
         } else {
-            writeln!(output, "fn {}({}) {{", func_name, params_str.join(", ")).unwrap();
+            format!("fn {}({})", func_name, params_str.join(", "))
         }
     } else {
-        writeln!(output, "fn {}({}) {{", func_name, params_str.join(", ")).unwrap();
+        format!("fn {}({})", func_name, params_str.join(", "))
+    };
+
+    // Phase 38: Handle native functions
+    if is_native {
+        let (module, core_fn) = map_native_function(func_name);
+        writeln!(output, "{} {{", signature).unwrap();
+
+        // Generate call to logos_core
+        let arg_names: Vec<&str> = params.iter()
+            .map(|(n, _)| interner.resolve(*n))
+            .collect();
+
+        writeln!(output, "    logos_core::{}::{}({})", module, core_fn, arg_names.join(", ")).unwrap();
+        writeln!(output, "}}\n").unwrap();
+    } else {
+        // Non-native: emit body
+        writeln!(output, "{} {{", signature).unwrap();
+        for stmt in body {
+            output.push_str(&codegen_stmt(stmt, interner, 1));
+        }
+        writeln!(output, "}}\n").unwrap();
     }
 
-    // Emit body
-    for stmt in body {
-        output.push_str(&codegen_stmt(stmt, interner, 1));
-    }
-
-    writeln!(output, "}}\n").unwrap();
     output
+}
+
+/// Phase 38: Map native function names to logos_core module paths.
+fn map_native_function(name: &str) -> (&'static str, &'static str) {
+    match name {
+        "read" => ("file", "read"),
+        "write" => ("file", "write"),
+        "now" => ("time", "now"),
+        "sleep" => ("time", "sleep"),
+        "randomInt" => ("random", "randomInt"),
+        "randomFloat" => ("random", "randomFloat"),
+        "get" => ("env", "get"),
+        "args" => ("env", "args"),
+        _ => panic!("Unknown native function: {}. Add mapping to map_native_function().", name),
+    }
+}
+
+/// Phase 38: Convert TypeExpr to Rust type string.
+fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
+    match ty {
+        TypeExpr::Primitive(sym) => {
+            map_type_to_rust(interner.resolve(*sym))
+        }
+        TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            // Check for common mappings
+            map_type_to_rust(name)
+        }
+        TypeExpr::Generic { base, params } => {
+            let base_name = interner.resolve(*base);
+            let params_str: Vec<String> = params.iter()
+                .map(|p| codegen_type_expr(p, interner))
+                .collect();
+
+            match base_name {
+                "Result" => {
+                    if params_str.len() == 2 {
+                        format!("Result<{}, {}>", params_str[0], params_str[1])
+                    } else if params_str.len() == 1 {
+                        format!("Result<{}, String>", params_str[0])
+                    } else {
+                        "Result<(), String>".to_string()
+                    }
+                }
+                "Option" => {
+                    if !params_str.is_empty() {
+                        format!("Option<{}>", params_str[0])
+                    } else {
+                        "Option<()>".to_string()
+                    }
+                }
+                "Seq" | "List" | "Vec" => {
+                    if !params_str.is_empty() {
+                        format!("Vec<{}>", params_str[0])
+                    } else {
+                        "Vec<()>".to_string()
+                    }
+                }
+                "Map" | "HashMap" => {
+                    if params_str.len() >= 2 {
+                        format!("std::collections::HashMap<{}, {}>", params_str[0], params_str[1])
+                    } else {
+                        "std::collections::HashMap<String, String>".to_string()
+                    }
+                }
+                other => {
+                    if params_str.is_empty() {
+                        other.to_string()
+                    } else {
+                        format!("{}<{}>", other, params_str.join(", "))
+                    }
+                }
+            }
+        }
+        TypeExpr::Function { inputs, output } => {
+            let inputs_str: Vec<String> = inputs.iter()
+                .map(|i| codegen_type_expr(i, interner))
+                .collect();
+            let output_str = codegen_type_expr(output, interner);
+            format!("fn({}) -> {}", inputs_str.join(", "), output_str)
+        }
+    }
 }
 
 /// Infer return type from function body by looking at Return statements.
 fn infer_return_type_from_body(body: &[Stmt], _interner: &Interner) -> Option<String> {
     for stmt in body {
         if let Stmt::Return { value: Some(_) } = stmt {
-            // For now, assume Int for any expression return
+            // For now, assume i64 for any expression return
             // TODO: Implement proper type inference
-            return Some("Int".to_string());
+            return Some("i64".to_string());
         }
     }
     None
@@ -519,41 +618,6 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
         Literal::Text(sym) => format!("\"{}\"", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
-    }
-}
-
-fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
-    match ty {
-        TypeExpr::Primitive(sym) => {
-            match interner.resolve(*sym) {
-                "Int" => "i64".to_string(),
-                "Nat" => "u64".to_string(),  // Spec §10.6.1: Nat → u64
-                "Text" => "String".to_string(),
-                "Bool" | "Boolean" => "bool".to_string(),
-                "Unit" => "()".to_string(),
-                other => other.to_string(),
-            }
-        }
-        TypeExpr::Named(sym) => interner.resolve(*sym).to_string(),
-        TypeExpr::Generic { base, params } => {
-            let base_str = match interner.resolve(*base) {
-                "List" | "Seq" => "Vec",
-                "Option" => "Option",
-                "Result" => "Result",
-                other => other,
-            };
-            let param_strs: Vec<String> = params.iter()
-                .map(|p| codegen_type_expr(p, interner))
-                .collect();
-            format!("{}<{}>", base_str, param_strs.join(", "))
-        }
-        TypeExpr::Function { inputs, output } => {
-            let input_strs: Vec<String> = inputs.iter()
-                .map(|p| codegen_type_expr(p, interner))
-                .collect();
-            let output_str = codegen_type_expr(output, interner);
-            format!("fn({}) -> {}", input_strs.join(", "), output_str)
-        }
     }
 }
 

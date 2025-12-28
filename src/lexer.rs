@@ -211,6 +211,29 @@ impl<'a> Lexer<'a> {
                     }
                     word_start = if j < chars.len() { j + 1 } else { j };
                 }
+                // Phase 38: Handle -> as a single token for return type syntax
+                '-' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '>' => {
+                    // Push any pending word first
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    // Push -> as its own word
+                    items.push(WordItem {
+                        word: "->".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1; // Skip the '>' character
+                    word_start = i + 2;
+                }
                 '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
@@ -788,6 +811,11 @@ impl<'a> Lexer<'a> {
             }
         }
 
+        // Phase 38: Arrow token for return type syntax
+        if word == "->" {
+            return TokenType::Arrow;
+        }
+
         if let Some(kind) = lexicon::lookup_keyword(&lower) {
             return kind;
         }
@@ -845,6 +873,7 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
             // Phase 33: Sum type definition (after "is")

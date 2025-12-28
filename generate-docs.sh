@@ -86,6 +86,8 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 33: Sum Types & Pattern Matching](#phase-33-sum-types--pattern-matching)
     - [Phase 34: User-Defined Generics](#phase-34-user-defined-generics)
     - [Phase 35: The Proof Bridge](#phase-35-the-proof-bridge)
+    - [Phase 36: Module System](#phase-36-module-system)
+    - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1622,6 +1624,16 @@ add_test_description "tests/phase35_respectively.rs" \
     "Pairwise coordination with 'respectively' adverb. Matches coordinated subjects with coordinated objects pairwise (John and Mary saw Tom and Jane respectively → See(J,T) ∧ See(M,J)). Includes RespectivelyLengthMismatch error for mismatched counts, dual code paths for pronoun and noun phrase subjects." \
     "John and Mary saw Tom and Jane respectively."
 
+add_test_description "tests/phase36_modules.rs" \
+    "Phase 36: Module System" \
+    "Multi-file projects with Use statements. Import syntax (Use Math.), module discovery, and cross-file type/function resolution." \
+    "Use Math."
+
+add_test_description "tests/phase37_cli.rs" \
+    "Phase 37: Project Manifest & Build Tool" \
+    "CLI build system with Largo.toml manifest. Commands: largo new <name>, largo build [--release], largo run, largo check. Manifest parsing with [package] and [dependencies] sections, project discovery via find_project_root()." \
+    "largo new my_game && largo build"
+
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \
     "Aktionsart/Vendler Classes" \
@@ -1978,6 +1990,18 @@ add_file "src/compile.rs" \
 add_file "src/scope.rs" \
     "Scope Management" \
     "Variable scope tracking for imperative blocks. ScopeStack manages nested lexical scopes with push/pop. resolve_identifier() finds variable bindings respecting shadowing. Tracks ownership state (owned/moved/borrowed) for each binding."
+
+add_file "src/cli.rs" \
+    "CLI Interface" \
+    "Command-line interface for LOGOS build tool. Implements largo new/init/build/run/check commands via clap. Feature-gated behind 'cli' feature flag."
+
+add_file "src/project/manifest.rs" \
+    "Project Manifest" \
+    "Largo.toml parser. Defines Manifest struct with package metadata (name, version, edition) and dependencies (path/git/version variants)."
+
+add_file "src/project/build.rs" \
+    "Build Orchestration" \
+    "Project build pipeline. find_project_root() walks up to find Largo.toml, build() coordinates parse→compile→cargo build, run() executes the built binary."
 
 # ==============================================================================
 # SUPPORT INFRASTRUCTURE

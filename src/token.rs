@@ -113,6 +113,7 @@ pub enum TokenType {
     New,      // Phase 31: Constructor keyword
     Either,   // Phase 33: Sum type definition
     Inspect,  // Phase 33: Pattern matching
+    Native,   // Phase 38: Native function modifier
 
     // Ownership Keywords (Move/Borrow Semantics)
     Give,  // Move ownership: "Give x to processor"
@@ -232,6 +233,9 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
+
+    // Phase 38: Arrow for return type syntax
+    Arrow,  // ->
 
     EOF,
 }

@@ -145,12 +145,14 @@ pub enum Stmt<'a> {
         fields: Vec<(Symbol, Symbol, bool)>, // (name, type_name, is_public)
     },
 
-    /// Phase 32: Function definition
+    /// Phase 32/38: Function definition
+    /// Phase 38: Updated for native functions and TypeExpr types
     FunctionDef {
         name: Symbol,
-        params: Vec<(Symbol, Symbol)>, // (param_name, type_name)
+        params: Vec<(Symbol, &'a TypeExpr<'a>)>, // Phase 38: Changed to TypeExpr
         body: Block<'a>,
-        return_type: Option<Symbol>,   // Inferred if None
+        return_type: Option<&'a TypeExpr<'a>>,   // Phase 38: Changed to TypeExpr
+        is_native: bool,                          // Phase 38: Native function flag
     },
 
     /// Phase 33: Pattern matching on sum types

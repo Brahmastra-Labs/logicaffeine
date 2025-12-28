@@ -30,6 +30,8 @@ pub mod pragmatics;
 pub mod progress;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod project;
+#[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
+pub mod cli;
 pub mod runtime_lexicon;
 pub mod semantics;
 pub mod registry;
@@ -52,6 +54,8 @@ pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies, Depe
 pub use analysis::discover_with_imports;
 #[cfg(not(target_arch = "wasm32"))]
 pub use project::{Loader, ModuleSource};
+#[cfg(not(target_arch = "wasm32"))]
+pub use compile::copy_logos_core;
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};

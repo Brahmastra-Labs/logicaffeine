@@ -27,6 +27,12 @@ rand = "0.8"
 include_dir = "0.7"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
+clap = { version = "4.4", features = ["derive"], optional = true }
+toml = { version = "0.8", optional = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "toml"]
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }

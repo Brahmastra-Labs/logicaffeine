@@ -7,3 +7,4 @@ description = "Runtime library for LOGOS programs"
 [workspace]
 
 [dependencies]
+rand = "0.8"

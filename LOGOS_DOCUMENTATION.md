@@ -73,6 +73,8 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 33: Sum Types & Pattern Matching](#phase-33-sum-types--pattern-matching)
     - [Phase 34: User-Defined Generics](#phase-34-user-defined-generics)
     - [Phase 35: The Proof Bridge](#phase-35-the-proof-bridge)
+    - [Phase 36: Module System](#phase-36-module-system)
+    - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1765,6 +1767,26 @@ Pairwise coordination with 'respectively' adverb. Matches coordinated subjects w
 
 ---
 
+#### Phase 36: Module System
+
+**File:** `tests/phase36_modules.rs`
+
+Multi-file projects with Use statements. Import syntax (Use Math.), module discovery, and cross-file type/function resolution.
+
+**Example:** Use Math.
+
+---
+
+#### Phase 37: Project Manifest & Build Tool
+
+**File:** `tests/phase37_cli.rs`
+
+CLI build system with Largo.toml manifest. Commands: largo new <name>, largo build [--release], largo run, largo check. Manifest parsing with [package] and [dependencies] sections, project discovery via find_project_root().
+
+**Example:** largo new my_game && largo build
+
+---
+
 #### Aktionsart/Vendler Classes
 
 **File:** `tests/aktionsart_tests.rs`
@@ -1809,28 +1831,28 @@ Comprehensive tests covering quantifiers, modals, temporal logic, relative claus
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1692 lines
-Parser (ast/, parser/):               10659 lines
+Lexer (token.rs, lexer.rs):           1696 lines
+Parser (ast/, parser/):               10711 lines
 Transpilation:                        1030 lines
-Code Generation:                      986 lines
+Code Generation:                      1039 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1172 lines
-Support Infrastructure:               4152 lines
+Type Analysis (analysis/):            1195 lines
+Support Infrastructure:               4156 lines
 Desktop UI:                               8841 lines
-Entry Point:                                 3 lines
+Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        35210
-Test lines:           9406
-Total Rust lines: 44616
+Source lines:        35952
+Test lines:           9658
+Total Rust lines: 45610
 ```
 
 ### File Counts
 ```
-Source files: 88
-Test files:   66
+Source files: 91
+Test files:   67
 ```
 ## Lexicon Data
 
@@ -3088,9 +3110,12 @@ impl<'a> Lexer<'a> {
                         word_start = header_start + (j - char_idx);
                     } else {
                         // Single # - treat as comment, skip to end of line
-                        while char_idx + 1 < chars.len() && chars[char_idx + 1] != '\n' {
+                        // Count how many chars to skip (without modifying char_idx here -
+                        // the main loop's skip handler will increment it)
+                        let mut look_ahead = char_idx + 1;
+                        while look_ahead < chars.len() && chars[look_ahead] != '\n' {
                             skip_count += 1;
-                            char_idx += 1;
+                            look_ahead += 1;
                         }
                         if !current_word.is_empty() {
                             items.push(WordItem {
@@ -3101,7 +3126,7 @@ impl<'a> Lexer<'a> {
                                 punct_pos: None,
                             });
                         }
-                        word_start = next_pos;
+                        word_start = look_ahead + 1; // Start after the newline
                     }
                 }
                 // Phase 33: String literals "hello world"
@@ -3786,6 +3811,7 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
             // Phase 33: Sum type definition (after "is")
             "either" => return TokenType::Either,
@@ -5303,12 +5329,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse a type expression: Int, Text, List of Int, Result of Int and Text.
+    /// Phase 36: Also supports "Type from Module" for qualified imports.
     /// Uses TypeRegistry to distinguish primitives from generics.
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
 
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
         let base = self.consume_type_name()?;
+
+        // Phase 36: Check for "from Module" qualification
+        if self.check(&TokenType::From) {
+            self.advance(); // consume "from"
+            let module_name = self.consume_type_name()?;
+            let module_str = self.interner.resolve(module_name);
+            let base_str = self.interner.resolve(base);
+            let qualified = format!("{}::{}", module_str, base_str);
+            let qualified_sym = self.interner.intern(&qualified);
+
+            // Check if qualified type exists in registry
+            if self.type_registry.as_ref().map(|r| r.is_type(qualified_sym)).unwrap_or(false) {
+                return Ok(TypeExpr::Named(qualified_sym));
+            }
+            // Even if not found, return the qualified name for error reporting
+            return Ok(TypeExpr::Named(qualified_sym));
+        }
 
         // Check if it's a known generic type
         if let Some(param_count) = self.get_generic_param_count(base) {
@@ -6587,7 +6631,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 34: Extended for generic instantiation "new Box of Int"
             TokenType::New => {
                 self.advance(); // consume "new"
-                let type_name = self.expect_identifier()?;
+                let base_type_name = self.expect_identifier()?;
+
+                // Phase 36: Check for "from Module" qualification
+                let type_name = if self.check(&TokenType::From) {
+                    self.advance(); // consume "from"
+                    let module_name = self.expect_identifier()?;
+                    let module_str = self.interner.resolve(module_name);
+                    let base_str = self.interner.resolve(base_type_name);
+                    let qualified = format!("{}::{}", module_str, base_str);
+                    self.interner.intern(&qualified)
+                } else {
+                    base_type_name
+                };
 
                 // Phase 33: Check if this is a variant constructor
                 if let Some(enum_name) = self.find_variant(type_name) {
@@ -6620,7 +6676,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if matches!(next.kind, TokenType::New) {
                         self.advance(); // consume article "a"/"an"
                         self.advance(); // consume "new"
-                        let type_name = self.expect_identifier()?;
+                        let base_type_name = self.expect_identifier()?;
+
+                        // Phase 36: Check for "from Module" qualification
+                        let type_name = if self.check(&TokenType::From) {
+                            self.advance(); // consume "from"
+                            let module_name = self.expect_identifier()?;
+                            let module_str = self.interner.resolve(module_name);
+                            let base_str = self.interner.resolve(base_type_name);
+                            let qualified = format!("{}::{}", module_str, base_str);
+                            self.interner.intern(&qualified)
+                        } else {
+                            base_type_name
+                        };
 
                         // Phase 33: Check if this is a variant constructor
                         if let Some(enum_name) = self.find_variant(type_name) {
@@ -13214,6 +13282,16 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
         if !self.check_verb() {
             self.current = saved_pos;
             return Ok(None);
+        }
+
+        // Register the coordinated subjects as a plural entity for pronoun resolution
+        {
+            use crate::context::{Gender, Number};
+            let group_name = subjects.iter()
+                .map(|s| self.interner.resolve(*s))
+                .collect::<Vec<_>>()
+                .join("⊕");
+            self.register_entity(&group_name, "group", Gender::Unknown, Number::Plural);
         }
 
         let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
@@ -20436,6 +20514,29 @@ A Point has:
             panic!("Point should be a struct with fields");
         }
     }
+
+    #[test]
+    fn discovery_works_with_markdown_header() {
+        // Phase 36: LOGOS files have `# Header` before `## Definition`
+        let source = r#"# Geometry
+
+## Definition
+A Point has:
+    an x, which is Int.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens to see what we're getting
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?}", i, tok.kind);
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+        let point = interner.intern("Point");
+        assert!(registry.is_type(point), "Point should be discovered even with # header");
+    }
 }
 
 ```
@@ -21291,7 +21392,7 @@ logos_core = {{ path = "./logos_core" }}
 }
 
 /// Copy the embedded logos_core crate to the output directory.
-fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
+pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
     let core_dir = output_dir.join("logos_core");
     let src_dir = core_dir.join("src");
 
@@ -21343,9 +21444,62 @@ pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, Compil
 }
 
 /// Compile a LOGOS source file.
+/// For single-file compilation without dependencies.
 pub fn compile_file(path: &Path) -> Result<String, CompileError> {
     let source = fs::read_to_string(path).map_err(|e| CompileError::Io(e.to_string()))?;
     compile_to_rust(&source).map_err(CompileError::Parse)
+}
+
+/// Phase 36: Compile a LOGOS project with dependencies.
+/// Scans the Abstract for [Alias](URI) links and loads dependencies recursively.
+pub fn compile_project(path: &Path) -> Result<String, CompileError> {
+    use crate::analysis::discover_with_imports;
+    use crate::project::Loader;
+
+    let source = fs::read_to_string(path).map_err(|e| CompileError::Io(e.to_string()))?;
+    let root_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+
+    let mut interner = Interner::new();
+    let mut loader = Loader::new(root_dir);
+
+    // Pass 1: Recursive discovery with imports
+    let type_registry = discover_with_imports(path, &source, &mut loader, &mut interner)
+        .map_err(|e| CompileError::Io(e))?;
+    let codegen_registry = type_registry.clone();
+
+    // Tokenize the main file
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context (includes imported types)
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program().map_err(CompileError::Parse)?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
 }
 
 /// Errors that can occur during compilation.
@@ -21470,6 +21624,626 @@ impl ScopeStack {
 
 ---
 
+### CLI Interface
+
+**File:** `src/cli.rs`
+
+Command-line interface for LOGOS build tool. Implements largo new/init/build/run/check commands via clap. Feature-gated behind 'cli' feature flag.
+
+```rust
+//! Phase 37: LOGOS CLI (largo)
+//!
+//! Command-line interface for the LOGOS build system.
+
+use clap::{Parser, Subcommand};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
+
+use crate::compile::compile_project;
+use crate::project::build::{self, find_project_root, BuildConfig};
+use crate::project::manifest::Manifest;
+
+#[derive(Parser)]
+#[command(name = "largo")]
+#[command(about = "The LOGOS build tool", long_about = None)]
+#[command(version)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Create a new LOGOS project
+    New {
+        /// Project name
+        name: String,
+    },
+    /// Initialize a LOGOS project in the current directory
+    Init {
+        /// Project name (defaults to directory name)
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Build the current project
+    Build {
+        /// Build in release mode
+        #[arg(long, short)]
+        release: bool,
+    },
+    /// Build and run the current project
+    Run {
+        /// Build in release mode
+        #[arg(long, short)]
+        release: bool,
+    },
+    /// Check the project for errors without building
+    Check,
+}
+
+/// Entry point for the CLI
+pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::New { name } => cmd_new(&name),
+        Commands::Init { name } => cmd_init(name.as_deref()),
+        Commands::Build { release } => cmd_build(release),
+        Commands::Run { release } => cmd_run(release),
+        Commands::Check => cmd_check(),
+    }
+}
+
+fn cmd_new(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let project_dir = PathBuf::from(name);
+
+    if project_dir.exists() {
+        return Err(format!("Directory '{}' already exists", project_dir.display()).into());
+    }
+
+    // Create project structure
+    fs::create_dir_all(&project_dir)?;
+    fs::create_dir_all(project_dir.join("src"))?;
+
+    // Write Largo.toml
+    let manifest = Manifest::new(name);
+    fs::write(project_dir.join("Largo.toml"), manifest.to_toml()?)?;
+
+    // Write src/main.lg
+    let main_lg = r#"# Main
+
+A simple LOGOS program.
+
+## Main
+
+Show "Hello, world!".
+"#;
+    fs::write(project_dir.join("src/main.lg"), main_lg)?;
+
+    // Write .gitignore
+    fs::write(project_dir.join(".gitignore"), "/target\n")?;
+
+    println!("Created LOGOS project '{}'", name);
+    println!("  cd {}", project_dir.display());
+    println!("  largo run");
+
+    Ok(())
+}
+
+fn cmd_init(name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_name = name
+        .map(String::from)
+        .or_else(|| {
+            current_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "project".to_string());
+
+    if current_dir.join("Largo.toml").exists() {
+        return Err("Largo.toml already exists".into());
+    }
+
+    // Create src directory if needed
+    fs::create_dir_all(current_dir.join("src"))?;
+
+    // Write Largo.toml
+    let manifest = Manifest::new(&project_name);
+    fs::write(current_dir.join("Largo.toml"), manifest.to_toml()?)?;
+
+    // Write src/main.lg if it doesn't exist
+    let main_path = current_dir.join("src/main.lg");
+    if !main_path.exists() {
+        let main_lg = r#"# Main
+
+A simple LOGOS program.
+
+## Main
+
+Show "Hello, world!".
+"#;
+        fs::write(main_path, main_lg)?;
+    }
+
+    println!("Initialized LOGOS project '{}'", project_name);
+
+    Ok(())
+}
+
+fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let config = BuildConfig {
+        project_dir: project_root,
+        release,
+    };
+
+    let result = build::build(config)?;
+
+    let mode = if release { "release" } else { "debug" };
+    println!("Built {} [{}]", result.binary_path.display(), mode);
+
+    Ok(())
+}
+
+fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let config = BuildConfig {
+        project_dir: project_root,
+        release,
+    };
+
+    let result = build::build(config)?;
+    let exit_code = build::run(&result)?;
+
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+
+    Ok(())
+}
+
+fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let manifest = Manifest::load(&project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+
+    // Just compile to Rust without building
+    compile_project(&entry_path)?;
+
+    println!("Check passed");
+    Ok(())
+}
+
+```
+
+---
+
+### Project Manifest
+
+**File:** `src/project/manifest.rs`
+
+Largo.toml parser. Defines Manifest struct with package metadata (name, version, edition) and dependencies (path/git/version variants).
+
+```rust
+//! Phase 37: Largo.toml Manifest Parser
+//!
+//! Parses project manifests for LOGOS build configuration.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+
+/// Project manifest (Largo.toml)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Manifest {
+    pub package: Package,
+    #[serde(default)]
+    pub dependencies: HashMap<String, DependencySpec>,
+}
+
+/// Package metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Package {
+    pub name: String,
+    #[serde(default = "default_version")]
+    pub version: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub authors: Vec<String>,
+    #[serde(default = "default_entry")]
+    pub entry: String,
+}
+
+/// Dependency specification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DependencySpec {
+    /// Simple version string: "1.0.0" or URI: "logos:std"
+    Simple(String),
+    /// Detailed dependency: { version = "1.0", path = "../foo" }
+    Detailed(DependencyDetail),
+}
+
+/// Detailed dependency specification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyDetail {
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub git: Option<String>,
+}
+
+fn default_version() -> String {
+    "0.1.0".to_string()
+}
+
+fn default_entry() -> String {
+    "src/main.lg".to_string()
+}
+
+/// Errors that can occur when loading a manifest
+#[derive(Debug)]
+pub enum ManifestError {
+    Io(std::path::PathBuf, String),
+    Parse(std::path::PathBuf, String),
+    Serialize(String),
+}
+
+impl std::fmt::Display for ManifestError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ManifestError::Io(path, e) => write!(f, "Failed to read {}: {}", path.display(), e),
+            ManifestError::Parse(path, e) => write!(f, "Failed to parse {}: {}", path.display(), e),
+            ManifestError::Serialize(e) => write!(f, "Failed to serialize manifest: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for ManifestError {}
+
+impl Manifest {
+    /// Load manifest from a directory (looks for Largo.toml)
+    pub fn load(dir: &Path) -> Result<Self, ManifestError> {
+        let path = dir.join("Largo.toml");
+        let content = fs::read_to_string(&path)
+            .map_err(|e| ManifestError::Io(path.clone(), e.to_string()))?;
+        toml::from_str(&content).map_err(|e| ManifestError::Parse(path, e.to_string()))
+    }
+
+    /// Create a new manifest with default values
+    pub fn new(name: &str) -> Self {
+        Manifest {
+            package: Package {
+                name: name.to_string(),
+                version: default_version(),
+                description: None,
+                authors: Vec::new(),
+                entry: default_entry(),
+            },
+            dependencies: HashMap::new(),
+        }
+    }
+
+    /// Serialize to TOML string
+    pub fn to_toml(&self) -> Result<String, ManifestError> {
+        toml::to_string_pretty(self).map_err(|e| ManifestError::Serialize(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_minimal_manifest() {
+        let toml = r#"
+[package]
+name = "myproject"
+"#;
+        let manifest: Manifest = toml::from_str(toml).expect("Should parse minimal manifest");
+        assert_eq!(manifest.package.name, "myproject");
+        assert_eq!(manifest.package.version, "0.1.0"); // default
+        assert_eq!(manifest.package.entry, "src/main.lg"); // default
+    }
+
+    #[test]
+    fn parse_full_manifest() {
+        let toml = r#"
+[package]
+name = "myproject"
+version = "1.0.0"
+description = "A test project"
+entry = "src/app.lg"
+authors = ["Test Author"]
+
+[dependencies]
+std = "logos:std"
+"#;
+        let manifest: Manifest = toml::from_str(toml).expect("Should parse full manifest");
+        assert_eq!(manifest.package.name, "myproject");
+        assert_eq!(manifest.package.version, "1.0.0");
+        assert_eq!(manifest.package.entry, "src/app.lg");
+        assert!(manifest.package.description.is_some());
+        assert_eq!(manifest.package.authors.len(), 1);
+    }
+
+    #[test]
+    fn create_new_manifest() {
+        let manifest = Manifest::new("testproject");
+        assert_eq!(manifest.package.name, "testproject");
+        let toml = manifest.to_toml().expect("Should serialize");
+        assert!(toml.contains("name = \"testproject\""));
+    }
+
+    #[test]
+    fn parse_path_dependency() {
+        let toml = r#"
+[package]
+name = "with_deps"
+
+[dependencies]
+math = { path = "./math" }
+"#;
+        let manifest: Manifest = toml::from_str(toml).expect("Should parse path deps");
+        assert!(!manifest.dependencies.is_empty());
+        match &manifest.dependencies["math"] {
+            DependencySpec::Detailed(d) => {
+                assert_eq!(d.path.as_deref(), Some("./math"));
+            }
+            _ => panic!("Expected detailed dependency"),
+        }
+    }
+}
+
+```
+
+---
+
+### Build Orchestration
+
+**File:** `src/project/build.rs`
+
+Project build pipeline. find_project_root() walks up to find Largo.toml, build() coordinates parse→compile→cargo build, run() executes the built binary.
+
+```rust
+//! Phase 37: Build Orchestration
+//!
+//! Coordinates the build process for LOGOS projects.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use crate::compile::{compile_project, copy_logos_core, CompileError};
+
+use super::manifest::{Manifest, ManifestError};
+
+/// Build configuration
+pub struct BuildConfig {
+    pub project_dir: PathBuf,
+    pub release: bool,
+}
+
+/// Result of a build operation
+#[derive(Debug)]
+pub struct BuildResult {
+    pub target_dir: PathBuf,
+    pub binary_path: PathBuf,
+}
+
+/// Errors that can occur during the build process
+#[derive(Debug)]
+pub enum BuildError {
+    Manifest(ManifestError),
+    Compile(CompileError),
+    Io(String),
+    Cargo(String),
+    NotFound(String),
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildError::Manifest(e) => write!(f, "{}", e),
+            BuildError::Compile(e) => write!(f, "{}", e),
+            BuildError::Io(e) => write!(f, "IO error: {}", e),
+            BuildError::Cargo(e) => write!(f, "Cargo error: {}", e),
+            BuildError::NotFound(e) => write!(f, "Not found: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for BuildError {}
+
+impl From<ManifestError> for BuildError {
+    fn from(e: ManifestError) -> Self {
+        BuildError::Manifest(e)
+    }
+}
+
+impl From<CompileError> for BuildError {
+    fn from(e: CompileError) -> Self {
+        BuildError::Compile(e)
+    }
+}
+
+/// Find project root by walking up directory tree looking for Largo.toml
+pub fn find_project_root(start: &Path) -> Option<PathBuf> {
+    let mut current = if start.is_file() {
+        start.parent()?.to_path_buf()
+    } else {
+        start.to_path_buf()
+    };
+
+    loop {
+        if current.join("Largo.toml").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+/// Build a LOGOS project
+pub fn build(config: BuildConfig) -> Result<BuildResult, BuildError> {
+    // Load manifest
+    let manifest = Manifest::load(&config.project_dir)?;
+
+    // Resolve entry point (supports .lg and .md)
+    let entry_path = config.project_dir.join(&manifest.package.entry);
+    if entry_path.exists() {
+        return build_with_entry(&config, &manifest, &entry_path);
+    }
+
+    // Try .md fallback if .lg not found
+    let md_path = entry_path.with_extension("md");
+    if md_path.exists() {
+        return build_with_entry(&config, &manifest, &md_path);
+    }
+
+    Err(BuildError::NotFound(format!(
+        "Entry point not found: {} (also tried .md)",
+        entry_path.display()
+    )))
+}
+
+fn build_with_entry(
+    config: &BuildConfig,
+    manifest: &Manifest,
+    entry_path: &Path,
+) -> Result<BuildResult, BuildError> {
+    // Create target directory structure
+    let target_dir = config.project_dir.join("target");
+    let build_dir = if config.release {
+        target_dir.join("release")
+    } else {
+        target_dir.join("debug")
+    };
+    let rust_project_dir = build_dir.join("build");
+
+    // Clean and recreate build directory
+    if rust_project_dir.exists() {
+        fs::remove_dir_all(&rust_project_dir).map_err(|e| BuildError::Io(e.to_string()))?;
+    }
+    fs::create_dir_all(&rust_project_dir).map_err(|e| BuildError::Io(e.to_string()))?;
+
+    // Compile LOGOS to Rust using Phase 36 compile_project
+    let rust_code = compile_project(entry_path)?;
+
+    // Write generated Rust code
+    let src_dir = rust_project_dir.join("src");
+    fs::create_dir_all(&src_dir).map_err(|e| BuildError::Io(e.to_string()))?;
+
+    let main_rs = format!("use logos_core::prelude::*;\n\n{}", rust_code);
+    fs::write(src_dir.join("main.rs"), main_rs).map_err(|e| BuildError::Io(e.to_string()))?;
+
+    // Write Cargo.toml for the generated project
+    let cargo_toml = format!(
+        r#"[package]
+name = "{}"
+version = "{}"
+edition = "2021"
+
+[dependencies]
+logos_core = {{ path = "./logos_core" }}
+"#,
+        manifest.package.name, manifest.package.version
+    );
+    fs::write(rust_project_dir.join("Cargo.toml"), cargo_toml)
+        .map_err(|e| BuildError::Io(e.to_string()))?;
+
+    // Copy logos_core runtime
+    copy_logos_core(&rust_project_dir)?;
+
+    // Run cargo build
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build").current_dir(&rust_project_dir);
+    if config.release {
+        cmd.arg("--release");
+    }
+
+    let output = cmd.output().map_err(|e| BuildError::Io(e.to_string()))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(BuildError::Cargo(stderr.to_string()));
+    }
+
+    // Determine binary path
+    let binary_name = if cfg!(windows) {
+        format!("{}.exe", manifest.package.name)
+    } else {
+        manifest.package.name.clone()
+    };
+    let cargo_target = if config.release { "release" } else { "debug" };
+    let binary_path = rust_project_dir
+        .join("target")
+        .join(cargo_target)
+        .join(&binary_name);
+
+    Ok(BuildResult {
+        target_dir: build_dir,
+        binary_path,
+    })
+}
+
+/// Run a built project
+pub fn run(build_result: &BuildResult) -> Result<i32, BuildError> {
+    let mut child = Command::new(&build_result.binary_path)
+        .spawn()
+        .map_err(|e| BuildError::Io(e.to_string()))?;
+
+    let status = child.wait().map_err(|e| BuildError::Io(e.to_string()))?;
+
+    Ok(status.code().unwrap_or(1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn find_project_root_finds_largo_toml() {
+        let temp = tempdir().unwrap();
+        let sub = temp.path().join("a/b/c");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(temp.path().join("Largo.toml"), "[package]\nname=\"test\"\n").unwrap();
+
+        let found = find_project_root(&sub);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap(), temp.path());
+    }
+
+    #[test]
+    fn find_project_root_returns_none_if_not_found() {
+        let temp = tempdir().unwrap();
+        let found = find_project_root(temp.path());
+        assert!(found.is_none());
+    }
+}
+
+```
+
+---
+
 ## Public API
 
 The public interface for embedding LOGICAFFEINE in other applications.
@@ -21515,6 +22289,8 @@ pub mod pragmatics;
 pub mod progress;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod project;
+#[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
+pub mod cli;
 pub mod runtime_lexicon;
 pub mod semantics;
 pub mod registry;
@@ -21537,6 +22313,8 @@ pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies, Depe
 pub use analysis::discover_with_imports;
 #[cfg(not(target_arch = "wasm32"))]
 pub use project::{Loader, ModuleSource};
+#[cfg(not(target_arch = "wasm32"))]
+pub use compile::copy_logos_core;
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
@@ -27933,6 +28711,19 @@ Command-line interface and REPL for interactive use.
 Web application entry point. Launches Dioxus web UI with Router for SPA navigation. Build with 'dx serve' for development or 'dx build' for production WASM deployment.
 
 ```rust
+//! LOGOS entry point
+//!
+//! Dispatches between CLI mode and web UI based on compile features.
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
+fn main() {
+    if let Err(e) = logos::cli::run_cli() {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+}
+
+#[cfg(any(target_arch = "wasm32", not(feature = "cli")))]
 fn main() {
     dioxus::launch(logos::ui::App);
 }
@@ -39024,6 +39815,212 @@ pub fn play_sound(_effect: SoundEffect) {
 
 ---
 
+### Module: cli
+
+**File:** `src/cli.rs`
+
+Additional source module.
+
+```rust
+//! Phase 37: LOGOS CLI (largo)
+//!
+//! Command-line interface for the LOGOS build system.
+
+use clap::{Parser, Subcommand};
+use std::env;
+use std::fs;
+use std::path::PathBuf;
+
+use crate::compile::compile_project;
+use crate::project::build::{self, find_project_root, BuildConfig};
+use crate::project::manifest::Manifest;
+
+#[derive(Parser)]
+#[command(name = "largo")]
+#[command(about = "The LOGOS build tool", long_about = None)]
+#[command(version)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Create a new LOGOS project
+    New {
+        /// Project name
+        name: String,
+    },
+    /// Initialize a LOGOS project in the current directory
+    Init {
+        /// Project name (defaults to directory name)
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Build the current project
+    Build {
+        /// Build in release mode
+        #[arg(long, short)]
+        release: bool,
+    },
+    /// Build and run the current project
+    Run {
+        /// Build in release mode
+        #[arg(long, short)]
+        release: bool,
+    },
+    /// Check the project for errors without building
+    Check,
+}
+
+/// Entry point for the CLI
+pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Commands::New { name } => cmd_new(&name),
+        Commands::Init { name } => cmd_init(name.as_deref()),
+        Commands::Build { release } => cmd_build(release),
+        Commands::Run { release } => cmd_run(release),
+        Commands::Check => cmd_check(),
+    }
+}
+
+fn cmd_new(name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let project_dir = PathBuf::from(name);
+
+    if project_dir.exists() {
+        return Err(format!("Directory '{}' already exists", project_dir.display()).into());
+    }
+
+    // Create project structure
+    fs::create_dir_all(&project_dir)?;
+    fs::create_dir_all(project_dir.join("src"))?;
+
+    // Write Largo.toml
+    let manifest = Manifest::new(name);
+    fs::write(project_dir.join("Largo.toml"), manifest.to_toml()?)?;
+
+    // Write src/main.lg
+    let main_lg = r#"# Main
+
+A simple LOGOS program.
+
+## Main
+
+Show "Hello, world!".
+"#;
+    fs::write(project_dir.join("src/main.lg"), main_lg)?;
+
+    // Write .gitignore
+    fs::write(project_dir.join(".gitignore"), "/target\n")?;
+
+    println!("Created LOGOS project '{}'", name);
+    println!("  cd {}", project_dir.display());
+    println!("  largo run");
+
+    Ok(())
+}
+
+fn cmd_init(name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_name = name
+        .map(String::from)
+        .or_else(|| {
+            current_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "project".to_string());
+
+    if current_dir.join("Largo.toml").exists() {
+        return Err("Largo.toml already exists".into());
+    }
+
+    // Create src directory if needed
+    fs::create_dir_all(current_dir.join("src"))?;
+
+    // Write Largo.toml
+    let manifest = Manifest::new(&project_name);
+    fs::write(current_dir.join("Largo.toml"), manifest.to_toml()?)?;
+
+    // Write src/main.lg if it doesn't exist
+    let main_path = current_dir.join("src/main.lg");
+    if !main_path.exists() {
+        let main_lg = r#"# Main
+
+A simple LOGOS program.
+
+## Main
+
+Show "Hello, world!".
+"#;
+        fs::write(main_path, main_lg)?;
+    }
+
+    println!("Initialized LOGOS project '{}'", project_name);
+
+    Ok(())
+}
+
+fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let config = BuildConfig {
+        project_dir: project_root,
+        release,
+    };
+
+    let result = build::build(config)?;
+
+    let mode = if release { "release" } else { "debug" };
+    println!("Built {} [{}]", result.binary_path.display(), mode);
+
+    Ok(())
+}
+
+fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let config = BuildConfig {
+        project_dir: project_root,
+        release,
+    };
+
+    let result = build::build(config)?;
+    let exit_code = build::run(&result)?;
+
+    if exit_code != 0 {
+        std::process::exit(exit_code);
+    }
+
+    Ok(())
+}
+
+fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let manifest = Manifest::load(&project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+
+    // Just compile to Rust without building
+    compile_project(&entry_path)?;
+
+    println!("Check passed");
+    Ok(())
+}
+
+```
+
+---
+
 ### Module: codegen
 
 **File:** `src/codegen.rs`
@@ -39867,7 +40864,7 @@ logos_core = {{ path = "./logos_core" }}
 }
 
 /// Copy the embedded logos_core crate to the output directory.
-fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
+pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
     let core_dir = output_dir.join("logos_core");
     let src_dir = core_dir.join("src");
 
@@ -39919,9 +40916,62 @@ pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, Compil
 }
 
 /// Compile a LOGOS source file.
+/// For single-file compilation without dependencies.
 pub fn compile_file(path: &Path) -> Result<String, CompileError> {
     let source = fs::read_to_string(path).map_err(|e| CompileError::Io(e.to_string()))?;
     compile_to_rust(&source).map_err(CompileError::Parse)
+}
+
+/// Phase 36: Compile a LOGOS project with dependencies.
+/// Scans the Abstract for [Alias](URI) links and loads dependencies recursively.
+pub fn compile_project(path: &Path) -> Result<String, CompileError> {
+    use crate::analysis::discover_with_imports;
+    use crate::project::Loader;
+
+    let source = fs::read_to_string(path).map_err(|e| CompileError::Io(e.to_string()))?;
+    let root_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+
+    let mut interner = Interner::new();
+    let mut loader = Loader::new(root_dir);
+
+    // Pass 1: Recursive discovery with imports
+    let type_registry = discover_with_imports(path, &source, &mut loader, &mut interner)
+        .map_err(|e| CompileError::Io(e))?;
+    let codegen_registry = type_registry.clone();
+
+    // Tokenize the main file
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context (includes imported types)
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program().map_err(CompileError::Parse)?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
 }
 
 /// Errors that can occur during compilation.
@@ -41043,10 +42093,19 @@ rand = "0.8"
 include_dir = "0.7"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
+clap = { version = "4.4", features = ["derive"], optional = true }
+toml = { version = "0.8", optional = true }
+
+[features]
+default = ["cli"]
+cli = ["clap", "toml"]
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dev-dependencies]
+tempfile = "3"
 
 [profile]
 
@@ -42510,11 +43569,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Sun Dec 28 05:53:03 CST 2025
+- **Generated:** Sun Dec 28 06:40:09 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 891ba23
-- **Documentation Size:** 1.4M
+- **Git Commit:** b6d4c4b
+- **Documentation Size:** 2.0M
 
 ---
 

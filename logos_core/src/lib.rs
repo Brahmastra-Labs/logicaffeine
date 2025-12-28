@@ -2,6 +2,10 @@
 
 pub mod io;
 pub mod types;
+pub mod file;
+pub mod time;
+pub mod random;
+pub mod env;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -18,6 +22,10 @@ pub mod prelude {
     pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
     pub use crate::panic_with;
     pub use crate::fmt::format;
+    pub use crate::file::{read, write};
+    pub use crate::time::{now, sleep};
+    pub use crate::random::{randomInt, randomFloat};
+    pub use crate::env::{get, args};
 }
 
 #[cfg(test)]

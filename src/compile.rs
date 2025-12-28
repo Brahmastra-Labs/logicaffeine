@@ -13,6 +13,11 @@ const LOGOS_CORE_TOML: &str = include_str!("../logos_core/Cargo.toml");
 const LOGOS_CORE_LIB: &str = include_str!("../logos_core/src/lib.rs");
 const LOGOS_CORE_TYPES: &str = include_str!("../logos_core/src/types.rs");
 const LOGOS_CORE_IO: &str = include_str!("../logos_core/src/io.rs");
+// Phase 38: Standard library modules
+const LOGOS_CORE_FILE: &str = include_str!("../logos_core/src/file.rs");
+const LOGOS_CORE_TIME: &str = include_str!("../logos_core/src/time.rs");
+const LOGOS_CORE_RANDOM: &str = include_str!("../logos_core/src/random.rs");
+const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 
 use crate::analysis::DiscoveryPass;
 use crate::arena::Arena;
@@ -112,7 +117,7 @@ logos_core = {{ path = "./logos_core" }}
 }
 
 /// Copy the embedded logos_core crate to the output directory.
-fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
+pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
     let core_dir = output_dir.join("logos_core");
     let src_dir = core_dir.join("src");
 
@@ -125,6 +130,15 @@ fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
     fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
         .map_err(|e| CompileError::Io(e.to_string()))?;
     fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    // Phase 38: Write standard library modules
+    fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
         .map_err(|e| CompileError::Io(e.to_string()))?;
 
     Ok(())

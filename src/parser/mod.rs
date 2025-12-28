@@ -296,14 +296,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(TypeExpr::Named(qualified_sym));
         }
 
+        // Phase 38: Get param count from registry OR from built-in std types
+        let base_name = self.interner.resolve(base);
+        let param_count = self.get_generic_param_count(base)
+            .or_else(|| match base_name {
+                // Built-in generic types for Phase 38 std library
+                "Result" => Some(2),    // Result of T and E
+                "Option" => Some(1),    // Option of T
+                "Seq" | "List" | "Vec" => Some(1),  // Seq of T
+                "Map" | "HashMap" => Some(2), // Map of K and V
+                "Pair" => Some(2),      // Pair of A and B
+                "Triple" => Some(3),    // Triple of A and B and C
+                _ => None,
+            });
+
         // Check if it's a known generic type
-        if let Some(param_count) = self.get_generic_param_count(base) {
+        if let Some(count) = param_count {
             // Check for "of" or "from" separator
             if self.check_of_preposition() || self.check_preposition_is("from") {
                 self.advance(); // consume "of" or "from"
 
                 let mut params = Vec::new();
-                for i in 0..param_count {
+                for i in 0..count {
                     if i > 0 {
                         // Expect separator for params > 1: "and", "to", or ","
                         if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
@@ -319,8 +333,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        // Check if it's a known primitive type
-        if self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false) {
+        // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
+        let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+            || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+        if is_primitive {
             return Ok(TypeExpr::Primitive(base));
         }
 
@@ -1467,10 +1483,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Phase 32: Parse function definition after `## To` header
-    /// Syntax: add (a: Int) and (b: Int)
-    ///             body statements...
+    /// Phase 32/38: Parse function definition
+    /// Syntax: [native] name (a: Type) [and (b: Type)] [-> ReturnType]
+    ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
-        // Parse function name (first identifier after ## To)
+        // Phase 38: Check for native modifier
+        let is_native = if self.check(&TokenType::Native) {
+            self.advance(); // consume "native"
+            true
+        } else {
+            false
+        };
+
+        // Parse function name (first identifier after ## To [native])
         let name = self.expect_identifier()?;
 
         // Parse parameters: (name: Type) groups separated by "and"
@@ -1489,7 +1514,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume :
 
-            let param_type = self.expect_identifier()?;
+            // Phase 38: Parse full type expression instead of simple identifier
+            let param_type_expr = self.parse_type_expression()?;
+            let param_type = self.ctx.alloc_type_expr(param_type_expr);
 
             // Expect )
             if !self.check(&TokenType::RParen) {
@@ -1508,7 +1535,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        // Expect colon after parameter list
+        // Phase 38: Parse optional return type -> Type
+        let return_type = if self.check(&TokenType::Arrow) {
+            self.advance(); // consume ->
+            let ret_type_expr = self.parse_type_expression()?;
+            Some(self.ctx.alloc_type_expr(ret_type_expr))
+        } else {
+            None
+        };
+
+        // Phase 38: Native functions have no body
+        if is_native {
+            // Consume trailing period or newline if present
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+            if self.check(&TokenType::Newline) {
+                self.advance();
+            }
+
+            // Return with empty body
+            let empty_body = self.ctx.stmts.expect("imperative arenas not initialized")
+                .alloc_slice(std::iter::empty());
+
+            return Ok(Stmt::FunctionDef {
+                name,
+                params,
+                body: empty_body,
+                return_type,
+                is_native: true,
+            });
+        }
+
+        // Non-native: expect colon after parameter list / return type
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
@@ -1558,7 +1617,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             name,
             params,
             body,
-            return_type: None, // Will be inferred later
+            return_type,
+            is_native: false,
         })
     }
 
@@ -1835,18 +1895,38 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
             }
 
-            // Handle 'empty' when tokenized as a verb (lexicon includes "empty" as verb)
+            // Handle verbs in expression context:
+            // - "empty" is a literal Nothing
+            // - Other verbs can be function names (e.g., read, write)
             TokenType::Verb { lemma, .. } => {
                 let word = self.interner.resolve(*lemma).to_lowercase();
                 if word == "empty" {
                     self.advance();
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
-                // Other verbs aren't valid expressions in imperative context
-                Err(ParseError {
-                    kind: ParseErrorKind::ExpectedExpression,
-                    span: self.current_span(),
-                })
+                // Phase 38: Allow verbs to be used as function calls
+                let sym = token.lexeme;
+                self.advance();
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+                // Treat as identifier reference
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
+            }
+
+            // Phase 38: Adverbs as identifiers (e.g., "now" for time functions)
+            TokenType::TemporalAdverb(_) | TokenType::ScopalAdverb(_) | TokenType::Adverb(_) => {
+                let sym = token.lexeme;
+                self.advance();
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+                // Treat as identifier reference (e.g., "Let t be now.")
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
             }
 
             // Unified identifier handling - all identifier-like tokens get verified
@@ -2065,7 +2145,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Pronoun { .. } |  // "i", "it"
             TokenType::Items |           // "items"
             TokenType::Item |            // "item"
-            TokenType::Nothing => {      // "nothing"
+            TokenType::Nothing |         // "nothing"
+            // Phase 38: Adverbs can be function names (now, sleep, etc.)
+            TokenType::TemporalAdverb(_) |
+            TokenType::ScopalAdverb(_) |
+            TokenType::Adverb(_) => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
