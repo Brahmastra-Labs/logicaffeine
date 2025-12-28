@@ -39,6 +39,25 @@ pub enum DependencySpec {
     Detailed(DependencyDetail),
 }
 
+impl std::fmt::Display for DependencySpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DependencySpec::Simple(s) => write!(f, "{}", s),
+            DependencySpec::Detailed(d) => {
+                if let Some(v) = &d.version {
+                    write!(f, "{}", v)
+                } else if let Some(p) = &d.path {
+                    write!(f, "path:{}", p)
+                } else if let Some(g) = &d.git {
+                    write!(f, "git:{}", g)
+                } else {
+                    write!(f, "*")
+                }
+            }
+        }
+    }
+}
+
 /// Detailed dependency specification
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DependencyDetail {

@@ -88,6 +88,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 35: The Proof Bridge](#phase-35-the-proof-bridge)
     - [Phase 36: Module System](#phase-36-module-system)
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
+    - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1634,6 +1635,11 @@ add_test_description "tests/phase37_cli.rs" \
     "CLI build system with Largo.toml manifest. Commands: largo new <name>, largo build [--release], largo run, largo check. Manifest parsing with [package] and [dependencies] sections, project discovery via find_project_root()." \
     "largo new my_game && largo build"
 
+add_test_description "tests/phase38_stdlib.rs" \
+    "Phase 38: Standard Library (IO & System)" \
+    "Native function bindings with 'To native fn -> Type' syntax. Standard library modules: File (read/write), Time (now/sleep), Random (randomInt/randomFloat), Env (get/args). Wrapper generation for logos_core Rust functions." \
+    "## To native read (path: Text) -> Result of Text and Text"
+
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \
     "Aktionsart/Vendler Classes" \
@@ -2420,6 +2426,22 @@ add_file "logos_core/src/types.rs" \
 add_file "logos_core/src/io.rs" \
     "IO Functions" \
     "Standard IO per Spec §10.5: show() for display, read_line() for input, println/eprintln/print for output."
+
+add_file "logos_core/src/file.rs" \
+    "File I/O" \
+    "File system operations. read(path) returns Result<String, String>, write(path, content) writes text to file."
+
+add_file "logos_core/src/time.rs" \
+    "Time Functions" \
+    "Time utilities. now() returns current Unix timestamp as u64, sleep(ms) pauses execution."
+
+add_file "logos_core/src/random.rs" \
+    "Random Numbers" \
+    "Random number generation using rand crate. random_int(min, max) for integers, random_float() for 0.0-1.0 floats."
+
+add_file "logos_core/src/env.rs" \
+    "Environment" \
+    "Environment access. get(key) retrieves environment variable, args() returns command-line arguments as Vec<String>."
 
 # ==============================================================================
 # ==============================================================================

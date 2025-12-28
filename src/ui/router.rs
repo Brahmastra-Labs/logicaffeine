@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio};
+use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
@@ -38,6 +39,13 @@ pub enum Route {
 
     #[route("/workspace/:subject")]
     Workspace { subject: String },
+
+    // Phase 39: Package Registry
+    #[route("/registry")]
+    Registry {},
+
+    #[route("/registry/package/:name")]
+    PackageDetail { name: String },
 
     #[route("/:..route")]
     NotFound { route: Vec<String> },

@@ -1,20 +1,25 @@
 //! Phase 37: The LOGOS Build Tool (CLI)
 //!
 //! Tests for project creation, building, and execution.
+//!
+//! These tests require the `cli` feature to be enabled.
+
+#![cfg(feature = "cli")]
 
 use std::fs;
 use tempfile::tempdir;
+use toml;
 
 use logos::project::build::{build, find_project_root, BuildConfig};
 use logos::project::manifest::Manifest;
 
 #[test]
 fn test_manifest_parse_minimal() {
-    let toml = r#"
+    let toml_str = r#"
 [package]
 name = "myproject"
 "#;
-    let manifest: Manifest = toml::from_str(toml).expect("Should parse minimal manifest");
+    let manifest: Manifest = toml::from_str(toml_str).expect("Should parse minimal manifest");
     assert_eq!(manifest.package.name, "myproject");
     assert_eq!(manifest.package.version, "0.1.0"); // default
     assert_eq!(manifest.package.entry, "src/main.lg"); // default
@@ -22,7 +27,7 @@ name = "myproject"
 
 #[test]
 fn test_manifest_parse_full() {
-    let toml = r#"
+    let toml_str = r#"
 [package]
 name = "myproject"
 version = "1.0.0"
@@ -33,7 +38,7 @@ authors = ["Test Author"]
 [dependencies]
 std = "logos:std"
 "#;
-    let manifest: Manifest = toml::from_str(toml).expect("Should parse full manifest");
+    let manifest: Manifest = toml::from_str(toml_str).expect("Should parse full manifest");
     assert_eq!(manifest.package.name, "myproject");
     assert_eq!(manifest.package.version, "1.0.0");
     assert_eq!(manifest.package.entry, "src/app.lg");
@@ -194,13 +199,13 @@ version = "2.0.0"
 
 #[test]
 fn test_path_dependency_parsing() {
-    let toml = r#"
+    let toml_str = r#"
 [package]
 name = "with_deps"
 
 [dependencies]
 math = { path = "./math" }
 "#;
-    let manifest: Manifest = toml::from_str(toml).expect("Should parse path deps");
+    let manifest: Manifest = toml::from_str(toml_str).expect("Should parse path deps");
     assert!(!manifest.dependencies.is_empty());
 }

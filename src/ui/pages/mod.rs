@@ -4,6 +4,7 @@ pub mod learn;
 pub mod lesson;
 pub mod pricing;
 pub mod privacy;
+pub mod registry;
 pub mod review;
 pub mod roadmap;
 pub mod success;

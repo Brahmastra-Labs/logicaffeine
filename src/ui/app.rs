@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
-use crate::ui::state::LicenseState;
+use crate::ui::state::{LicenseState, RegistryAuthState};
 
 const GLOBAL_STYLE: &str = r#"
 * {
@@ -135,6 +135,7 @@ a {
 
 pub fn App() -> Element {
     let license_state = use_context_provider(LicenseState::new);
+    let _registry_auth = use_context_provider(RegistryAuthState::new);
 
     use_effect(move || {
         let mut license_state = license_state.clone();

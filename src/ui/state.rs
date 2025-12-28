@@ -252,6 +252,136 @@ impl AppState {
     }
 }
 
+// ============================================================
+// Phase 39: GitHub Auth State for Package Registry
+// ============================================================
+
+const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct GitHubUser {
+    pub id: String,
+    pub login: String,
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct RegistryAuthState {
+    pub user: Signal<Option<GitHubUser>>,
+    pub token: Signal<Option<String>>,
+    pub is_loading: Signal<bool>,
+}
+
+impl RegistryAuthState {
+    pub fn new() -> Self {
+        let (token, user) = load_registry_auth_from_storage();
+        Self {
+            user: Signal::new(user),
+            token: Signal::new(token),
+            is_loading: Signal::new(false),
+        }
+    }
+
+    pub fn is_authenticated(&self) -> bool {
+        self.token.read().is_some()
+    }
+
+    pub fn login(&mut self, token: String, user: GitHubUser) {
+        self.token.set(Some(token.clone()));
+        self.user.set(Some(user.clone()));
+        save_registry_auth_to_storage(&token, &user);
+    }
+
+    pub fn logout(&mut self) {
+        self.token.set(None);
+        self.user.set(None);
+        clear_registry_auth_from_storage();
+    }
+
+    pub fn get_auth_url() -> String {
+        format!("{}/auth/github", REGISTRY_API_URL)
+    }
+}
+
+fn load_registry_auth_from_storage() -> (Option<String>, Option<GitHubUser>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let token = storage.get_item("logos_registry_token").ok().flatten();
+                let user_json = storage.get_item("logos_registry_user").ok().flatten();
+                let user = user_json.and_then(|j| serde_json::from_str(&j).ok());
+                return (token, user);
+            }
+        }
+    }
+    (None, None)
+}
+
+fn save_registry_auth_to_storage(token: &str, user: &GitHubUser) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.set_item("logos_registry_token", token);
+                if let Ok(json) = serde_json::to_string(user) {
+                    let _ = storage.set_item("logos_registry_user", &json);
+                }
+            }
+        }
+    }
+}
+
+fn clear_registry_auth_from_storage() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.remove_item("logos_registry_token");
+                let _ = storage.remove_item("logos_registry_user");
+            }
+        }
+    }
+}
+
+// Package types for registry
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RegistryPackage {
+    pub name: String,
+    pub description: Option<String>,
+    pub latest_version: Option<String>,
+    pub owner: String,
+    pub owner_avatar: Option<String>,
+    pub verified: bool,
+    pub downloads: u64,
+    pub keywords: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PackageVersion {
+    pub version: String,
+    pub published_at: String,
+    pub size: u64,
+    pub yanked: bool,
+}
+
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PackageDetails {
+    pub name: String,
+    pub description: Option<String>,
+    pub owner: String,
+    pub owner_avatar: Option<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+    pub keywords: Vec<String>,
+    pub verified: bool,
+    pub downloads: u64,
+    pub readme: Option<String>,
+    pub versions: Vec<PackageVersion>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
