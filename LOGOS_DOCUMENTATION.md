@@ -72,6 +72,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 32: Function Definitions & Inference](#phase-32-function-definitions--inference)
     - [Phase 33: Sum Types & Pattern Matching](#phase-33-sum-types--pattern-matching)
     - [Phase 34: User-Defined Generics](#phase-34-user-defined-generics)
+    - [Phase 35: The Proof Bridge](#phase-35-the-proof-bridge)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1744,6 +1745,26 @@ Generic type parameters with 'of [T]' syntax. Single-param (A Box of [T] has:), 
 
 ---
 
+#### Phase 35: The Proof Bridge
+
+**File:** `tests/phase35_proofs.rs`
+
+Proof assertions with 'Trust that P because "reason".' syntax. Generates debug_assert! with justification comment. Includes variable 'a' disambiguation, number literals in propositions, irregular comparatives (less/more/better/worse), and because-string lookahead guards.
+
+**Example:** Trust that n is greater than 0 because "precondition".
+
+---
+
+#### Phase 35: Respectively Coordination
+
+**File:** `tests/phase35_respectively.rs`
+
+Pairwise coordination with 'respectively' adverb. Matches coordinated subjects with coordinated objects pairwise (John and Mary saw Tom and Jane respectively → See(J,T) ∧ See(M,J)). Includes RespectivelyLengthMismatch error for mismatched counts, dual code paths for pronoun and noun phrase subjects.
+
+**Example:** John and Mary saw Tom and Jane respectively.
+
+---
+
 #### Aktionsart/Vendler Classes
 
 **File:** `tests/aktionsart_tests.rs`
@@ -1788,28 +1809,28 @@ Comprehensive tests covering quantifiers, modals, temporal logic, relative claus
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1691 lines
-Parser (ast/, parser/):               10375 lines
+Lexer (token.rs, lexer.rs):           1692 lines
+Parser (ast/, parser/):               10659 lines
 Transpilation:                        1030 lines
 Code Generation:                      986 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            809 lines
-Support Infrastructure:               4133 lines
+Type Analysis (analysis/):            1172 lines
+Support Infrastructure:               4152 lines
 Desktop UI:                               8841 lines
 Entry Point:                                 3 lines
 ```
 
 ### Totals
 ```
-Source lines:        34306
-Test lines:           9028
-Total Rust lines: 43334
+Source lines:        35210
+Test lines:           9406
+Total Rust lines: 44616
 ```
 
 ### File Counts
 ```
-Source files: 85
-Test files:   64
+Source files: 88
+Test files:   66
 ```
 ## Lexicon Data
 
@@ -1882,7 +1903,8 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     "repeat": "Repeat",
     "for": "For",
     "from": "From",
-    "trust": "Trust"
+    "trust": "Trust",
+    "respectively": "Respectively"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },
@@ -2765,6 +2787,7 @@ pub enum TokenType {
     Equals,
     Reflexive,
     Reciprocal,
+    Respectively,  // Phase 35: Pairwise list coordination
 
     // Pronouns (Discourse)
     Pronoun {
@@ -7215,8 +7238,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Handle plural subjects: "John and Mary verb"
         if self.check(&TokenType::And) {
-            if let Some(result) = self.try_parse_plural_subject(&subject) {
-                return Ok(result);
+            match self.try_parse_plural_subject(&subject) {
+                Ok(Some(result)) => return Ok(result),
+                Ok(None) => {} // Not a plural subject, continue
+                Err(e) => return Err(e), // Semantic error (e.g., respectively mismatch)
             }
         }
 
@@ -8834,9 +8859,61 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if let Some(adj) = object.superlative {
                     object_superlative = Some((adj, object.noun));
                 }
+
+                // Collect all objects for potential "respectively" handling
+                let mut all_objects: Vec<Symbol> = vec![object.noun];
+
+                // Check for coordinated objects: "Tom and Jerry and Bob"
+                while self.check(&TokenType::And) {
+                    let saved = self.current;
+                    self.advance(); // consume "and"
+                    if self.check_content_word() || self.check_article() {
+                        let next_obj = match self.parse_noun_phrase(false) {
+                            Ok(np) => np,
+                            Err(_) => {
+                                self.current = saved;
+                                break;
+                            }
+                        };
+                        all_objects.push(next_obj.noun);
+                    } else {
+                        self.current = saved;
+                        break;
+                    }
+                }
+
+                // Check for "respectively" with single subject
+                if self.check(&TokenType::Respectively) {
+                    let respectively_span = self.peek().span;
+                    // Single subject with multiple objects + respectively = error
+                    if all_objects.len() > 1 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::RespectivelyLengthMismatch {
+                                subject_count: 1,
+                                object_count: all_objects.len(),
+                            },
+                            span: respectively_span,
+                        });
+                    }
+                    // Single subject, single object + respectively is valid (trivially pairwise)
+                    self.advance(); // consume "respectively"
+                }
+
+                // Use the first object (or only object) for normal processing
                 let term = self.noun_phrase_to_term(&object);
                 object_term = Some(term.clone());
-                args.push(term);
+                args.push(term.clone());
+
+                // For multiple objects without "respectively", use group semantics
+                if all_objects.len() > 1 {
+                    let obj_members: Vec<Term<'a>> = all_objects.iter()
+                        .map(|o| Term::Constant(*o))
+                        .collect();
+                    let obj_group = Term::Group(self.ctx.terms.alloc_slice(obj_members));
+                    // Replace the single object with the group
+                    args.pop();
+                    args.push(obj_group);
+                }
 
                 // Check for distanced phrasal verb particle: "gave the book up"
                 if let TokenType::Particle(particle_sym) = self.peek().kind {
@@ -12084,18 +12161,22 @@ use crate::ast::{
     ThematicRole,
 };
 use crate::context::{Gender, Number};
+use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
 use crate::lexicon::{Aspect, Definiteness, Time};
-use crate::token::{FocusKind, TokenType};
+use crate::token::{FocusKind, Span, TokenType};
 
 use crate::ast::Stmt;
 
 pub trait LogicVerbParsing<'a, 'ctx, 'int> {
     fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol)
         -> ParseResult<&'a LogicExpr<'a>>;
+    /// Try to parse a plural subject construction like "John and Mary verb".
+    /// Returns Ok(Some(expr)) if successful, Ok(None) if not a plural subject (backtrack),
+    /// or Err if there's a semantic error (e.g., "respectively" with mismatched lengths).
     fn try_parse_plural_subject(&mut self, first_subject: &NounPhrase<'a>)
-        -> Option<&'a LogicExpr<'a>>;
+        -> Result<Option<&'a LogicExpr<'a>>, ParseError>;
     fn parse_control_structure(
         &mut self,
         subject: &NounPhrase<'a>,
@@ -12103,6 +12184,21 @@ pub trait LogicVerbParsing<'a, 'ctx, 'int> {
         verb_time: Time,
     ) -> ParseResult<&'a LogicExpr<'a>>;
     fn is_control_verb(&self, verb: Symbol) -> bool;
+    /// Build a group predicate for intransitive verbs with multiple subjects
+    fn build_group_predicate(
+        &mut self,
+        subjects: &[Symbol],
+        verb: Symbol,
+        verb_time: Time,
+    ) -> &'a LogicExpr<'a>;
+    /// Build a transitive predicate with group subject and group object
+    fn build_group_transitive(
+        &mut self,
+        subjects: &[Symbol],
+        objects: &[Symbol],
+        verb: Symbol,
+        verb_time: Time,
+    ) -> &'a LogicExpr<'a>;
 }
 
 pub trait ImperativeVerbParsing<'a, 'ctx, 'int> {
@@ -12841,9 +12937,60 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     });
                 }
 
-                let term = Term::Constant(potential_object.noun);
+                // Collect all objects for potential "respectively" handling
+                let mut all_objects: Vec<Symbol> = vec![potential_object.noun];
+
+                // Check for coordinated objects: "Tom and Jerry and Bob"
+                while self.check(&TokenType::And) {
+                    let saved = self.current;
+                    self.advance(); // consume "and"
+                    if self.check_content_word() || self.check_article() {
+                        let next_obj = match self.parse_noun_phrase(false) {
+                            Ok(np) => np,
+                            Err(_) => {
+                                self.current = saved;
+                                break;
+                            }
+                        };
+                        all_objects.push(next_obj.noun);
+                    } else {
+                        self.current = saved;
+                        break;
+                    }
+                }
+
+                // Check for "respectively" with single subject
+                if self.check(&TokenType::Respectively) {
+                    let respectively_span = self.peek().span;
+                    // Single subject with multiple objects + respectively = error
+                    if all_objects.len() > 1 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::RespectivelyLengthMismatch {
+                                subject_count: 1,
+                                object_count: all_objects.len(),
+                            },
+                            span: respectively_span,
+                        });
+                    }
+                    // Single subject, single object + respectively is valid (trivially pairwise)
+                    self.advance(); // consume "respectively"
+                }
+
+                // Use the first object (or only object) for normal processing
+                let term = Term::Constant(all_objects[0]);
                 object_term = Some(term);
                 args.push(term);
+
+                // For multiple objects without "respectively", use group semantics
+                if all_objects.len() > 1 {
+                    let obj_members: Vec<Term<'a>> = all_objects.iter()
+                        .map(|o| Term::Constant(*o))
+                        .collect();
+                    let obj_group = Term::Group(self.ctx.terms.alloc_slice(obj_members));
+                    // Replace the single object with the group
+                    args.pop();
+                    args.push(obj_group);
+                }
 
                 let verb_str = self.interner.resolve(verb);
                 if Lexer::is_ditransitive_verb(verb_str)
@@ -13030,39 +13177,66 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
     fn try_parse_plural_subject(
         &mut self,
         first_subject: &NounPhrase<'a>,
-    ) -> Option<&'a LogicExpr<'a>> {
+    ) -> Result<Option<&'a LogicExpr<'a>>, ParseError> {
         let saved_pos = self.current;
 
+        // Consume the 'and' we already peeked
         self.advance();
 
         if !self.check_content_word() {
             self.current = saved_pos;
-            return None;
+            return Ok(None);
         }
 
-        let second_subject = self.parse_noun_phrase(true).ok()?;
+        // Collect all subjects: "John and Mary and Sue"
+        let mut subjects: Vec<Symbol> = vec![first_subject.noun];
+
+        loop {
+            if !self.check_content_word() {
+                break;
+            }
+            let next_subject = match self.parse_noun_phrase(true) {
+                Ok(np) => np,
+                Err(_) => {
+                    self.current = saved_pos;
+                    return Ok(None);
+                }
+            };
+            subjects.push(next_subject.noun);
+
+            if self.check(&TokenType::And) {
+                self.advance();
+            } else {
+                break;
+            }
+        }
 
         if !self.check_verb() {
             self.current = saved_pos;
-            return None;
+            return Ok(None);
         }
 
         let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
 
+        // Check for reciprocal: "John and Mary kicked each other"
         if self.check(&TokenType::Reciprocal) {
             self.advance();
+            if subjects.len() != 2 {
+                self.current = saved_pos;
+                return Ok(None);
+            }
             let pred1 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([
-                    Term::Constant(first_subject.noun),
-                    Term::Constant(second_subject.noun),
+                    Term::Constant(subjects[0]),
+                    Term::Constant(subjects[1]),
                 ]),
             });
             let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([
-                    Term::Constant(second_subject.noun),
-                    Term::Constant(first_subject.noun),
+                    Term::Constant(subjects[1]),
+                    Term::Constant(subjects[0]),
                 ]),
             });
             let expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -13082,24 +13256,123 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 }),
                 _ => expr,
             };
-            return Some(with_time);
+            return Ok(Some(with_time));
         }
 
-        let first_sym = self.interner.resolve(first_subject.noun);
-        let second_sym = self.interner.resolve(second_subject.noun);
-        let group_name = format!("{}⊕{}", first_sym, second_sym);
-        self.register_entity(&group_name, "group", Gender::Unknown, Number::Plural);
+        // Check for objects (for transitive verbs with "respectively")
+        let mut objects: Vec<Symbol> = Vec::new();
+        if self.check_content_word() || self.check_article() {
+            // Parse first object
+            let first_obj = match self.parse_noun_phrase(false) {
+                Ok(np) => np,
+                Err(_) => {
+                    // No objects, continue with intransitive
+                    return Ok(Some(self.build_group_predicate(&subjects, verb, verb_time)));
+                }
+            };
+            objects.push(first_obj.noun);
 
-        let group_members = self.ctx.terms.alloc_slice([
-            Term::Constant(first_subject.noun),
-            Term::Constant(second_subject.noun),
-        ]);
+            // Parse additional objects: "Tom and Jerry and Bob"
+            while self.check(&TokenType::And) {
+                self.advance();
+                if self.check_content_word() || self.check_article() {
+                    let next_obj = match self.parse_noun_phrase(false) {
+                        Ok(np) => np,
+                        Err(_) => break,
+                    };
+                    objects.push(next_obj.noun);
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Check for "respectively" - triggers pairwise interpretation
+        if self.check(&TokenType::Respectively) {
+            let respectively_span = self.peek().span;
+            self.advance(); // consume "respectively"
+
+            if subjects.len() != objects.len() {
+                return Err(ParseError {
+                    kind: ParseErrorKind::RespectivelyLengthMismatch {
+                        subject_count: subjects.len(),
+                        object_count: objects.len(),
+                    },
+                    span: respectively_span,
+                });
+            }
+
+            // Build pairwise predicates: See(J,T) ∧ See(M,J) ∧ ...
+            let mut conjuncts: Vec<&'a LogicExpr<'a>> = Vec::new();
+            for (subj, obj) in subjects.iter().zip(objects.iter()) {
+                let event_var = self.get_event_var();
+                let roles = vec![
+                    (ThematicRole::Agent, Term::Constant(*subj)),
+                    (ThematicRole::Theme, Term::Constant(*obj)),
+                ];
+                let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self.ctx.roles.alloc_slice(roles),
+                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                })));
+                conjuncts.push(neo_event);
+            }
+
+            // Fold conjuncts into binary conjunction tree
+            let mut result = conjuncts[0];
+            for conjunct in &conjuncts[1..] {
+                result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: result,
+                    op: TokenType::And,
+                    right: *conjunct,
+                });
+            }
+
+            // Apply temporal modifier
+            let with_time = match verb_time {
+                Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Past,
+                    body: result,
+                }),
+                Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Future,
+                    body: result,
+                }),
+                _ => result,
+            };
+
+            return Ok(Some(with_time));
+        }
+
+        // No "respectively" - use group semantics
+        if objects.is_empty() {
+            // Intransitive: group subject
+            Ok(Some(self.build_group_predicate(&subjects, verb, verb_time)))
+        } else {
+            // Transitive without "respectively": group subject, group object
+            Ok(Some(self.build_group_transitive(&subjects, &objects, verb, verb_time)))
+        }
+    }
+
+    /// Build a group predicate for intransitive verbs
+    fn build_group_predicate(
+        &mut self,
+        subjects: &[Symbol],
+        verb: Symbol,
+        verb_time: Time,
+    ) -> &'a LogicExpr<'a> {
+        let group_members: Vec<Term<'a>> = subjects.iter()
+            .map(|s| Term::Constant(*s))
+            .collect();
+        let group_members_slice = self.ctx.terms.alloc_slice(group_members);
+
         let expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
-            args: self.ctx.terms.alloc_slice([Term::Group(group_members)]),
+            args: self.ctx.terms.alloc_slice([Term::Group(group_members_slice)]),
         });
 
-        let with_time = match verb_time {
+        match verb_time {
             Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
                 operator: TemporalOperator::Past,
                 body: expr,
@@ -13109,9 +13382,43 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 body: expr,
             }),
             _ => expr,
-        };
+        }
+    }
 
-        Some(with_time)
+    /// Build a transitive predicate with group subject and group object
+    fn build_group_transitive(
+        &mut self,
+        subjects: &[Symbol],
+        objects: &[Symbol],
+        verb: Symbol,
+        verb_time: Time,
+    ) -> &'a LogicExpr<'a> {
+        let subj_members: Vec<Term<'a>> = subjects.iter()
+            .map(|s| Term::Constant(*s))
+            .collect();
+        let obj_members: Vec<Term<'a>> = objects.iter()
+            .map(|o| Term::Constant(*o))
+            .collect();
+
+        let subj_group = Term::Group(self.ctx.terms.alloc_slice(subj_members));
+        let obj_group = Term::Group(self.ctx.terms.alloc_slice(obj_members));
+
+        let expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: verb,
+            args: self.ctx.terms.alloc_slice([subj_group, obj_group]),
+        });
+
+        match verb_time {
+            Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: TemporalOperator::Past,
+                body: expr,
+            }),
+            Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                operator: TemporalOperator::Future,
+                body: expr,
+            }),
+            _ => expr,
+        }
     }
 
     fn parse_control_structure(
@@ -19205,9 +19512,14 @@ Entry point for type analysis. Re-exports TypeRegistry and DiscoveryPass for two
 ```rust
 pub mod registry;
 pub mod discovery;
+pub mod dependencies;
 
 pub use registry::{TypeRegistry, TypeDef};
 pub use discovery::DiscoveryPass;
+pub use dependencies::{scan_dependencies, Dependency};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use discovery::discover_with_imports;
 
 ```
 
@@ -19393,6 +19705,12 @@ First pass of two-pass compilation. DiscoveryPass scans source for ## Definition
 use crate::token::{Token, TokenType, BlockType};
 use crate::intern::{Interner, Symbol};
 use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
+use super::dependencies::scan_dependencies;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::project::Loader;
 
 /// Discovery pass that scans tokens before main parsing to build a TypeRegistry.
 ///
@@ -19981,6 +20299,89 @@ impl<'a> DiscoveryPass<'a> {
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))
         }
+    }
+}
+
+/// Phase 36: Recursive discovery with module imports.
+///
+/// This function scans a LOGOS source file for:
+/// 1. Dependencies declared in the Abstract (Markdown links)
+/// 2. Type definitions in ## Definition blocks
+///
+/// Dependencies are loaded recursively, and their types are merged into
+/// the registry with namespace prefixes (e.g., "Geometry::Point").
+#[cfg(not(target_arch = "wasm32"))]
+pub fn discover_with_imports(
+    file_path: &Path,
+    source: &str,
+    loader: &mut Loader,
+    interner: &mut Interner,
+) -> Result<TypeRegistry, String> {
+    use crate::Lexer;
+    use crate::mwe;
+
+    let mut registry = TypeRegistry::with_primitives(interner);
+
+    // 1. Scan for dependencies in the abstract
+    let deps = scan_dependencies(source);
+
+    // 2. For each dependency, recursively discover types
+    for dep in deps {
+        let module_source = loader.resolve(file_path, &dep.uri)?;
+        let dep_content = module_source.content.clone();
+        let dep_path = module_source.path.clone();
+
+        // Recursively discover types in the dependency
+        let dep_registry = discover_with_imports(
+            &dep_path,
+            &dep_content,
+            loader,
+            interner
+        )?;
+
+        // Merge with namespace prefix
+        merge_registry(&mut registry, &dep.alias, dep_registry, interner);
+    }
+
+    // 3. Scan local definitions using existing DiscoveryPass
+    let mut lexer = Lexer::new(source, interner);
+    let tokens = lexer.tokenize();
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, interner);
+
+    let mut discovery = DiscoveryPass::new(&tokens, interner);
+    let local_registry = discovery.run();
+
+    // Merge local types (without namespace prefix)
+    for (sym, def) in local_registry.iter_types() {
+        // Skip primitives (already in registry)
+        let name = interner.resolve(*sym);
+        if !["Int", "Nat", "Text", "Bool", "Real", "Unit"].contains(&name) {
+            registry.register(*sym, def.clone());
+        }
+    }
+
+    Ok(registry)
+}
+
+/// Merges types from a dependency registry into the main registry with namespace prefix.
+#[cfg(not(target_arch = "wasm32"))]
+fn merge_registry(
+    main: &mut TypeRegistry,
+    namespace: &str,
+    dep: TypeRegistry,
+    interner: &mut Interner,
+) {
+    for (sym, def) in dep.iter_types() {
+        let name = interner.resolve(*sym);
+        // Skip primitives
+        if ["Int", "Nat", "Text", "Bool", "Real", "Unit"].contains(&name) {
+            continue;
+        }
+        // Create namespaced symbol: "Geometry::Point"
+        let qualified = format!("{}::{}", namespace, name);
+        let new_sym = interner.intern(&qualified);
+        main.register(new_sym, def.clone());
     }
 }
 
@@ -21112,6 +21513,8 @@ pub mod ontology;
 pub mod parser;
 pub mod pragmatics;
 pub mod progress;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod project;
 pub mod runtime_lexicon;
 pub mod semantics;
 pub mod registry;
@@ -21129,7 +21532,11 @@ pub mod visitor;
 
 pub mod test_utils;
 
-pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass};
+pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies, Dependency};
+#[cfg(not(target_arch = "wasm32"))]
+pub use analysis::discover_with_imports;
+#[cfg(not(target_arch = "wasm32"))]
+pub use project::{Loader, ModuleSource};
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
@@ -24281,6 +24688,11 @@ pub enum ParseErrorKind {
     ExpectedKeyword { keyword: String },
     ExpectedExpression,
     ExpectedIdentifier,
+    // Phase 35: Respectively operator
+    RespectivelyLengthMismatch {
+        subject_count: usize,
+        object_count: usize,
+    },
 }
 
 #[cold]
@@ -24457,6 +24869,14 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
             format!(
                 "At position {}, I expected an identifier (variable name).",
                 pos
+            )
+        }
+        ParseErrorKind::RespectivelyLengthMismatch { subject_count, object_count } => {
+            format!(
+                "At position {}, 'respectively' requires equal-length lists. \
+                The subject has {} element(s) and the object has {} element(s). \
+                Each subject must pair with exactly one object.",
+                pos, subject_count, object_count
             )
         }
     }
@@ -41298,6 +41718,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "For" => "crate::token::TokenType::For",
             "In" => "crate::token::TokenType::In",
             "From" => "crate::token::TokenType::From",
+            "Respectively" => "crate::token::TokenType::Respectively",
             _ => continue,
         };
         writeln!(file, "        \"{}\" => Some({}),", word, token_expr).unwrap();
@@ -42089,10 +42510,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Sun Dec 28 05:19:07 CST 2025
+- **Generated:** Sun Dec 28 05:53:03 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 358bcdf
+- **Git Commit:** 891ba23
 - **Documentation Size:** 1.4M
 
 ---

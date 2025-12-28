@@ -115,6 +115,11 @@ pub enum ParseErrorKind {
     ExpectedKeyword { keyword: String },
     ExpectedExpression,
     ExpectedIdentifier,
+    // Phase 35: Respectively operator
+    RespectivelyLengthMismatch {
+        subject_count: usize,
+        object_count: usize,
+    },
 }
 
 #[cold]
@@ -291,6 +296,14 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
             format!(
                 "At position {}, I expected an identifier (variable name).",
                 pos
+            )
+        }
+        ParseErrorKind::RespectivelyLengthMismatch { subject_count, object_count } => {
+            format!(
+                "At position {}, 'respectively' requires equal-length lists. \
+                The subject has {} element(s) and the object has {} element(s). \
+                Each subject must pair with exactly one object.",
+                pos, subject_count, object_count
             )
         }
     }

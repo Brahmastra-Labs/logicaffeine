@@ -144,9 +144,12 @@ impl<'a> Lexer<'a> {
                         word_start = header_start + (j - char_idx);
                     } else {
                         // Single # - treat as comment, skip to end of line
-                        while char_idx + 1 < chars.len() && chars[char_idx + 1] != '\n' {
+                        // Count how many chars to skip (without modifying char_idx here -
+                        // the main loop's skip handler will increment it)
+                        let mut look_ahead = char_idx + 1;
+                        while look_ahead < chars.len() && chars[look_ahead] != '\n' {
                             skip_count += 1;
-                            char_idx += 1;
+                            look_ahead += 1;
                         }
                         if !current_word.is_empty() {
                             items.push(WordItem {
@@ -157,7 +160,7 @@ impl<'a> Lexer<'a> {
                                 punct_pos: None,
                             });
                         }
-                        word_start = next_pos;
+                        word_start = look_ahead + 1; // Start after the newline
                     }
                 }
                 // Phase 33: String literals "hello world"
@@ -842,6 +845,7 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
             // Phase 33: Sum type definition (after "is")
             "either" => return TokenType::Either,

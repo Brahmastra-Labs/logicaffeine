@@ -53,7 +53,8 @@
     "repeat": "Repeat",
     "for": "For",
     "from": "From",
-    "trust": "Trust"
+    "trust": "Trust",
+    "respectively": "Respectively"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },

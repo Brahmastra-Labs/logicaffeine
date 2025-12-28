@@ -271,12 +271,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse a type expression: Int, Text, List of Int, Result of Int and Text.
+    /// Phase 36: Also supports "Type from Module" for qualified imports.
     /// Uses TypeRegistry to distinguish primitives from generics.
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
 
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
         let base = self.consume_type_name()?;
+
+        // Phase 36: Check for "from Module" qualification
+        if self.check(&TokenType::From) {
+            self.advance(); // consume "from"
+            let module_name = self.consume_type_name()?;
+            let module_str = self.interner.resolve(module_name);
+            let base_str = self.interner.resolve(base);
+            let qualified = format!("{}::{}", module_str, base_str);
+            let qualified_sym = self.interner.intern(&qualified);
+
+            // Check if qualified type exists in registry
+            if self.type_registry.as_ref().map(|r| r.is_type(qualified_sym)).unwrap_or(false) {
+                return Ok(TypeExpr::Named(qualified_sym));
+            }
+            // Even if not found, return the qualified name for error reporting
+            return Ok(TypeExpr::Named(qualified_sym));
+        }
 
         // Check if it's a known generic type
         if let Some(param_count) = self.get_generic_param_count(base) {
@@ -1555,7 +1573,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 34: Extended for generic instantiation "new Box of Int"
             TokenType::New => {
                 self.advance(); // consume "new"
-                let type_name = self.expect_identifier()?;
+                let base_type_name = self.expect_identifier()?;
+
+                // Phase 36: Check for "from Module" qualification
+                let type_name = if self.check(&TokenType::From) {
+                    self.advance(); // consume "from"
+                    let module_name = self.expect_identifier()?;
+                    let module_str = self.interner.resolve(module_name);
+                    let base_str = self.interner.resolve(base_type_name);
+                    let qualified = format!("{}::{}", module_str, base_str);
+                    self.interner.intern(&qualified)
+                } else {
+                    base_type_name
+                };
 
                 // Phase 33: Check if this is a variant constructor
                 if let Some(enum_name) = self.find_variant(type_name) {
@@ -1588,7 +1618,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if matches!(next.kind, TokenType::New) {
                         self.advance(); // consume article "a"/"an"
                         self.advance(); // consume "new"
-                        let type_name = self.expect_identifier()?;
+                        let base_type_name = self.expect_identifier()?;
+
+                        // Phase 36: Check for "from Module" qualification
+                        let type_name = if self.check(&TokenType::From) {
+                            self.advance(); // consume "from"
+                            let module_name = self.expect_identifier()?;
+                            let module_str = self.interner.resolve(module_name);
+                            let base_str = self.interner.resolve(base_type_name);
+                            let qualified = format!("{}::{}", module_str, base_str);
+                            self.interner.intern(&qualified)
+                        } else {
+                            base_type_name
+                        };
 
                         // Phase 33: Check if this is a variant constructor
                         if let Some(enum_name) = self.find_variant(type_name) {
@@ -2206,8 +2248,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Handle plural subjects: "John and Mary verb"
         if self.check(&TokenType::And) {
-            if let Some(result) = self.try_parse_plural_subject(&subject) {
-                return Ok(result);
+            match self.try_parse_plural_subject(&subject) {
+                Ok(Some(result)) => return Ok(result),
+                Ok(None) => {} // Not a plural subject, continue
+                Err(e) => return Err(e), // Semantic error (e.g., respectively mismatch)
             }
         }
 
@@ -3825,9 +3869,61 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 if let Some(adj) = object.superlative {
                     object_superlative = Some((adj, object.noun));
                 }
+
+                // Collect all objects for potential "respectively" handling
+                let mut all_objects: Vec<Symbol> = vec![object.noun];
+
+                // Check for coordinated objects: "Tom and Jerry and Bob"
+                while self.check(&TokenType::And) {
+                    let saved = self.current;
+                    self.advance(); // consume "and"
+                    if self.check_content_word() || self.check_article() {
+                        let next_obj = match self.parse_noun_phrase(false) {
+                            Ok(np) => np,
+                            Err(_) => {
+                                self.current = saved;
+                                break;
+                            }
+                        };
+                        all_objects.push(next_obj.noun);
+                    } else {
+                        self.current = saved;
+                        break;
+                    }
+                }
+
+                // Check for "respectively" with single subject
+                if self.check(&TokenType::Respectively) {
+                    let respectively_span = self.peek().span;
+                    // Single subject with multiple objects + respectively = error
+                    if all_objects.len() > 1 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::RespectivelyLengthMismatch {
+                                subject_count: 1,
+                                object_count: all_objects.len(),
+                            },
+                            span: respectively_span,
+                        });
+                    }
+                    // Single subject, single object + respectively is valid (trivially pairwise)
+                    self.advance(); // consume "respectively"
+                }
+
+                // Use the first object (or only object) for normal processing
                 let term = self.noun_phrase_to_term(&object);
                 object_term = Some(term.clone());
-                args.push(term);
+                args.push(term.clone());
+
+                // For multiple objects without "respectively", use group semantics
+                if all_objects.len() > 1 {
+                    let obj_members: Vec<Term<'a>> = all_objects.iter()
+                        .map(|o| Term::Constant(*o))
+                        .collect();
+                    let obj_group = Term::Group(self.ctx.terms.alloc_slice(obj_members));
+                    // Replace the single object with the group
+                    args.pop();
+                    args.push(obj_group);
+                }
 
                 // Check for distanced phrasal verb particle: "gave the book up"
                 if let TokenType::Particle(particle_sym) = self.peek().kind {

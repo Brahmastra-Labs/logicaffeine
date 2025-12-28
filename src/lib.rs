@@ -28,6 +28,8 @@ pub mod ontology;
 pub mod parser;
 pub mod pragmatics;
 pub mod progress;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod project;
 pub mod runtime_lexicon;
 pub mod semantics;
 pub mod registry;
@@ -45,7 +47,11 @@ pub mod visitor;
 
 pub mod test_utils;
 
-pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass};
+pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies, Dependency};
+#[cfg(not(target_arch = "wasm32"))]
+pub use analysis::discover_with_imports;
+#[cfg(not(target_arch = "wasm32"))]
+pub use project::{Loader, ModuleSource};
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};

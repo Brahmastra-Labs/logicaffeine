@@ -164,9 +164,62 @@ pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, Compil
 }
 
 /// Compile a LOGOS source file.
+/// For single-file compilation without dependencies.
 pub fn compile_file(path: &Path) -> Result<String, CompileError> {
     let source = fs::read_to_string(path).map_err(|e| CompileError::Io(e.to_string()))?;
     compile_to_rust(&source).map_err(CompileError::Parse)
+}
+
+/// Phase 36: Compile a LOGOS project with dependencies.
+/// Scans the Abstract for [Alias](URI) links and loads dependencies recursively.
+pub fn compile_project(path: &Path) -> Result<String, CompileError> {
+    use crate::analysis::discover_with_imports;
+    use crate::project::Loader;
+
+    let source = fs::read_to_string(path).map_err(|e| CompileError::Io(e.to_string()))?;
+    let root_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+
+    let mut interner = Interner::new();
+    let mut loader = Loader::new(root_dir);
+
+    // Pass 1: Recursive discovery with imports
+    let type_registry = discover_with_imports(path, &source, &mut loader, &mut interner)
+        .map_err(|e| CompileError::Io(e))?;
+    let codegen_registry = type_registry.clone();
+
+    // Tokenize the main file
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context (includes imported types)
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program().map_err(CompileError::Parse)?;
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
 }
 
 /// Errors that can occur during compilation.

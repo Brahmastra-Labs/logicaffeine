@@ -1,6 +1,12 @@
 use crate::token::{Token, TokenType, BlockType};
 use crate::intern::{Interner, Symbol};
 use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
+use super::dependencies::scan_dependencies;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::project::Loader;
 
 /// Discovery pass that scans tokens before main parsing to build a TypeRegistry.
 ///
@@ -592,6 +598,89 @@ impl<'a> DiscoveryPass<'a> {
     }
 }
 
+/// Phase 36: Recursive discovery with module imports.
+///
+/// This function scans a LOGOS source file for:
+/// 1. Dependencies declared in the Abstract (Markdown links)
+/// 2. Type definitions in ## Definition blocks
+///
+/// Dependencies are loaded recursively, and their types are merged into
+/// the registry with namespace prefixes (e.g., "Geometry::Point").
+#[cfg(not(target_arch = "wasm32"))]
+pub fn discover_with_imports(
+    file_path: &Path,
+    source: &str,
+    loader: &mut Loader,
+    interner: &mut Interner,
+) -> Result<TypeRegistry, String> {
+    use crate::Lexer;
+    use crate::mwe;
+
+    let mut registry = TypeRegistry::with_primitives(interner);
+
+    // 1. Scan for dependencies in the abstract
+    let deps = scan_dependencies(source);
+
+    // 2. For each dependency, recursively discover types
+    for dep in deps {
+        let module_source = loader.resolve(file_path, &dep.uri)?;
+        let dep_content = module_source.content.clone();
+        let dep_path = module_source.path.clone();
+
+        // Recursively discover types in the dependency
+        let dep_registry = discover_with_imports(
+            &dep_path,
+            &dep_content,
+            loader,
+            interner
+        )?;
+
+        // Merge with namespace prefix
+        merge_registry(&mut registry, &dep.alias, dep_registry, interner);
+    }
+
+    // 3. Scan local definitions using existing DiscoveryPass
+    let mut lexer = Lexer::new(source, interner);
+    let tokens = lexer.tokenize();
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, interner);
+
+    let mut discovery = DiscoveryPass::new(&tokens, interner);
+    let local_registry = discovery.run();
+
+    // Merge local types (without namespace prefix)
+    for (sym, def) in local_registry.iter_types() {
+        // Skip primitives (already in registry)
+        let name = interner.resolve(*sym);
+        if !["Int", "Nat", "Text", "Bool", "Real", "Unit"].contains(&name) {
+            registry.register(*sym, def.clone());
+        }
+    }
+
+    Ok(registry)
+}
+
+/// Merges types from a dependency registry into the main registry with namespace prefix.
+#[cfg(not(target_arch = "wasm32"))]
+fn merge_registry(
+    main: &mut TypeRegistry,
+    namespace: &str,
+    dep: TypeRegistry,
+    interner: &mut Interner,
+) {
+    for (sym, def) in dep.iter_types() {
+        let name = interner.resolve(*sym);
+        // Skip primitives
+        if ["Int", "Nat", "Text", "Bool", "Real", "Unit"].contains(&name) {
+            continue;
+        }
+        // Create namespaced symbol: "Geometry::Point"
+        let qualified = format!("{}::{}", namespace, name);
+        let new_sym = interner.intern(&qualified);
+        main.register(new_sym, def.clone());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +731,28 @@ A Point has:
         } else {
             panic!("Point should be a struct with fields");
         }
+    }
+
+    #[test]
+    fn discovery_works_with_markdown_header() {
+        // Phase 36: LOGOS files have `# Header` before `## Definition`
+        let source = r#"# Geometry
+
+## Definition
+A Point has:
+    an x, which is Int.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens to see what we're getting
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?}", i, tok.kind);
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+        let point = interner.intern("Point");
+        assert!(registry.is_type(point), "Point should be discovered even with # header");
     }
 }

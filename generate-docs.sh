@@ -1617,6 +1617,11 @@ add_test_description "tests/phase35_proofs.rs" \
     "Proof assertions with 'Trust that P because \"reason\".' syntax. Generates debug_assert! with justification comment. Includes variable 'a' disambiguation, number literals in propositions, irregular comparatives (less/more/better/worse), and because-string lookahead guards." \
     "Trust that n is greater than 0 because \"precondition\"."
 
+add_test_description "tests/phase35_respectively.rs" \
+    "Phase 35: Respectively Coordination" \
+    "Pairwise coordination with 'respectively' adverb. Matches coordinated subjects with coordinated objects pairwise (John and Mary saw Tom and Jane respectively → See(J,T) ∧ See(M,J)). Includes RespectivelyLengthMismatch error for mismatched counts, dual code paths for pronoun and noun phrase subjects." \
+    "John and Mary saw Tom and Jane respectively."
+
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \
     "Aktionsart/Vendler Classes" \

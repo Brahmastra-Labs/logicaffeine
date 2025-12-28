@@ -174,6 +174,7 @@ pub enum TokenType {
     Equals,
     Reflexive,
     Reciprocal,
+    Respectively,  // Phase 35: Pairwise list coordination
 
     // Pronouns (Discourse)
     Pronoun {
