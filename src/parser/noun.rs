@@ -180,19 +180,32 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let pps_slice = self.ctx.pps.alloc_slice(pps);
 
         if self.check_of_preposition() {
-            self.advance();
+            // Two-Pass Type Disambiguation:
+            // If the noun is a known generic type (e.g., "Stack", "List"),
+            // then "X of Y" is a type instantiation, not a possessive.
+            // For now, we still parse it as possessive structurally, but
+            // the type_registry enables future AST extensions for type annotations.
+            let is_generic = self.is_generic_type(noun);
 
-            let possessor_np = self.parse_noun_phrase(true)?;
-            let possessor = self.ctx.nps.alloc(possessor_np);
+            if !is_generic {
+                // Standard possessive: "owner of house" → possessor relationship
+                self.advance();
 
-            return Ok(NounPhrase {
-                definiteness,
-                adjectives: self.ctx.syms.alloc_slice(adjectives),
-                noun,
-                possessor: Some(possessor),
-                pps: pps_slice,
-                superlative: superlative_adj,
-            });
+                let possessor_np = self.parse_noun_phrase(true)?;
+                let possessor = self.ctx.nps.alloc(possessor_np);
+
+                return Ok(NounPhrase {
+                    definiteness,
+                    adjectives: self.ctx.syms.alloc_slice(adjectives),
+                    noun,
+                    possessor: Some(possessor),
+                    pps: pps_slice,
+                    superlative: superlative_adj,
+                });
+            }
+            // If generic type, fall through to regular noun phrase handling.
+            // The "of [Type]" will be left unparsed for now.
+            // Future: Parse as GenericType { base: noun, params: [...] }
         }
 
         // Register ALL noun phrases as discourse entities, not just definite ones.

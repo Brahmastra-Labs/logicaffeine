@@ -18,14 +18,15 @@ pub use quantifier::QuantifierParsing;
 pub use question::QuestionParsing;
 pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 
+use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal};
+use crate::ast::{AspectOperator, LogicExpr, NeoEventData, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
 use crate::lexicon::{self, Aspect, Definiteness, Time, VerbClass};
-use crate::token::{FocusKind, Token, TokenType};
+use crate::token::{BlockType, FocusKind, Token, TokenType};
 
 pub(super) type ParseResult<T> = Result<T, ParseError>;
 
@@ -110,6 +111,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) collective_mode: bool,
     pub(super) pending_cardinal: Option<u32>,
     pub(super) mode: ParserMode,
+    pub(super) type_registry: Option<TypeRegistry>,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -137,6 +139,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             collective_mode: false,
             pending_cardinal: None,
             mode: ParserMode::Declarative,
+            type_registry: None,
         }
     }
 
@@ -173,6 +176,40 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             collective_mode: false,
             pending_cardinal: None,
             mode: ParserMode::Declarative,
+            type_registry: None,
+        }
+    }
+
+    /// Create a parser with type registry for two-pass compilation.
+    /// The type registry enables disambiguation of "Stack of Integers" (generic)
+    /// vs "Owner of House" (possessive).
+    pub fn with_types(
+        tokens: Vec<Token>,
+        context: &'ctx mut DiscourseContext,
+        interner: &'int mut Interner,
+        ctx: AstContext<'a>,
+        types: TypeRegistry,
+    ) -> Self {
+        Parser {
+            tokens,
+            current: 0,
+            var_counter: 0,
+            pending_time: None,
+            context: Some(context),
+            donkey_bindings: Vec::new(),
+            interner,
+            ctx,
+            current_island: 0,
+            pp_attach_to_noun: false,
+            filler_gap: None,
+            negative_depth: 0,
+            discourse_event_var: None,
+            last_event_template: None,
+            noun_priority_mode: false,
+            collective_mode: false,
+            pending_cardinal: None,
+            mode: ParserMode::Declarative,
+            type_registry: Some(types),
         }
     }
 
@@ -184,13 +221,102 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.mode
     }
 
+    /// Check if a symbol is a known type in the registry.
+    /// Used to disambiguate "Stack of Integers" (generic type) vs "Owner of House" (possessive).
+    pub fn is_known_type(&self, sym: Symbol) -> bool {
+        self.type_registry
+            .as_ref()
+            .map(|r| r.is_type(sym))
+            .unwrap_or(false)
+    }
+
+    /// Check if a symbol is a known generic type (takes type parameters).
+    /// Used to parse "Stack of Integers" as generic instantiation.
+    pub fn is_generic_type(&self, sym: Symbol) -> bool {
+        self.type_registry
+            .as_ref()
+            .map(|r| r.is_generic(sym))
+            .unwrap_or(false)
+    }
+
+    /// Get the parameter count for a generic type.
+    fn get_generic_param_count(&self, sym: Symbol) -> Option<usize> {
+        use crate::analysis::TypeDef;
+        self.type_registry.as_ref().and_then(|r| {
+            match r.get(sym) {
+                Some(TypeDef::Generic { param_count }) => Some(*param_count),
+                _ => None,
+            }
+        })
+    }
+
+    /// Phase 33: Check if a symbol is a known enum variant and return the enum name.
+    fn find_variant(&self, sym: Symbol) -> Option<Symbol> {
+        self.type_registry
+            .as_ref()
+            .and_then(|r| r.find_variant(sym).map(|(enum_name, _)| enum_name))
+    }
+
+    /// Consume a type name token (doesn't check entity registration).
+    fn consume_type_name(&mut self) -> ParseResult<Symbol> {
+        let t = self.advance().clone();
+        match t.kind {
+            TokenType::Noun(s) | TokenType::Adjective(s) => Ok(s),
+            TokenType::ProperName(s) => Ok(s),
+            other => Err(ParseError {
+                kind: ParseErrorKind::ExpectedContentWord { found: other },
+                span: self.current_span(),
+            }),
+        }
+    }
+
+    /// Parse a type expression: Int, Text, List of Int, Result of Int and Text.
+    /// Uses TypeRegistry to distinguish primitives from generics.
+    fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
+        use noun::NounParsing;
+
+        // Get the base type name (must be a noun or proper name - type names bypass entity check)
+        let base = self.consume_type_name()?;
+
+        // Check if it's a known generic type
+        if let Some(param_count) = self.get_generic_param_count(base) {
+            // Check for "of" or "from" separator
+            if self.check_of_preposition() || self.check_preposition_is("from") {
+                self.advance(); // consume "of" or "from"
+
+                let mut params = Vec::new();
+                for i in 0..param_count {
+                    if i > 0 {
+                        // Expect separator for params > 1: "and", "to", or ","
+                        if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
+                            self.advance();
+                        }
+                    }
+                    let param = self.parse_type_expression()?;
+                    params.push(param);
+                }
+
+                let params_slice = self.ctx.alloc_type_exprs(params);
+                return Ok(TypeExpr::Generic { base, params: params_slice });
+            }
+        }
+
+        // Check if it's a known primitive type
+        if self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false) {
+            return Ok(TypeExpr::Primitive(base));
+        }
+
+        // User-defined or unknown type
+        Ok(TypeExpr::Named(base))
+    }
+
     pub fn process_block_headers(&mut self) {
         use crate::token::BlockType;
 
         while self.current < self.tokens.len() {
             if let TokenType::BlockHeader { block_type } = &self.tokens[self.current].kind {
                 self.mode = match block_type {
-                    BlockType::Main => ParserMode::Imperative,
+                    BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note => ParserMode::Declarative,
                 };
@@ -421,12 +547,71 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
+        let mut in_definition_block = false;
+
+        // Check if we started in a Definition block (from process_block_headers)
+        if self.mode == ParserMode::Declarative {
+            // Check if the previous token was a Definition header
+            // For now, assume Definition blocks should be skipped
+            // We'll detect them by checking the content pattern
+        }
 
         while !self.is_at_end() {
-            let stmt = self.parse_statement()?;
-            statements.push(stmt);
+            // Handle block headers
+            if let Some(Token { kind: TokenType::BlockHeader { block_type }, .. }) = self.tokens.get(self.current) {
+                match block_type {
+                    BlockType::Definition => {
+                        in_definition_block = true;
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
+                    BlockType::Main => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        self.advance();
+                        continue;
+                    }
+                    BlockType::Function => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Imperative;
+                        self.advance();
+                        // Parse function definition
+                        let func_def = self.parse_function_def()?;
+                        statements.push(func_def);
+                        continue;
+                    }
+                    _ => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
+                }
+            }
 
-            if self.check(&TokenType::Period) {
+            // Skip Definition block content - handled by DiscoveryPass
+            if in_definition_block {
+                self.advance();
+                continue;
+            }
+
+            // Skip indent/dedent/newline tokens at program level
+            if self.check(&TokenType::Indent) || self.check(&TokenType::Dedent) || self.check(&TokenType::Newline) {
+                self.advance();
+                continue;
+            }
+
+            // In imperative mode, parse statements
+            if self.mode == ParserMode::Imperative {
+                let stmt = self.parse_statement()?;
+                statements.push(stmt);
+
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+            } else {
+                // In declarative mode (Theorem, etc.), skip for now
                 self.advance();
             }
         }
@@ -453,8 +638,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
         }
+        if self.check(&TokenType::Repeat) {
+            return self.parse_repeat_statement();
+        }
         if self.check(&TokenType::Call) {
             return self.parse_call_statement();
+        }
+        if self.check(&TokenType::Give) {
+            return self.parse_give_statement();
+        }
+        if self.check(&TokenType::Show) {
+            return self.parse_show_statement();
+        }
+        // Phase 33: Pattern matching on sum types
+        if self.check(&TokenType::Inspect) {
+            return self.parse_inspect_statement();
         }
 
         Err(ParseError {
@@ -592,6 +790,81 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::While { cond, body })
     }
 
+    fn parse_repeat_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Repeat"
+
+        // Optional "for"
+        if self.check(&TokenType::For) {
+            self.advance();
+        }
+
+        // Parse loop variable (using context-aware identifier parsing)
+        let var = self.expect_identifier()?;
+
+        // Determine iteration type: "in" for collection, "from" for range
+        let iterable = if self.check(&TokenType::From) || self.check_preposition_is("from") {
+            self.advance(); // consume "from"
+            let start = self.parse_imperative_expr()?;
+
+            // Expect "to" (can be keyword or preposition)
+            if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let end = self.parse_imperative_expr()?;
+            self.ctx.alloc_imperative_expr(Expr::Range { start, end })
+        } else if self.check(&TokenType::In) || self.check_preposition_is("in") {
+            self.advance(); // consume "in"
+            self.parse_imperative_expr()?
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "in or from".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse body statements
+        let mut body_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            body_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(Stmt::Repeat { var, iterable, body })
+    }
+
     fn parse_call_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Call"
 
@@ -662,8 +935,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_let_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Let"
 
+        // Check for "mutable" keyword
+        let mutable = if self.check_mutable_keyword() {
+            self.advance();
+            true
+        } else {
+            false
+        };
+
         // Get identifier
         let var = self.expect_identifier()?;
+
+        // Check for optional type annotation: `: Type`
+        let ty = if self.check(&TokenType::Colon) {
+            self.advance(); // consume ":"
+            let type_expr = self.parse_type_expression()?;
+            Some(self.ctx.alloc_type_expr(type_expr))
+        } else {
+            None
+        };
 
         // Expect "be"
         if !self.check(&TokenType::Be) {
@@ -690,14 +980,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             });
         }
 
-        Ok(Stmt::Let { var, value, mutable: false })
+        Ok(Stmt::Let { var, ty, value, mutable })
+    }
+
+    fn check_mutable_keyword(&self) -> bool {
+        if let TokenType::Noun(sym) | TokenType::Adjective(sym) = self.peek().kind {
+            self.interner.resolve(sym).eq_ignore_ascii_case("mutable")
+        } else {
+            false
+        }
     }
 
     fn parse_set_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::Expr;
         self.advance(); // consume "Set"
 
-        // Get target identifier
-        let target = self.expect_identifier()?;
+        // Parse target - can be identifier or field access expression
+        let target_expr = self.parse_imperative_expr()?;
 
         // Expect "to" - can be TokenType::To or Preposition("to")
         let is_to = self.check(&TokenType::To) || matches!(
@@ -715,7 +1014,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse expression value
         let value = self.parse_imperative_expr()?;
 
-        Ok(Stmt::Set { target, value })
+        // Phase 31: Handle field access targets
+        match target_expr {
+            Expr::FieldAccess { object, field } => {
+                Ok(Stmt::SetField { object, field: *field, value })
+            }
+            Expr::Identifier(target) => {
+                Ok(Stmt::Set { target: *target, value })
+            }
+            _ => Err(ParseError {
+                kind: ParseErrorKind::ExpectedIdentifier,
+                span: self.current_span(),
+            })
+        }
     }
 
     fn parse_return_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -751,11 +1062,506 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Assert { proposition })
     }
 
-    fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+    fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::context::OwnershipState;
+
+        self.advance(); // consume "Give"
+
+        // Parse the object being given: "x" or "the data"
+        let object = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse the recipient: "processor" or "the console"
+        let recipient = self.parse_imperative_expr()?;
+
+        // CRITICAL: Mark the object as Moved in the ownership tracker
+        if let Expr::Identifier(sym) = *object {
+            if let Some(ctx) = self.context.as_mut() {
+                let name = self.interner.resolve(sym);
+                ctx.set_ownership(name, OwnershipState::Moved);
+            }
+        }
+
+        Ok(Stmt::Give { object, recipient })
+    }
+
+    fn parse_show_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::context::OwnershipState;
+
+        self.advance(); // consume "Show"
+
+        // Parse the object being shown: "x" or "the data"
+        let object = self.parse_imperative_expr()?;
+
+        // Optional "to" preposition - if not present, default to "show" function
+        let recipient = if self.check_preposition_is("to") {
+            self.advance(); // consume "to"
+            // Parse the recipient: "console" or "the user"
+            self.parse_imperative_expr()?
+        } else {
+            // Default recipient: the runtime "show" function
+            let show_sym = self.interner.intern("show");
+            self.ctx.alloc_imperative_expr(Expr::Identifier(show_sym))
+        };
+
+        // Mark the object as Borrowed (NOT Moved - still accessible)
+        if let Expr::Identifier(sym) = *object {
+            if let Some(ctx) = self.context.as_mut() {
+                let name = self.interner.resolve(sym);
+                ctx.set_ownership(name, OwnershipState::Borrowed);
+            }
+        }
+
+        Ok(Stmt::Show { object, recipient })
+    }
+
+    /// Phase 33: Parse Inspect statement for pattern matching
+    /// Syntax: Inspect target:
+    ///             If it is a Variant [(bindings)]:
+    ///                 body...
+    ///             Otherwise:
+    ///                 body...
+    fn parse_inspect_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Inspect"
+
+        // Parse target expression
+        let target = self.parse_imperative_expr()?;
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        let mut arms = Vec::new();
+        let mut has_otherwise = false;
+
+        // Parse match arms until dedent
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            if self.check(&TokenType::Otherwise) {
+                // Parse "Otherwise:" default arm
+                self.advance(); // consume "Otherwise"
+
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ":"
+
+                if !self.check(&TokenType::Indent) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedStatement,
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume Indent
+
+                // Parse body statements
+                let mut body_stmts = Vec::new();
+                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                    let stmt = self.parse_statement()?;
+                    body_stmts.push(stmt);
+                    if self.check(&TokenType::Period) {
+                        self.advance();
+                    }
+                }
+
+                // Consume dedent
+                if self.check(&TokenType::Dedent) {
+                    self.advance();
+                }
+
+                let body = self.ctx.stmts.expect("imperative arenas not initialized")
+                    .alloc_slice(body_stmts.into_iter());
+
+                arms.push(MatchArm { enum_name: None, variant: None, bindings: vec![], body });
+                has_otherwise = true;
+                break;
+            }
+
+            if self.check(&TokenType::If) {
+                // Parse "If it is a VariantName [(bindings)]:"
+                let arm = self.parse_match_arm()?;
+                arms.push(arm);
+            } else {
+                // Skip unexpected tokens
+                self.advance();
+            }
+        }
+
+        // Consume final dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        Ok(Stmt::Inspect { target, arms, has_otherwise })
+    }
+
+    /// Parse a single match arm: "If it is a Variant [(field: binding)]:"
+    fn parse_match_arm(&mut self) -> ParseResult<MatchArm<'a>> {
+        self.advance(); // consume "If"
+
+        // Expect "it"
+        if !self.check_word("it") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "it".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "it"
+
+        // Expect "is"
+        if !self.check(&TokenType::Is) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "is".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "is"
+
+        // Consume article "a" or "an"
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Get variant name
+        let variant = self.expect_identifier()?;
+
+        // Look up the enum name for this variant
+        let enum_name = self.find_variant(variant);
+
+        // Optional: "(field)" or "(field: binding)" or "(f1, f2: b2)"
+        let bindings = if self.check(&TokenType::LParen) {
+            self.parse_pattern_bindings()?
+        } else {
+            vec![]
+        };
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut body_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            body_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
+    }
+
+    /// Parse pattern bindings: "(field)" or "(field: binding)" or "(f1, f2: b2)"
+    fn parse_pattern_bindings(&mut self) -> ParseResult<Vec<(Symbol, Symbol)>> {
+        self.advance(); // consume '('
+        let mut bindings = Vec::new();
+
+        loop {
+            let field = self.expect_identifier()?;
+            let binding = if self.check(&TokenType::Colon) {
+                self.advance(); // consume ":"
+                self.expect_identifier()?
+            } else {
+                field // field name = binding name
+            };
+            bindings.push((field, binding));
+
+            if !self.check(&TokenType::Comma) {
+                break;
+            }
+            self.advance(); // consume ','
+        }
+
+        if !self.check(&TokenType::RParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ')'
+
+        Ok(bindings)
+    }
+
+    /// Phase 33: Parse variant constructor fields: "with field1 value1 [and field2 value2]..."
+    /// Example: "with radius 10" or "with width 10 and height 20"
+    fn parse_variant_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        use crate::ast::Expr;
+        let mut fields = Vec::new();
+
+        // Consume "with"
+        self.advance();
+
+        loop {
+            // Parse field name
+            let field_name = self.expect_identifier()?;
+
+            // Parse field value expression
+            let value = self.parse_imperative_expr()?;
+
+            fields.push((field_name, value));
+
+            // Check for "and" to continue
+            if self.check(&TokenType::And) {
+                self.advance(); // consume "and"
+                continue;
+            }
+            break;
+        }
+
+        Ok(fields)
+    }
+
+    /// Phase 34: Parse generic type arguments for constructor instantiation
+    /// Parses "of Int" or "of Int and Text" after a generic type name
+    /// Returns empty Vec for non-generic types
+    fn parse_generic_type_args(&mut self, type_name: Symbol) -> ParseResult<Vec<Symbol>> {
+        // Only parse type args if the type is a known generic
+        if !self.is_generic_type(type_name) {
+            return Ok(vec![]);
+        }
+
+        // Expect "of" preposition
+        if !self.check_preposition_is("of") {
+            return Ok(vec![]);  // Generic type without arguments - will use defaults
+        }
+        self.advance(); // consume "of"
+
+        let mut type_args = Vec::new();
+        loop {
+            // Parse type argument (e.g., "Int", "Text", "User")
+            let type_arg = self.expect_identifier()?;
+            type_args.push(type_arg);
+
+            // Check for "and" to continue (for multi-param generics like "Result of Int and Text")
+            if self.check(&TokenType::And) {
+                self.advance(); // consume "and"
+                continue;
+            }
+            break;
+        }
+
+        Ok(type_args)
+    }
+
+    /// Phase 32: Parse function definition after `## To` header
+    /// Syntax: add (a: Int) and (b: Int)
+    ///             body statements...
+    fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        // Parse function name (first identifier after ## To)
+        let name = self.expect_identifier()?;
+
+        // Parse parameters: (name: Type) groups separated by "and"
+        let mut params = Vec::new();
+        while self.check(&TokenType::LParen) {
+            self.advance(); // consume (
+
+            let param_name = self.expect_identifier()?;
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume :
+
+            let param_type = self.expect_identifier()?;
+
+            // Expect )
+            if !self.check(&TokenType::RParen) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume )
+
+            params.push((param_name, param_type));
+
+            // Check for "and" between parameters
+            if self.check_word("and") {
+                self.advance();
+            }
+        }
+
+        // Expect colon after parameter list
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume :
+
+        // Expect indent for function body
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut body_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            // Skip newlines between statements
+            if self.check(&TokenType::Newline) {
+                self.advance();
+                continue;
+            }
+            // Stop if we hit another block header
+            if matches!(self.peek().kind, TokenType::BlockHeader { .. }) {
+                break;
+            }
+            let stmt = self.parse_statement()?;
+            body_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent if present
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        // Allocate body in arena
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(Stmt::FunctionDef {
+            name,
+            params,
+            body,
+            return_type: None, // Will be inferred later
+        })
+    }
+
+    /// Parse a primary expression (literal, identifier, index, slice, list, etc.)
+    fn parse_primary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::{Expr, Literal};
 
         let token = self.peek().clone();
         match &token.kind {
+            // Phase 31: Constructor expression "new TypeName" or "a new TypeName"
+            // Phase 33: Extended for variant constructors "new Circle with radius 10"
+            // Phase 34: Extended for generic instantiation "new Box of Int"
+            TokenType::New => {
+                self.advance(); // consume "new"
+                let type_name = self.expect_identifier()?;
+
+                // Phase 33: Check if this is a variant constructor
+                if let Some(enum_name) = self.find_variant(type_name) {
+                    // Parse optional "with field value" pairs
+                    let fields = if self.check_word("with") {
+                        self.parse_variant_constructor_fields()?
+                    } else {
+                        vec![]
+                    };
+                    let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                        enum_name,
+                        variant: type_name,
+                        fields,
+                    });
+                    return self.parse_field_access_chain(base);
+                }
+
+                // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
+                let type_args = self.parse_generic_type_args(type_name)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args });
+                return self.parse_field_access_chain(base);
+            }
+
+            // Phase 31: Handle "a new TypeName" pattern OR single-letter identifier
+            // Phase 33: Extended for variant constructors "a new Circle with radius 10"
+            // Phase 34: Extended for generic instantiation "a new Box of Int"
+            TokenType::Article(_) => {
+                // Check if followed by New token
+                if let Some(next) = self.tokens.get(self.current + 1) {
+                    if matches!(next.kind, TokenType::New) {
+                        self.advance(); // consume article "a"/"an"
+                        self.advance(); // consume "new"
+                        let type_name = self.expect_identifier()?;
+
+                        // Phase 33: Check if this is a variant constructor
+                        if let Some(enum_name) = self.find_variant(type_name) {
+                            // Parse optional "with field value" pairs
+                            let fields = if self.check_word("with") {
+                                self.parse_variant_constructor_fields()?
+                            } else {
+                                vec![]
+                            };
+                            let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                                enum_name,
+                                variant: type_name,
+                                fields,
+                            });
+                            return self.parse_field_access_chain(base);
+                        }
+
+                        // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
+                        let type_args = self.parse_generic_type_args(type_name)?;
+                        let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args });
+                        return self.parse_field_access_chain(base);
+                    }
+                }
+                // Phase 32: Treat as identifier (single-letter var like "a", "b")
+                let sym = token.lexeme;
+                self.advance();
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                return self.parse_field_access_chain(base);
+            }
+
             // Index access: "item N of collection"
             TokenType::Item => {
                 self.advance(); // consume "item"
@@ -800,7 +1606,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Slice access: "items N through M of collection"
+            // OR variable named "items" - disambiguate by checking if next token is a number
             TokenType::Items => {
+                // Peek ahead to determine if this is slice syntax or variable usage
+                // If next token is not a number, treat "items" as a variable identifier
+                if let Some(next) = self.tokens.get(self.current + 1) {
+                    if !matches!(next.kind, TokenType::Number(_)) {
+                        // Treat "items" as a variable identifier
+                        let sym = token.lexeme;
+                        self.advance();
+                        return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
+                    }
+                }
+
                 self.advance(); // consume "items"
 
                 // Parse start index (must be a number)
@@ -873,22 +1691,136 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }))
             }
 
+            // List literal: [1, 2, 3]
+            TokenType::LBracket => {
+                self.advance(); // consume "["
+
+                let mut items = Vec::new();
+                if !self.check(&TokenType::RBracket) {
+                    loop {
+                        items.push(self.parse_imperative_expr()?);
+                        if !self.check(&TokenType::Comma) {
+                            break;
+                        }
+                        self.advance(); // consume ","
+                    }
+                }
+
+                if !self.check(&TokenType::RBracket) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "]".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "]"
+
+                Ok(self.ctx.alloc_imperative_expr(Expr::List(items)))
+            }
+
             TokenType::Number(sym) => {
                 self.advance();
                 let num_str = self.interner.resolve(*sym);
                 let num = num_str.parse::<i64>().unwrap_or(0);
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
             }
-            TokenType::Noun(sym) | TokenType::ProperName(sym) => {
+
+            // Phase 33: String literals
+            TokenType::StringLiteral(sym) => {
                 self.advance();
-                Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(*sym)))
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym))))
             }
-            _ => {
-                // Try to get any identifier-like token
-                if let TokenType::Adjective(sym) = &token.kind {
+
+            // Handle 'nothing' literal
+            TokenType::Nothing => {
+                self.advance();
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
+            }
+
+            // Handle 'empty' when tokenized as a verb (lexicon includes "empty" as verb)
+            TokenType::Verb { lemma, .. } => {
+                let word = self.interner.resolve(*lemma).to_lowercase();
+                if word == "empty" {
                     self.advance();
-                    return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(*sym)));
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
+                // Other verbs aren't valid expressions in imperative context
+                Err(ParseError {
+                    kind: ParseErrorKind::ExpectedExpression,
+                    span: self.current_span(),
+                })
+            }
+
+            // Unified identifier handling - all identifier-like tokens get verified
+            // First check for boolean/special literals before treating as variable
+            TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
+                let sym = *sym;
+                let word = self.interner.resolve(sym);
+
+                // Check for boolean literals
+                if word == "true" {
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(true))));
+                }
+                if word == "false" {
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(false))));
+                }
+
+                // Check for 'empty' - treat as unit value for collections
+                if word == "empty" {
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
+                }
+
+                // Don't verify as variable - might be a function call
+                self.advance();
+
+                // Phase 32: Check for function call: identifier(args)
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+
+                // Centralized verification for undefined/moved checks (only for variables)
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                // Phase 31: Check for field access via possessive
+                self.parse_field_access_chain(base)
+            }
+
+            // Pronouns can be variable names in code context ("i", "it")
+            TokenType::Pronoun { .. } => {
+                let sym = token.lexeme;
+                self.advance();
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                // Phase 31: Check for field access via possessive
+                self.parse_field_access_chain(base)
+            }
+
+            // Handle ambiguous tokens that might be identifiers
+            TokenType::Ambiguous { primary, alternatives } => {
+                let sym = match &**primary {
+                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => Some(*s),
+                    _ => alternatives.iter().find_map(|t| match t {
+                        TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => Some(*s),
+                        _ => None
+                    })
+                };
+
+                if let Some(s) = sym {
+                    self.verify_identifier_access(s)?;
+                    self.advance();
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(s));
+                    // Phase 31: Check for field access via possessive
+                    self.parse_field_access_chain(base)
+                } else {
+                    Err(ParseError {
+                        kind: ParseErrorKind::ExpectedExpression,
+                        span: self.current_span(),
+                    })
+                }
+            }
+
+            _ => {
                 Err(ParseError {
                     kind: ParseErrorKind::ExpectedExpression,
                     span: self.current_span(),
@@ -897,12 +1829,158 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// Parse a complete imperative expression including binary operators.
+    fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let left = self.parse_primary_expr()?;
+
+        // Check for binary operator
+        if let Some(op) = self.try_parse_binary_op() {
+            let right = self.parse_imperative_expr()?;
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op,
+                left,
+                right,
+            }));
+        }
+
+        Ok(left)
+    }
+
+    /// Try to parse a binary operator (+, -, *, /)
+    fn try_parse_binary_op(&mut self) -> Option<BinaryOpKind> {
+        match &self.peek().kind {
+            TokenType::Plus => {
+                self.advance();
+                Some(BinaryOpKind::Add)
+            }
+            TokenType::Minus => {
+                self.advance();
+                Some(BinaryOpKind::Subtract)
+            }
+            TokenType::Star => {
+                self.advance();
+                Some(BinaryOpKind::Multiply)
+            }
+            TokenType::Slash => {
+                self.advance();
+                Some(BinaryOpKind::Divide)
+            }
+            _ => None,
+        }
+    }
+
+    /// Phase 32: Parse function call expression: f(x, y, ...)
+    fn parse_call_expr(&mut self, function: Symbol) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::Expr;
+
+        self.advance(); // consume '('
+
+        let mut args = Vec::new();
+        if !self.check(&TokenType::RParen) {
+            loop {
+                args.push(self.parse_imperative_expr()?);
+                if !self.check(&TokenType::Comma) {
+                    break;
+                }
+                self.advance(); // consume ','
+            }
+        }
+
+        if !self.check(&TokenType::RParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ')'
+
+        Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
+    }
+
+    /// Phase 31: Parse field access chain via possessive ('s)
+    /// Handles patterns like: p's x, p's x's y
+    fn parse_field_access_chain(&mut self, base: &'a Expr<'a>) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::Expr;
+
+        let mut result = base;
+
+        // Keep parsing field accesses while we see possessive tokens
+        while self.check(&TokenType::Possessive) {
+            self.advance(); // consume "'s"
+            let field = self.expect_identifier()?;
+            result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
+                object: result,
+                field,
+            });
+        }
+
+        Ok(result)
+    }
+
+    /// Centralized verification for identifier access in imperative mode.
+    /// Checks for use-after-move errors on known variables.
+    fn verify_identifier_access(&self, sym: Symbol) -> ParseResult<()> {
+        if self.mode != ParserMode::Imperative {
+            return Ok(());
+        }
+
+        use crate::context::OwnershipState;
+        let name = self.interner.resolve(sym);
+
+        // Check for Use-After-Move on variables we're tracking
+        let ownership = self.context.as_ref()
+            .and_then(|ctx| ctx.get_ownership(name));
+
+        if ownership == Some(OwnershipState::Moved) {
+            return Err(ParseError {
+                kind: ParseErrorKind::UseAfterMove { name: name.to_string() },
+                span: self.current_span(),
+            });
+        }
+
+        Ok(())
+    }
+
     fn expect_identifier(&mut self) -> ParseResult<Symbol> {
         let token = self.peek().clone();
         match &token.kind {
+            // Standard identifiers
             TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
                 self.advance();
                 Ok(*sym)
+            }
+            // Verbs can be variable names in code context ("empty", "run", etc.)
+            // Use raw lexeme to preserve original casing
+            TokenType::Verb { .. } => {
+                let sym = token.lexeme;
+                self.advance();
+                Ok(sym)
+            }
+            // Phase 32: Articles can be single-letter identifiers (a, an)
+            TokenType::Article(_) => {
+                let sym = token.lexeme;
+                self.advance();
+                Ok(sym)
+            }
+            // Overloaded tokens that are valid identifiers in code context
+            TokenType::Pronoun { .. } |  // "i", "it"
+            TokenType::Items |           // "items"
+            TokenType::Item |            // "item"
+            TokenType::Nothing => {      // "nothing"
+                // Use the raw lexeme (interned string) as the symbol
+                let sym = token.lexeme;
+                self.advance();
+                Ok(sym)
+            }
+            TokenType::Ambiguous { primary, .. } => {
+                // For ambiguous tokens, extract symbol from primary
+                let sym = match &**primary {
+                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => *s,
+                    TokenType::Verb { lemma, .. } => *lemma,
+                    _ => token.lexeme,
+                };
+                self.advance();
+                Ok(sym)
             }
             _ => Err(ParseError {
                 kind: ParseErrorKind::ExpectedIdentifier,
@@ -2935,6 +4013,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else {
             false
         }
+    }
+
+    /// Check if current token is a word (noun/adj/verb lexeme) matching the given string
+    fn check_word(&self, word: &str) -> bool {
+        let token = self.peek();
+        let lexeme = self.interner.resolve(token.lexeme);
+        lexeme.eq_ignore_ascii_case(word)
     }
 
     fn check_to_preposition(&self) -> bool {

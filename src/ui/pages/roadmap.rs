@@ -189,9 +189,9 @@ const ROADMAP_STYLE: &str = r#"
         180deg,
         #22c55e 0%,
         #22c55e 28%,
-        #a78bfa 35%,
-        #a78bfa 42%,
-        rgba(255,255,255,0.15) 50%,
+        #a78bfa 32%,
+        #a78bfa 56%,
+        rgba(255,255,255,0.15) 62%,
         rgba(255,255,255,0.08) 100%
     );
     border-radius: 2px;
@@ -584,7 +584,7 @@ pub fn Roadmap() -> Element {
                             span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "The foundation: parse English, produce First-Order Logic. 802 tests validate 20+ linguistic phenomena."
+                            "The foundation: parse English, produce First-Order Logic. 901 tests validate 32 linguistic phenomena."
                         }
                         div { class: "milestone-features",
                             span { class: "feature-tag done", "Lexer" }
@@ -634,30 +634,34 @@ pub fn Roadmap() -> Element {
                         }
                         div { class: "milestone-features",
                             span { class: "feature-tag done", "Rust Codegen" }
+                            span { class: "feature-tag done", "Functions" }
+                            span { class: "feature-tag done", "Structs" }
+                            span { class: "feature-tag done", "Guards" }
+                            span { class: "feature-tag done", "Iteration" }
                             span { class: "feature-tag", "Native Compilation" }
                             span { class: "feature-tag", "WASM Target" }
-                            span { class: "feature-tag", "Module System" }
                         }
                         MilestoneExamples { index: 2 }
                     }
                 }
 
-                // Phase 4: Type System - PLANNED
+                // Phase 4: Type System - IN PROGRESS
                 div { class: "milestone",
-                    div { class: "milestone-dot planned" }
+                    div { class: "milestone-dot progress", "◐" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Type System" }
-                            span { class: "milestone-badge planned", "Planned" }
+                            span { class: "milestone-badge progress", "In Progress" }
                         }
                         p { class: "milestone-desc",
-                            "Full dependent types with refinements. Types that depend on values. Constraints that catch bugs at compile time."
+                            "Type annotations, inference, and constraints. Catch bugs at compile time with English type syntax."
                         }
                         div { class: "milestone-features",
+                            span { class: "feature-tag done", "Type Annotations" }
+                            span { class: "feature-tag done", "Return Inference" }
+                            span { class: "feature-tag done", "Primitives" }
                             span { class: "feature-tag", "Dependent Types" }
                             span { class: "feature-tag", "Refinements" }
-                            span { class: "feature-tag", "Universe Hierarchy" }
-                            span { class: "feature-tag", "Type Inference" }
                         }
                         MilestoneExamples { index: 3 }
                     }

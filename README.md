@@ -2,9 +2,9 @@
 
 **The Language That Reads Like English, Runs Like Rust**
 
-[![Tests](https://img.shields.io/badge/tests-828%20passing-brightgreen)]()
-[![Version](https://img.shields.io/badge/version-0.5.3-blue)]()
-[![Gates](https://img.shields.io/badge/gates-6%2F6-success)]()
+[![Tests](https://img.shields.io/badge/tests-901%20passing-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-0.5.4-blue)]()
+[![Phases](https://img.shields.io/badge/phases-32-success)]()
 
 LOGOS is a dual-mode natural language compiler:
 
@@ -86,7 +86,7 @@ let latex = compile_with_options("All cats sleep.", options).unwrap();
 
 ### Linguistic Phenomena
 
-LOGICAFFEINE handles 28+ phases of linguistic complexity:
+LOGICAFFEINE handles 32 phases of linguistic complexity:
 
 #### Core Logic
 - **Quantifiers**: Universal (∀), existential (∃), generalized (MOST, FEW, MANY)
@@ -169,11 +169,15 @@ fn main() -> i64 {
 | Index | `item 1 of list` | `list[0]` |
 | Slice | `items 2 through 5 of list` | `&list[1..5]` |
 | Assert | `Assert that x > 0.` | `debug_assert!(x > 0);` |
+| Function | `## To add (a: Int):` | `fn add(a: i64) -> _ {` |
+| Call | `add(3, 4)` | `add(3, 4)` |
 
 **Key Features:**
+- **Functions:** Define with `## To [verb]`, call with `f(x)` or `Call f with x.`
 - **1-Indexed Arrays:** `item 1` is the first element (like humans count)
 - **Boolean Precedence:** `And` binds tighter than `Or`
 - **Assert Bridge:** Logic verification in imperative code
+- **Type Inference:** Return types inferred from function body
 
 ---
 
@@ -483,7 +487,14 @@ Tests are organized by linguistic phenomenon:
 | 18 | Plurality | Distributive vs collective (mixed verbs) |
 | 19 | Group Plurals | Cardinals with collective readings |
 | 20 | Axioms | Analytic entailments, privative adjectives |
-| 21+ | Advanced | Blocks, codegen, guards, precedence |
+| 21 | Ownership | Move/borrow semantics with Give/Show verbs |
+| 22-26 | Codegen | Blocks, scoping, types, end-to-end compilation |
+| 27 | Guards | Pattern-based conditional logic |
+| 28 | Precedence | Boolean operator binding rules |
+| 29 | Runtime | Runtime injection and logos_core integration |
+| 30 | Iteration | For loops and repeat constructs |
+| 31 | Structs | User-defined records with field access |
+| 32 | Functions | Function definitions and call expressions |
 
 ### Running Tests
 

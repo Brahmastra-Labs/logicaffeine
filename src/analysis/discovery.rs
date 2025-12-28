@@ -1,0 +1,646 @@
+use crate::token::{Token, TokenType, BlockType};
+use crate::intern::{Interner, Symbol};
+use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
+
+/// Discovery pass that scans tokens before main parsing to build a TypeRegistry.
+///
+/// This pass looks for type definitions in `## Definition` blocks:
+/// - "A Stack is a generic collection." → Generic type
+/// - "A User is a structure." → Struct type
+/// - "A Shape is an enum." → Enum type
+pub struct DiscoveryPass<'a> {
+    tokens: &'a [Token],
+    pos: usize,
+    interner: &'a mut Interner,
+}
+
+impl<'a> DiscoveryPass<'a> {
+    pub fn new(tokens: &'a [Token], interner: &'a mut Interner) -> Self {
+        Self { tokens, pos: 0, interner }
+    }
+
+    /// Run discovery pass, returning populated TypeRegistry
+    pub fn run(&mut self) -> TypeRegistry {
+        let mut registry = TypeRegistry::with_primitives(self.interner);
+
+        while self.pos < self.tokens.len() {
+            // Look for Definition blocks
+            if self.check_block_header(BlockType::Definition) {
+                self.advance(); // consume ## Definition
+                self.scan_definition_block(&mut registry);
+            } else {
+                self.advance();
+            }
+        }
+
+        registry
+    }
+
+    fn check_block_header(&self, expected: BlockType) -> bool {
+        matches!(
+            self.tokens.get(self.pos),
+            Some(Token { kind: TokenType::BlockHeader { block_type }, .. })
+            if *block_type == expected
+        )
+    }
+
+    fn scan_definition_block(&mut self, registry: &mut TypeRegistry) {
+        // Scan until next block header or EOF
+        while self.pos < self.tokens.len() {
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+
+            // Look for "A [Name] is a..." pattern
+            if self.check_article() {
+                self.try_parse_type_definition(registry);
+            } else {
+                self.advance();
+            }
+        }
+    }
+
+    fn try_parse_type_definition(&mut self, registry: &mut TypeRegistry) {
+        self.advance(); // skip article
+
+        if let Some(name_sym) = self.consume_noun_or_proper() {
+            // Phase 34: Check for "of [T]" which indicates user-defined generic
+            let type_params = if self.check_preposition("of") {
+                self.advance(); // consume "of"
+                self.parse_type_params()
+            } else {
+                vec![]
+            };
+
+            // Phase 31/34: Check for "has:" which indicates struct with fields
+            // Pattern: "A Point has:" or "A Box of [T] has:"
+            if self.check_word("has") {
+                self.advance(); // consume "has"
+                if self.check_colon() {
+                    self.advance(); // consume ":"
+                    // Skip newline if present
+                    if self.check_newline() {
+                        self.advance();
+                    }
+                    if self.check_indent() {
+                        self.advance(); // consume INDENT
+                        let fields = self.parse_struct_fields_with_params(&type_params);
+                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params });
+                        return;
+                    }
+                }
+            }
+
+            // Check for "is either:" pattern (Phase 33/34: Sum types with variants)
+            if self.check_copula() {
+                self.advance(); // consume is/are
+
+                // Phase 33: Check for "either:" pattern
+                if self.check_either() {
+                    self.advance(); // consume "either"
+                    if self.check_colon() {
+                        self.advance(); // consume ":"
+                        // Skip newline if present
+                        if self.check_newline() {
+                            self.advance();
+                        }
+                        if self.check_indent() {
+                            self.advance(); // consume INDENT
+                            let variants = self.parse_enum_variants_with_params(&type_params);
+                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params });
+                            return;
+                        }
+                    }
+                }
+
+                if self.check_article() {
+                    self.advance(); // consume a/an
+
+                    // Look for type indicators
+                    if self.check_word("generic") {
+                        registry.register(name_sym, TypeDef::Generic { param_count: 1 });
+                        self.skip_to_period();
+                    } else if self.check_word("record") || self.check_word("struct") || self.check_word("structure") {
+                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![] });
+                        self.skip_to_period();
+                    } else if self.check_word("sum") || self.check_word("enum") || self.check_word("choice") {
+                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![] });
+                        self.skip_to_period();
+                    }
+                }
+            } else if !type_params.is_empty() {
+                // "A Stack of [Things] is..." - old generic syntax, still supported
+                registry.register(name_sym, TypeDef::Generic { param_count: type_params.len() });
+                self.skip_to_period();
+            }
+        }
+    }
+
+    /// Phase 33/34: Parse enum variants in "is either:" block
+    /// Each variant: "A VariantName." or "A VariantName with a field, which is Type."
+    /// or concise: "A VariantName (field: Type)."
+    fn parse_enum_variants_with_params(&mut self, type_params: &[Symbol]) -> Vec<VariantDef> {
+        let mut variants = Vec::new();
+
+        while self.pos < self.tokens.len() {
+            // Exit on dedent or next block
+            if self.check_dedent() {
+                self.advance();
+                break;
+            }
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+
+            // Skip newlines between variants
+            if self.check_newline() {
+                self.advance();
+                continue;
+            }
+
+            // Parse variant: "A VariantName [with fields | (field: Type)]."
+            if self.check_article() {
+                self.advance(); // consume "A"/"An"
+
+                if let Some(variant_name) = self.consume_noun_or_proper() {
+                    // Check for payload fields
+                    let fields = if self.check_word("with") {
+                        // Natural syntax: "A Circle with a radius, which is Int."
+                        self.parse_variant_fields_natural_with_params(type_params)
+                    } else if self.check_lparen() {
+                        // Concise syntax: "A Circle (radius: Int)."
+                        self.parse_variant_fields_concise_with_params(type_params)
+                    } else {
+                        // Unit variant: "A Point."
+                        vec![]
+                    };
+
+                    variants.push(VariantDef {
+                        name: variant_name,
+                        fields,
+                    });
+
+                    // Consume period
+                    if self.check_period() {
+                        self.advance();
+                    }
+                } else {
+                    self.advance(); // skip malformed token
+                }
+            } else {
+                self.advance();
+            }
+        }
+
+        variants
+    }
+
+    /// Phase 33: Parse enum variants (backward compat wrapper)
+    fn parse_enum_variants(&mut self) -> Vec<VariantDef> {
+        self.parse_enum_variants_with_params(&[])
+    }
+
+    /// Parse variant fields in natural syntax: "with a radius, which is Int."
+    fn parse_variant_fields_natural_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
+        let mut fields = Vec::new();
+
+        // "with" has already been detected, consume it
+        self.advance();
+
+        loop {
+            // Skip article
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Get field name
+            if let Some(field_name) = self.consume_noun_or_proper() {
+                // Expect ", which is Type" pattern
+                let ty = if self.check_comma() {
+                    self.advance(); // consume ","
+                    // Consume "which"
+                    if self.check_word("which") {
+                        self.advance();
+                    }
+                    // Consume "is"
+                    if self.check_copula() {
+                        self.advance();
+                    }
+                    self.consume_field_type_with_params(type_params)
+                } else {
+                    FieldType::Primitive(self.interner.intern("Unknown"))
+                };
+
+                fields.push(FieldDef {
+                    name: field_name,
+                    ty,
+                    is_public: true, // Variant fields are always public
+                });
+
+                // Check for "and" to continue: ", and a height, which is Int"
+                // May have comma before "and"
+                if self.check_comma() {
+                    self.advance(); // consume comma before "and"
+                }
+                if self.check_word("and") {
+                    self.advance();
+                    continue;
+                }
+            }
+            break;
+        }
+
+        fields
+    }
+
+    /// Backward compat wrapper
+    fn parse_variant_fields_natural(&mut self) -> Vec<FieldDef> {
+        self.parse_variant_fields_natural_with_params(&[])
+    }
+
+    /// Parse variant fields in concise syntax: "(radius: Int)" or "(width: Int, height: Int)"
+    fn parse_variant_fields_concise_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
+        let mut fields = Vec::new();
+
+        // Consume "("
+        self.advance();
+
+        loop {
+            // Get field name
+            if let Some(field_name) = self.consume_noun_or_proper() {
+                // Expect ": Type" pattern
+                let ty = if self.check_colon() {
+                    self.advance(); // consume ":"
+                    self.consume_field_type_with_params(type_params)
+                } else {
+                    FieldType::Primitive(self.interner.intern("Unknown"))
+                };
+
+                fields.push(FieldDef {
+                    name: field_name,
+                    ty,
+                    is_public: true, // Variant fields are always public
+                });
+
+                // Check for "," to continue
+                if self.check_comma() {
+                    self.advance();
+                    continue;
+                }
+            }
+            break;
+        }
+
+        // Consume ")"
+        if self.check_rparen() {
+            self.advance();
+        }
+
+        fields
+    }
+
+    /// Backward compat wrapper
+    fn parse_variant_fields_concise(&mut self) -> Vec<FieldDef> {
+        self.parse_variant_fields_concise_with_params(&[])
+    }
+
+    /// Parse struct fields in "has:" block
+    /// Each field: "a [public] name, which is Type."
+    fn parse_struct_fields_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
+        let mut fields = Vec::new();
+
+        while self.pos < self.tokens.len() {
+            // Exit on dedent or next block
+            if self.check_dedent() {
+                self.advance();
+                break;
+            }
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+
+            // Skip newlines between fields
+            if self.check_newline() {
+                self.advance();
+                continue;
+            }
+
+            // Parse field: "a [public] name, which is Type."
+            if self.check_article() {
+                self.advance(); // consume "a"/"an"
+
+                // Check for "public" modifier
+                let is_public = if self.check_word("public") {
+                    self.advance();
+                    true
+                } else {
+                    false
+                };
+
+                // Get field name
+                if let Some(field_name) = self.consume_noun_or_proper() {
+                    // Expect ", which is Type." pattern
+                    let ty = if self.check_comma() {
+                        self.advance(); // consume ","
+                        // Consume "which"
+                        if self.check_word("which") {
+                            self.advance();
+                        }
+                        // Consume "is"
+                        if self.check_copula() {
+                            self.advance();
+                        }
+                        self.consume_field_type_with_params(type_params)
+                    } else {
+                        // Fallback: unknown type
+                        FieldType::Primitive(self.interner.intern("Unknown"))
+                    };
+
+                    fields.push(FieldDef {
+                        name: field_name,
+                        ty,
+                        is_public,
+                    });
+
+                    // Consume period
+                    if self.check_period() {
+                        self.advance();
+                    }
+                } else {
+                    self.advance(); // skip malformed token
+                }
+            } else {
+                self.advance();
+            }
+        }
+
+        fields
+    }
+
+    /// Backward compat wrapper
+    fn parse_struct_fields(&mut self) -> Vec<FieldDef> {
+        self.parse_struct_fields_with_params(&[])
+    }
+
+    /// Parse a field type reference
+    fn consume_field_type(&mut self) -> FieldType {
+        if let Some(name) = self.consume_noun_or_proper() {
+            // Check for generic: "List of Int", "Seq of Text"
+            if self.check_preposition("of") {
+                self.advance();
+                let param = self.consume_field_type();
+                return FieldType::Generic { base: name, params: vec![param] };
+            }
+
+            // Check if primitive
+            let name_str = self.interner.resolve(name);
+            match name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
+                _ => FieldType::Named(name),
+            }
+        } else {
+            FieldType::Primitive(self.interner.intern("Unknown"))
+        }
+    }
+
+    // Helper methods
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.pos)
+    }
+
+    fn advance(&mut self) {
+        if self.pos < self.tokens.len() {
+            self.pos += 1;
+        }
+    }
+
+    fn check_article(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::Article(_), .. }) => true,
+            // Also accept ProperName("A") / ProperName("An") which can occur at line starts
+            Some(Token { kind: TokenType::ProperName(sym), .. }) => {
+                let text = self.interner.resolve(*sym);
+                text.eq_ignore_ascii_case("a") || text.eq_ignore_ascii_case("an")
+            }
+            _ => false,
+        }
+    }
+
+    fn check_copula(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Is | TokenType::Are, .. }))
+    }
+
+    fn check_preposition(&self, word: &str) -> bool {
+        if let Some(Token { kind: TokenType::Preposition(sym), .. }) = self.peek() {
+            self.interner.resolve(*sym) == word
+        } else {
+            false
+        }
+    }
+
+    fn consume_noun_or_proper(&mut self) -> Option<Symbol> {
+        let t = self.peek()?;
+        match &t.kind {
+            TokenType::Noun(s) | TokenType::ProperName(s) => {
+                let sym = *s;
+                self.advance();
+                Some(sym)
+            }
+            // Phase 31: Also accept Adjective as identifier (for field names like "x")
+            TokenType::Adjective(s) => {
+                let sym = *s;
+                self.advance();
+                Some(sym)
+            }
+            // Phase 34: Accept special tokens as identifiers using their lexeme
+            TokenType::Items | TokenType::Some => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            _ => None
+        }
+    }
+
+    fn check_word(&self, word: &str) -> bool {
+        if let Some(token) = self.peek() {
+            // Check against the lexeme of the token
+            self.interner.resolve(token.lexeme).eq_ignore_ascii_case(word)
+        } else {
+            false
+        }
+    }
+
+    fn skip_to_period(&mut self) {
+        while self.pos < self.tokens.len() {
+            if matches!(self.peek(), Some(Token { kind: TokenType::Period, .. })) {
+                self.advance();
+                break;
+            }
+            self.advance();
+        }
+    }
+
+    fn check_colon(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Colon, .. }))
+    }
+
+    fn check_newline(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Newline, .. }))
+    }
+
+    fn check_indent(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Indent, .. }))
+    }
+
+    fn check_dedent(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Dedent, .. }))
+    }
+
+    fn check_comma(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Comma, .. }))
+    }
+
+    fn check_period(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Period, .. }))
+    }
+
+    fn check_either(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Either, .. }))
+    }
+
+    fn check_lparen(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::LParen, .. }))
+    }
+
+    fn check_rparen(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+    }
+
+    // Phase 34: Bracket checks for type parameters
+    fn check_lbracket(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::LBracket, .. }))
+    }
+
+    fn check_rbracket(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::RBracket, .. }))
+    }
+
+    /// Phase 34: Parse type parameters in brackets: "[T]" or "[A] and [B]"
+    fn parse_type_params(&mut self) -> Vec<Symbol> {
+        let mut params = Vec::new();
+
+        loop {
+            if self.check_lbracket() {
+                self.advance(); // consume [
+                if let Some(param) = self.consume_noun_or_proper() {
+                    params.push(param);
+                }
+                if self.check_rbracket() {
+                    self.advance(); // consume ]
+                }
+            }
+
+            // Check for "and" separator for multi-param generics
+            if self.check_word("and") {
+                self.advance();
+                continue;
+            }
+            break;
+        }
+        params
+    }
+
+    /// Phase 34: Parse a field type reference, recognizing type parameters
+    fn consume_field_type_with_params(&mut self, type_params: &[Symbol]) -> FieldType {
+        // Phase 34: Single-letter type params like "A" may be tokenized as Article
+        // Check for Article that matches a type param first
+        if let Some(Token { kind: TokenType::Article(_), lexeme, .. }) = self.peek() {
+            let text = self.interner.resolve(*lexeme);
+            // Find matching type param by name (case-insensitive for single letters)
+            for &param_sym in type_params {
+                let param_name = self.interner.resolve(param_sym);
+                if text.eq_ignore_ascii_case(param_name) {
+                    self.advance(); // consume the article token
+                    return FieldType::TypeParam(param_sym);
+                }
+            }
+        }
+
+        if let Some(name) = self.consume_noun_or_proper() {
+            // Check if this is a type parameter reference
+            if type_params.contains(&name) {
+                return FieldType::TypeParam(name);
+            }
+
+            // Check for generic: "List of Int", "Seq of Text", "List of T"
+            if self.check_preposition("of") {
+                self.advance();
+                let param = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: name, params: vec![param] };
+            }
+
+            // Check if primitive
+            let name_str = self.interner.resolve(name);
+            match name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
+                _ => FieldType::Named(name),
+            }
+        } else {
+            FieldType::Primitive(self.interner.intern("Unknown"))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Lexer;
+    use crate::mwe;
+
+    fn make_tokens(source: &str, interner: &mut Interner) -> Vec<Token> {
+        let mut lexer = Lexer::new(source, interner);
+        let tokens = lexer.tokenize();
+        let mwe_trie = mwe::build_mwe_trie();
+        mwe::apply_mwe_pipeline(tokens, &mwe_trie, interner)
+    }
+
+    #[test]
+    fn discovery_finds_generic_in_definition_block() {
+        let source = "## Definition\nA Stack is a generic collection.";
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let stack = interner.intern("Stack");
+        assert!(registry.is_generic(stack), "Stack should be discovered as generic");
+    }
+
+    #[test]
+    fn discovery_parses_struct_with_fields() {
+        let source = r#"## Definition
+A Point has:
+    an x, which is Int.
+    a y, which is Int.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let point = interner.intern("Point");
+        assert!(registry.is_type(point), "Point should be registered");
+
+        if let Some(TypeDef::Struct { fields, generics }) = registry.get(point) {
+            assert_eq!(fields.len(), 2, "Point should have 2 fields, got {:?}", fields);
+            assert_eq!(interner.resolve(fields[0].name), "x");
+            assert_eq!(interner.resolve(fields[1].name), "y");
+            assert!(generics.is_empty(), "Point should have no generics");
+        } else {
+            panic!("Point should be a struct with fields");
+        }
+    }
+}

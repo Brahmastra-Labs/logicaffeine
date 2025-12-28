@@ -18,6 +18,7 @@ pub mod game;
 pub mod generator;
 pub mod grader;
 pub mod achievements;
+pub mod analysis;
 pub mod intern;
 pub mod lambda;
 pub mod lexer;
@@ -44,6 +45,7 @@ pub mod visitor;
 
 pub mod test_utils;
 
+pub use analysis::{TypeRegistry, TypeDef, DiscoveryPass};
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
@@ -124,6 +126,12 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     let mwe_trie = mwe::build_mwe_trie();
     let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
 
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -140,8 +148,9 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
         &pp_arena,
     );
 
+    // Pass 2: Parse with type context
     let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_context(tokens, &mut discourse, &mut interner, ctx);
+    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
     let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
@@ -179,6 +188,12 @@ pub fn compile_with_context_options(
     let mwe_trie = mwe::build_mwe_trie();
     let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
 
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -195,7 +210,8 @@ pub fn compile_with_context_options(
         &pp_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, ctx, &mut interner, ast_ctx);
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, ctx, &mut interner, ast_ctx, type_registry);
     let ast = parser.parse()?;
     let mut registry = SymbolRegistry::new();
     Ok(ast.transpile(&mut registry, &interner, options.format))
@@ -222,6 +238,12 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
         // Apply MWE collapsing
         let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
 
+        // Pass 1: Discovery - scan for type definitions
+        let type_registry = {
+            let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+            discovery.run()
+        };
+
         let expr_arena = Arena::new();
         let term_arena = Arena::new();
         let np_arena = Arena::new();
@@ -238,7 +260,8 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
             &pp_arena,
         );
 
-        let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+        // Pass 2: Parse with type context
+        let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
         parser.set_discourse_event_var(event_var_symbol);
         let ast = parser.parse()?;
         results.push(ast.transpile(&mut registry, &interner, options.format));
@@ -275,6 +298,12 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
     let mwe_trie = mwe::build_mwe_trie();
     let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
 
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -291,7 +320,9 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
         &pp_arena,
     );
 
-    let mut parser = Parser::new(tokens, &mut interner, ctx);
+    // Pass 2: Parse with type context
+    let mut discourse = DiscourseContext::new();
+    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
 
     let scope_arena = Arena::new();
@@ -333,6 +364,12 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
     let mwe_trie = mwe::build_mwe_trie();
     let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
 
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -349,7 +386,9 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
         &pp_arena,
     );
 
-    let mut parser = Parser::new(tokens.clone(), &mut interner, ctx);
+    // Pass 2: Parse with type context
+    let mut discourse = DiscourseContext::new();
+    let mut parser = Parser::with_types(tokens.clone(), &mut discourse, &mut interner, ctx, type_registry.clone());
     let ast = parser.parse()?;
     let mut registry = SymbolRegistry::new();
     let reading1 = ast.transpile(&mut registry, &interner, options.format);
@@ -380,7 +419,8 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
             &pp_arena2,
         );
 
-        let mut parser2 = Parser::new(tokens, &mut interner, ctx2);
+        let mut discourse2 = DiscourseContext::new();
+        let mut parser2 = Parser::with_types(tokens, &mut discourse2, &mut interner, ctx2, type_registry);
         parser2.set_pp_attachment_mode(true);
         let ast2 = parser2.parse()?;
         let mut registry2 = SymbolRegistry::new();
@@ -408,6 +448,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
     // Apply MWE collapsing
     let mwe_trie = mwe::build_mwe_trie();
     let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
 
     let has_lexical_ambiguity = tokens.iter().any(|t| {
         matches!(t.kind, token::TokenType::Ambiguous { .. })
@@ -467,8 +513,9 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
+        // Pass 2: Parse with type context
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_context(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_noun_priority_mode(false);
 
         if let Ok(ast) = parser.parse() {
@@ -496,7 +543,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_context(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_noun_priority_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -527,7 +574,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_context(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_pp_attachment_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -558,7 +605,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_context(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
         parser.set_collective_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -810,6 +857,12 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
     let mwe_trie = mwe::build_mwe_trie();
     let lex_tokens = mwe::apply_mwe_pipeline(lex_tokens, &mwe_trie, &mut interner);
 
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&lex_tokens, &mut interner);
+        discovery.run()
+    };
+
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -826,7 +879,9 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
         &pp_arena,
     );
 
-    let mut parser = Parser::new(lex_tokens, &mut interner, ctx);
+    // Pass 2: Parse with type context
+    let mut discourse = DiscourseContext::new();
+    let mut parser = Parser::with_types(lex_tokens, &mut discourse, &mut interner, ctx, type_registry);
 
     match parser.parse() {
         Ok(ast) => {

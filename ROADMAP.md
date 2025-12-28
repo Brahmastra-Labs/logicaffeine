@@ -4,9 +4,9 @@
 
 ---
 
-## Current Release: v0.5.3
+## Current Release: v0.5.4
 
-### 828 Tests Passing | All 6 Gates Met | Production Ready Core
+### 901 Tests Passing | 32 Test Phases | Production Ready Core
 
 ---
 
@@ -98,6 +98,112 @@ A cat runs or a dog walks and a bird flies.
 
 **Parses as:** `A or (B and C)` — the intuitive reading.
 
+### Functions (Just Shipped)
+
+Define reusable functions with natural language syntax.
+
+```
+## To add (a: Int) and (b: Int):
+    Return a plus b.
+
+## Main
+Let sum be add(3, 4).
+Show sum.
+```
+
+**Compiles to:**
+```rust
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+fn main() {
+    let sum = add(3, 4);
+    println!("{}", sum);
+}
+```
+
+| Feature | Status |
+|---------|--------|
+| Function Definitions (`## To [verb]`) | ✅ |
+| Parameter Types (`a: Int`) | ✅ |
+| Return Type Inference | ✅ |
+| Call Expressions (`f(x, y)`) | ✅ |
+| Statement Calls (`Call f with x.`) | ✅ |
+
+### Structs & Records (Working)
+
+Define data structures with named fields.
+
+```
+## Types
+A Point has an x (Int) and a y (Int).
+
+## Main
+Let p be a new Point with x as 10 and y as 20.
+Return the x of p.
+```
+
+**Compiles to:**
+```rust
+struct Point {
+    x: i64,
+    y: i64,
+}
+
+fn main() -> i64 {
+    let p = Point { x: 10, y: 20 };
+    p.x
+}
+```
+
+| Feature | Status |
+|---------|--------|
+| Struct Definitions | ✅ |
+| Field Access | ✅ |
+| Constructors | ✅ |
+
+### Type System (Partial)
+
+Type annotations and inference are working.
+
+```
+## To double (n: Int) -> Int:
+    Return n times 2.
+
+## To greet (name: Text) -> Text:
+    Return "Hello, " + name.
+
+## Main
+Let x be double(21).
+Let msg be greet("World").
+```
+
+**Compiles to:**
+```rust
+fn double(n: i64) -> i64 {
+    n * 2
+}
+
+fn greet(name: &str) -> String {
+    format!("Hello, {}", name)
+}
+
+fn main() {
+    let x = double(21);
+    let msg = greet("World");
+}
+```
+
+| Feature | Status |
+|---------|--------|
+| Primitive Types (`Int`, `Text`, `Bool`) | ✅ |
+| Type Annotations | ✅ |
+| Return Type Inference | ✅ |
+| Type Registry | ✅ |
+| Dependent Types | Planned |
+| Refinement Types | Planned |
+
 ---
 
 ## The Dual-AST Architecture
@@ -157,8 +263,8 @@ sorter.sort(&mut list);            // &mut list
 ## Test Coverage
 
 ```
-828 tests passing
- 28 test phases
+901 tests passing
+ 32 test phases
   0 failures
 ```
 
@@ -174,6 +280,9 @@ sorter.sort(&mut list);            // &mut list
 | Imperative Blocks | ✅ |
 | Index Access | ✅ |
 | Boolean Precedence | ✅ |
+| Iteration & Loops | ✅ |
+| Structs & Records | ✅ |
+| Function Definitions | ✅ |
 
 ---
 
@@ -208,7 +317,7 @@ let code = compile_to_rust("## Main\nReturn 42.");
 ## Links
 
 - [Full Specification](SPECIFICATION.md) — 5000+ lines of language design
-- [Test Suite](tests/) — 828 executable examples
+- [Test Suite](tests/) — 901 executable examples
 - [Implementation Plan](IMPLEMENTATION_PLAN.md) — Technical roadmap
 
 ---

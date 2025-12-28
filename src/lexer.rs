@@ -2,6 +2,13 @@ use crate::intern::Interner;
 use crate::lexicon::{self, Aspect, Definiteness, Lexicon, Time};
 use crate::token::{BlockType, FocusKind, MeasureKind, Span, Token, TokenType};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LexerMode {
+    #[default]
+    Declarative, // Logic, Theorems, Definitions
+    Imperative,  // Main, Functions, Code
+}
+
 pub struct Lexer<'a> {
     words: Vec<WordItem>,
     pos: usize,
@@ -9,6 +16,7 @@ pub struct Lexer<'a> {
     interner: &'a mut Interner,
     input_len: usize,
     in_let_context: bool,
+    mode: LexerMode,
     source: String,
 }
 
@@ -32,6 +40,7 @@ impl<'a> Lexer<'a> {
             interner,
             input_len,
             in_let_context: false,
+            mode: LexerMode::Declarative,
             source: input.to_string(),
         }
     }
@@ -151,7 +160,55 @@ impl<'a> Lexer<'a> {
                         word_start = next_pos;
                     }
                 }
-                '(' | ')' | ',' | '?' | '!' | ':' => {
+                // Phase 33: String literals "hello world"
+                '"' => {
+                    // Push any pending word
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+
+                    // Scan until closing quote
+                    let string_start = i;
+                    let mut j = char_idx + 1;
+                    let mut string_content = String::new();
+                    while j < chars.len() && chars[j] != '"' {
+                        if chars[j] == '\\' && j + 1 < chars.len() {
+                            // Escape sequence - skip backslash, include next char
+                            j += 1;
+                            if j < chars.len() {
+                                string_content.push(chars[j]);
+                            }
+                        } else {
+                            string_content.push(chars[j]);
+                        }
+                        j += 1;
+                    }
+
+                    // Create a special marker for string literals
+                    // We prefix with a special character to identify in tokenize()
+                    items.push(WordItem {
+                        word: format!("\x00STR:{}", string_content),
+                        trailing_punct: None,
+                        start: string_start,
+                        end: if j < chars.len() { j + 1 } else { j },
+                        punct_pos: None,
+                    });
+
+                    // Skip past the closing quote
+                    if j < chars.len() {
+                        skip_count = j - char_idx;
+                    } else {
+                        skip_count = j - char_idx - 1;
+                    }
+                    word_start = if j < chars.len() { j + 1 } else { j };
+                }
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -322,6 +379,8 @@ impl<'a> Lexer<'a> {
                     let kind = match punct {
                         '(' => TokenType::LParen,
                         ')' => TokenType::RParen,
+                        '[' => TokenType::LBracket,
+                        ']' => TokenType::RBracket,
                         ',' => TokenType::Comma,
                         ':' => TokenType::Colon,
                         '.' | '?' => {
@@ -329,6 +388,10 @@ impl<'a> Lexer<'a> {
                             TokenType::Period
                         }
                         '!' => TokenType::Exclamation,
+                        '+' => TokenType::Plus,
+                        '-' => TokenType::Minus,
+                        '*' => TokenType::Star,
+                        '/' => TokenType::Slash,
                         _ => {
                             self.pos += 1;
                             continue;
@@ -338,6 +401,16 @@ impl<'a> Lexer<'a> {
                     let span = Span::new(word_start, word_end);
                     tokens.push(Token::new(kind, lexeme, span));
                 }
+                self.pos += 1;
+                continue;
+            }
+
+            // Phase 33: Check for string literal marker
+            if word.starts_with("\x00STR:") {
+                let content = &word[5..]; // Skip the marker prefix
+                let sym = self.interner.intern(content);
+                let span = Span::new(word_start, word_end);
+                tokens.push(Token::new(TokenType::StringLiteral(sym), sym, span));
                 self.pos += 1;
                 continue;
             }
@@ -360,10 +433,16 @@ impl<'a> Lexer<'a> {
                                 let kind = match s_punct {
                                     '(' => TokenType::LParen,
                                     ')' => TokenType::RParen,
+                                    '[' => TokenType::LBracket,
+                                    ']' => TokenType::RBracket,
                                     ',' => TokenType::Comma,
                                     ':' => TokenType::Colon,
                                     '.' | '?' => TokenType::Period,
                                     '!' => TokenType::Exclamation,
+                                    '+' => TokenType::Plus,
+                                    '-' => TokenType::Minus,
+                                    '*' => TokenType::Star,
+                                    '/' => TokenType::Slash,
                                     _ => {
                                         self.pos += 1;
                                         continue;
@@ -384,6 +463,8 @@ impl<'a> Lexer<'a> {
                 let kind = match punct {
                     '(' => TokenType::LParen,
                     ')' => TokenType::RParen,
+                    '[' => TokenType::LBracket,
+                    ']' => TokenType::RBracket,
                     ',' => TokenType::Comma,
                     ':' => TokenType::Colon,
                     '.' | '?' => {
@@ -391,6 +472,10 @@ impl<'a> Lexer<'a> {
                         TokenType::Period
                     }
                     '!' => TokenType::Exclamation,
+                    '+' => TokenType::Plus,
+                    '-' => TokenType::Minus,
+                    '*' => TokenType::Star,
+                    '/' => TokenType::Slash,
                     _ => {
                         self.pos += 1;
                         continue;
@@ -421,12 +506,15 @@ impl<'a> Lexer<'a> {
 
             if token.kind == TokenType::Colon {
                 let colon_pos = token.span.end;
-                if let Some(indent) = self.measure_next_line_indent(colon_pos) {
-                    let current_indent = *indent_stack.last().unwrap_or(&0);
-                    if indent > current_indent {
-                        indent_stack.push(indent);
-                        let span = Span::new(colon_pos, colon_pos);
-                        result.push(Token::new(TokenType::Indent, empty_sym, span));
+                // Only insert Indent if colon is at end of line (followed by newline)
+                if self.is_end_of_line(colon_pos) {
+                    if let Some(indent) = self.measure_next_line_indent(colon_pos) {
+                        let current_indent = *indent_stack.last().unwrap_or(&0);
+                        if indent > current_indent {
+                            indent_stack.push(indent);
+                            let span = Span::new(colon_pos, colon_pos);
+                            result.push(Token::new(TokenType::Indent, empty_sym, span));
+                        }
                     }
                 }
             }
@@ -461,6 +549,20 @@ impl<'a> Lexer<'a> {
         }
 
         result
+    }
+
+    /// Check if position is at end of line (only whitespace until newline)
+    fn is_end_of_line(&self, from_pos: usize) -> bool {
+        let bytes = self.source.as_bytes();
+        let mut pos = from_pos;
+        while pos < bytes.len() {
+            match bytes[pos] {
+                b' ' | b'\t' => pos += 1,
+                b'\n' => return true,
+                _ => return false,
+            }
+        }
+        true // End of input is also end of line
     }
 
     fn measure_next_line_indent(&self, from_pos: usize) -> Option<usize> {
@@ -528,8 +630,16 @@ impl<'a> Lexer<'a> {
                 "example" => BlockType::Example,
                 "logic" => BlockType::Logic,
                 "note" => BlockType::Note,
+                "to" => BlockType::Function,  // Phase 32: ## To blocks
                 _ => BlockType::Note, // Default unknown block types to Note
             };
+
+            // Update lexer mode based on block type
+            self.mode = match block_type {
+                BlockType::Main | BlockType::Function => LexerMode::Imperative,
+                _ => LexerMode::Declarative,
+            };
+
             return TokenType::BlockHeader { block_type };
         }
 
@@ -621,6 +731,16 @@ impl<'a> Lexer<'a> {
                     return TokenType::ProperName(sym);
                 }
 
+                // Definition pattern: "A [TypeName] is a..." or "A [TypeName] has:" - treat A as article
+                // even when TypeName is capitalized and unknown
+                if let Some(third) = self.peek_word(2) {
+                    let third_lower = third.to_lowercase();
+                    // Phase 31: Added "has" for struct definitions
+                    if third_lower == "is" || third_lower == "are" || third_lower == "has" {
+                        return TokenType::Article(Definiteness::Indefinite);
+                    }
+                }
+
                 // It's an article if next word is:
                 // - A known noun or adjective, or
                 // - Lowercase (likely a common word we don't recognize)
@@ -684,6 +804,7 @@ impl<'a> Lexer<'a> {
         // Handle imperative keywords that might conflict with prepositions
         match lower.as_str() {
             "call" => return TokenType::Call,
+            "in" if self.mode == LexerMode::Imperative => return TokenType::In,
             _ => {}
         }
 
@@ -701,10 +822,16 @@ impl<'a> Lexer<'a> {
                 return TokenType::Let;
             }
             "set" => {
-                // Only tokenize as Set keyword if followed by identifier + "to"
-                // This avoids conflict with "set" as a mathematical noun
-                if self.peek_word(2).map_or(false, |w| w.to_lowercase() == "to") {
+                // In Imperative mode, treat "set" as the keyword
+                // In Declarative mode, check if followed by identifier + "to" to disambiguate from noun "set"
+                if self.mode == LexerMode::Imperative {
                     return TokenType::Set;
+                }
+                // Phase 31: Also check positions 3, 4, 5 for "to" (handles field access like "set p's x to")
+                for offset in 2..=5 {
+                    if self.peek_word(offset).map_or(false, |w| w.to_lowercase() == "to") {
+                        return TokenType::Set;
+                    }
                 }
             }
             "return" => return TokenType::Return,
@@ -715,6 +842,16 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "otherwise" => return TokenType::Otherwise,
+            // Phase 33: Sum type definition (after "is")
+            "either" => return TokenType::Either,
+            // Phase 33: Pattern matching statement
+            "inspect" if self.mode == LexerMode::Imperative => return TokenType::Inspect,
+            // Phase 31: Constructor keyword (Imperative mode only)
+            "new" if self.mode == LexerMode::Imperative => return TokenType::New,
+            // Only emit Give/Show as keywords in Imperative mode
+            // In Declarative mode, they fall through to lexicon lookup as verbs
+            "give" if self.mode == LexerMode::Imperative => return TokenType::Give,
+            "show" if self.mode == LexerMode::Imperative => return TokenType::Show,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

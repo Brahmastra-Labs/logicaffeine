@@ -6,6 +6,7 @@ fn stmt_let_variant_exists() {
     fn _check<'a>(expr: &'a Expr<'a>) -> Stmt<'a> {
         Stmt::Let {
             var: Symbol::default(),
+            ty: None,
             value: expr,
             mutable: false,
         }

@@ -46,6 +46,7 @@ pub enum BlockType {
     Example,
     Logic,
     Note,
+    Function,  // Phase 32: ## To blocks
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,9 +102,20 @@ pub enum TokenType {
     Return,
     Be,
     While,
+    Repeat,
+    For,
+    In,
+    From,
     Assert,
     Otherwise,
     Call,
+    New,      // Phase 31: Constructor keyword
+    Either,   // Phase 33: Sum type definition
+    Inspect,  // Phase 33: Pattern matching
+
+    // Ownership Keywords (Move/Borrow Semantics)
+    Give,  // Move ownership: "Give x to processor"
+    Show,  // Immutable borrow: "Show x to console"
 
     // Block Scoping
     Colon,
@@ -195,6 +207,9 @@ pub enum TokenType {
     // Numeric Literals (prover-ready: stores raw string for symbolic math)
     Number(Symbol),
 
+    // Phase 33: String literals "hello world"
+    StringLiteral(Symbol),
+
     // Index Access (1-indexed)
     Item,
     Items,
@@ -205,8 +220,17 @@ pub enum TokenType {
     // Punctuation
     LParen,
     RParen,
+    LBracket,
+    RBracket,
     Comma,
     Period,
+
+    // Arithmetic Operators
+    Plus,
+    Minus,
+    Star,
+    Slash,
+
     EOF,
 }
 

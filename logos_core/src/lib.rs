@@ -1,46 +1,23 @@
 //! LOGOS Runtime Library
-//!
-//! This crate provides the runtime support for compiled LOGOS programs.
-//! It wraps Rust's standard library macros into callable functions,
-//! since LOGOS FFI cannot invoke macros directly.
 
-pub mod io {
-    /// Print a value to stdout with a newline.
-    /// LOGOS: `Show x to the console.`
-    pub fn println<T: std::fmt::Display>(x: T) {
-        println!("{}", x);
-    }
+pub mod io;
+pub mod types;
 
-    /// Print a value to stderr with a newline.
-    /// LOGOS: `Log message.`
-    pub fn eprintln<T: std::fmt::Display>(x: T) {
-        eprintln!("{}", x);
-    }
-
-    /// Print a value to stdout without a newline.
-    pub fn print<T: std::fmt::Display>(x: T) {
-        print!("{}", x);
-    }
-}
-
-/// Panic with a reason message.
-/// LOGOS: `Panic with reason.`
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
 }
 
 pub mod fmt {
-    /// Format a value to a String.
-    /// LOGOS: `Format "template [x]".`
     pub fn format<T: std::fmt::Display>(x: T) -> String {
         format!("{}", x)
     }
 }
 
 pub mod prelude {
-    pub use super::io::{println, eprintln, print};
-    pub use super::panic_with;
-    pub use super::fmt::format;
+    pub use crate::io::{show, read_line, println, eprintln, print, Showable};
+    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
+    pub use crate::panic_with;
+    pub use crate::fmt::format;
 }
 
 #[cfg(test)]
@@ -51,5 +28,15 @@ mod tests {
     fn test_format() {
         assert_eq!(fmt::format(42), "42");
         assert_eq!(fmt::format("hello"), "hello");
+    }
+
+    #[test]
+    fn test_type_aliases() {
+        let _n: types::Nat = 42;
+        let _i: types::Int = -42;
+        let _r: types::Real = 3.14;
+        let _t: types::Text = String::from("hello");
+        let _b: types::Bool = true;
+        let _u: types::Unit = ();
     }
 }

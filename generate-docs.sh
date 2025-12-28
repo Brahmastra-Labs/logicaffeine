@@ -71,28 +71,45 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 18: Plurality](#phase-18-plurality)
     - [Phase 19: Group Plurals](#phase-19-group-plurals)
     - [Phase 20: Axiom Layer](#phase-20-axiom-layer)
-    - [Phase 25: Smoke Tests](#phase-25-smoke-tests)
+    - [Phase 21: Block Structure & Imperative](#phase-21-block-headers)
+    - [Phase 22: Identity, Scope & Resolution](#phase-22-identity-scope)
+    - [Phase 23: Type System & Statements](#phase-23-type-system)
+    - [Phase 24: Code Generation](#phase-24-code-generation)
+    - [Phase 25: Assertions & Smoke Tests](#phase-25-assertions)
+    - [Phase 26: End-to-End Pipeline](#phase-26-end-to-end)
+    - [Phase 27: Guards](#phase-27-guards)
+    - [Phase 28: Precedence](#phase-28-precedence)
+    - [Phase 29: Runtime Injection](#phase-29-runtime-injection)
+    - [Phase 30: Collections & Iteration](#phase-30-collections--iteration)
+    - [Phase 31: User-Defined Types](#phase-31-user-defined-types)
+    - [Phase 32: Function Definitions & Inference](#phase-32-function-definitions--inference)
+    - [Phase 33: Sum Types & Pattern Matching](#phase-33-sum-types--pattern-matching)
+    - [Phase 34: User-Defined Generics](#phase-34-user-defined-generics)
 5. [Statistics](#statistics)
 
 ### Source Code
 6. [Lexicon Data](#lexicon-data)
 7. [Lexer & Tokenization](#lexer--tokenization)
-8. [Parser & AST](#parser--ast)
+8. [Parser & AST](#parser--ast) (Dual-AST: logic.rs + stmt.rs)
 9. [Transpilation](#transpilation)
 10. [Semantic Analysis](#semantic-analysis)
-11. [Public API](#public-api)
-12. [Linguistic Data](#linguistic-data)
-13. [Memory Management](#memory-management)
-14. [Error Handling](#error-handling)
-15. [Web Application](#web-application)
+11. [Type Analysis](#type-analysis) (analysis/ module)
+12. [Code Generation](#code-generation) (codegen.rs, compile.rs, scope.rs)
+13. [Public API](#public-api)
+14. [Linguistic Data](#linguistic-data)
+15. [Memory Management](#memory-management)
+16. [Error Handling](#error-handling)
+17. [Gamification](#gamification) (achievements, progress, SRS)
+18. [Web Application](#web-application)
     - [Pages](#pages): Home, Workspace, Pricing, Learn, Lesson
     - [Components](#components): ChatDisplay, InputArea
     - [Router](#router): Client-side navigation
-16. [Problem Generator](#problem-generator)
+19. [Problem Generator](#problem-generator)
     - [Curriculum Structure](#curriculum-structure)
     - [Runtime Lexicon](#runtime-lexicon)
     - [Generator Engine](#generator-engine)
     - [Grader](#grader)
+20. [Logos Core Runtime](#logos-core-runtime)
 
 ### Appendix
 16. [Metadata](#metadata)
@@ -1453,11 +1470,146 @@ add_test_description "tests/phase20_axioms.rs" \
     "Semantic axiom expansion for meaning postulates. Bachelor→Unmarried∧Male∧Adult, privative adjectives (fake→¬N∧Resembles(^N)), verb entailments (murder→kill), and hypernym chains (dog→animal→mammal). Pipeline position: Parser→Axioms→Pragmatics." \
     "\"John is a bachelor.\" → B(J) ∧ Unmarried(J) ∧ Male(J) ∧ Adult(J)"
 
-# Phase 25
+# Phase 21: Block Structure & Imperative Syntax
+add_test_description "tests/phase21_block_headers.rs" \
+    "Phase 21: Block Headers" \
+    "Parsing ## Main and other block headers that trigger imperative mode. Block headers mark the transition from declarative logic to executable code." \
+    "\"## Main\" triggers imperative parsing mode"
+
+add_test_description "tests/phase21_imperative_verbs.rs" \
+    "Phase 21: Imperative Verbs" \
+    "Let/Set/Return statement parsing in imperative blocks. Let binds values, Set mutates, Return exits functions." \
+    "\"Let x be 5.\" → let x = 5;"
+
+add_test_description "tests/phase21_ownership.rs" \
+    "Phase 21: Ownership" \
+    "Rust-style ownership semantics via natural language verbs. Give performs moves, Show performs immutable borrows. Tracks owned/moved/borrowed states." \
+    "\"Give x to f.\" → f(x) // x is moved"
+
+# Phase 22: Identity & Scope
+add_test_description "tests/phase22_equals.rs" \
+    "Phase 22: Equality" \
+    "Identity predicates and equality relations. Handles 'is equal to', 'is identical to', and numeric equality." \
+    "\"x is equal to y\" → x = y"
+
+add_test_description "tests/phase22_index.rs" \
+    "Phase 22: Indexing" \
+    "Array and collection indexing operations. Supports numeric indices and slice syntax." \
+    "\"the third element of xs\" → xs[2]"
+
+add_test_description "tests/phase22_is_rejection.rs" \
+    "Phase 22: Is-Rejection" \
+    "Filtering non-predicate uses of 'is' copula in imperative context. Distinguishes identity from predication." \
+    "\"x is large\" vs \"x is 5\""
+
+add_test_description "tests/phase22_resolution.rs" \
+    "Phase 22: Resolution" \
+    "Anaphora and reference resolution in imperative blocks. Resolves pronouns and definite descriptions to bound variables." \
+    "\"Let x be 5. Return it.\" → it resolves to x"
+
+add_test_description "tests/phase22_scope.rs" \
+    "Phase 22: Scope" \
+    "Variable scope and quantifier interactions in imperative code. Handles block scoping and shadowing." \
+    "Block-level variable scoping"
+
+# Phase 23: Type System & Statements
+add_test_description "tests/phase23_blocks.rs" \
+    "Phase 23: Blocks" \
+    "Indentation-based block structure parsing. Python-style significant whitespace with Colon/Indent/Dedent tokens." \
+    "Indent → block body → Dedent"
+
+add_test_description "tests/phase23_parsing.rs" \
+    "Phase 23: Parsing" \
+    "Parser internals and mode switching between declarative and imperative modes. Tests ParserMode enum." \
+    "Declarative mode ↔ Imperative mode"
+
+add_test_description "tests/phase23_stmt.rs" \
+    "Phase 23: Statements" \
+    "Stmt enum variants: Let, Set, Call, If, While, Return, Assert, Give, Show. The imperative AST types." \
+    "Stmt::Let { name, value }"
+
+add_test_description "tests/phase23_tokens.rs" \
+    "Phase 23: Tokens" \
+    "Token type verification for imperative constructs. Tests Give, Show, Let, Set, Return, Assert token recognition." \
+    "TokenType::Give, TokenType::Show"
+
+add_test_description "tests/phase23_types.rs" \
+    "Phase 23: Types" \
+    "TypeRegistry and DiscoveryPass for two-pass compilation. First pass discovers type definitions, second pass resolves references." \
+    "## Definition blocks → TypeRegistry"
+
+# Phase 24: Code Generation
+add_test_description "tests/phase24_codegen.rs" \
+    "Phase 24: Code Generation" \
+    "Rust code emission for literals and expressions. Converts imperative AST to valid Rust source code." \
+    "Stmt → fn main() { ... }"
+
+add_test_description "tests/phase24_wired_types.rs" \
+    "Phase 24: Pipeline Wiring" \
+    "Two-pass compilation pipeline integration. DiscoveryPass runs before parser to build TypeRegistry. Parser uses registry for type vs predicate disambiguation." \
+    "Stack of Integers → Generic type when Stack is defined"
+
+add_test_description "tests/phase25_type_expr.rs" \
+    "Phase 25: Type Expressions" \
+    "Type annotations for Let statements. Supports primitives (Int→i64, Nat→u64, Text→String), generics (List of Int→Vec<i64>), multi-param generics (Result of Int and Text), nested generics, and mutable bindings." \
+    "Let x: Int be 5. → let x: i64 = 5;"
+
+# Phase 25: Assertions (separate from smoke tests)
+add_test_description "tests/phase25_assertions.rs" \
+    "Phase 25: Assertions" \
+    "Logic kernel assertions via Assert statements. Bridges imperative code to declarative verification using debug_assert! macros." \
+    "\"Assert that x is positive.\" → debug_assert!(x > 0)"
+
 add_test_description "tests/phase25_smoke_tests.rs" \
     "Phase 25: Smoke Tests" \
     "Aspirational tests for advanced linguistic phenomena. Covers scopal adverbs (almost/barely wrapping events), negation scope ambiguity, donkey anaphora, intensional identity, performatives, distanced phrasal verbs, and double focus operators. Some tests expected to fail until features implemented." \
     "\"John almost killed Mary.\" → Almost(∃e(Kill(e) ∧ Agent(e, J) ∧ Theme(e, M)))"
+
+# Phase 26-28: Advanced Pipeline
+add_test_description "tests/phase26_e2e.rs" \
+    "Phase 26: End-to-End" \
+    "Full pipeline tests: English → AST → Rust code. Tests compile_to_rust output for complete programs." \
+    "English source → executable Rust"
+
+add_test_description "tests/phase27_guards.rs" \
+    "Phase 27: Guards" \
+    "Guard clauses and conditional patterns. Handles 'if' conditions and pattern guards in function definitions." \
+    "\"If x is negative, return 0.\" → guard clause"
+
+add_test_description "tests/phase28_precedence.rs" \
+    "Phase 28: Precedence" \
+    "Operator precedence and associativity. Ensures correct parsing of complex expressions with mixed operators." \
+    "a + b * c → a + (b * c)"
+
+add_test_description "tests/phase29_runtime.rs" \
+    "Phase 29: Runtime Injection" \
+    "Embeds logos_core/ runtime into compiled programs. Type aliases (Nat, Int, Real, Text, Bool, Unit) and IO functions (show, read_line) per Spec §10.5 and §10.6.1." \
+    "use logos_core::prelude::*; // Auto-injected"
+
+add_test_description "tests/phase30_iteration.rs" \
+    "Phase 30: Collections & Iteration" \
+    "Seq<T> generic type, list literals [1, 2, 3], repeat loops (for x in list:), range syntax (from N to M), and Showable trait. Mode-dependent 'in' keyword handling." \
+    "Repeat for x in [1, 2, 3]: → for x in vec![1, 2, 3]"
+
+add_test_description "tests/phase31_structs.rs" \
+    "Phase 31: User-Defined Types" \
+    "Struct definitions with encapsulation. Syntax: 'A TypeName has: a [public] field, which is Type.' Constructor generation (new Type), field access (var's field), field mutations (Set var's field to value), and visibility modifiers (pub/private fields)." \
+    "A Point has: a public x, which is Int."
+
+add_test_description "tests/phase32_functions.rs" \
+    "Phase 32: Function Definitions & Inference" \
+    "User-defined functions with ## To [verb] syntax. Call expression syntax f(x, y) for use in expressions, return type inference from body, and dual call syntax (Call f with x. for statements, f(x) for expressions)." \
+    "## To add (a: Int) and (b: Int): → fn add(a: i64, b: i64) -> i64"
+
+add_test_description "tests/phase33_enums.rs" \
+    "Phase 33: Sum Types & Pattern Matching" \
+    "Algebraic data types with 'A Type is either:' syntax. Variant constructors with optional payloads (A Circle with radius value.), pattern matching via 'Inspect expr:' with match arms, and field bindings in patterns (When Circle (radius: r):)." \
+    "A Shape is either: A Circle with a radius, which is Int."
+
+add_test_description "tests/phase34_generics.rs" \
+    "Phase 34: User-Defined Generics" \
+    "Generic type parameters with 'of [T]' syntax. Single-param (A Box of [T] has:), multi-param (A Pair of [A] and [B] has:), generic enums (A Maybe of [T] is either:), and turbofish instantiation (new Box of Int → Box::<i64>::default())." \
+    "A Box of [T] has: a value, which is T."
 
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \
@@ -1500,17 +1652,19 @@ for f in src/token.rs src/lexer.rs; do
 done
 echo "Lexer (token.rs, lexer.rs):           $LEXER_LINES lines" >> "$OUTPUT_FILE"
 
-# Parser
+# Parser & AST
 PARSER_LINES=0
-if [ -f "src/ast.rs" ]; then
-    PARSER_LINES=$((PARSER_LINES + $(wc -l < "src/ast.rs")))
-fi
+for f in src/ast/*.rs; do
+    if [ -f "$f" ]; then
+        PARSER_LINES=$((PARSER_LINES + $(wc -l < "$f")))
+    fi
+done
 for f in src/parser/*.rs; do
     if [ -f "$f" ]; then
         PARSER_LINES=$((PARSER_LINES + $(wc -l < "$f")))
     fi
 done
-echo "Parser (ast.rs, parser/):             $PARSER_LINES lines" >> "$OUTPUT_FILE"
+echo "Parser (ast/, parser/):               $PARSER_LINES lines" >> "$OUTPUT_FILE"
 
 # Transpilation
 TRANSPILE_LINES=0
@@ -1521,6 +1675,15 @@ for f in src/transpile.rs src/formatter.rs src/registry.rs; do
 done
 echo "Transpilation:                        $TRANSPILE_LINES lines" >> "$OUTPUT_FILE"
 
+# Code Generation
+CODEGEN_LINES=0
+for f in src/codegen.rs src/compile.rs src/scope.rs; do
+    if [ -f "$f" ]; then
+        CODEGEN_LINES=$((CODEGEN_LINES + $(wc -l < "$f")))
+    fi
+done
+echo "Code Generation:                      $CODEGEN_LINES lines" >> "$OUTPUT_FILE"
+
 # Semantics
 SEMANTICS_LINES=0
 for f in src/lambda.rs src/context.rs src/view.rs; do
@@ -1529,6 +1692,15 @@ for f in src/lambda.rs src/context.rs src/view.rs; do
     fi
 done
 echo "Semantics (lambda, context, view):    $SEMANTICS_LINES lines" >> "$OUTPUT_FILE"
+
+# Type Analysis
+ANALYSIS_LINES=0
+for f in src/analysis/*.rs; do
+    if [ -f "$f" ]; then
+        ANALYSIS_LINES=$((ANALYSIS_LINES + $(wc -l < "$f")))
+    fi
+done
+echo "Type Analysis (analysis/):            $ANALYSIS_LINES lines" >> "$OUTPUT_FILE"
 
 # Support
 SUPPORT_LINES=0
@@ -1634,15 +1806,23 @@ add_file "src/lexer.rs" \
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Parser & AST
 
-The parser builds an Abstract Syntax Tree from the token stream using recursive descent with operator precedence handling.
+The parser builds an Abstract Syntax Tree from the token stream using recursive descent with operator precedence handling. The AST is split into two modules: declarative logic expressions and imperative statements.
 
-**Location:** `src/ast.rs`, `src/parser/`
+**Location:** `src/ast/` (module), `src/parser/`
 
 EOF
 
-add_file "src/ast.rs" \
-    "AST Node Definitions" \
-    "Arena-allocated AST with Copy semantics. Boxed large variants (CategoricalData, RelationData, NeoEventData) reduce Expr size from 112 to 32 bytes. Includes compile-time size assertions. Expression types include: Predicate, Identity, Quantifier (with Generic and island_id for scope constraints), Modal, Temporal, Aspectual, NeoEvent (thematic roles), Event, Control (raising/control verbs), Presupposition, Focus, SpeechAct, Imperative, Comparative (with difference field for measure phrases), Superlative, Counterfactual, Distributive, Scopal, TemporalAnchor, Causal, Intensional (opaque verb wrapper). Term types: Constants, Variables, Functions, Sigma, Group, Possessed, Intension (Montague up-arrow ^P for de dicto), Proposition (sentential complement), Value (numeric with kind/unit/dimension). **Intensionality Support:** Term::Intension(Symbol) for de dicto readings; Expr::Intensional { operator, content } for opaque verb contexts. **Sentential Complements:** Term::Proposition(&Expr) wraps embedded clauses as term arguments for verbs like 'say', 'believe', 'think'. Transpiles to bracket notation [expr]. **Scope Tracking:** Expr::Quantifier.island_id: u32 identifies scope boundaries for constraining quantifier movement. **Degree Semantics (Phase 8):** Dimension enum (Length, Time, Weight, Temperature, Cardinality) for measurement categories. NumberKind enum (Real, Integer, Symbolic) for prover-ready numeric types. Term::Value stores numeric value with optional unit Symbol and Dimension. Expr::Comparative.difference field holds optional measure phrase ('2 inches' in 'taller'). ThematicRole enum: Agent, Patient, Theme, Goal, Source, Recipient, Instrument, Location, Time, Manner. VoiceOperator enum (Passive) for voice handling. AspectOperator enum (Progressive, Perfect, Habitual, Iterative) for grammatical aspect. Habitual for present-tense non-stative verbs; Iterative for progressive semelfactives."
+add_file "src/ast/mod.rs" \
+    "AST Module" \
+    "Module exports for the dual-AST architecture. Re-exports logic.rs (declarative) and stmt.rs (imperative) types."
+
+add_file "src/ast/logic.rs" \
+    "Logic AST (Declarative)" \
+    "Arena-allocated AST with Copy semantics for first-order logic. Boxed large variants (CategoricalData, RelationData, NeoEventData) reduce Expr size from 112 to 32 bytes. Includes compile-time size assertions. **Expression types:** Predicate, Identity, Quantifier (with Generic and island_id for scope constraints), Modal, Temporal, Aspectual, NeoEvent (thematic roles), Event, Control (raising/control verbs), Presupposition, Focus, SpeechAct, Imperative, Comparative (with difference field for measure phrases), Superlative, Counterfactual, Distributive, Scopal, TemporalAnchor, Causal, Intensional (opaque verb wrapper). **Term types:** Constants, Variables, Functions, Sigma, Group, Possessed, Intension (Montague up-arrow ^P for de dicto), Proposition (sentential complement), Value (numeric with kind/unit/dimension). **Intensionality Support:** Term::Intension(Symbol) for de dicto readings; Expr::Intensional { operator, content } for opaque verb contexts. **Sentential Complements:** Term::Proposition(&Expr) wraps embedded clauses as term arguments for verbs like 'say', 'believe', 'think'. Transpiles to bracket notation [expr]. **Scope Tracking:** Expr::Quantifier.island_id: u32 identifies scope boundaries for constraining quantifier movement. **Degree Semantics (Phase 8):** Dimension enum (Length, Time, Weight, Temperature, Cardinality) for measurement categories. NumberKind enum (Real, Integer, Symbolic) for prover-ready numeric types. Term::Value stores numeric value with optional unit Symbol and Dimension. Expr::Comparative.difference field holds optional measure phrase ('2 inches' in 'taller'). ThematicRole enum: Agent, Patient, Theme, Goal, Source, Recipient, Instrument, Location, Time, Manner. VoiceOperator enum (Passive) for voice handling. AspectOperator enum (Progressive, Perfect, Habitual, Iterative) for grammatical aspect. Habitual for present-tense non-stative verbs; Iterative for progressive semelfactives."
+
+add_file "src/ast/stmt.rs" \
+    "Statement AST (Imperative)" \
+    "Imperative AST for executable code blocks. **Stmt enum variants:** Let (variable binding), Set (mutation), Call (function invocation), If (conditional with then/else blocks), While (loops), Return (with optional value), Assert (bridge to logic kernel - embeds Expr for verification), Give (ownership transfer/move semantics), Show (immutable borrow). **Expr enum (imperative):** Literal (Number, Text, Boolean, Nothing), Identifier, BinaryOp (arithmetic and comparison), Call, Index, Slice. **BinaryOpKind:** Add, Subtract, Multiply, Divide, Eq, NotEq, Lt, Gt, LtEq, GtEq. The Assert statement connects imperative code to the declarative logic kernel, enabling runtime verification via debug_assert! macros in generated Rust."
 
 add_file "src/parser/mod.rs" \
     "Parser Core" \
@@ -1739,6 +1919,54 @@ add_file "src/semantics/mod.rs" \
 add_file "src/semantics/axioms.rs" \
     "Axiom Expansion" \
     "AST transformation for meaning postulates. Handles noun entailments (bachelor→unmarried), hypernyms (dog→animal), privative adjectives (fake→¬N∧Resembles), and verb entailments (murder→kill)."
+
+# ==============================================================================
+# TYPE ANALYSIS (TWO-PASS COMPILATION)
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+## Type Analysis
+
+Two-pass compilation infrastructure for type discovery and resolution.
+
+**Location:** `src/analysis/`
+
+EOF
+
+add_file "src/analysis/mod.rs" \
+    "Analysis Module" \
+    "Entry point for type analysis. Re-exports TypeRegistry and DiscoveryPass for two-pass compilation."
+
+add_file "src/analysis/registry.rs" \
+    "Type Registry" \
+    "TypeRegistry struct for tracking type definitions. TypeDef enum with variants: Generic (type parameters), Struct (record types), Enum (sum types). register_type() adds definitions; resolve_type() looks up by name. Supports the Adjective System where adjectives become type parameters."
+
+add_file "src/analysis/discovery.rs" \
+    "Discovery Pass" \
+    "First pass of two-pass compilation. DiscoveryPass scans source for ## Definition blocks to populate TypeRegistry before full parsing. Enables forward references and mutual recursion in type definitions. Extracts type names, parameters, and kind (struct/enum) from definition headers."
+
+# ==============================================================================
+# CODE GENERATION
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+## Code Generation
+
+Rust code emission from imperative AST.
+
+**Location:** `src/codegen.rs`, `src/compile.rs`, `src/scope.rs`
+
+EOF
+
+add_file "src/codegen.rs" \
+    "Rust Code Generation" \
+    "Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. codegen_expr() handles imperative expressions. Uses String buffer for zero-dependency output."
+
+add_file "src/compile.rs" \
+    "Compilation Orchestration" \
+    "High-level compilation pipeline. compile_to_rust() coordinates lexer→parser→codegen for imperative programs. Manages parser mode switching between declarative and imperative contexts. Handles ## Main and ## Definition block routing."
+
+add_file "src/scope.rs" \
+    "Scope Management" \
+    "Variable scope tracking for imperative blocks. ScopeStack manages nested lexical scopes with push/pop. resolve_identifier() finds variable bindings respecting shadowing. Tracks ownership state (owned/moved/borrowed) for each binding."
 
 # ==============================================================================
 # SUPPORT INFRASTRUCTURE
@@ -1879,6 +2107,42 @@ EOF
 add_file "src/pragmatics.rs" \
     "Pragmatics Module" \
     "Modal-to-imperative conversion for indirect speech acts. Detects when modal questions should be interpreted as imperatives (e.g., 'Can you pass the salt?' → Pass(you, salt), 'Could you please open the door?' → Open(you, door)). Handles both Expr::NeoEvent and Expr::Predicate forms for addressee detection."
+
+# ==============================================================================
+# GAMIFICATION
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+## Gamification
+
+Achievement system, progress tracking, and spaced repetition for learning engagement.
+
+**Location:** `src/achievements.rs`, `src/progress.rs`, `src/game.rs`, `src/srs.rs`
+
+EOF
+
+add_file "src/achievements.rs" \
+    "Achievements" \
+    "Achievement system with unlock conditions and tracking. Defines achievements for milestones (first problem, streak, mastery). Checks unlock conditions and emits events for UI notifications."
+
+add_file "src/progress.rs" \
+    "Progress Tracking" \
+    "Lesson and module progress tracking. Tracks completion status, scores, and time spent. Persists progress to storage for cross-session continuity."
+
+add_file "src/game.rs" \
+    "Game State" \
+    "Central game state management. Tracks XP, level, combo/streak counters, and current lesson. Coordinates between achievements, progress, and SRS systems."
+
+add_file "src/srs.rs" \
+    "Spaced Repetition" \
+    "SM-2 style spaced repetition algorithm for review scheduling. Calculates next review date based on performance. Prioritizes due items in review queue."
+
+add_file "src/audio.rs" \
+    "Audio Feedback" \
+    "Sound effect management for feedback. Plays success/failure/achievement sounds. Uses web audio API in WASM context."
+
+add_file "src/storage.rs" \
+    "Persistent Storage" \
+    "LocalStorage interface for saving game state. Handles serialization/deserialization of progress, settings, and achievements. Provides fallback for browsers without storage access."
 
 # ==============================================================================
 # APPLICATION
@@ -2097,6 +2361,30 @@ add_file "src/grader.rs" \
 add_file "src/runtime_lexicon.rs" \
     "Runtime Lexicon" \
     "Runtime access to lexicon data for the generator. Provides query APIs: nouns_with_feature(), verbs_with_feature(), nouns_with_sort(), proper_nouns(), common_nouns(). Loads from embedded lexicon.json."
+
+# ==============================================================================
+# LOGOS CORE RUNTIME
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+## Logos Core Runtime
+
+Embedded runtime library for compiled LOGOS programs. Provides type aliases and IO functions per the Spec.
+
+**Location:** `logos_core/src/`
+
+EOF
+
+add_file "logos_core/src/lib.rs" \
+    "Runtime Library" \
+    "Entry point for logos_core crate. Re-exports io, types, and prelude modules. Embedded into compiled programs via include_str! in src/compile.rs."
+
+add_file "logos_core/src/types.rs" \
+    "Type Aliases" \
+    "Rust type aliases per Spec §10.6.1: Nat→u64, Int→i64, Real→f64, Text→String, Bool→bool, Unit→()."
+
+add_file "logos_core/src/io.rs" \
+    "IO Functions" \
+    "Standard IO per Spec §10.5: show() for display, read_line() for input, println/eprintln/print for output."
 
 # ==============================================================================
 # ==============================================================================

@@ -8,9 +8,16 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
+// Embed runtime at compile time
+const LOGOS_CORE_TOML: &str = include_str!("../logos_core/Cargo.toml");
+const LOGOS_CORE_LIB: &str = include_str!("../logos_core/src/lib.rs");
+const LOGOS_CORE_TYPES: &str = include_str!("../logos_core/src/types.rs");
+const LOGOS_CORE_IO: &str = include_str!("../logos_core/src/io.rs");
+
+use crate::analysis::DiscoveryPass;
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
-use crate::ast::{Expr, Stmt};
+use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
 use crate::context::DiscourseContext;
 use crate::error::ParseError;
@@ -24,6 +31,14 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    // Clone for codegen (parser takes ownership)
+    let codegen_registry = type_registry.clone();
+
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -33,8 +48,9 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let pp_arena = Arena::new();
     let stmt_arena: Arena<Stmt> = Arena::new();
     let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
 
-    let ast_ctx = AstContext::with_imperative(
+    let ast_ctx = AstContext::with_types(
         &expr_arena,
         &term_arena,
         &np_arena,
@@ -43,13 +59,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
         &pp_arena,
         &stmt_arena,
         &imperative_expr_arena,
+        &type_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
-    parser.process_block_headers();
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
-    let rust_code = codegen_program(&stmts, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
     Ok(rust_code)
 }
@@ -93,58 +111,21 @@ logos_core = {{ path = "./logos_core" }}
     Ok(())
 }
 
-/// Copy the logos_core crate to the output directory.
+/// Copy the embedded logos_core crate to the output directory.
 fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
     let core_dir = output_dir.join("logos_core");
-    let core_src_dir = core_dir.join("src");
-    fs::create_dir_all(&core_src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+    let src_dir = core_dir.join("src");
 
-    // Write logos_core/Cargo.toml
-    let cargo_toml = r#"[package]
-name = "logos_core"
-version = "0.1.0"
-edition = "2021"
+    fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
 
-[dependencies]
-"#;
-    let cargo_path = core_dir.join("Cargo.toml");
-    let mut file = fs::File::create(&cargo_path).map_err(|e| CompileError::Io(e.to_string()))?;
-    file.write_all(cargo_toml.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;
-
-    // Write logos_core/src/lib.rs
-    let lib_rs = r#"//! LOGOS Runtime Library
-
-pub mod io {
-    pub fn println<T: std::fmt::Display>(x: T) {
-        println!("{}", x);
-    }
-    pub fn eprintln<T: std::fmt::Display>(x: T) {
-        eprintln!("{}", x);
-    }
-    pub fn print<T: std::fmt::Display>(x: T) {
-        print!("{}", x);
-    }
-}
-
-pub fn panic_with(reason: &str) -> ! {
-    panic!("{}", reason);
-}
-
-pub mod fmt {
-    pub fn format<T: std::fmt::Display>(x: T) -> String {
-        format!("{}", x)
-    }
-}
-
-pub mod prelude {
-    pub use super::io::{println, eprintln, print};
-    pub use super::panic_with;
-    pub use super::fmt::format;
-}
-"#;
-    let lib_path = core_src_dir.join("lib.rs");
-    let mut file = fs::File::create(&lib_path).map_err(|e| CompileError::Io(e.to_string()))?;
-    file.write_all(lib_rs.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(core_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+    fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
 
     Ok(())
 }

@@ -641,6 +641,10 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "Nowhere" => "crate::token::TokenType::Nowhere",
             "Ever" => "crate::token::TokenType::Ever",
             "Never" => "crate::token::TokenType::Never",
+            "Repeat" => "crate::token::TokenType::Repeat",
+            "For" => "crate::token::TokenType::For",
+            "In" => "crate::token::TokenType::In",
+            "From" => "crate::token::TokenType::From",
             _ => continue,
         };
         writeln!(file, "        \"{}\" => Some({}),", word, token_expr).unwrap();

@@ -49,7 +49,10 @@
     "nobody": "Nobody",
     "nowhere": "Nowhere",
     "ever": "Ever",
-    "never": "Never"
+    "never": "Never",
+    "repeat": "Repeat",
+    "for": "For",
+    "from": "From"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },

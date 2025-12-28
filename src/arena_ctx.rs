@@ -1,5 +1,5 @@
 use crate::arena::Arena;
-use crate::ast::{AspectOperator, LogicExpr, ModalVector, NounPhrase, QuantifierKind, TemporalOperator, VoiceOperator, Term, ThematicRole, Stmt, Expr};
+use crate::ast::{AspectOperator, LogicExpr, ModalVector, NounPhrase, QuantifierKind, TemporalOperator, VoiceOperator, Term, ThematicRole, Stmt, Expr, TypeExpr};
 use crate::intern::Symbol;
 use crate::token::TokenType;
 
@@ -13,6 +13,7 @@ pub struct AstContext<'a> {
     pub pps: &'a Arena<&'a LogicExpr<'a>>,
     pub stmts: Option<&'a Arena<Stmt<'a>>>,
     pub imperative_exprs: Option<&'a Arena<Expr<'a>>>,
+    pub type_exprs: Option<&'a Arena<TypeExpr<'a>>>,
 }
 
 impl<'a> AstContext<'a> {
@@ -24,7 +25,7 @@ impl<'a> AstContext<'a> {
         roles: &'a Arena<(ThematicRole, Term<'a>)>,
         pps: &'a Arena<&'a LogicExpr<'a>>,
     ) -> Self {
-        AstContext { exprs, terms, nps, syms, roles, pps, stmts: None, imperative_exprs: None }
+        AstContext { exprs, terms, nps, syms, roles, pps, stmts: None, imperative_exprs: None, type_exprs: None }
     }
 
     pub fn with_imperative(
@@ -37,7 +38,26 @@ impl<'a> AstContext<'a> {
         stmts: &'a Arena<Stmt<'a>>,
         imperative_exprs: &'a Arena<Expr<'a>>,
     ) -> Self {
-        AstContext { exprs, terms, nps, syms, roles, pps, stmts: Some(stmts), imperative_exprs: Some(imperative_exprs) }
+        AstContext { exprs, terms, nps, syms, roles, pps, stmts: Some(stmts), imperative_exprs: Some(imperative_exprs), type_exprs: None }
+    }
+
+    pub fn with_types(
+        exprs: &'a Arena<LogicExpr<'a>>,
+        terms: &'a Arena<Term<'a>>,
+        nps: &'a Arena<NounPhrase<'a>>,
+        syms: &'a Arena<Symbol>,
+        roles: &'a Arena<(ThematicRole, Term<'a>)>,
+        pps: &'a Arena<&'a LogicExpr<'a>>,
+        stmts: &'a Arena<Stmt<'a>>,
+        imperative_exprs: &'a Arena<Expr<'a>>,
+        type_exprs: &'a Arena<TypeExpr<'a>>,
+    ) -> Self {
+        AstContext {
+            exprs, terms, nps, syms, roles, pps,
+            stmts: Some(stmts),
+            imperative_exprs: Some(imperative_exprs),
+            type_exprs: Some(type_exprs),
+        }
     }
 
     pub fn alloc_stmt(&self, stmt: Stmt<'a>) -> &'a Stmt<'a> {
@@ -46,6 +66,18 @@ impl<'a> AstContext<'a> {
 
     pub fn alloc_imperative_expr(&self, expr: Expr<'a>) -> &'a Expr<'a> {
         self.imperative_exprs.expect("imperative arenas not initialized").alloc(expr)
+    }
+
+    pub fn alloc_type_expr(&self, ty: TypeExpr<'a>) -> &'a TypeExpr<'a> {
+        self.type_exprs.expect("type_exprs arena not initialized").alloc(ty)
+    }
+
+    pub fn alloc_type_exprs<I>(&self, types: I) -> &'a [TypeExpr<'a>]
+    where
+        I: IntoIterator<Item = TypeExpr<'a>>,
+        I::IntoIter: ExactSizeIterator,
+    {
+        self.type_exprs.expect("type_exprs arena not initialized").alloc_slice(types)
     }
 
     pub fn alloc_expr(&self, expr: LogicExpr<'a>) -> &'a LogicExpr<'a> {

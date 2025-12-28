@@ -2,6 +2,7 @@ use logos::arena::Arena;
 use logos::ast::{Expr, Literal, Stmt, BinaryOpKind};
 use logos::codegen::{codegen_expr, codegen_stmt, codegen_program};
 use logos::intern::Interner;
+use logos::analysis::TypeRegistry;
 
 #[test]
 fn codegen_module_exists() {
@@ -127,6 +128,7 @@ fn codegen_let_statement() {
     let value = arena.alloc(Expr::Literal(Literal::Number(42)));
     let stmt = Stmt::Let {
         var: x,
+        ty: None,
         value,
         mutable: false,
     };
@@ -142,6 +144,7 @@ fn codegen_let_mutable() {
     let value = arena.alloc(Expr::Literal(Literal::Number(0)));
     let stmt = Stmt::Let {
         var: count,
+        ty: None,
         value,
         mutable: true,
     };
@@ -226,6 +229,7 @@ fn codegen_indentation() {
     let value = arena.alloc(Expr::Literal(Literal::Number(5)));
     let stmt = Stmt::Let {
         var: x,
+        ty: None,
         value,
         mutable: false,
     };
@@ -235,9 +239,10 @@ fn codegen_indentation() {
 
 #[test]
 fn codegen_program_wraps_in_main() {
-    let interner = Interner::new();
+    let mut interner = Interner::new();
+    let registry = TypeRegistry::with_primitives(&mut interner);
     let stmts: &[Stmt] = &[];
-    let result = codegen_program(stmts, &interner);
+    let result = codegen_program(stmts, &registry, &interner);
     assert!(result.contains("fn main()"), "Expected 'fn main()' but got: {}", result);
     assert!(result.contains("{"), "Expected '{{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
