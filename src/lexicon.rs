@@ -40,6 +40,7 @@ pub enum Feature {
     NonIntersective, // "Fake gun" -> Fake(Gun)
     Subsective,      // "Small elephant" -> Small(x, ^Elephant)
     Gradable,        // "Tall", "Taller"
+    EventModifier,   // "Beautiful dancer" -> can modify dancing event
 }
 
 impl Feature {
@@ -67,6 +68,7 @@ impl Feature {
             "NonIntersective" => Some(Feature::NonIntersective),
             "Subsective" => Some(Feature::Subsective),
             "Gradable" => Some(Feature::Gradable),
+            "EventModifier" => Some(Feature::EventModifier),
             _ => None,
         }
     }

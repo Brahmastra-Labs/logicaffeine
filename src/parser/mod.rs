@@ -112,6 +112,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) pending_cardinal: Option<u32>,
     pub(super) mode: ParserMode,
     pub(super) type_registry: Option<TypeRegistry>,
+    pub(super) event_reading_mode: bool,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -140,6 +141,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: None,
+            event_reading_mode: false,
         }
     }
 
@@ -149,6 +151,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn set_collective_mode(&mut self, mode: bool) {
         self.collective_mode = mode;
+    }
+
+    pub fn set_event_reading_mode(&mut self, mode: bool) {
+        self.event_reading_mode = mode;
     }
 
     pub fn with_context(
@@ -177,6 +183,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: None,
+            event_reading_mode: false,
         }
     }
 
@@ -210,6 +217,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: Some(types),
+            event_reading_mode: false,
         }
     }
 
@@ -2688,6 +2696,66 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let predicate_np = self.parse_noun_phrase(true)?;
                 let predicate_noun = predicate_np.noun;
 
+                // Phase 41: Event adjective reading
+                // "beautiful dancer" in event mode → ∃e(Dance(e) ∧ Agent(e, x) ∧ Beautiful(e))
+                if self.event_reading_mode {
+                    let noun_str = self.interner.resolve(predicate_noun);
+                    if let Some(base_verb) = lexicon::lookup_agentive_noun(noun_str) {
+                        // Check if any adjective can modify events
+                        let event_adj = predicate_np.adjectives.iter().find(|adj| {
+                            lexicon::is_event_modifier_adjective(self.interner.resolve(**adj))
+                        });
+
+                        if let Some(&adj_sym) = event_adj {
+                            // Build event reading: ∃e(Verb(e) ∧ Agent(e, subject) ∧ Adj(e))
+                            let verb_sym = self.interner.intern(base_verb);
+                            let event_var = self.get_event_var();
+
+                            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: verb_sym,
+                                args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                            });
+
+                            let agent_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: self.interner.intern("Agent"),
+                                args: self.ctx.terms.alloc_slice([
+                                    Term::Variable(event_var),
+                                    Term::Constant(subject.noun),
+                                ]),
+                            });
+
+                            let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: adj_sym,
+                                args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                            });
+
+                            // Conjoin: Verb(e) ∧ Agent(e, x)
+                            let verb_agent = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: verb_pred,
+                                op: TokenType::And,
+                                right: agent_pred,
+                            });
+
+                            // Conjoin: (Verb(e) ∧ Agent(e, x)) ∧ Adj(e)
+                            let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: verb_agent,
+                                op: TokenType::And,
+                                right: adj_pred,
+                            });
+
+                            // Wrap in existential: ∃e(...)
+                            let event_reading = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                                kind: QuantifierKind::Existential,
+                                variable: event_var,
+                                body,
+                                island_id: self.current_island,
+                            });
+
+                            return self.wrap_with_definiteness(subject.definiteness, subject.noun, event_reading);
+                        }
+                    }
+                }
+
                 let subject_sort = lexicon::lookup_sort(self.interner.resolve(subject.noun));
                 let predicate_sort = lexicon::lookup_sort(self.interner.resolve(predicate_noun));
 
@@ -2701,11 +2769,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                 }
 
-                let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                // Default: intersective reading for adjectives
+                // Build Adj1(x) ∧ Adj2(x) ∧ ... ∧ Noun(x)
+                let mut predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
+
+                // Add adjective predicates
+                for &adj_sym in predicate_np.adjectives {
+                    let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: adj_sym,
+                        args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                    });
+                    predicates.push(adj_pred);
+                }
+
+                // Add noun predicate
+                let noun_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate_noun,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
                 });
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, predicate);
+                predicates.push(noun_pred);
+
+                // Conjoin all predicates
+                let result = if predicates.len() == 1 {
+                    predicates[0]
+                } else {
+                    let mut combined = predicates[0];
+                    for pred in &predicates[1..] {
+                        combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: combined,
+                            op: TokenType::And,
+                            right: *pred,
+                        });
+                    }
+                    combined
+                };
+
+                return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
             }
 
             // After copula, prefer Adjective over simple-aspect Verb for ambiguous tokens

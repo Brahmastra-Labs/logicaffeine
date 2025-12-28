@@ -40,6 +40,8 @@ struct RefactoredLexiconData {
     ontology: Option<OntologyData>,
     #[serde(default)]
     axioms: Option<AxiomData>,
+    #[serde(default)]
+    agentive_nouns: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -286,11 +288,15 @@ fn main() {
     generate_is_check(&mut file, "is_infinitive_verb", &base_verbs);
 
     // Derive adjective lists from features
-    let (adjectives, non_intersective, subsective, gradable) = derive_adjective_lists(&data.adjectives);
+    let (adjectives, non_intersective, subsective, gradable, event_modifier) = derive_adjective_lists(&data.adjectives);
     generate_is_check(&mut file, "is_adjective", &adjectives);
     generate_is_check(&mut file, "is_non_intersective", &non_intersective);
     generate_is_check(&mut file, "is_subsective", &subsective);
     generate_is_check(&mut file, "is_gradable_adjective", &gradable);
+    generate_is_check(&mut file, "is_event_modifier_adjective", &event_modifier);
+
+    // Generate agentive noun lookup (dancer -> Dance)
+    generate_lookup_agentive_noun(&mut file, &data.agentive_nouns);
 
     // Derive noun lists from features
     let (common_nouns, male_names, female_names, male_nouns, female_nouns) =
@@ -513,11 +519,12 @@ fn derive_verb_class_lists(
 
 fn derive_adjective_lists(
     adjectives: &[AdjectiveDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut all_adj = Vec::new();
     let mut non_intersective = Vec::new();
     let mut subsective = Vec::new();
     let mut gradable = Vec::new();
+    let mut event_modifier = Vec::new();
 
     for adj in adjectives {
         let lower = adj.lemma.to_lowercase();
@@ -528,12 +535,13 @@ fn derive_adjective_lists(
                 "NonIntersective" => non_intersective.push(lower.clone()),
                 "Subsective" => subsective.push(lower.clone()),
                 "Gradable" => gradable.push(lower.clone()),
+                "EventModifier" => event_modifier.push(lower.clone()),
                 _ => {}
             }
         }
     }
 
-    (all_adj, non_intersective, subsective, gradable)
+    (all_adj, non_intersective, subsective, gradable, event_modifier)
 }
 
 fn derive_noun_lists(
@@ -1239,6 +1247,28 @@ fn generate_lookup_phrasal_verb(file: &mut fs::File, phrasal_verbs: &HashMap<Str
             key, entry.lemma, class_expr
         )
         .unwrap();
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}\n").unwrap();
+}
+
+fn generate_lookup_agentive_noun(file: &mut fs::File, agentive_nouns: &HashMap<String, String>) {
+    writeln!(
+        file,
+        "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance)"
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{"
+    )
+    .unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for (noun, verb) in agentive_nouns {
+        writeln!(file, "        \"{}\" => Some(\"{}\"),", noun, verb).unwrap();
     }
 
     writeln!(file, "        _ => None,").unwrap();

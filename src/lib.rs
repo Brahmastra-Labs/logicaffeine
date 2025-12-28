@@ -503,6 +503,26 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
     let has_plurality_ambiguity = (has_mixed_verb || has_collective_verb) && has_plural_subject;
 
+    // Phase 41: Detect event adjective + agentive noun ambiguity
+    // "beautiful dancer" can mean: Beautiful(x) ∧ Dancer(x) OR ∃e(Dance(e) ∧ Agent(e,x) ∧ Beautiful(e))
+    let has_event_adjective_ambiguity = {
+        let mut has_event_adj = false;
+        let mut has_agentive_noun = false;
+        for token in &tokens {
+            if let token::TokenType::Adjective(sym) = &token.kind {
+                if lexicon::is_event_modifier_adjective(interner.resolve(*sym)) {
+                    has_event_adj = true;
+                }
+            }
+            if let token::TokenType::Noun(sym) = &token.kind {
+                if lexicon::lookup_agentive_noun(interner.resolve(*sym)).is_some() {
+                    has_agentive_noun = true;
+                }
+            }
+        }
+        has_event_adj && has_agentive_noun
+    };
+
     let mut results: Vec<String> = Vec::new();
 
     // Reading 1: Default mode (verb priority for Ambiguous tokens)
@@ -615,7 +635,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_collective_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -626,6 +646,37 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 if !results.contains(&reading) {
                     results.push(reading);
                 }
+            }
+        }
+    }
+
+    // Reading 5: Event adjective mode (for event-modifying adjectives with agentive nouns)
+    if has_event_adjective_ambiguity {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_event_reading_mode(true);
+
+        if let Ok(ast) = parser.parse() {
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
             }
         }
     }
