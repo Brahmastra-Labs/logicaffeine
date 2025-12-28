@@ -89,6 +89,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 36: Module System](#phase-36-module-system)
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
+    - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1639,6 +1640,11 @@ add_test_description "tests/phase38_stdlib.rs" \
     "Phase 38: Standard Library (IO & System)" \
     "Native function bindings with 'To native fn -> Type' syntax. Standard library modules: File (read/write), Time (now/sleep), Random (randomInt/randomFloat), Env (get/args). Wrapper generation for logos_core Rust functions." \
     "## To native read (path: Text) -> Result of Text and Text"
+
+add_test_description "tests/phase41_event_adjectives.rs" \
+    "Phase 41: Event Adjectives" \
+    "Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O) ∧ D(O)) and event-modifying (∃e((D(e) ∧ A(e,O)) ∧ B(e))). Lexicon Feature::EventModifier for beautiful/graceful/skillful. Agentive noun mappings (dancer→Dance)." \
+    "Olga is a beautiful dancer. → Intersective + Event readings"
 
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \

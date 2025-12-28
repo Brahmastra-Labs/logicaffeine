@@ -76,6 +76,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 36: Module System](#phase-36-module-system)
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
+    - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1798,6 +1799,16 @@ Native function bindings with 'To native fn -> Type' syntax. Standard library mo
 
 ---
 
+#### Phase 41: Event Adjectives
+
+**File:** `tests/phase41_event_adjectives.rs`
+
+Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O) ∧ D(O)) and event-modifying (∃e((D(e) ∧ A(e,O)) ∧ B(e))). Lexicon Feature::EventModifier for beautiful/graceful/skillful. Agentive noun mappings (dancer→Dance).
+
+**Example:** Olga is a beautiful dancer. → Intersective + Event readings
+
+---
+
 #### Aktionsart/Vendler Classes
 
 **File:** `tests/aktionsart_tests.rs`
@@ -1843,27 +1854,27 @@ Comprehensive tests covering quantifiers, modals, temporal logic, relative claus
 ### By Compiler Stage
 ```
 Lexer (token.rs, lexer.rs):           1729 lines
-Parser (ast/, parser/):               10797 lines
+Parser (ast/, parser/):               10896 lines
 Transpilation:                        1030 lines
 Code Generation:                      1117 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            1195 lines
-Support Infrastructure:               4156 lines
-Desktop UI:                               8841 lines
+Support Infrastructure:               4209 lines
+Desktop UI:                               9983 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        36149
-Test lines:           9878
-Total Rust lines: 46027
+Source lines:        38124
+Test lines:          10003
+Total Rust lines: 48127
 ```
 
 ### File Counts
 ```
-Source files: 91
-Test files:   68
+Source files: 96
+Test files:   69
 ```
 ## Lexicon Data
 
@@ -2386,8 +2397,8 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Big", "regular": true, "features": ["Subsective", "Gradable"] },
     { "lemma": "Large", "regular": true, "features": ["Subsective", "Gradable"] },
     { "lemma": "Small", "regular": true, "features": ["Subsective", "Gradable"] },
-    { "lemma": "Fast", "regular": true, "features": ["Subsective", "Gradable"] },
-    { "lemma": "Slow", "regular": true, "features": ["Subsective", "Gradable"] },
+    { "lemma": "Fast", "regular": true, "features": ["Subsective", "Gradable", "EventModifier"] },
+    { "lemma": "Slow", "regular": true, "features": ["Subsective", "Gradable", "EventModifier"] },
     { "lemma": "Old", "regular": true, "features": ["Subsective", "Gradable"] },
     { "lemma": "Young", "regular": true, "features": ["Subsective", "Gradable"] },
     { "lemma": "Strong", "regular": true, "features": ["Subsective", "Gradable"] },
@@ -2422,8 +2433,37 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Sweet", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Sour", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Good", "regular": true, "features": ["Subsective"] },
-    { "lemma": "Bad", "regular": true, "features": ["Subsective"] }
+    { "lemma": "Bad", "regular": true, "features": ["Subsective"] },
+    { "lemma": "Beautiful", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Graceful", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Skillful", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Clumsy", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Elegant", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Awkward", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Careful", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Careless", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] }
   ],
+  "agentive_nouns": {
+    "dancer": "Dance",
+    "runner": "Run",
+    "singer": "Sing",
+    "driver": "Drive",
+    "teacher": "Teach",
+    "writer": "Write",
+    "speaker": "Speak",
+    "player": "Play",
+    "worker": "Work",
+    "swimmer": "Swim",
+    "jumper": "Jump",
+    "walker": "Walk",
+    "thinker": "Think",
+    "reader": "Read",
+    "fighter": "Fight",
+    "painter": "Paint",
+    "builder": "Build",
+    "baker": "Bake",
+    "catcher": "Catch"
+  },
   "prepositions": [
     "from", "with", "for", "by", "of", "in", "on", "at", "into", "onto",
     "under", "over", "through", "about", "around", "between", "among",
@@ -5216,6 +5256,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) pending_cardinal: Option<u32>,
     pub(super) mode: ParserMode,
     pub(super) type_registry: Option<TypeRegistry>,
+    pub(super) event_reading_mode: bool,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -5244,6 +5285,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: None,
+            event_reading_mode: false,
         }
     }
 
@@ -5253,6 +5295,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn set_collective_mode(&mut self, mode: bool) {
         self.collective_mode = mode;
+    }
+
+    pub fn set_event_reading_mode(&mut self, mode: bool) {
+        self.event_reading_mode = mode;
     }
 
     pub fn with_context(
@@ -5281,6 +5327,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: None,
+            event_reading_mode: false,
         }
     }
 
@@ -5314,6 +5361,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             pending_cardinal: None,
             mode: ParserMode::Declarative,
             type_registry: Some(types),
+            event_reading_mode: false,
         }
     }
 
@@ -7792,6 +7840,66 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let predicate_np = self.parse_noun_phrase(true)?;
                 let predicate_noun = predicate_np.noun;
 
+                // Phase 41: Event adjective reading
+                // "beautiful dancer" in event mode → ∃e(Dance(e) ∧ Agent(e, x) ∧ Beautiful(e))
+                if self.event_reading_mode {
+                    let noun_str = self.interner.resolve(predicate_noun);
+                    if let Some(base_verb) = lexicon::lookup_agentive_noun(noun_str) {
+                        // Check if any adjective can modify events
+                        let event_adj = predicate_np.adjectives.iter().find(|adj| {
+                            lexicon::is_event_modifier_adjective(self.interner.resolve(**adj))
+                        });
+
+                        if let Some(&adj_sym) = event_adj {
+                            // Build event reading: ∃e(Verb(e) ∧ Agent(e, subject) ∧ Adj(e))
+                            let verb_sym = self.interner.intern(base_verb);
+                            let event_var = self.get_event_var();
+
+                            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: verb_sym,
+                                args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                            });
+
+                            let agent_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: self.interner.intern("Agent"),
+                                args: self.ctx.terms.alloc_slice([
+                                    Term::Variable(event_var),
+                                    Term::Constant(subject.noun),
+                                ]),
+                            });
+
+                            let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: adj_sym,
+                                args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                            });
+
+                            // Conjoin: Verb(e) ∧ Agent(e, x)
+                            let verb_agent = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: verb_pred,
+                                op: TokenType::And,
+                                right: agent_pred,
+                            });
+
+                            // Conjoin: (Verb(e) ∧ Agent(e, x)) ∧ Adj(e)
+                            let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: verb_agent,
+                                op: TokenType::And,
+                                right: adj_pred,
+                            });
+
+                            // Wrap in existential: ∃e(...)
+                            let event_reading = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                                kind: QuantifierKind::Existential,
+                                variable: event_var,
+                                body,
+                                island_id: self.current_island,
+                            });
+
+                            return self.wrap_with_definiteness(subject.definiteness, subject.noun, event_reading);
+                        }
+                    }
+                }
+
                 let subject_sort = lexicon::lookup_sort(self.interner.resolve(subject.noun));
                 let predicate_sort = lexicon::lookup_sort(self.interner.resolve(predicate_noun));
 
@@ -7805,11 +7913,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                 }
 
-                let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                // Default: intersective reading for adjectives
+                // Build Adj1(x) ∧ Adj2(x) ∧ ... ∧ Noun(x)
+                let mut predicates: Vec<&'a LogicExpr<'a>> = Vec::new();
+
+                // Add adjective predicates
+                for &adj_sym in predicate_np.adjectives {
+                    let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: adj_sym,
+                        args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                    });
+                    predicates.push(adj_pred);
+                }
+
+                // Add noun predicate
+                let noun_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate_noun,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
                 });
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, predicate);
+                predicates.push(noun_pred);
+
+                // Conjoin all predicates
+                let result = if predicates.len() == 1 {
+                    predicates[0]
+                } else {
+                    let mut combined = predicates[0];
+                    for pred in &predicates[1..] {
+                        combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: combined,
+                            op: TokenType::And,
+                            right: *pred,
+                        });
+                    }
+                    combined
+                };
+
+                return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
             }
 
             // After copula, prefer Adjective over simple-aspect Verb for ambiguous tokens
@@ -21839,18 +21978,23 @@ impl ScopeStack {
 Command-line interface for LOGOS build tool. Implements largo new/init/build/run/check commands via clap. Feature-gated behind 'cli' feature flag.
 
 ```rust
-//! Phase 37: LOGOS CLI (largo)
+//! Phase 37/39: LOGOS CLI (largo)
 //!
-//! Command-line interface for the LOGOS build system.
+//! Command-line interface for the LOGOS build system and package registry.
 
 use clap::{Parser, Subcommand};
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::compile::compile_project;
 use crate::project::build::{self, find_project_root, BuildConfig};
 use crate::project::manifest::Manifest;
+use crate::project::credentials::{Credentials, get_token};
+use crate::project::registry::{
+    RegistryClient, PublishMetadata, create_tarball, is_git_dirty,
+};
 
 #[derive(Parser)]
 #[command(name = "largo")]
@@ -21888,6 +22032,38 @@ pub enum Commands {
     },
     /// Check the project for errors without building
     Check,
+
+    // Phase 39: Package Registry Commands
+    /// Publish the package to the registry
+    Publish {
+        /// Registry URL (defaults to registry.logicaffeine.com)
+        #[arg(long)]
+        registry: Option<String>,
+
+        /// Perform all checks without actually publishing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Allow publishing with uncommitted changes
+        #[arg(long)]
+        allow_dirty: bool,
+    },
+    /// Log in to the package registry
+    Login {
+        /// Registry URL
+        #[arg(long)]
+        registry: Option<String>,
+
+        /// Token to store (reads from stdin if not provided)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Log out from the package registry
+    Logout {
+        /// Registry URL
+        #[arg(long)]
+        registry: Option<String>,
+    },
 }
 
 /// Entry point for the CLI
@@ -21900,6 +22076,11 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Build { release } => cmd_build(release),
         Commands::Run { release } => cmd_run(release),
         Commands::Check => cmd_check(),
+        Commands::Publish { registry, dry_run, allow_dirty } => {
+            cmd_publish(registry.as_deref(), dry_run, allow_dirty)
+        }
+        Commands::Login { registry, token } => cmd_login(registry.as_deref(), token),
+        Commands::Logout { registry } => cmd_logout(registry.as_deref()),
     }
 }
 
@@ -22034,6 +22215,165 @@ fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// ============================================================
+// Phase 39: Registry Commands
+// ============================================================
+
+fn cmd_publish(
+    registry: Option<&str>,
+    dry_run: bool,
+    allow_dirty: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    // Load manifest
+    let manifest = Manifest::load(&project_root)?;
+    let name = &manifest.package.name;
+    let version = &manifest.package.version;
+
+    println!("Packaging {} v{}", name, version);
+
+    // Determine registry URL
+    let registry_url = registry.unwrap_or(RegistryClient::default_url());
+
+    // Get authentication token
+    let token = get_token(registry_url).ok_or_else(|| {
+        format!(
+            "No authentication token found for {}.\n\
+             Run 'largo login' or set LOGOS_TOKEN environment variable.",
+            registry_url
+        )
+    })?;
+
+    // Verify the package
+    let entry_path = project_root.join(&manifest.package.entry);
+    if !entry_path.exists() {
+        return Err(format!(
+            "Entry point '{}' not found",
+            manifest.package.entry
+        ).into());
+    }
+
+    // Check for uncommitted changes
+    if !allow_dirty && is_git_dirty(&project_root) {
+        return Err(
+            "Working directory has uncommitted changes.\n\
+             Use --allow-dirty to publish anyway.".into()
+        );
+    }
+
+    // Create tarball
+    println!("Creating package tarball...");
+    let tarball = create_tarball(&project_root)?;
+    println!("  Package size: {} bytes", tarball.len());
+
+    // Read README if present
+    let readme = project_root.join("README.md");
+    let readme_content = if readme.exists() {
+        fs::read_to_string(&readme).ok()
+    } else {
+        None
+    };
+
+    // Build metadata
+    let metadata = PublishMetadata {
+        name: name.clone(),
+        version: version.clone(),
+        description: manifest.package.description.clone(),
+        repository: None, // Could add to manifest later
+        homepage: None,
+        license: None,
+        keywords: vec![],
+        entry_point: manifest.package.entry.clone(),
+        dependencies: manifest
+            .dependencies
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect(),
+        readme: readme_content,
+    };
+
+    if dry_run {
+        println!("\n[dry-run] Would publish to {}", registry_url);
+        println!("[dry-run] Package validated successfully");
+        return Ok(());
+    }
+
+    // Upload to registry
+    println!("Uploading to {}...", registry_url);
+    let client = RegistryClient::new(registry_url, &token);
+    let result = client.publish(name, version, &tarball, &metadata)?;
+
+    println!(
+        "\nPublished {} v{} to {}",
+        result.package, result.version, registry_url
+    );
+    println!("  SHA256: {}", result.sha256);
+
+    Ok(())
+}
+
+fn cmd_login(
+    registry: Option<&str>,
+    token: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let registry_url = registry.unwrap_or(RegistryClient::default_url());
+
+    // Get token from argument or stdin
+    let token = match token {
+        Some(t) => t,
+        None => {
+            println!("To get a token, visit: {}/auth/github", registry_url);
+            println!("Then generate an API token from your profile.");
+            println!();
+            print!("Enter token for {}: ", registry_url);
+            io::stdout().flush()?;
+
+            let mut line = String::new();
+            io::stdin().read_line(&mut line)?;
+            line.trim().to_string()
+        }
+    };
+
+    if token.is_empty() {
+        return Err("Token cannot be empty".into());
+    }
+
+    // Validate token with registry
+    println!("Validating token...");
+    let client = RegistryClient::new(registry_url, &token);
+    let user_info = client.validate_token()?;
+
+    // Save to credentials file
+    let mut creds = Credentials::load().unwrap_or_default();
+    creds.set_token(registry_url, &token);
+    creds.save()?;
+
+    println!("Logged in as {} to {}", user_info.login, registry_url);
+
+    Ok(())
+}
+
+fn cmd_logout(registry: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let registry_url = registry.unwrap_or(RegistryClient::default_url());
+
+    let mut creds = Credentials::load().unwrap_or_default();
+
+    if creds.get_token(registry_url).is_none() {
+        println!("Not logged in to {}", registry_url);
+        return Ok(());
+    }
+
+    creds.remove_token(registry_url);
+    creds.save()?;
+
+    println!("Logged out from {}", registry_url);
+
+    Ok(())
+}
+
 ```
 
 ---
@@ -22084,6 +22424,25 @@ pub enum DependencySpec {
     Simple(String),
     /// Detailed dependency: { version = "1.0", path = "../foo" }
     Detailed(DependencyDetail),
+}
+
+impl std::fmt::Display for DependencySpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DependencySpec::Simple(s) => write!(f, "{}", s),
+            DependencySpec::Detailed(d) => {
+                if let Some(v) = &d.version {
+                    write!(f, "{}", v)
+                } else if let Some(p) = &d.path {
+                    write!(f, "path:{}", p)
+                } else if let Some(g) = &d.git {
+                    write!(f, "git:{}", g)
+                } else {
+                    write!(f, "*")
+                }
+            }
+        }
+    }
 }
 
 /// Detailed dependency specification
@@ -22970,6 +23329,26 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
     let has_plurality_ambiguity = (has_mixed_verb || has_collective_verb) && has_plural_subject;
 
+    // Phase 41: Detect event adjective + agentive noun ambiguity
+    // "beautiful dancer" can mean: Beautiful(x) ∧ Dancer(x) OR ∃e(Dance(e) ∧ Agent(e,x) ∧ Beautiful(e))
+    let has_event_adjective_ambiguity = {
+        let mut has_event_adj = false;
+        let mut has_agentive_noun = false;
+        for token in &tokens {
+            if let token::TokenType::Adjective(sym) = &token.kind {
+                if lexicon::is_event_modifier_adjective(interner.resolve(*sym)) {
+                    has_event_adj = true;
+                }
+            }
+            if let token::TokenType::Noun(sym) = &token.kind {
+                if lexicon::lookup_agentive_noun(interner.resolve(*sym)).is_some() {
+                    has_agentive_noun = true;
+                }
+            }
+        }
+        has_event_adj && has_agentive_noun
+    };
+
     let mut results: Vec<String> = Vec::new();
 
     // Reading 1: Default mode (verb priority for Ambiguous tokens)
@@ -23082,7 +23461,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_collective_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -23093,6 +23472,37 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 if !results.contains(&reading) {
                     results.push(reading);
                 }
+            }
+        }
+    }
+
+    // Reading 5: Event adjective mode (for event-modifying adjectives with agentive nouns)
+    if has_event_adjective_ambiguity {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_event_reading_mode(true);
+
+        if let Ok(ast) = parser.parse() {
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
             }
         }
     }
@@ -24220,6 +24630,7 @@ pub enum Feature {
     NonIntersective, // "Fake gun" -> Fake(Gun)
     Subsective,      // "Small elephant" -> Small(x, ^Elephant)
     Gradable,        // "Tall", "Taller"
+    EventModifier,   // "Beautiful dancer" -> can modify dancing event
 }
 
 impl Feature {
@@ -24247,6 +24658,7 @@ impl Feature {
             "NonIntersective" => Some(Feature::NonIntersective),
             "Subsective" => Some(Feature::Subsective),
             "Gradable" => Some(Feature::Gradable),
+            "EventModifier" => Some(Feature::EventModifier),
             _ => None,
         }
     }
@@ -28962,7 +29374,7 @@ Root application component with Router wrapper and global CSS styles (gradients,
 ```rust
 use dioxus::prelude::*;
 use crate::ui::router::Route;
-use crate::ui::state::LicenseState;
+use crate::ui::state::{LicenseState, RegistryAuthState};
 
 const GLOBAL_STYLE: &str = r#"
 * {
@@ -29097,6 +29509,7 @@ a {
 
 pub fn App() -> Element {
     let license_state = use_context_provider(LicenseState::new);
+    let _registry_auth = use_context_provider(RegistryAuthState::new);
 
     use_effect(move || {
         let mut license_state = license_state.clone();
@@ -29145,6 +29558,7 @@ Dioxus Router with routes: / (Home), /pricing (Pricing), /studio (Studio), /lear
 ```rust
 use dioxus::prelude::*;
 use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio};
+use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
@@ -29183,6 +29597,13 @@ pub enum Route {
 
     #[route("/workspace/:subject")]
     Workspace { subject: String },
+
+    // Phase 39: Package Registry
+    #[route("/registry")]
+    Registry {},
+
+    #[route("/registry/package/:name")]
+    PackageDetail { name: String },
 
     #[route("/:..route")]
     NotFound { route: Vec<String> },
@@ -29467,6 +29888,136 @@ impl AppState {
     pub fn get_history(&self) -> Vec<ChatMessage> {
         self.history.read().clone()
     }
+}
+
+// ============================================================
+// Phase 39: GitHub Auth State for Package Registry
+// ============================================================
+
+const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct GitHubUser {
+    pub id: String,
+    pub login: String,
+    pub name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Clone, PartialEq)]
+pub struct RegistryAuthState {
+    pub user: Signal<Option<GitHubUser>>,
+    pub token: Signal<Option<String>>,
+    pub is_loading: Signal<bool>,
+}
+
+impl RegistryAuthState {
+    pub fn new() -> Self {
+        let (token, user) = load_registry_auth_from_storage();
+        Self {
+            user: Signal::new(user),
+            token: Signal::new(token),
+            is_loading: Signal::new(false),
+        }
+    }
+
+    pub fn is_authenticated(&self) -> bool {
+        self.token.read().is_some()
+    }
+
+    pub fn login(&mut self, token: String, user: GitHubUser) {
+        self.token.set(Some(token.clone()));
+        self.user.set(Some(user.clone()));
+        save_registry_auth_to_storage(&token, &user);
+    }
+
+    pub fn logout(&mut self) {
+        self.token.set(None);
+        self.user.set(None);
+        clear_registry_auth_from_storage();
+    }
+
+    pub fn get_auth_url() -> String {
+        format!("{}/auth/github", REGISTRY_API_URL)
+    }
+}
+
+fn load_registry_auth_from_storage() -> (Option<String>, Option<GitHubUser>) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let token = storage.get_item("logos_registry_token").ok().flatten();
+                let user_json = storage.get_item("logos_registry_user").ok().flatten();
+                let user = user_json.and_then(|j| serde_json::from_str(&j).ok());
+                return (token, user);
+            }
+        }
+    }
+    (None, None)
+}
+
+fn save_registry_auth_to_storage(token: &str, user: &GitHubUser) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.set_item("logos_registry_token", token);
+                if let Ok(json) = serde_json::to_string(user) {
+                    let _ = storage.set_item("logos_registry_user", &json);
+                }
+            }
+        }
+    }
+}
+
+fn clear_registry_auth_from_storage() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Ok(Some(storage)) = window.local_storage() {
+                let _ = storage.remove_item("logos_registry_token");
+                let _ = storage.remove_item("logos_registry_user");
+            }
+        }
+    }
+}
+
+// Package types for registry
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct RegistryPackage {
+    pub name: String,
+    pub description: Option<String>,
+    pub latest_version: Option<String>,
+    pub owner: String,
+    pub owner_avatar: Option<String>,
+    pub verified: bool,
+    pub downloads: u64,
+    pub keywords: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PackageVersion {
+    pub version: String,
+    pub published_at: String,
+    pub size: u64,
+    pub yanked: bool,
+}
+
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PackageDetails {
+    pub name: String,
+    pub description: Option<String>,
+    pub owner: String,
+    pub owner_avatar: Option<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+    pub keywords: Vec<String>,
+    pub verified: bool,
+    pub downloads: u64,
+    pub readme: Option<String>,
+    pub versions: Vec<PackageVersion>,
 }
 
 #[cfg(test)]
@@ -32476,6 +33027,7 @@ pub mod learn;
 pub mod lesson;
 pub mod pricing;
 pub mod privacy;
+pub mod registry;
 pub mod review;
 pub mod roadmap;
 pub mod success;
@@ -40144,18 +40696,23 @@ pub fn play_sound(_effect: SoundEffect) {
 Additional source module.
 
 ```rust
-//! Phase 37: LOGOS CLI (largo)
+//! Phase 37/39: LOGOS CLI (largo)
 //!
-//! Command-line interface for the LOGOS build system.
+//! Command-line interface for the LOGOS build system and package registry.
 
 use clap::{Parser, Subcommand};
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use crate::compile::compile_project;
 use crate::project::build::{self, find_project_root, BuildConfig};
 use crate::project::manifest::Manifest;
+use crate::project::credentials::{Credentials, get_token};
+use crate::project::registry::{
+    RegistryClient, PublishMetadata, create_tarball, is_git_dirty,
+};
 
 #[derive(Parser)]
 #[command(name = "largo")]
@@ -40193,6 +40750,38 @@ pub enum Commands {
     },
     /// Check the project for errors without building
     Check,
+
+    // Phase 39: Package Registry Commands
+    /// Publish the package to the registry
+    Publish {
+        /// Registry URL (defaults to registry.logicaffeine.com)
+        #[arg(long)]
+        registry: Option<String>,
+
+        /// Perform all checks without actually publishing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Allow publishing with uncommitted changes
+        #[arg(long)]
+        allow_dirty: bool,
+    },
+    /// Log in to the package registry
+    Login {
+        /// Registry URL
+        #[arg(long)]
+        registry: Option<String>,
+
+        /// Token to store (reads from stdin if not provided)
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// Log out from the package registry
+    Logout {
+        /// Registry URL
+        #[arg(long)]
+        registry: Option<String>,
+    },
 }
 
 /// Entry point for the CLI
@@ -40205,6 +40794,11 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Build { release } => cmd_build(release),
         Commands::Run { release } => cmd_run(release),
         Commands::Check => cmd_check(),
+        Commands::Publish { registry, dry_run, allow_dirty } => {
+            cmd_publish(registry.as_deref(), dry_run, allow_dirty)
+        }
+        Commands::Login { registry, token } => cmd_login(registry.as_deref(), token),
+        Commands::Logout { registry } => cmd_logout(registry.as_deref()),
     }
 }
 
@@ -40336,6 +40930,165 @@ fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
     compile_project(&entry_path)?;
 
     println!("Check passed");
+    Ok(())
+}
+
+// ============================================================
+// Phase 39: Registry Commands
+// ============================================================
+
+fn cmd_publish(
+    registry: Option<&str>,
+    dry_run: bool,
+    allow_dirty: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    // Load manifest
+    let manifest = Manifest::load(&project_root)?;
+    let name = &manifest.package.name;
+    let version = &manifest.package.version;
+
+    println!("Packaging {} v{}", name, version);
+
+    // Determine registry URL
+    let registry_url = registry.unwrap_or(RegistryClient::default_url());
+
+    // Get authentication token
+    let token = get_token(registry_url).ok_or_else(|| {
+        format!(
+            "No authentication token found for {}.\n\
+             Run 'largo login' or set LOGOS_TOKEN environment variable.",
+            registry_url
+        )
+    })?;
+
+    // Verify the package
+    let entry_path = project_root.join(&manifest.package.entry);
+    if !entry_path.exists() {
+        return Err(format!(
+            "Entry point '{}' not found",
+            manifest.package.entry
+        ).into());
+    }
+
+    // Check for uncommitted changes
+    if !allow_dirty && is_git_dirty(&project_root) {
+        return Err(
+            "Working directory has uncommitted changes.\n\
+             Use --allow-dirty to publish anyway.".into()
+        );
+    }
+
+    // Create tarball
+    println!("Creating package tarball...");
+    let tarball = create_tarball(&project_root)?;
+    println!("  Package size: {} bytes", tarball.len());
+
+    // Read README if present
+    let readme = project_root.join("README.md");
+    let readme_content = if readme.exists() {
+        fs::read_to_string(&readme).ok()
+    } else {
+        None
+    };
+
+    // Build metadata
+    let metadata = PublishMetadata {
+        name: name.clone(),
+        version: version.clone(),
+        description: manifest.package.description.clone(),
+        repository: None, // Could add to manifest later
+        homepage: None,
+        license: None,
+        keywords: vec![],
+        entry_point: manifest.package.entry.clone(),
+        dependencies: manifest
+            .dependencies
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect(),
+        readme: readme_content,
+    };
+
+    if dry_run {
+        println!("\n[dry-run] Would publish to {}", registry_url);
+        println!("[dry-run] Package validated successfully");
+        return Ok(());
+    }
+
+    // Upload to registry
+    println!("Uploading to {}...", registry_url);
+    let client = RegistryClient::new(registry_url, &token);
+    let result = client.publish(name, version, &tarball, &metadata)?;
+
+    println!(
+        "\nPublished {} v{} to {}",
+        result.package, result.version, registry_url
+    );
+    println!("  SHA256: {}", result.sha256);
+
+    Ok(())
+}
+
+fn cmd_login(
+    registry: Option<&str>,
+    token: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let registry_url = registry.unwrap_or(RegistryClient::default_url());
+
+    // Get token from argument or stdin
+    let token = match token {
+        Some(t) => t,
+        None => {
+            println!("To get a token, visit: {}/auth/github", registry_url);
+            println!("Then generate an API token from your profile.");
+            println!();
+            print!("Enter token for {}: ", registry_url);
+            io::stdout().flush()?;
+
+            let mut line = String::new();
+            io::stdin().read_line(&mut line)?;
+            line.trim().to_string()
+        }
+    };
+
+    if token.is_empty() {
+        return Err("Token cannot be empty".into());
+    }
+
+    // Validate token with registry
+    println!("Validating token...");
+    let client = RegistryClient::new(registry_url, &token);
+    let user_info = client.validate_token()?;
+
+    // Save to credentials file
+    let mut creds = Credentials::load().unwrap_or_default();
+    creds.set_token(registry_url, &token);
+    creds.save()?;
+
+    println!("Logged in as {} to {}", user_info.login, registry_url);
+
+    Ok(())
+}
+
+fn cmd_logout(registry: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
+    let registry_url = registry.unwrap_or(RegistryClient::default_url());
+
+    let mut creds = Credentials::load().unwrap_or_default();
+
+    if creds.get_token(registry_url).is_none() {
+        println!("Not logged in to {}", registry_url);
+        return Ok(());
+    }
+
+    creds.remove_token(registry_url);
+    creds.save()?;
+
+    println!("Logged out from {}", registry_url);
+
     Ok(())
 }
 
@@ -42495,10 +43248,14 @@ gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
 clap = { version = "4.4", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }
+ureq = { version = "2.9", features = ["json"], optional = true }
+flate2 = { version = "1.0", optional = true }
+tar = { version = "0.4", optional = true }
+dirs = { version = "5.0", optional = true }
 
 [features]
-default = ["cli"]
-cli = ["clap", "toml"]
+default = []
+cli = ["clap", "toml", "ureq", "flate2", "tar", "dirs"]
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -42506,6 +43263,7 @@ serde_json = "1.0"
 
 [dev-dependencies]
 tempfile = "3"
+toml = "0.8"
 
 [profile]
 
@@ -42572,6 +43330,8 @@ struct RefactoredLexiconData {
     ontology: Option<OntologyData>,
     #[serde(default)]
     axioms: Option<AxiomData>,
+    #[serde(default)]
+    agentive_nouns: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -42818,11 +43578,15 @@ fn main() {
     generate_is_check(&mut file, "is_infinitive_verb", &base_verbs);
 
     // Derive adjective lists from features
-    let (adjectives, non_intersective, subsective, gradable) = derive_adjective_lists(&data.adjectives);
+    let (adjectives, non_intersective, subsective, gradable, event_modifier) = derive_adjective_lists(&data.adjectives);
     generate_is_check(&mut file, "is_adjective", &adjectives);
     generate_is_check(&mut file, "is_non_intersective", &non_intersective);
     generate_is_check(&mut file, "is_subsective", &subsective);
     generate_is_check(&mut file, "is_gradable_adjective", &gradable);
+    generate_is_check(&mut file, "is_event_modifier_adjective", &event_modifier);
+
+    // Generate agentive noun lookup (dancer -> Dance)
+    generate_lookup_agentive_noun(&mut file, &data.agentive_nouns);
 
     // Derive noun lists from features
     let (common_nouns, male_names, female_names, male_nouns, female_nouns) =
@@ -43045,11 +43809,12 @@ fn derive_verb_class_lists(
 
 fn derive_adjective_lists(
     adjectives: &[AdjectiveDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut all_adj = Vec::new();
     let mut non_intersective = Vec::new();
     let mut subsective = Vec::new();
     let mut gradable = Vec::new();
+    let mut event_modifier = Vec::new();
 
     for adj in adjectives {
         let lower = adj.lemma.to_lowercase();
@@ -43060,12 +43825,13 @@ fn derive_adjective_lists(
                 "NonIntersective" => non_intersective.push(lower.clone()),
                 "Subsective" => subsective.push(lower.clone()),
                 "Gradable" => gradable.push(lower.clone()),
+                "EventModifier" => event_modifier.push(lower.clone()),
                 _ => {}
             }
         }
     }
 
-    (all_adj, non_intersective, subsective, gradable)
+    (all_adj, non_intersective, subsective, gradable, event_modifier)
 }
 
 fn derive_noun_lists(
@@ -43778,6 +44544,28 @@ fn generate_lookup_phrasal_verb(file: &mut fs::File, phrasal_verbs: &HashMap<Str
     writeln!(file, "}}\n").unwrap();
 }
 
+fn generate_lookup_agentive_noun(file: &mut fs::File, agentive_nouns: &HashMap<String, String>) {
+    writeln!(
+        file,
+        "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance)"
+    )
+    .unwrap();
+    writeln!(
+        file,
+        "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{"
+    )
+    .unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for (noun, verb) in agentive_nouns {
+        writeln!(file, "        \"{}\" => Some(\"{}\"),", noun, verb).unwrap();
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}\n").unwrap();
+}
+
 fn generate_lookup_sort(file: &mut fs::File, nouns: &[NounDefinition]) {
     writeln!(
         file,
@@ -43969,10 +44757,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Sun Dec 28 07:28:03 CST 2025
+- **Generated:** Sun Dec 28 09:13:10 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 7dcc6c1
+- **Git Commit:** 545d5ed
 - **Documentation Size:** 2.0M
 
 ---
