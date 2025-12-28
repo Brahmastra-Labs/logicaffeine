@@ -1,0 +1,19 @@
+{
+  "name": "logos-package-registry",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:create": "wrangler d1 create logos-registry",
+    "db:migrate": "wrangler d1 execute logos-registry --file=migrations/0001_initial_schema.sql",
+    "db:migrate:local": "wrangler d1 execute logos-registry --local --file=migrations/0001_initial_schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.11.1",
+    "vitest": "^3.2.4",
+    "wrangler": "^3.0.0"
+  }
+}

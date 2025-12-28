@@ -1,0 +1,26 @@
+name = "logos-package-registry"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ALLOWED_ORIGIN = "https://logicaffeine.com"
+REGISTRY_URL = "https://registry.logicaffeine.com"
+
+[[routes]]
+pattern = "registry.logicaffeine.com/*"
+zone_name = "logicaffeine.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "logos-registry"
+database_id = "fd52ddc6-fa8b-4e50-aed2-ee7d73437f61"
+
+[[r2_buckets]]
+binding = "PACKAGES"
+bucket_name = "logos-packages"
+
+# Secrets (set via wrangler secret put):
+# - GITHUB_CLIENT_ID
+# - GITHUB_CLIENT_SECRET
+# - JWT_SECRET
