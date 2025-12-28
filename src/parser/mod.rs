@@ -22,6 +22,7 @@ use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
+use crate::drs::{Drs, BoxType};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
@@ -113,6 +114,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) mode: ParserMode,
     pub(super) type_registry: Option<TypeRegistry>,
     pub(super) event_reading_mode: bool,
+    pub(super) drs: Drs,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -142,6 +144,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: None,
             event_reading_mode: false,
+            drs: Drs::new(),
         }
     }
 
@@ -184,6 +187,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: None,
             event_reading_mode: false,
+            drs: Drs::new(),
         }
     }
 
@@ -218,6 +222,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: Some(types),
             event_reading_mode: false,
+            drs: Drs::new(),
         }
     }
 

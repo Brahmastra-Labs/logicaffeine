@@ -12,6 +12,7 @@ pub mod compile;
 pub mod content;
 pub mod context;
 pub mod debug;
+pub mod drs;
 pub mod error;
 pub mod formatter;
 pub mod game;

@@ -5,9 +5,11 @@ use super::quantifier::QuantifierParsing;
 use super::question::QuestionParsing;
 use super::verb::LogicVerbParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{LogicExpr, NeoEventData, NounPhrase, Term, ThematicRole};
+use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
+use crate::drs::BoxType;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
+use crate::lexicon::Definiteness;
 use crate::token::TokenType;
 
 pub trait ClauseParsing<'a, 'ctx, 'int> {
@@ -129,7 +131,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_conditional(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let is_counterfactual = self.is_counterfactual_context();
 
+        // Enter DRS antecedent box - indefinites here get universal force
+        self.drs.enter_box(BoxType::ConditionalAntecedent);
         let antecedent = self.parse_counterfactual_antecedent()?;
+        self.drs.exit_box();
 
         if self.check(&TokenType::Comma) {
             self.advance();
@@ -139,9 +144,16 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
+        // Enter DRS consequent box - can access antecedent referents
+        self.drs.enter_box(BoxType::ConditionalConsequent);
         let consequent = self.parse_counterfactual_consequent()?;
+        self.drs.exit_box();
 
-        Ok(if is_counterfactual {
+        // Get DRS referents that need universal quantification
+        let universal_refs = self.drs.get_universal_referents();
+
+        // Build the conditional expression
+        let conditional = if is_counterfactual {
             self.ctx.exprs.alloc(LogicExpr::Counterfactual {
                 antecedent,
                 consequent,
@@ -152,7 +164,20 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 op: TokenType::If,
                 right: consequent,
             })
-        })
+        };
+
+        // Wrap with universal quantifiers for DRS referents
+        let mut result = conditional;
+        for var in universal_refs.into_iter().rev() {
+            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Universal,
+                variable: var,
+                body: result,
+                island_id: self.current_island,
+            });
+        }
+
+        Ok(result)
     }
 
     fn is_counterfactual_context(&self) -> bool {
@@ -173,16 +198,45 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
     fn parse_counterfactual_antecedent(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
-        if self.check_content_word() || self.check_pronoun() {
-            let subject = if self.check_pronoun() {
+        if self.check_content_word() || self.check_pronoun() || self.check_article() {
+            // Track if subject is an indefinite that needs DRS registration
+            let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
-                if let TokenType::Pronoun { gender, number, .. } = token.kind {
+                let resolved = if let TokenType::Pronoun { gender, number, .. } = token.kind {
                     self.resolve_pronoun(gender, number).unwrap_or(unknown)
                 } else {
                     unknown
-                }
+                };
+                (resolved, None)
             } else {
-                self.parse_noun_phrase(true)?.noun
+                let np = self.parse_noun_phrase(true)?;
+
+                // Check if this is an indefinite NP that should introduce a DRS referent
+                if np.definiteness == Some(Definiteness::Indefinite) {
+                    let var = self.next_var_name();
+                    let gender = Self::infer_noun_gender(self.interner.resolve(np.noun));
+
+                    // Register in DRS - will get universal force from ConditionalAntecedent box
+                    self.drs.introduce_referent(var, np.noun, gender);
+
+                    // Create type predicate: Farmer(x)
+                    let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: np.noun,
+                        args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    });
+
+                    (var, Some(type_pred))
+                } else {
+                    // Definite or proper name - use as constant
+                    (np.noun, None)
+                }
+            };
+
+            // Determine the subject term type
+            let subject_term = if subject_type_pred.is_some() {
+                Term::Variable(subject)
+            } else {
+                Term::Constant(subject)
             };
 
             // Handle presupposition triggers in antecedent: "If John stopped smoking, ..."
@@ -228,13 +282,23 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     self.consume_content_word()?
                 };
                 let be = self.interner.intern("Be");
-                return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                let be_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: be,
                     args: self.ctx.terms.alloc_slice([
-                        Term::Constant(subject),
+                        subject_term,
                         Term::Constant(predicate),
                     ]),
-                }));
+                });
+                // Combine with type predicate if indefinite subject
+                return Ok(if let Some(type_pred) = subject_type_pred {
+                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: type_pred,
+                        op: TokenType::And,
+                        right: be_pred,
+                    })
+                } else {
+                    be_pred
+                });
             }
 
             if self.check(&TokenType::Had) {
@@ -242,7 +306,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let verb = self.consume_content_word()?;
                 let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+                    args: self.ctx.terms.alloc_slice([subject_term]),
                 });
 
                 // Handle "because" causal clause in antecedent
@@ -250,16 +314,47 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 if self.check(&TokenType::Because) && !self.peek_next_is_string_literal() {
                     self.advance();
                     let cause = self.parse_atom()?;
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::Causal {
+                    let causal = self.ctx.exprs.alloc(LogicExpr::Causal {
                         effect: main_pred,
                         cause,
-                    }));
+                    });
+                    // Combine with type predicate if indefinite subject
+                    return Ok(if let Some(type_pred) = subject_type_pred {
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: causal,
+                        })
+                    } else {
+                        causal
+                    });
                 }
 
-                return Ok(main_pred);
+                // Combine with type predicate if indefinite subject
+                return Ok(if let Some(type_pred) = subject_type_pred {
+                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: type_pred,
+                        op: TokenType::And,
+                        right: main_pred,
+                    })
+                } else {
+                    main_pred
+                });
             }
 
-            return self.parse_predicate_with_subject(subject);
+            // Parse verb phrase with subject
+            let verb_phrase = self.parse_predicate_with_subject(subject)?;
+
+            // Combine with type predicate if indefinite subject
+            return Ok(if let Some(type_pred) = subject_type_pred {
+                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: type_pred,
+                    op: TokenType::And,
+                    right: verb_phrase,
+                })
+            } else {
+                verb_phrase
+            });
         }
 
         self.parse_sentence()
