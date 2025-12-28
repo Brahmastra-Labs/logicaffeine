@@ -331,6 +331,16 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
         }
 
+        // Phase 35: Trust with documented justification
+        Stmt::Trust { proposition, justification } => {
+            let reason = interner.resolve(*justification);
+            // Strip quotes if present (string literals include their quotes)
+            let reason_clean = reason.trim_matches('"');
+            writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
+            let condition = codegen_assertion(proposition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
             let obj_str = codegen_expr(object, interner);

@@ -1788,10 +1788,10 @@ Comprehensive tests covering quantifiers, modals, temporal logic, relative claus
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1676 lines
-Parser (ast/, parser/):               10259 lines
+Lexer (token.rs, lexer.rs):           1691 lines
+Parser (ast/, parser/):               10375 lines
 Transpilation:                        1030 lines
-Code Generation:                      976 lines
+Code Generation:                      986 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            809 lines
 Support Infrastructure:               4133 lines
@@ -1801,15 +1801,15 @@ Entry Point:                                 3 lines
 
 ### Totals
 ```
-Source lines:        34165
-Test lines:           8950
-Total Rust lines: 43115
+Source lines:        34306
+Test lines:           9028
+Total Rust lines: 43334
 ```
 
 ### File Counts
 ```
 Source files: 85
-Test files:   63
+Test files:   64
 ```
 ## Lexicon Data
 
@@ -1881,7 +1881,8 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     "never": "Never",
     "repeat": "Repeat",
     "for": "For",
-    "from": "From"
+    "from": "From",
+    "trust": "Trust"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },
@@ -2697,6 +2698,7 @@ pub enum TokenType {
     In,
     From,
     Assert,
+    Trust,    // Phase 35: Documented assertion with justification
     Otherwise,
     Call,
     New,      // Phase 31: Constructor keyword
@@ -3760,6 +3762,7 @@ impl<'a> Lexer<'a> {
             }
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
+            "trust" => return TokenType::Trust,  // Phase 35: Trust statement
             "otherwise" => return TokenType::Otherwise,
             // Phase 33: Sum type definition (after "is")
             "either" => return TokenType::Either,
@@ -3809,6 +3812,19 @@ impl<'a> Lexer<'a> {
         if let Some(base) = self.try_parse_superlative(&lower) {
             let sym = self.interner.intern(&base);
             return TokenType::Superlative(sym);
+        }
+
+        // Phase 35: Handle irregular comparatives (less, more, better, worse)
+        let irregular_comparative = match lower.as_str() {
+            "less" => Some("Little"),
+            "more" => Some("Much"),
+            "better" => Some("Good"),
+            "worse" => Some("Bad"),
+            _ => None,
+        };
+        if let Some(base) = irregular_comparative {
+            let sym = self.interner.intern(base);
+            return TokenType::Comparative(sym);
         }
 
         if let Some(base) = self.try_parse_comparative(&lower) {
@@ -4848,6 +4864,14 @@ pub enum Stmt<'a> {
         proposition: &'a LogicExpr<'a>,
     },
 
+    /// Phase 35: Documented assertion with justification
+    /// `Trust that P because "reason".`
+    /// Semantics: Documented runtime check that could be verified statically.
+    Trust {
+        proposition: &'a LogicExpr<'a>,
+        justification: Symbol,
+    },
+
     /// Ownership transfer (move): `Give x to processor.`
     /// Semantics: Move ownership of `object` to `recipient`.
     Give {
@@ -5620,6 +5644,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Assert) {
             return self.parse_assert_statement();
         }
+        // Phase 35: Trust statement
+        if self.check(&TokenType::Trust) {
+            return self.parse_trust_statement();
+        }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
         }
@@ -6045,6 +6073,59 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.mode = saved_mode;
 
         Ok(Stmt::Assert { proposition })
+    }
+
+    /// Phase 35: Parse Trust statement
+    /// Syntax: Trust [that] [proposition] because [justification].
+    fn parse_trust_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Trust"
+
+        // Optionally consume "that"
+        if self.check(&TokenType::That) {
+            self.advance();
+        }
+
+        // Save current mode and switch to declarative for proposition parsing
+        let saved_mode = self.mode;
+        self.mode = ParserMode::Declarative;
+
+        // Parse the proposition using the Logic Kernel
+        let proposition = self.parse()?;
+
+        // Restore mode
+        self.mode = saved_mode;
+
+        // Expect "because"
+        if !self.check(&TokenType::Because) {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken {
+                    expected: TokenType::Because,
+                    found: self.peek().kind.clone(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "because"
+
+        // Parse justification (string literal)
+        let justification = match &self.peek().kind {
+            TokenType::StringLiteral(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken {
+                        expected: TokenType::StringLiteral(self.interner.intern("")),
+                        found: self.peek().kind.clone(),
+                    },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        Ok(Stmt::Trust { proposition, justification })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -9321,6 +9402,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         &self.tokens[self.current]
     }
 
+    /// Phase 35: Check if the next token (after current) is a string literal.
+    /// Used to distinguish causal `because` from Trust's `because "reason"`.
+    fn peek_next_is_string_literal(&self) -> bool {
+        self.tokens.get(self.current + 1)
+            .map(|t| matches!(t.kind, TokenType::StringLiteral(_)))
+            .unwrap_or(false)
+    }
+
     fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
@@ -9347,6 +9436,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let t = self.advance().clone();
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
+            // Phase 35: Allow single-letter articles (a, an) to be used as variable names
+            TokenType::Article(_) => Ok(t.lexeme),
+            // Phase 35: Allow numeric literals as content words (e.g., "equal to 42")
+            TokenType::Number(s) => Ok(s),
             TokenType::ProperName(s) => {
                 let s_str = self.interner.resolve(s);
 
@@ -9768,7 +9861,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 });
 
                 // Handle "because" causal clause in antecedent
-                if self.check(&TokenType::Because) {
+                // Phase 35: Do NOT consume if followed by string literal (Trust justification)
+                if self.check(&TokenType::Because) && !self.peek_next_is_string_literal() {
                     self.advance();
                     let cause = self.parse_atom()?;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Causal {
@@ -9967,7 +10061,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let mut expr = self.parse_atom()?;
 
         // Handle causal "because" at conjunction level
-        if self.check(&TokenType::Because) {
+        // Phase 35: Do NOT consume if followed by string literal (Trust justification)
+        if self.check(&TokenType::Because) && !self.peek_next_is_string_literal() {
             self.advance();
             let cause = self.parse_atom()?;
             return Ok(self.ctx.exprs.alloc(LogicExpr::Causal {
@@ -13223,6 +13318,19 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let mut possessor_from_pronoun: Option<&'a NounPhrase<'a>> = None;
         let mut superlative_adj: Option<crate::intern::Symbol> = None;
 
+        // Phase 35: Support numeric literals as noun phrases (e.g., "equal to 42")
+        if let TokenType::Number(sym) = self.peek().kind {
+            self.advance();
+            return Ok(NounPhrase {
+                definiteness: None,
+                adjectives: &[],
+                noun: sym,
+                possessor: None,
+                pps: &[],
+                superlative: None,
+            });
+        }
+
         if self.check_possessive_pronoun() {
             let token = self.advance().clone();
             let (gender, number) = match &token.kind {
@@ -13259,8 +13367,32 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             possessor_from_pronoun = Some(self.ctx.nps.alloc(possessor_np));
             definiteness = Some(Definiteness::Definite);
         } else if let TokenType::Article(def) = self.peek().kind {
-            definiteness = Some(def);
-            self.advance();
+            // Phase 35: Disambiguate "a" as variable vs article
+            // If "a" or "an" is followed by a verb/copula/modal, it's a variable name, not an article
+            let is_variable_a = {
+                let lexeme = self.interner.resolve(self.peek().lexeme).to_lowercase();
+                if lexeme == "a" || lexeme == "an" {
+                    if let Some(next) = self.tokens.get(self.current + 1) {
+                        matches!(next.kind,
+                            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were | // Copula
+                            TokenType::Verb { .. } | // Main verb
+                            TokenType::Auxiliary(_) | // will, did
+                            TokenType::Must | TokenType::Can | TokenType::Should | TokenType::May | // Modals
+                            TokenType::Could | TokenType::Would | TokenType::Shall |
+                            TokenType::Identity | TokenType::Equals // "a = b"
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if !is_variable_a {
+                definiteness = Some(def);
+                self.advance();
+            }
         }
 
         if self.check_superlative() {
@@ -20251,6 +20383,16 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
         }
 
         Stmt::Assert { proposition } => {
+            let condition = codegen_assertion(proposition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
+        // Phase 35: Trust with documented justification
+        Stmt::Trust { proposition, justification } => {
+            let reason = interner.resolve(*justification);
+            // Strip quotes if present (string literals include their quotes)
+            let reason_clean = reason.trim_matches('"');
+            writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
             let condition = codegen_assertion(proposition, interner);
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
         }
@@ -38802,6 +38944,16 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
         }
 
+        // Phase 35: Trust with documented justification
+        Stmt::Trust { proposition, justification } => {
+            let reason = interner.resolve(*justification);
+            // Strip quotes if present (string literals include their quotes)
+            let reason_clean = reason.trim_matches('"');
+            writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
+            let condition = codegen_assertion(proposition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
             let obj_str = codegen_expr(object, interner);
@@ -41937,11 +42089,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Sun Dec 28 04:54:08 CST 2025
+- **Generated:** Sun Dec 28 05:19:07 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 214b4f9
-- **Documentation Size:** 2.0M
+- **Git Commit:** 358bcdf
+- **Documentation Size:** 1.4M
 
 ---
 

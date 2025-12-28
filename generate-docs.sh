@@ -85,6 +85,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 32: Function Definitions & Inference](#phase-32-function-definitions--inference)
     - [Phase 33: Sum Types & Pattern Matching](#phase-33-sum-types--pattern-matching)
     - [Phase 34: User-Defined Generics](#phase-34-user-defined-generics)
+    - [Phase 35: The Proof Bridge](#phase-35-the-proof-bridge)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1610,6 +1611,11 @@ add_test_description "tests/phase34_generics.rs" \
     "Phase 34: User-Defined Generics" \
     "Generic type parameters with 'of [T]' syntax. Single-param (A Box of [T] has:), multi-param (A Pair of [A] and [B] has:), generic enums (A Maybe of [T] is either:), and turbofish instantiation (new Box of Int → Box::<i64>::default())." \
     "A Box of [T] has: a value, which is T."
+
+add_test_description "tests/phase35_proofs.rs" \
+    "Phase 35: The Proof Bridge" \
+    "Proof assertions with 'Trust that P because \"reason\".' syntax. Generates debug_assert! with justification comment. Includes variable 'a' disambiguation, number literals in propositions, irregular comparatives (less/more/better/worse), and because-string lookahead guards." \
+    "Trust that n is greater than 0 because \"precondition\"."
 
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \

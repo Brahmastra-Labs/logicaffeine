@@ -841,6 +841,7 @@ impl<'a> Lexer<'a> {
             }
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
+            "trust" => return TokenType::Trust,  // Phase 35: Trust statement
             "otherwise" => return TokenType::Otherwise,
             // Phase 33: Sum type definition (after "is")
             "either" => return TokenType::Either,
@@ -890,6 +891,19 @@ impl<'a> Lexer<'a> {
         if let Some(base) = self.try_parse_superlative(&lower) {
             let sym = self.interner.intern(&base);
             return TokenType::Superlative(sym);
+        }
+
+        // Phase 35: Handle irregular comparatives (less, more, better, worse)
+        let irregular_comparative = match lower.as_str() {
+            "less" => Some("Little"),
+            "more" => Some("Much"),
+            "better" => Some("Good"),
+            "worse" => Some("Bad"),
+            _ => None,
+        };
+        if let Some(base) = irregular_comparative {
+            let sym = self.interner.intern(base);
+            return TokenType::Comparative(sym);
         }
 
         if let Some(base) = self.try_parse_comparative(&lower) {

@@ -635,6 +635,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Assert) {
             return self.parse_assert_statement();
         }
+        // Phase 35: Trust statement
+        if self.check(&TokenType::Trust) {
+            return self.parse_trust_statement();
+        }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
         }
@@ -1060,6 +1064,59 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.mode = saved_mode;
 
         Ok(Stmt::Assert { proposition })
+    }
+
+    /// Phase 35: Parse Trust statement
+    /// Syntax: Trust [that] [proposition] because [justification].
+    fn parse_trust_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Trust"
+
+        // Optionally consume "that"
+        if self.check(&TokenType::That) {
+            self.advance();
+        }
+
+        // Save current mode and switch to declarative for proposition parsing
+        let saved_mode = self.mode;
+        self.mode = ParserMode::Declarative;
+
+        // Parse the proposition using the Logic Kernel
+        let proposition = self.parse()?;
+
+        // Restore mode
+        self.mode = saved_mode;
+
+        // Expect "because"
+        if !self.check(&TokenType::Because) {
+            return Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken {
+                    expected: TokenType::Because,
+                    found: self.peek().kind.clone(),
+                },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "because"
+
+        // Parse justification (string literal)
+        let justification = match &self.peek().kind {
+            TokenType::StringLiteral(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::UnexpectedToken {
+                        expected: TokenType::StringLiteral(self.interner.intern("")),
+                        found: self.peek().kind.clone(),
+                    },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        Ok(Stmt::Trust { proposition, justification })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -4336,6 +4393,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         &self.tokens[self.current]
     }
 
+    /// Phase 35: Check if the next token (after current) is a string literal.
+    /// Used to distinguish causal `because` from Trust's `because "reason"`.
+    fn peek_next_is_string_literal(&self) -> bool {
+        self.tokens.get(self.current + 1)
+            .map(|t| matches!(t.kind, TokenType::StringLiteral(_)))
+            .unwrap_or(false)
+    }
+
     fn previous(&self) -> &Token {
         &self.tokens[self.current - 1]
     }
@@ -4362,6 +4427,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let t = self.advance().clone();
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
+            // Phase 35: Allow single-letter articles (a, an) to be used as variable names
+            TokenType::Article(_) => Ok(t.lexeme),
+            // Phase 35: Allow numeric literals as content words (e.g., "equal to 42")
+            TokenType::Number(s) => Ok(s),
             TokenType::ProperName(s) => {
                 let s_str = self.interner.resolve(s);
 

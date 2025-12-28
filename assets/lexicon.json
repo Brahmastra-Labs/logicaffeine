@@ -52,7 +52,8 @@
     "never": "Never",
     "repeat": "Repeat",
     "for": "For",
-    "from": "From"
+    "from": "From",
+    "trust": "Trust"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },

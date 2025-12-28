@@ -107,6 +107,7 @@ pub enum TokenType {
     In,
     From,
     Assert,
+    Trust,    // Phase 35: Documented assertion with justification
     Otherwise,
     Call,
     New,      // Phase 31: Constructor keyword

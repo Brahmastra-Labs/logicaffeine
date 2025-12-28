@@ -24,6 +24,19 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let mut possessor_from_pronoun: Option<&'a NounPhrase<'a>> = None;
         let mut superlative_adj: Option<crate::intern::Symbol> = None;
 
+        // Phase 35: Support numeric literals as noun phrases (e.g., "equal to 42")
+        if let TokenType::Number(sym) = self.peek().kind {
+            self.advance();
+            return Ok(NounPhrase {
+                definiteness: None,
+                adjectives: &[],
+                noun: sym,
+                possessor: None,
+                pps: &[],
+                superlative: None,
+            });
+        }
+
         if self.check_possessive_pronoun() {
             let token = self.advance().clone();
             let (gender, number) = match &token.kind {
@@ -60,8 +73,32 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             possessor_from_pronoun = Some(self.ctx.nps.alloc(possessor_np));
             definiteness = Some(Definiteness::Definite);
         } else if let TokenType::Article(def) = self.peek().kind {
-            definiteness = Some(def);
-            self.advance();
+            // Phase 35: Disambiguate "a" as variable vs article
+            // If "a" or "an" is followed by a verb/copula/modal, it's a variable name, not an article
+            let is_variable_a = {
+                let lexeme = self.interner.resolve(self.peek().lexeme).to_lowercase();
+                if lexeme == "a" || lexeme == "an" {
+                    if let Some(next) = self.tokens.get(self.current + 1) {
+                        matches!(next.kind,
+                            TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were | // Copula
+                            TokenType::Verb { .. } | // Main verb
+                            TokenType::Auxiliary(_) | // will, did
+                            TokenType::Must | TokenType::Can | TokenType::Should | TokenType::May | // Modals
+                            TokenType::Could | TokenType::Would | TokenType::Shall |
+                            TokenType::Identity | TokenType::Equals // "a = b"
+                        )
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            if !is_variable_a {
+                definiteness = Some(def);
+                self.advance();
+            }
         }
 
         if self.check_superlative() {

@@ -246,7 +246,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 });
 
                 // Handle "because" causal clause in antecedent
-                if self.check(&TokenType::Because) {
+                // Phase 35: Do NOT consume if followed by string literal (Trust justification)
+                if self.check(&TokenType::Because) && !self.peek_next_is_string_literal() {
                     self.advance();
                     let cause = self.parse_atom()?;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Causal {
@@ -445,7 +446,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let mut expr = self.parse_atom()?;
 
         // Handle causal "because" at conjunction level
-        if self.check(&TokenType::Because) {
+        // Phase 35: Do NOT consume if followed by string literal (Trust justification)
+        if self.check(&TokenType::Because) && !self.peek_next_is_string_literal() {
             self.advance();
             let cause = self.parse_atom()?;
             return Ok(self.ctx.exprs.alloc(LogicExpr::Causal {

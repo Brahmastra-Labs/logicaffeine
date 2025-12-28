@@ -110,6 +110,14 @@ pub enum Stmt<'a> {
         proposition: &'a LogicExpr<'a>,
     },
 
+    /// Phase 35: Documented assertion with justification
+    /// `Trust that P because "reason".`
+    /// Semantics: Documented runtime check that could be verified statically.
+    Trust {
+        proposition: &'a LogicExpr<'a>,
+        justification: Symbol,
+    },
+
     /// Ownership transfer (move): `Give x to processor.`
     /// Semantics: Move ownership of `object` to `recipient`.
     Give {
