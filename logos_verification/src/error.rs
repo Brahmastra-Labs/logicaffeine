@@ -44,6 +44,12 @@ pub enum VerificationErrorKind {
 
     /// Z3 initialization or internal error.
     SolverError { message: String },
+
+    /// Phase 44: Loop termination cannot be proven.
+    TerminationViolation {
+        variant: String,
+        reason: String,
+    },
 }
 
 /// A counter-example showing why verification failed.
@@ -110,6 +116,11 @@ impl fmt::Display for VerificationError {
             }
             VerificationErrorKind::SolverError { message } => {
                 writeln!(f, "Solver error: {}", message)?;
+            }
+            VerificationErrorKind::TerminationViolation { variant, reason } => {
+                writeln!(f, "Cannot prove loop terminates.")?;
+                writeln!(f)?;
+                writeln!(f, "Variant '{}' does not strictly decrease: {}", variant, reason)?;
             }
         }
         Ok(())
@@ -219,5 +230,18 @@ impl VerificationError {
     pub fn with_span(mut self, start: usize, end: usize) -> Self {
         self.span = Some((start, end));
         self
+    }
+
+    /// Phase 44: Create a termination violation error.
+    pub fn termination_violation(variant: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::TerminationViolation {
+                variant: variant.into(),
+                reason: reason.into(),
+            },
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
     }
 }

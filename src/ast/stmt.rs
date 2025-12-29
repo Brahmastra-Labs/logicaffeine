@@ -109,10 +109,12 @@ pub enum Stmt<'a> {
         else_block: Option<Block<'a>>,
     },
 
-    /// Loop: `While condition: ...`
+    /// Loop: `While condition: ...` or `While condition (decreasing expr): ...`
     While {
         cond: &'a Expr<'a>,
         body: Block<'a>,
+        /// Phase 44: Optional decreasing variant for termination proof
+        decreasing: Option<&'a Expr<'a>>,
     },
 
     /// Iteration: `Repeat for x in list: ...` or `Repeat for i from 1 to 10: ...`

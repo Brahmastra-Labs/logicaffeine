@@ -50,6 +50,7 @@ fn stmt_while_variant_exists() {
         Stmt::While {
             cond,
             body,
+            decreasing: None,
         }
     }
 }

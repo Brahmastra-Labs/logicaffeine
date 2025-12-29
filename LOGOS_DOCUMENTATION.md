@@ -81,6 +81,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
     - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
     - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
+    - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
     - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
     - [End-to-End Tests](#end-to-end-tests)
@@ -1872,6 +1873,16 @@ Z3 SMT solver tests for static verification. Tests tautology/contradiction check
 
 ---
 
+#### Phase 42c: Refinement Verification
+
+**File:** `tests/phase_verification_refinement.rs`
+
+Static verification of refinement type constraints. Tests valid/invalid literals (-5 rejected for 'it > 0'), variable tracking through Let bindings, compound predicates (it > 0 and it < 100), boundary conditions (>= 0 allows 0), and comparison operators (>, <, >=, <=, ==). verify_with_binding() proves constraints.
+
+**Example:** Let x: Int where it > 0 be -5. → Verification failed: refinement predicate not satisfied
+
+---
+
 #### Phase 43B: Type Checking
 
 **File:** `tests/phase43_type_check.rs`
@@ -2097,7 +2108,7 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 ### By Compiler Stage
 ```
 Lexer (token.rs, lexer.rs):           1906 lines
-Parser (ast/, parser/):               12204 lines
+Parser (ast/, parser/):               12251 lines
 Transpilation:                        1341 lines
 Code Generation:                      1552 lines
 Semantics (lambda, context, view):    2880 lines
@@ -2109,15 +2120,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        42591
-Test lines:          14660
-Total Rust lines: 57251
+Source lines:        42699
+Test lines:          14746
+Total Rust lines: 57445
 ```
 
 ### File Counts
 ```
 Source files: 102
-Test files:   96
+Test files:   97
 ```
 ## Lexicon Data
 
@@ -5416,10 +5427,12 @@ pub enum Stmt<'a> {
         else_block: Option<Block<'a>>,
     },
 
-    /// Loop: `While condition: ...`
+    /// Loop: `While condition: ...` or `While condition (decreasing expr): ...`
     While {
         cond: &'a Expr<'a>,
         body: Block<'a>,
+        /// Phase 44: Optional decreasing variant for termination proof
+        decreasing: Option<&'a Expr<'a>>,
     },
 
     /// Iteration: `Repeat for x in list: ...` or `Repeat for i from 1 to 10: ...`
@@ -6612,6 +6625,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         let cond = self.parse_condition()?;
 
+        // Phase 44: Parse optional (decreasing expr)
+        let decreasing = if self.check(&TokenType::LeftParen) {
+            self.advance(); // consume '('
+
+            // Expect "decreasing" keyword
+            if !self.check_word("decreasing") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "decreasing".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "decreasing"
+
+            let variant = self.parse_expr()?;
+
+            if !self.check(&TokenType::RightParen) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume ')'
+
+            Some(variant)
+        } else {
+            None
+        };
+
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
@@ -6644,7 +6685,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let body = self.ctx.stmts.expect("imperative arenas not initialized")
             .alloc_slice(body_stmts.into_iter());
 
-        Ok(Stmt::While { cond, body })
+        Ok(Stmt::While { cond, body, decreasing })
     }
 
     fn parse_repeat_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -8778,9 +8819,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
+    /// Parse unary expressions (currently just unary minus)
+    fn parse_unary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::{Expr, Literal};
+
+        if self.check(&TokenType::Minus) {
+            self.advance(); // consume '-'
+            let operand = self.parse_unary_expr()?; // recursive for --5
+            // Implement as 0 - operand (no UnaryOp variant in Expr)
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Subtract,
+                left: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(0))),
+                right: operand,
+            }));
+        }
+        self.parse_primary_expr()
+    }
+
     /// Parse multiplicative expressions (*, /) - left-to-right associative
     fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let mut left = self.parse_primary_expr()?;
+        let mut left = self.parse_unary_expr()?;
 
         loop {
             let op = match &self.peek().kind {
@@ -8794,7 +8852,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 _ => break,
             };
-            let right = self.parse_primary_expr()?;
+            let right = self.parse_unary_expr()?;
             left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op,
                 left,
@@ -31415,7 +31473,7 @@ mod tests {
 
 **File:** `src/verification.rs`
 
-Bridges LOGOS AST to logos_verification IR. VerificationPass maps Stmt::Let → declare+assume, Stmt::Set → assume (simplified SSA), Stmt::Assert/Trust → verify. Maps LogicExpr to VerifyExpr: Atom→Var, Predicate→Apply, Identity→Eq, BinaryOp→Binary, Modal/Temporal/Aspectual→Apply (uninterpreted), Quantifier→ForAll/Exists. Complex linguistic constructs gracefully degrade to Bool(true).
+Bridges LOGOS AST to logos_verification IR. VerificationPass maps Stmt::Let → declare+assume, Stmt::Set → assume (simplified SSA), Stmt::Assert/Trust → verify. check_refinement() verifies refinement type constraints at Let bindings. Maps LogicExpr to VerifyExpr with special handling for comparison predicates (Greater, Less, GreaterEqual, LessEqual, Equal, NotEqual). Complex linguistic constructs gracefully degrade to Bool(true).
 
 ```rust
 //! Verification Pass: AST to Verification IR Mapper
@@ -31431,8 +31489,8 @@ Bridges LOGOS AST to logos_verification IR. VerificationPass maps Stmt::Let → 
 //! - Z3 reasons structurally without semantic knowledge
 
 use crate::ast::{LogicExpr, ModalDomain, NumberKind, QuantifierKind, Term};
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
-use crate::intern::Interner;
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::intern::{Interner, Symbol};
 use crate::token::TokenType;
 
 use logos_verification::{VerificationSession, VerifyExpr, VerifyOp, VerifyType};
@@ -31465,12 +31523,17 @@ impl<'a> VerificationPass<'a> {
 
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
-            Stmt::Let { var, value, .. } => {
+            Stmt::Let { var, ty, value, .. } => {
                 let name = self.interner.resolve(*var);
 
+                // Phase 43D: Check refinement constraints BEFORE declaring variable
+                if let Some(TypeExpr::Refinement { var: bound_var, predicate, .. }) = ty {
+                    self.check_refinement(name, *bound_var, predicate, value)?;
+                }
+
                 // Infer type from the value
-                let ty = self.infer_type(value);
-                self.session.declare(name, ty);
+                let inferred_ty = self.infer_type(value);
+                self.session.declare(name, inferred_ty);
 
                 // Map the value to IR and assume var = value
                 if let Some(val_ir) = self.map_imperative_expr(value) {
@@ -31611,6 +31674,44 @@ impl<'a> VerificationPass<'a> {
         }
     }
 
+    /// Phase 43D: Check that a value satisfies a refinement type constraint.
+    fn check_refinement(
+        &self,
+        var_name: &str,
+        bound_var: Symbol,
+        predicate: &LogicExpr,
+        value: &Expr,
+    ) -> Result<(), String> {
+        // 1. Map the value to IR
+        let val_ir = self.map_imperative_expr(value)
+            .ok_or_else(|| format!(
+                "Cannot verify refinement for '{}': value expression not supported for verification",
+                var_name
+            ))?;
+
+        // 2. Map the predicate to IR
+        let pred_ir = self.map_logic_expr(predicate);
+
+        // Skip if predicate maps to trivial True (complex linguistic constructs)
+        if matches!(&pred_ir, VerifyExpr::Bool(true)) {
+            return Ok(());
+        }
+
+        // 3. Get the bound variable name (e.g., "it" or "x")
+        let bound_name = self.interner.resolve(bound_var);
+
+        // 4. Verify with the binding
+        self.session.verify_with_binding(
+            bound_name,
+            VerifyType::Int, // Refinements are typically on Int
+            &val_ir,
+            &pred_ir,
+        ).map_err(|e| format!(
+            "Refinement type verification failed for '{}': {}",
+            var_name, e
+        ))
+    }
+
     /// Map an imperative expression to Verification IR.
     fn map_imperative_expr(&self, expr: &Expr) -> Option<VerifyExpr> {
         match expr {
@@ -31685,6 +31786,24 @@ impl<'a> VerificationPass<'a> {
                     .iter()
                     .map(|t| self.map_term(t))
                     .collect();
+
+                // Phase 43D: Handle comparison predicates from refinement types
+                // The parser creates predicates like "Greater(it, 0)" for "it > 0"
+                if verify_args.len() == 2 {
+                    let left = verify_args[0].clone();
+                    let right = verify_args[1].clone();
+                    match pred_name {
+                        "Greater" => return VerifyExpr::gt(left, right),
+                        "Less" => return VerifyExpr::lt(left, right),
+                        "GreaterEqual" => return VerifyExpr::gte(left, right),
+                        "LessEqual" => return VerifyExpr::lte(left, right),
+                        "Equal" => return VerifyExpr::eq(left, right),
+                        "NotEqual" => return VerifyExpr::neq(left, right),
+                        _ => {}
+                    }
+                }
+
+                // Default: treat as uninterpreted function
                 VerifyExpr::apply(pred_name, verify_args)
             }
 
@@ -47603,7 +47722,7 @@ pub use solver::{Verifier, VerificationSession};
 
 **File:** `logos_verification/src/ir.rs`
 
-Lightweight AST for Z3 encoding. VerifyType (Int, Bool, Object), VerifyOp (arithmetic, comparison, logic), VerifyExpr (Int, Bool, Var, Binary, Not, ForAll, Exists, Apply). Apply is the 'catch-all' for uninterpreted functions.
+Lightweight AST for Z3 encoding. VerifyType (Int, Bool, Object), VerifyOp (arithmetic, comparison, logic), VerifyExpr (Int, Bool, Var, Binary, Not, ForAll, Exists, Apply). Convenience methods: eq, gt, lt, gte, lte, neq, and, or, implies. Apply is the 'catch-all' for uninterpreted functions.
 
 ```rust
 //! Verification IR (Intermediate Representation)
@@ -47774,6 +47893,21 @@ impl VerifyExpr {
         Self::binary(VerifyOp::Lt, left, right)
     }
 
+    /// x >= y
+    pub fn gte(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Gte, left, right)
+    }
+
+    /// x <= y
+    pub fn lte(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Lte, left, right)
+    }
+
+    /// x != y
+    pub fn neq(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Neq, left, right)
+    }
+
     /// x && y
     pub fn and(left: VerifyExpr, right: VerifyExpr) -> Self {
         Self::binary(VerifyOp::And, left, right)
@@ -47851,7 +47985,7 @@ mod tests {
 
 **File:** `logos_verification/src/solver.rs`
 
-Verifier struct with check_bool(), check_int_greater_than(), check_int_less_than(), check_int_equals(). VerificationSession for incremental constraint building with declare(), assume(), verify(). Encoder converts VerifyExpr to Z3 ASTs.
+Verifier struct with check_bool(), check_int_greater_than(), check_int_less_than(), check_int_equals(). VerificationSession for incremental constraint building with declare(), assume(), verify(). verify_with_binding() for scoped refinement type checking. Encoder converts VerifyExpr to Z3 ASTs.
 
 ```rust
 //! Z3 solver wrapper for LOGOS verification.
@@ -48087,6 +48221,70 @@ impl VerificationSession {
     /// Add an assumption (constraint).
     pub fn assume(&mut self, expr: &VerifyExpr) {
         self.assumptions.push(expr.clone());
+    }
+
+    /// Verify a predicate with a temporary variable binding.
+    /// Used for refinement type checking.
+    ///
+    /// This creates a scoped context where `var_name = value` is assumed,
+    /// then verifies that `predicate` holds.
+    pub fn verify_with_binding(
+        &self,
+        var_name: &str,
+        var_type: VerifyType,
+        value: &VerifyExpr,
+        predicate: &VerifyExpr,
+    ) -> VerificationResult {
+        // Create a fresh Z3 context
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "10000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+
+        // Copy existing vars and add the bound variable
+        let mut vars = self.vars.clone();
+        vars.insert(var_name.to_string(), var_type);
+
+        let encoder = Encoder::new(&ctx, &vars);
+
+        // Add all existing assumptions
+        for assumption in &self.assumptions {
+            let ast = encoder.encode(assumption);
+            if let Some(b) = ast.as_bool() {
+                solver.assert(&b);
+            }
+        }
+
+        // Add the binding: var_name == value
+        let binding = VerifyExpr::eq(
+            VerifyExpr::var(var_name),
+            value.clone(),
+        );
+        let binding_ast = encoder.encode(&binding);
+        if let Some(b) = binding_ast.as_bool() {
+            solver.assert(&b);
+        }
+
+        // Verify the predicate
+        let pred_ast = encoder.encode(predicate);
+        let assertion = pred_ast.as_bool().ok_or_else(|| {
+            VerificationError::solver_error("Refinement predicate must be boolean")
+        })?;
+
+        solver.push();
+        solver.assert(&assertion.not());
+
+        let result = match solver.check() {
+            SatResult::Unsat => Ok(()),
+            SatResult::Sat => Err(VerificationError::refinement_violation(
+                var_name,
+                "The value does not satisfy the refinement predicate.",
+            )),
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        };
+
+        solver.pop(1);
+        result
     }
 
     /// Verify that an assertion is valid given current assumptions.
@@ -48989,6 +49187,18 @@ impl VerificationError {
             },
             span: None,
             explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Create a refinement type violation error.
+    pub fn refinement_violation(type_name: impl Into<String>, explanation: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::RefinementViolation {
+                type_name: type_name.into(),
+            },
+            span: None,
+            explanation: explanation.into(),
             counterexample: None,
         }
     }
@@ -53956,8 +54166,8 @@ Additional source module.
 //! - Z3 reasons structurally without semantic knowledge
 
 use crate::ast::{LogicExpr, ModalDomain, NumberKind, QuantifierKind, Term};
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
-use crate::intern::Interner;
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::intern::{Interner, Symbol};
 use crate::token::TokenType;
 
 use logos_verification::{VerificationSession, VerifyExpr, VerifyOp, VerifyType};
@@ -53990,12 +54200,17 @@ impl<'a> VerificationPass<'a> {
 
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
         match stmt {
-            Stmt::Let { var, value, .. } => {
+            Stmt::Let { var, ty, value, .. } => {
                 let name = self.interner.resolve(*var);
 
+                // Phase 43D: Check refinement constraints BEFORE declaring variable
+                if let Some(TypeExpr::Refinement { var: bound_var, predicate, .. }) = ty {
+                    self.check_refinement(name, *bound_var, predicate, value)?;
+                }
+
                 // Infer type from the value
-                let ty = self.infer_type(value);
-                self.session.declare(name, ty);
+                let inferred_ty = self.infer_type(value);
+                self.session.declare(name, inferred_ty);
 
                 // Map the value to IR and assume var = value
                 if let Some(val_ir) = self.map_imperative_expr(value) {
@@ -54136,6 +54351,44 @@ impl<'a> VerificationPass<'a> {
         }
     }
 
+    /// Phase 43D: Check that a value satisfies a refinement type constraint.
+    fn check_refinement(
+        &self,
+        var_name: &str,
+        bound_var: Symbol,
+        predicate: &LogicExpr,
+        value: &Expr,
+    ) -> Result<(), String> {
+        // 1. Map the value to IR
+        let val_ir = self.map_imperative_expr(value)
+            .ok_or_else(|| format!(
+                "Cannot verify refinement for '{}': value expression not supported for verification",
+                var_name
+            ))?;
+
+        // 2. Map the predicate to IR
+        let pred_ir = self.map_logic_expr(predicate);
+
+        // Skip if predicate maps to trivial True (complex linguistic constructs)
+        if matches!(&pred_ir, VerifyExpr::Bool(true)) {
+            return Ok(());
+        }
+
+        // 3. Get the bound variable name (e.g., "it" or "x")
+        let bound_name = self.interner.resolve(bound_var);
+
+        // 4. Verify with the binding
+        self.session.verify_with_binding(
+            bound_name,
+            VerifyType::Int, // Refinements are typically on Int
+            &val_ir,
+            &pred_ir,
+        ).map_err(|e| format!(
+            "Refinement type verification failed for '{}': {}",
+            var_name, e
+        ))
+    }
+
     /// Map an imperative expression to Verification IR.
     fn map_imperative_expr(&self, expr: &Expr) -> Option<VerifyExpr> {
         match expr {
@@ -54210,6 +54463,24 @@ impl<'a> VerificationPass<'a> {
                     .iter()
                     .map(|t| self.map_term(t))
                     .collect();
+
+                // Phase 43D: Handle comparison predicates from refinement types
+                // The parser creates predicates like "Greater(it, 0)" for "it > 0"
+                if verify_args.len() == 2 {
+                    let left = verify_args[0].clone();
+                    let right = verify_args[1].clone();
+                    match pred_name {
+                        "Greater" => return VerifyExpr::gt(left, right),
+                        "Less" => return VerifyExpr::lt(left, right),
+                        "GreaterEqual" => return VerifyExpr::gte(left, right),
+                        "LessEqual" => return VerifyExpr::lte(left, right),
+                        "Equal" => return VerifyExpr::eq(left, right),
+                        "NotEqual" => return VerifyExpr::neq(left, right),
+                        _ => {}
+                    }
+                }
+
+                // Default: treat as uninterpreted function
                 VerifyExpr::apply(pred_name, verify_args)
             }
 
@@ -56087,10 +56358,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 13:39:21 CST 2025
+- **Generated:** Mon Dec 29 14:01:06 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 1f058ac
+- **Git Commit:** 28b6cc5
 - **Documentation Size:** 1.9M
 
 ---

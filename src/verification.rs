@@ -120,7 +120,13 @@ impl<'a> VerificationPass<'a> {
                 Ok(())
             }
 
-            Stmt::While { body, .. } => {
+            Stmt::While { body, decreasing, .. } => {
+                // Phase 44: Termination checking
+                if let Some(variant_expr) = decreasing {
+                    self.check_termination(variant_expr, body)?;
+                }
+
+                // Visit body statements
                 for stmt in *body {
                     self.visit_stmt(stmt)?;
                 }
@@ -232,6 +238,137 @@ impl<'a> VerificationPass<'a> {
             "Refinement type verification failed for '{}': {}",
             var_name, e
         ))
+    }
+
+    /// Phase 44: Verify that a loop terminates by checking its decreasing variant.
+    fn check_termination(
+        &self,
+        variant_expr: &Expr,
+        body: &[Stmt],
+    ) -> Result<(), String> {
+        // 1. Map the variant to IR (this is V₀ - value before loop body)
+        let v0 = self.map_imperative_expr(variant_expr)
+            .ok_or_else(|| "Cannot verify termination: variant expression not supported".to_string())?;
+
+        // 2. Get the variant variable name (must be a simple identifier for now)
+        let variant_name = match variant_expr {
+            Expr::Identifier(sym) => self.interner.resolve(*sym),
+            _ => return Err("Decreasing clause must be a simple variable".to_string()),
+        };
+
+        // 3. Simulate the loop body to find V₁ (value after one iteration)
+        let v1 = self.simulate_body_for_variant(variant_name, body)?;
+
+        // 4. Verify: V₁ < V₀ (strictly decreasing)
+        let decreasing_constraint = VerifyExpr::lt(v1.clone(), v0.clone());
+
+        // 5. Verify: V₀ >= 0 (bounded below)
+        let bounded_constraint = VerifyExpr::gte(v0.clone(), VerifyExpr::int(0));
+
+        // 6. Combined: decreasing AND bounded
+        let termination_proof = VerifyExpr::and(decreasing_constraint, bounded_constraint);
+
+        self.session.verify(&termination_proof).map_err(|e| {
+            format!("Termination verification failed for '{}': {}", variant_name, e)
+        })
+    }
+
+    /// Simulate the loop body to determine the final value of the variant.
+    fn simulate_body_for_variant(
+        &self,
+        variant_name: &str,
+        body: &[Stmt],
+    ) -> Result<VerifyExpr, String> {
+        use std::collections::HashMap;
+
+        // Track all bindings in the loop body
+        let mut bindings: HashMap<String, VerifyExpr> = HashMap::new();
+        let mut latest_value: Option<VerifyExpr> = None;
+
+        for stmt in body {
+            match stmt {
+                Stmt::Let { var, value, .. } => {
+                    let var_name = self.interner.resolve(*var);
+                    if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                        bindings.insert(var_name.to_string(), val_ir);
+                    }
+                }
+                Stmt::Set { target, value } => {
+                    let target_name = self.interner.resolve(*target);
+                    if target_name == variant_name {
+                        latest_value = self.map_imperative_expr_with_bindings(value, &bindings);
+                    } else {
+                        // Track other Set statements that might affect bindings
+                        if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                            bindings.insert(target_name.to_string(), val_ir);
+                        }
+                    }
+                }
+                _ => {
+                    // TODO: Handle nested If/While for more complex cases
+                }
+            }
+        }
+
+        latest_value.ok_or_else(|| {
+            format!("Variant '{}' is not modified in loop body", variant_name)
+        })
+    }
+
+    /// Map an imperative expression to Verification IR, substituting known bindings.
+    fn map_imperative_expr_with_bindings(
+        &self,
+        expr: &Expr,
+        bindings: &std::collections::HashMap<String, VerifyExpr>,
+    ) -> Option<VerifyExpr> {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => Some(VerifyExpr::int(*n)),
+            Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
+            Expr::Literal(Literal::Text(_)) => None,
+            Expr::Literal(Literal::Nothing) => None,
+
+            Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                // Check if we have a known binding for this variable
+                if let Some(bound_val) = bindings.get(name) {
+                    Some(bound_val.clone())
+                } else {
+                    Some(VerifyExpr::var(name))
+                }
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let l = self.map_imperative_expr_with_bindings(left, bindings)?;
+                let r = self.map_imperative_expr_with_bindings(right, bindings)?;
+                let verify_op = match op {
+                    BinaryOpKind::Add => VerifyOp::Add,
+                    BinaryOpKind::Subtract => VerifyOp::Sub,
+                    BinaryOpKind::Multiply => VerifyOp::Mul,
+                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Eq => VerifyOp::Eq,
+                    BinaryOpKind::NotEq => VerifyOp::Neq,
+                    BinaryOpKind::Gt => VerifyOp::Gt,
+                    BinaryOpKind::Lt => VerifyOp::Lt,
+                    BinaryOpKind::GtEq => VerifyOp::Gte,
+                    BinaryOpKind::LtEq => VerifyOp::Lte,
+                    BinaryOpKind::And => VerifyOp::And,
+                    BinaryOpKind::Or => VerifyOp::Or,
+                };
+                Some(VerifyExpr::binary(verify_op, l, r))
+            }
+
+            Expr::Call { function, args } => {
+                let func_name = self.interner.resolve(*function);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .filter_map(|a| self.map_imperative_expr_with_bindings(a, bindings))
+                    .collect();
+                Some(VerifyExpr::apply(func_name, verify_args))
+            }
+
+            // Unsupported expressions
+            _ => None,
+        }
     }
 
     /// Map an imperative expression to Verification IR.

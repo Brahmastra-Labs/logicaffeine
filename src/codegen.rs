@@ -593,7 +593,8 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
-        Stmt::While { cond, body } => {
+        Stmt::While { cond, body, decreasing: _ } => {
+            // decreasing is compile-time only, ignored at runtime
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();

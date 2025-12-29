@@ -229,6 +229,7 @@ fn codegen_while_loop() {
     let stmt = Stmt::While {
         cond,
         body: &[],
+        decreasing: None,
     };
     let mut ctx = RefinementContext::new();
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);

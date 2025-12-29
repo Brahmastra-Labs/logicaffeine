@@ -949,6 +949,34 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         let cond = self.parse_condition()?;
 
+        // Phase 44: Parse optional (decreasing expr)
+        let decreasing = if self.check(&TokenType::LParen) {
+            self.advance(); // consume '('
+
+            // Expect "decreasing" keyword
+            if !self.check_word("decreasing") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "decreasing".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "decreasing"
+
+            let variant = self.parse_imperative_expr()?;
+
+            if !self.check(&TokenType::RParen) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume ')'
+
+            Some(variant)
+        } else {
+            None
+        };
+
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
@@ -981,7 +1009,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let body = self.ctx.stmts.expect("imperative arenas not initialized")
             .alloc_slice(body_stmts.into_iter());
 
-        Ok(Stmt::While { cond, body })
+        Ok(Stmt::While { cond, body, decreasing })
     }
 
     fn parse_repeat_statement(&mut self) -> ParseResult<Stmt<'a>> {
