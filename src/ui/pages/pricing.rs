@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use crate::ui::router::Route;
 
 const PRICING_STYLE: &str = r#"
 :root {
@@ -626,6 +627,13 @@ pub fn Pricing() -> Element {
             div { class: "bg-orb orb3" }
 
             div { class: "pricing-container",
+                Link {
+                    class: "back-link",
+                    to: Route::Landing {},
+                    style: "align-self: flex-start; margin-bottom: 16px;",
+                    "← Back to Home"
+                }
+
                 div { class: "pricing-header",
                     h1 { "Commercial Licensing" }
                     p { "Business Source License — free for individuals and small teams" }
@@ -787,6 +795,28 @@ pub fn Pricing() -> Element {
                             }
                         }
                     }
+
+                    div { class: "tier-card disabled",
+                        span { class: "coming-soon-badge", "Coming Soon" }
+                        div { class: "tier-name", "Semantic Tokenizer" }
+                        div { class: "tier-revenue", "For AI model training" }
+                        div { class: "tier-price",
+                            span { class: "amount", "Custom" }
+                        }
+                        div { class: "tier-annual", "Contact us for pricing" }
+                        ul { class: "tier-features",
+                            li { "License for AI model training" }
+                            li { "Commercial training data rights" }
+                            li { "Custom volume pricing" }
+                        }
+                        div { class: "tier-buttons",
+                            a {
+                                class: "btn-contact",
+                                href: "mailto:tristen@brahmastra-labs.com",
+                                "Contact for Pricing"
+                            }
+                        }
+                    }
                 }
 
                 div { class: "manage-section",
@@ -859,9 +889,9 @@ pub fn Pricing() -> Element {
                         }
                         "GitHub"
                     }
-                    button {
+                    Link {
                         class: "back-link",
-                        onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
+                        to: Route::Landing {},
                         "← Back"
                     }
                 }

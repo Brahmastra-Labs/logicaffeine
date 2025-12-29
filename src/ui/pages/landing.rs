@@ -1082,10 +1082,16 @@ To run:
                     }
                 }
 
-                section { class: "section",
-                    div { class: "card",
+                section {
+                    class: "section",
+                    style: "padding-bottom: 100px;",
+                    div {
+                        class: "card",
+                        style: "padding: 32px; overflow: visible;",
                         h2 { class: "section-title", "Make your reasoning impossible to ignore." }
-                        p { class: "section-sub",
+                        p {
+                            class: "section-sub",
+                            style: "margin-bottom: 20px;",
                             "Start with the Curriculum, or jump into the Studio. Either way, the product is built to sharpen your mind."
                         }
                         div { class: "hero-ctas",

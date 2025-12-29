@@ -276,7 +276,49 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' => {
+                // Handle == as a single token
+                '=' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "==".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // Handle != as a single token
+                '!' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "!=".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' | '=' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -878,6 +920,12 @@ impl<'a> Lexer<'a> {
         }
         if word == ">=" {
             return TokenType::GtEq;
+        }
+        if word == "==" {
+            return TokenType::EqEq;
+        }
+        if word == "!=" {
+            return TokenType::NotEq;
         }
         if word == "<" {
             return TokenType::Lt;

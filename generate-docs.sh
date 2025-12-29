@@ -213,6 +213,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Semantic Grading** - Answer comparison via Unicode normalization, AST parsing, and structural equivalence; handles commutativity of ∧/∨; partial credit scoring
 - **Curriculum Embedding** - Filesystem-based curriculum (assets/curriculum/) embedded at compile time via include_dir; JSON schemas for eras, modules, exercises
 - **Catch-all 404 Route** - NotFound variant with /:..route pattern prevents router panics on invalid URLs
+- **Refinement Types** - \`Type where predicate\` syntax with RefinementContext tracking; debug_assert!() enforcement at Let binding and Set mutation
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1663,8 +1664,8 @@ add_test_description "tests/phase43_type_check.rs" \
 
 add_test_description "tests/phase43_refinement.rs" \
     "Phase 43C: Refinement Types" \
-    "Foundation for refinement types (types with predicates). TypeExpr::Refinement variant stores base type, bound variable, and predicate. Where-clause parsing deferred to future phase." \
-    "Int where it > 0 (planned syntax)"
+    "Refinement types with predicate constraints. Parser handles 'Type where predicate' syntax. Codegen generates debug_assert!() checks at Let bindings and re-emits on Set mutations. RefinementContext tracks constraints across scopes for mutation enforcement." \
+    "Let x: Int where x > 0 be 5. → let x: i64 = 5; debug_assert!((x > 0));"
 
 add_test_description "tests/phase43_collections.rs" \
     "Phase 43D: Collection Operations" \
@@ -2102,7 +2103,7 @@ EOF
 
 add_file "src/codegen.rs" \
     "Rust Code Generation" \
-    "Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. codegen_expr() handles imperative expressions. Uses String buffer for zero-dependency output."
+    "Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. RefinementContext tracks 'Type where predicate' constraints; emit_refinement_check() generates debug_assert!() at Let and on Set mutations. Uses String buffer for zero-dependency output."
 
 add_file "src/compile.rs" \
     "Compilation Orchestration" \
@@ -2579,7 +2580,7 @@ add_file "logos_core/src/types.rs" \
 
 add_file "logos_core/src/io.rs" \
     "IO Functions" \
-    "Standard IO per Spec §10.5: show() for display, read_line() for input, println/eprintln/print for output."
+    "Standard IO per Spec §10.5. Defines Showable trait for custom formatting (primitives display without quotes, Vec/Option display with brackets). show() takes reference and uses Showable; read_line() for input; println/eprintln/print for standard output."
 
 add_file "logos_core/src/file.rs" \
     "File I/O" \

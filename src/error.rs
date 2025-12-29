@@ -125,6 +125,8 @@ pub enum ParseErrorKind {
         expected: String,
         found: String,
     },
+    // Phase 43C: Refinement types
+    InvalidRefinementPredicate,
 }
 
 #[cold]
@@ -316,6 +318,13 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 "At position {}, I expected a value of type '{}' but found '{}'. \
                 Types must match in LOGOS. Check that your value matches the declared type.",
                 pos, expected, found
+            )
+        }
+        ParseErrorKind::InvalidRefinementPredicate => {
+            format!(
+                "At position {}, the refinement predicate is not valid. \
+                A refinement predicate must be a comparison like 'x > 0' or 'n < 100'.",
+                pos
             )
         }
     }

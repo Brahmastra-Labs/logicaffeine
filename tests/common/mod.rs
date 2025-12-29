@@ -95,3 +95,24 @@ pub fn assert_runs(source: &str) {
         result.stderr
     );
 }
+
+/// Assert that LOGOS code panics at runtime (e.g., debug_assert! failure).
+#[allow(dead_code)]
+pub fn assert_panics(source: &str, expected_msg: &str) {
+    let result = run_logos(source);
+    assert!(
+        !result.success,
+        "Code should panic but succeeded.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstdout: {}",
+        source,
+        result.rust_code,
+        result.stdout
+    );
+    assert!(
+        result.stderr.contains(expected_msg),
+        "Expected '{}' in panic message.\nGot stderr:\n{}\n\nSource:\n{}\n\nGenerated Rust:\n{}",
+        expected_msg,
+        result.stderr,
+        source,
+        result.rust_code
+    );
+}

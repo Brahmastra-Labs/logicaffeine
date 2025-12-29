@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use logos::arena::Arena;
 use logos::ast::{Expr, Literal, Stmt, BinaryOpKind};
-use logos::codegen::{codegen_expr, codegen_stmt, codegen_program};
+use logos::codegen::{codegen_expr, codegen_stmt, codegen_program, RefinementContext};
 use logos::intern::{Interner, Symbol};
 use logos::analysis::TypeRegistry;
 
@@ -140,7 +140,8 @@ fn codegen_let_statement() {
         value,
         mutable: false,
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "let x = 42;\n");
 }
 
@@ -156,7 +157,8 @@ fn codegen_let_mutable() {
         value,
         mutable: true,
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "let mut count = 0;\n");
 }
 
@@ -170,7 +172,8 @@ fn codegen_set_statement() {
         target: x,
         value,
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "x = 10;\n");
 }
 
@@ -182,7 +185,8 @@ fn codegen_return_with_value() {
     let stmt = Stmt::Return {
         value: Some(value),
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "return 42;\n");
 }
 
@@ -190,7 +194,8 @@ fn codegen_return_with_value() {
 fn codegen_return_without_value() {
     let interner = Interner::new();
     let stmt = Stmt::Return { value: None };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "return;\n");
 }
 
@@ -207,7 +212,8 @@ fn codegen_if_without_else() {
         then_block: &[],
         else_block: None,
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert!(result.contains("if x {"), "Expected 'if x {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -224,7 +230,8 @@ fn codegen_while_loop() {
         cond,
         body: &[],
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert!(result.contains("while running {"), "Expected 'while running {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -241,7 +248,8 @@ fn codegen_indentation() {
         value,
         mutable: false,
     };
-    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "    let x = 5;\n");
 }
 
@@ -265,6 +273,7 @@ fn codegen_call_statement() {
         function: println,
         args: vec![],
     };
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
+    let mut ctx = RefinementContext::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx);
     assert_eq!(result, "println();\n");
 }

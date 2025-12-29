@@ -5,6 +5,7 @@ use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::streak_display::StreakDisplay;
 use crate::ui::components::achievement_toast::AchievementToast;
+use crate::ui::components::app_navbar::AppNavbar;
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -338,6 +339,8 @@ pub fn Review() -> Element {
     rsx! {
         style { "{REVIEW_STYLE}" }
 
+        AppNavbar { title: "Daily Review".to_string() }
+
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {
                 XpPopup {
@@ -389,10 +392,10 @@ pub fn Review() -> Element {
                             div { class: "review-card empty-state",
                                 h2 { "All caught up!" }
                                 p { "No exercises are due for review right now." }
-                                button {
+                                Link {
                                     class: "back-btn",
-                                    onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                                    "← Back"
+                                    to: Route::Home {},
+                                    "← Back to Dashboard"
                                 }
                             }
                         }
@@ -401,10 +404,10 @@ pub fn Review() -> Element {
                             div { class: "review-card empty-state",
                                 h2 { "Review Complete!" }
                                 p { "You reviewed {total_due} items." }
-                                button {
+                                Link {
                                     class: "back-btn",
-                                    onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                                    "← Back"
+                                    to: Route::Home {},
+                                    "← Back to Dashboard"
                                 }
                             }
                         }

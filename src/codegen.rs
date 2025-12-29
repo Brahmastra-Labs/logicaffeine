@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
@@ -7,6 +7,87 @@ use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
+
+// =============================================================================
+// Phase 43C: Refinement Type Enforcement
+// =============================================================================
+
+/// Tracks refinement type constraints across scopes for mutation enforcement.
+/// When a variable with a refinement type is defined, we register its constraint.
+/// When that variable is mutated via `Set`, we re-emit the assertion.
+pub struct RefinementContext<'a> {
+    /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
+    scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+}
+
+impl<'a> RefinementContext<'a> {
+    pub fn new() -> Self {
+        Self { scopes: vec![HashMap::new()] }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn register(&mut self, var: Symbol, bound_var: Symbol, predicate: &'a LogicExpr<'a>) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(var, (bound_var, predicate));
+        }
+    }
+
+    fn get_constraint(&self, var: Symbol) -> Option<(Symbol, &'a LogicExpr<'a>)> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(entry) = scope.get(&var) {
+                return Some(*entry);
+            }
+        }
+        None
+    }
+}
+
+/// Emits a debug_assert for a refinement predicate, substituting the bound variable.
+fn emit_refinement_check(
+    var_name: &str,
+    bound_var: Symbol,
+    predicate: &LogicExpr,
+    interner: &Interner,
+    indent_str: &str,
+    output: &mut String,
+) {
+    let assertion = codegen_assertion(predicate, interner);
+    let bound = interner.resolve(bound_var);
+    let check = if bound == var_name {
+        assertion
+    } else {
+        replace_word(&assertion, bound, var_name)
+    };
+    writeln!(output, "{}debug_assert!({});", indent_str, check).unwrap();
+}
+
+/// Word-boundary replacement to substitute bound variable with actual variable.
+fn replace_word(text: &str, from: &str, to: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut word = String::new();
+    for c in text.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            if !word.is_empty() {
+                result.push_str(if word == from { to } else { &word });
+                word.clear();
+            }
+            result.push(c);
+        }
+    }
+    if !word.is_empty() {
+        result.push_str(if word == from { to } else { &word });
+    }
+    result
+}
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
@@ -143,12 +224,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
 
     // Main function
     writeln!(output, "fn main() {{").unwrap();
+    let mut main_ctx = RefinementContext::new();
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -209,8 +291,9 @@ fn codegen_function_def(
         // Grand Challenge: Collect mutable vars for this function
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
+        let mut func_ctx = RefinementContext::new();
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -430,7 +513,13 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
-pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_vars: &HashSet<Symbol>) -> String {
+pub fn codegen_stmt<'a>(
+    stmt: &Stmt<'a>,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
 
@@ -449,12 +538,23 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
                 (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
                 (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
             }
+
+            // Phase 43C: Handle refinement type
+            if let Some(TypeExpr::Refinement { base: _, var: bound_var, predicate }) = ty {
+                emit_refinement_check(var_name, *bound_var, predicate, interner, &indent_str, &mut output);
+                ctx.register(*var, *bound_var, predicate);
+            }
         }
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
             let value_str = codegen_expr(value, interner);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
+
+            // Phase 43C: Check if this variable has a refinement constraint
+            if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
+                emit_refinement_check(target_name, bound_var, predicate, interner, &indent_str, &mut output);
+            }
         }
 
         Stmt::Call { function, args } => {
@@ -466,14 +566,18 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
         Stmt::If { cond, then_block, else_block } => {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
+                ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
                 }
+                ctx.pop_scope();
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -481,9 +585,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
         Stmt::While { cond, body } => {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
@@ -491,9 +597,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
             let var_name = interner.resolve(*var);
             let iter_str = codegen_expr(iterable, interner);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
+            ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
@@ -585,9 +693,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
                     writeln!(output, "{}    _ => {{", indent_str).unwrap();
                 }
 
+                ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx));
                 }
+                ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
 

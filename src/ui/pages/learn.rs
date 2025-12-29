@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::mode_selector::{ModeSelector, ModeInfo};
+use crate::ui::components::app_navbar::AppNavbar;
 
 const LEARN_STYLE: &str = r#"
 .learn-container {
@@ -196,13 +197,9 @@ pub fn Learn() -> Element {
     rsx! {
         style { "{LEARN_STYLE}" }
 
-        div { class: "learn-container",
-            button {
-                class: "back-link",
-                onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                "← Back"
-            }
+        AppNavbar { title: "Curriculum".to_string() }
 
+        div { class: "learn-container",
             div { class: "learn-header",
                 h1 { "Curriculum" }
                 p { "Master first-order logic through progressive challenges" }

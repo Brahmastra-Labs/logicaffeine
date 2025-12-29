@@ -200,6 +200,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Semantic Grading** - Answer comparison via Unicode normalization, AST parsing, and structural equivalence; handles commutativity of ∧/∨; partial credit scoring
 - **Curriculum Embedding** - Filesystem-based curriculum (assets/curriculum/) embedded at compile time via include_dir; JSON schemas for eras, modules, exercises
 - **Catch-all 404 Route** - NotFound variant with /:..route pattern prevents router panics on invalid URLs
+- **Refinement Types** - \`Type where predicate\` syntax with RefinementContext tracking; debug_assert!() enforcement at Let binding and Set mutation
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1838,9 +1839,9 @@ Static type checking for LOGOS. Detects type mismatches between annotations and 
 
 **File:** `tests/phase43_refinement.rs`
 
-Foundation for refinement types (types with predicates). TypeExpr::Refinement variant stores base type, bound variable, and predicate. Where-clause parsing deferred to future phase.
+Refinement types with predicate constraints. Parser handles 'Type where predicate' syntax. Codegen generates debug_assert!() checks at Let bindings and re-emits on Set mutations. RefinementContext tracks constraints across scopes for mutation enforcement.
 
-**Example:** Int where it > 0 (planned syntax)
+**Example:** Let x: Int where x > 0 be 5. → let x: i64 = 5; debug_assert!((x > 0));
 
 ---
 
@@ -2048,28 +2049,28 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1821 lines
-Parser (ast/, parser/):               11586 lines
+Lexer (token.rs, lexer.rs):           1871 lines
+Parser (ast/, parser/):               11698 lines
 Transpilation:                        1341 lines
-Code Generation:                      1172 lines
+Code Generation:                      1282 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            1240 lines
-Support Infrastructure:               4222 lines
-Desktop UI:                               9983 lines
+Support Infrastructure:               4231 lines
+Desktop UI:                              10121 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        39775
-Test lines:          13200
-Total Rust lines: 52975
+Source lines:        40194
+Test lines:          13484
+Total Rust lines: 53678
 ```
 
 ### File Counts
 ```
-Source files: 97
-Test files:   88
+Source files: 98
+Test files:   89
 ```
 ## Lexicon Data
 
@@ -3125,10 +3126,12 @@ pub enum TokenType {
     Slash,
 
     // Grand Challenge: Comparison Operators
-    Lt,     // <
-    Gt,     // >
-    LtEq,   // <=
-    GtEq,   // >=
+    Lt,        // <
+    Gt,        // >
+    LtEq,      // <=
+    GtEq,      // >=
+    EqEq,      // ==
+    NotEq,     // !=
 
     // Phase 38: Arrow for return type syntax
     Arrow,  // ->
@@ -3507,7 +3510,49 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' => {
+                // Handle == as a single token
+                '=' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "==".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // Handle != as a single token
+                '!' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "!=".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' | '=' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -4109,6 +4154,12 @@ impl<'a> Lexer<'a> {
         }
         if word == ">=" {
             return TokenType::GtEq;
+        }
+        if word == "==" {
+            return TokenType::EqEq;
+        }
+        if word == "!=" {
+            return TokenType::NotEq;
         }
         if word == "<" {
             return TokenType::Lt;
@@ -5494,7 +5545,7 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
 use crate::drs::{Drs, BoxType};
 use crate::error::{ParseError, ParseErrorKind};
@@ -5767,68 +5818,174 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let base = self.consume_type_name()?;
 
         // Phase 36: Check for "from Module" qualification
-        if self.check(&TokenType::From) {
+        let base_type = if self.check(&TokenType::From) {
             self.advance(); // consume "from"
             let module_name = self.consume_type_name()?;
             let module_str = self.interner.resolve(module_name);
             let base_str = self.interner.resolve(base);
             let qualified = format!("{}::{}", module_str, base_str);
             let qualified_sym = self.interner.intern(&qualified);
+            TypeExpr::Named(qualified_sym)
+        } else {
+            // Phase 38: Get param count from registry OR from built-in std types
+            let base_name = self.interner.resolve(base);
+            let param_count = self.get_generic_param_count(base)
+                .or_else(|| match base_name {
+                    // Built-in generic types for Phase 38 std library
+                    "Result" => Some(2),    // Result of T and E
+                    "Option" => Some(1),    // Option of T
+                    "Seq" | "List" | "Vec" => Some(1),  // Seq of T
+                    "Map" | "HashMap" => Some(2), // Map of K and V
+                    "Pair" => Some(2),      // Pair of A and B
+                    "Triple" => Some(3),    // Triple of A and B and C
+                    _ => None,
+                });
 
-            // Check if qualified type exists in registry
-            if self.type_registry.as_ref().map(|r| r.is_type(qualified_sym)).unwrap_or(false) {
-                return Ok(TypeExpr::Named(qualified_sym));
-            }
-            // Even if not found, return the qualified name for error reporting
-            return Ok(TypeExpr::Named(qualified_sym));
-        }
+            // Check if it's a known generic type with parameters
+            if let Some(count) = param_count {
+                if self.check_of_preposition() || self.check_preposition_is("from") {
+                    self.advance(); // consume "of" or "from"
 
-        // Phase 38: Get param count from registry OR from built-in std types
-        let base_name = self.interner.resolve(base);
-        let param_count = self.get_generic_param_count(base)
-            .or_else(|| match base_name {
-                // Built-in generic types for Phase 38 std library
-                "Result" => Some(2),    // Result of T and E
-                "Option" => Some(1),    // Option of T
-                "Seq" | "List" | "Vec" => Some(1),  // Seq of T
-                "Map" | "HashMap" => Some(2), // Map of K and V
-                "Pair" => Some(2),      // Pair of A and B
-                "Triple" => Some(3),    // Triple of A and B and C
-                _ => None,
-            });
-
-        // Check if it's a known generic type
-        if let Some(count) = param_count {
-            // Check for "of" or "from" separator
-            if self.check_of_preposition() || self.check_preposition_is("from") {
-                self.advance(); // consume "of" or "from"
-
-                let mut params = Vec::new();
-                for i in 0..count {
-                    if i > 0 {
-                        // Expect separator for params > 1: "and", "to", or ","
-                        if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
-                            self.advance();
+                    let mut params = Vec::new();
+                    for i in 0..count {
+                        if i > 0 {
+                            // Expect separator for params > 1: "and", "to", or ","
+                            if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
+                                self.advance();
+                            }
                         }
+                        let param = self.parse_type_expression()?;
+                        params.push(param);
                     }
-                    let param = self.parse_type_expression()?;
-                    params.push(param);
+
+                    let params_slice = self.ctx.alloc_type_exprs(params);
+                    TypeExpr::Generic { base, params: params_slice }
+                } else {
+                    // Generic type without parameters - treat as primitive or named
+                    let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+                        || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+                    if is_primitive {
+                        TypeExpr::Primitive(base)
+                    } else {
+                        TypeExpr::Named(base)
+                    }
                 }
-
-                let params_slice = self.ctx.alloc_type_exprs(params);
-                return Ok(TypeExpr::Generic { base, params: params_slice });
+            } else {
+                // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
+                let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+                    || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+                if is_primitive {
+                    TypeExpr::Primitive(base)
+                } else {
+                    // User-defined or unknown type
+                    TypeExpr::Named(base)
+                }
             }
+        };
+
+        // Phase 43C: Check for refinement "where" clause
+        if self.check(&TokenType::Where) {
+            self.advance(); // consume "where"
+
+            // Parse the predicate expression (supports compound: `x > 0 and x < 100`)
+            let predicate_expr = self.parse_condition()?;
+
+            // Extract bound variable from the left side of the expression
+            let bound_var = self.extract_bound_var(&predicate_expr)
+                .unwrap_or_else(|| self.interner.intern("it"));
+
+            // Convert imperative Expr to logic LogicExpr
+            let predicate = self.expr_to_logic_predicate(&predicate_expr, bound_var)
+                .ok_or_else(|| ParseError {
+                    kind: ParseErrorKind::InvalidRefinementPredicate,
+                    span: self.peek().span,
+                })?;
+
+            // Allocate the base type
+            let base_alloc = self.ctx.alloc_type_expr(base_type);
+
+            return Ok(TypeExpr::Refinement { base: base_alloc, var: bound_var, predicate });
         }
 
-        // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
-        let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
-            || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
-        if is_primitive {
-            return Ok(TypeExpr::Primitive(base));
-        }
+        Ok(base_type)
+    }
 
-        // User-defined or unknown type
-        Ok(TypeExpr::Named(base))
+    /// Extracts the leftmost identifier from an expression as the bound variable.
+    fn extract_bound_var(&self, expr: &Expr<'a>) -> Option<Symbol> {
+        match expr {
+            Expr::Identifier(sym) => Some(*sym),
+            Expr::BinaryOp { left, .. } => self.extract_bound_var(left),
+            _ => None,
+        }
+    }
+
+    /// Converts an imperative comparison Expr to a Logic Kernel LogicExpr.
+    /// Used for refinement type predicates: `Int where x > 0`
+    fn expr_to_logic_predicate(&mut self, expr: &Expr<'a>, bound_var: Symbol) -> Option<&'a LogicExpr<'a>> {
+        match expr {
+            Expr::BinaryOp { op, left, right } => {
+                // Map BinaryOpKind to predicate name
+                let pred_name = match op {
+                    BinaryOpKind::Gt => "Greater",
+                    BinaryOpKind::Lt => "Less",
+                    BinaryOpKind::GtEq => "GreaterEqual",
+                    BinaryOpKind::LtEq => "LessEqual",
+                    BinaryOpKind::Eq => "Equal",
+                    BinaryOpKind::NotEq => "NotEqual",
+                    BinaryOpKind::And => {
+                        // Handle compound `x > 0 and x < 100`
+                        let left_logic = self.expr_to_logic_predicate(left, bound_var)?;
+                        let right_logic = self.expr_to_logic_predicate(right, bound_var)?;
+                        return Some(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: left_logic,
+                            op: TokenType::And,
+                            right: right_logic,
+                        }));
+                    }
+                    BinaryOpKind::Or => {
+                        let left_logic = self.expr_to_logic_predicate(left, bound_var)?;
+                        let right_logic = self.expr_to_logic_predicate(right, bound_var)?;
+                        return Some(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: left_logic,
+                            op: TokenType::Or,
+                            right: right_logic,
+                        }));
+                    }
+                    _ => return None, // Arithmetic ops not valid as predicates
+                };
+                let pred_sym = self.interner.intern(pred_name);
+
+                // Convert operands to Terms
+                let left_term = self.expr_to_term(left)?;
+                let right_term = self.expr_to_term(right)?;
+
+                let args = self.ctx.terms.alloc_slice([left_term, right_term]);
+                Some(self.ctx.exprs.alloc(LogicExpr::Predicate { name: pred_sym, args }))
+            }
+            _ => None,
+        }
+    }
+
+    /// Converts an imperative Expr to a logic Term.
+    fn expr_to_term(&mut self, expr: &Expr<'a>) -> Option<Term<'a>> {
+        match expr {
+            Expr::Identifier(sym) => Some(Term::Variable(*sym)),
+            Expr::Literal(lit) => {
+                match lit {
+                    Literal::Number(n) => Some(Term::Value {
+                        kind: NumberKind::Integer(*n),
+                        unit: None,
+                        dimension: None,
+                    }),
+                    Literal::Boolean(b) => {
+                        let sym = self.interner.intern(if *b { "true" } else { "false" });
+                        Some(Term::Constant(sym))
+                    }
+                    _ => None, // Text, Nothing not supported in predicates
+                }
+            }
+            _ => None,
+        }
     }
 
     pub fn process_block_headers(&mut self) {
@@ -6554,6 +6711,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else if self.check(&TokenType::GtEq) {
             self.advance();
             Some(BinaryOpKind::GtEq)
+        } else if self.check(&TokenType::EqEq) {
+            self.advance();
+            Some(BinaryOpKind::Eq)
+        } else if self.check(&TokenType::NotEq) {
+            self.advance();
+            Some(BinaryOpKind::NotEq)
         } else {
             None
         };
@@ -22893,10 +23056,10 @@ Rust code emission from imperative AST.
 
 **File:** `src/codegen.rs`
 
-Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. codegen_expr() handles imperative expressions. Uses String buffer for zero-dependency output.
+Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. RefinementContext tracks 'Type where predicate' constraints; emit_refinement_check() generates debug_assert!() at Let and on Set mutations. Uses String buffer for zero-dependency output.
 
 ```rust
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
@@ -22905,6 +23068,87 @@ use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
+
+// =============================================================================
+// Phase 43C: Refinement Type Enforcement
+// =============================================================================
+
+/// Tracks refinement type constraints across scopes for mutation enforcement.
+/// When a variable with a refinement type is defined, we register its constraint.
+/// When that variable is mutated via `Set`, we re-emit the assertion.
+pub struct RefinementContext<'a> {
+    /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
+    scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+}
+
+impl<'a> RefinementContext<'a> {
+    pub fn new() -> Self {
+        Self { scopes: vec![HashMap::new()] }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn register(&mut self, var: Symbol, bound_var: Symbol, predicate: &'a LogicExpr<'a>) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(var, (bound_var, predicate));
+        }
+    }
+
+    fn get_constraint(&self, var: Symbol) -> Option<(Symbol, &'a LogicExpr<'a>)> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(entry) = scope.get(&var) {
+                return Some(*entry);
+            }
+        }
+        None
+    }
+}
+
+/// Emits a debug_assert for a refinement predicate, substituting the bound variable.
+fn emit_refinement_check(
+    var_name: &str,
+    bound_var: Symbol,
+    predicate: &LogicExpr,
+    interner: &Interner,
+    indent_str: &str,
+    output: &mut String,
+) {
+    let assertion = codegen_assertion(predicate, interner);
+    let bound = interner.resolve(bound_var);
+    let check = if bound == var_name {
+        assertion
+    } else {
+        replace_word(&assertion, bound, var_name)
+    };
+    writeln!(output, "{}debug_assert!({});", indent_str, check).unwrap();
+}
+
+/// Word-boundary replacement to substitute bound variable with actual variable.
+fn replace_word(text: &str, from: &str, to: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut word = String::new();
+    for c in text.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            if !word.is_empty() {
+                result.push_str(if word == from { to } else { &word });
+                word.clear();
+            }
+            result.push(c);
+        }
+    }
+    if !word.is_empty() {
+        result.push_str(if word == from { to } else { &word });
+    }
+    result
+}
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
@@ -23041,12 +23285,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
 
     // Main function
     writeln!(output, "fn main() {{").unwrap();
+    let mut main_ctx = RefinementContext::new();
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -23107,8 +23352,9 @@ fn codegen_function_def(
         // Grand Challenge: Collect mutable vars for this function
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
+        let mut func_ctx = RefinementContext::new();
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -23328,7 +23574,13 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
-pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_vars: &HashSet<Symbol>) -> String {
+pub fn codegen_stmt<'a>(
+    stmt: &Stmt<'a>,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
 
@@ -23347,12 +23599,23 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
                 (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
                 (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
             }
+
+            // Phase 43C: Handle refinement type
+            if let Some(TypeExpr::Refinement { base: _, var: bound_var, predicate }) = ty {
+                emit_refinement_check(var_name, *bound_var, predicate, interner, &indent_str, &mut output);
+                ctx.register(*var, *bound_var, predicate);
+            }
         }
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
             let value_str = codegen_expr(value, interner);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
+
+            // Phase 43C: Check if this variable has a refinement constraint
+            if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
+                emit_refinement_check(target_name, bound_var, predicate, interner, &indent_str, &mut output);
+            }
         }
 
         Stmt::Call { function, args } => {
@@ -23364,14 +23627,18 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
         Stmt::If { cond, then_block, else_block } => {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
+                ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
                 }
+                ctx.pop_scope();
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -23379,9 +23646,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
         Stmt::While { cond, body } => {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
@@ -23389,9 +23658,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
             let var_name = interner.resolve(*var);
             let iter_str = codegen_expr(iterable, interner);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
+            ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
@@ -23483,9 +23754,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
                     writeln!(output, "{}    _ => {{", indent_str).unwrap();
                 }
 
+                ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx));
                 }
+                ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
 
@@ -28978,6 +29251,8 @@ pub enum ParseErrorKind {
         expected: String,
         found: String,
     },
+    // Phase 43C: Refinement types
+    InvalidRefinementPredicate,
 }
 
 #[cold]
@@ -29169,6 +29444,13 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 "At position {}, I expected a value of type '{}' but found '{}'. \
                 Types must match in LOGOS. Check that your value matches the declared type.",
                 pos, expected, found
+            )
+        }
+        ParseErrorKind::InvalidRefinementPredicate => {
+            format!(
+                "At position {}, the refinement predicate is not valid. \
+                A refinement predicate must be a comparison like 'x > 0' or 'n < 100'.",
+                pos
             )
         }
     }
@@ -33270,6 +33552,12 @@ pub fn Home() -> Element {
         style { "{HOME_STYLE}" }
 
         div { class: "home-wrapper",
+            Link {
+                to: Route::Landing {},
+                style: "align-self: flex-start; color: #667eea; text-decoration: none; font-size: 14px; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.10); background: rgba(255, 255, 255, 0.04); transition: all 0.2s ease;",
+                "← Back to Site"
+            }
+
             div { class: "brand-header",
                 h1 { "LOGICAFFEINE" }
                 p { "Choose your path to logical mastery." }
@@ -34467,10 +34755,16 @@ To run:
                     }
                 }
 
-                section { class: "section",
-                    div { class: "card",
+                section {
+                    class: "section",
+                    style: "padding-bottom: 100px;",
+                    div {
+                        class: "card",
+                        style: "padding: 32px; overflow: visible;",
                         h2 { class: "section-title", "Make your reasoning impossible to ignore." }
-                        p { class: "section-sub",
+                        p {
+                            class: "section-sub",
+                            style: "margin-bottom: 20px;",
                             "Start with the Curriculum, or jump into the Studio. Either way, the product is built to sharpen your mind."
                         }
                         div { class: "hero-ctas",
@@ -34533,6 +34827,7 @@ Curriculum browser with expandable era/module hierarchy. Displays Trivium, Quadr
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::mode_selector::{ModeSelector, ModeInfo};
+use crate::ui::components::app_navbar::AppNavbar;
 
 const LEARN_STYLE: &str = r#"
 .learn-container {
@@ -34728,13 +35023,9 @@ pub fn Learn() -> Element {
     rsx! {
         style { "{LEARN_STYLE}" }
 
-        div { class: "learn-container",
-            button {
-                class: "back-link",
-                onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                "← Back"
-            }
+        AppNavbar { title: "Curriculum".to_string() }
 
+        div { class: "learn-container",
             div { class: "learn-header",
                 h1 { "Curriculum" }
                 p { "Master first-order logic through progressive challenges" }
@@ -34851,6 +35142,7 @@ use crate::ui::components::mixed_text::MixedText;
 use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::achievement_toast::AchievementToast;
+use crate::ui::components::app_navbar::AppNavbar;
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -35452,6 +35744,8 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
     rsx! {
         style { "{LESSON_STYLE}" }
 
+        AppNavbar { title: "Lesson".to_string() }
+
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {
                 XpPopup {
@@ -35544,10 +35838,10 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
                                     }
                                 }
 
-                                button {
+                                Link {
                                     class: "submit-btn",
-                                    onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                                    "← Back"
+                                    to: Route::Learn {},
+                                    "← Back to Curriculum"
                                 }
                             }
                         }
@@ -35954,6 +36248,7 @@ Commercial licensing information page with Fair Source explanation and enterpris
 
 ```rust
 use dioxus::prelude::*;
+use crate::ui::router::Route;
 
 const PRICING_STYLE: &str = r#"
 :root {
@@ -36581,6 +36876,13 @@ pub fn Pricing() -> Element {
             div { class: "bg-orb orb3" }
 
             div { class: "pricing-container",
+                Link {
+                    class: "back-link",
+                    to: Route::Landing {},
+                    style: "align-self: flex-start; margin-bottom: 16px;",
+                    "← Back to Home"
+                }
+
                 div { class: "pricing-header",
                     h1 { "Commercial Licensing" }
                     p { "Business Source License — free for individuals and small teams" }
@@ -36742,6 +37044,28 @@ pub fn Pricing() -> Element {
                             }
                         }
                     }
+
+                    div { class: "tier-card disabled",
+                        span { class: "coming-soon-badge", "Coming Soon" }
+                        div { class: "tier-name", "Semantic Tokenizer" }
+                        div { class: "tier-revenue", "For AI model training" }
+                        div { class: "tier-price",
+                            span { class: "amount", "Custom" }
+                        }
+                        div { class: "tier-annual", "Contact us for pricing" }
+                        ul { class: "tier-features",
+                            li { "License for AI model training" }
+                            li { "Commercial training data rights" }
+                            li { "Custom volume pricing" }
+                        }
+                        div { class: "tier-buttons",
+                            a {
+                                class: "btn-contact",
+                                href: "mailto:tristen@brahmastra-labs.com",
+                                "Contact for Pricing"
+                            }
+                        }
+                    }
                 }
 
                 div { class: "manage-section",
@@ -36814,9 +37138,9 @@ pub fn Pricing() -> Element {
                         }
                         "GitHub"
                     }
-                    button {
+                    Link {
                         class: "back-link",
-                        onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
+                        to: Route::Landing {},
                         "← Back"
                     }
                 }
@@ -37068,6 +37392,7 @@ use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::streak_display::StreakDisplay;
 use crate::ui::components::achievement_toast::AchievementToast;
+use crate::ui::components::app_navbar::AppNavbar;
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -37401,6 +37726,8 @@ pub fn Review() -> Element {
     rsx! {
         style { "{REVIEW_STYLE}" }
 
+        AppNavbar { title: "Daily Review".to_string() }
+
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {
                 XpPopup {
@@ -37452,10 +37779,10 @@ pub fn Review() -> Element {
                             div { class: "review-card empty-state",
                                 h2 { "All caught up!" }
                                 p { "No exercises are due for review right now." }
-                                button {
+                                Link {
                                     class: "back-btn",
-                                    onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                                    "← Back"
+                                    to: Route::Home {},
+                                    "← Back to Dashboard"
                                 }
                             }
                         }
@@ -37464,10 +37791,10 @@ pub fn Review() -> Element {
                             div { class: "review-card empty-state",
                                 h2 { "Review Complete!" }
                                 p { "You reviewed {total_due} items." }
-                                button {
+                                Link {
                                     class: "back-btn",
-                                    onclick: |_| { let _ = web_sys::window().unwrap().history().unwrap().back(); },
-                                    "← Back"
+                                    to: Route::Home {},
+                                    "← Back to Dashboard"
                                 }
                             }
                         }
@@ -38566,11 +38893,11 @@ Live transpilation sandbox with AST visualization, portal animations, and real-t
 ```rust
 use dioxus::prelude::*;
 use crate::{compile_for_ui, CompileResult};
-use crate::ui::router::Route;
 use crate::ui::components::editor::LiveEditor;
 use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
+use crate::ui::components::app_navbar::AppNavbar;
 
 const STUDIO_STYLE: &str = r#"
 .studio-container {
@@ -38813,16 +39140,7 @@ pub fn Studio() -> Element {
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
 
-            header { class: "studio-header",
-                div { class: "studio-logo",
-                    span { class: "studio-logo-icon", "\u{03BB}" }
-                    span { class: "studio-logo-text", "LOGOS Studio" }
-                }
-                nav { class: "studio-nav",
-                    Link { class: "studio-nav-btn", to: Route::Home {}, "Home" }
-                    Link { class: "studio-nav-btn", to: Route::Learn {}, "Learn" }
-                }
-            }
+            AppNavbar { title: "Studio".to_string() }
 
             main { class: "studio-main",
                 section {
@@ -39530,7 +39848,7 @@ use dioxus::prelude::*;
 use crate::ui::state::AppState;
 use crate::ui::components::chat::ChatDisplay;
 use crate::ui::components::input::InputArea;
-use crate::ui::router::Route;
+use crate::ui::components::app_navbar::AppNavbar;
 
 const WORKSPACE_STYLE: &str = r#"
 .workspace {
@@ -39681,16 +39999,9 @@ pub fn Workspace(subject: String) -> Element {
     rsx! {
         style { "{WORKSPACE_STYLE}" }
 
-        div { class: "workspace",
-            div { class: "workspace-header",
-                div { class: "breadcrumb",
-                    Link { to: Route::Home {}, "Home" }
-                    span { "›" }
-                    span { "{title}" }
-                }
-                h1 { "LOGOS" }
-            }
+        AppNavbar { title: title.to_string() }
 
+        div { class: "workspace",
             div { class: "workspace-content",
                 div { class: "sidebar",
                     h3 { "The Path" }
@@ -40953,6 +41264,126 @@ pub fn AchievementToast(achievement: &'static Achievement, on_dismiss: EventHand
 
 ---
 
+### Component: app_navbar
+
+**File:** `src/ui/components/app_navbar.rs`
+
+Reusable UI component.
+
+```rust
+use dioxus::prelude::*;
+use crate::ui::router::Route;
+
+const APP_NAVBAR_STYLE: &str = r#"
+.app-navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 24px;
+    background: rgba(0, 0, 0, 0.25);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(12px);
+}
+
+.app-navbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+    color: inherit;
+}
+
+.app-navbar-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background:
+        radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
+        radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
+        rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+}
+
+.app-navbar-title {
+    font-size: 16px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.app-navbar-nav {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.app-navbar-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.04);
+    color: #888;
+    font-size: 13px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.app-navbar-link:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+    color: #e8e8e8;
+}
+
+.app-navbar-link.site-link {
+    color: #667eea;
+}
+
+.app-navbar-link.site-link:hover {
+    color: #8b9cf7;
+}
+"#;
+
+#[derive(Props, Clone, PartialEq)]
+pub struct AppNavbarProps {
+    #[props(default)]
+    pub title: Option<String>,
+}
+
+#[component]
+pub fn AppNavbar(props: AppNavbarProps) -> Element {
+    let title = props.title.unwrap_or_else(|| "LOGOS".to_string());
+
+    rsx! {
+        style { "{APP_NAVBAR_STYLE}" }
+
+        nav { class: "app-navbar",
+            Link {
+                class: "app-navbar-brand",
+                to: Route::Home {},
+                div { class: "app-navbar-logo" }
+                span { class: "app-navbar-title", "{title}" }
+            }
+
+            div { class: "app-navbar-nav",
+                Link {
+                    class: "app-navbar-link site-link",
+                    to: Route::Home {},
+                    "← Dashboard"
+                }
+            }
+        }
+    }
+}
+
+```
+
+---
+
 ### Component: ast_tree
 
 **File:** `src/ui/components/ast_tree.rs`
@@ -41888,6 +42319,7 @@ pub fn MixedText(content: String) -> Element {
 Reusable UI component.
 
 ```rust
+pub mod app_navbar;
 pub mod chat;
 pub mod input;
 pub mod editor;
@@ -44137,7 +44569,7 @@ pub type Seq<T> = Vec<T>;
 
 **File:** `logos_core/src/io.rs`
 
-Standard IO per Spec §10.5: show() for display, read_line() for input, println/eprintln/print for output.
+Standard IO per Spec §10.5. Defines Showable trait for custom formatting (primitives display without quotes, Vec/Option display with brackets). show() takes reference and uses Showable; read_line() for input; println/eprintln/print for standard output.
 
 ```rust
 //! IO Operations (Spec 10.5)
@@ -45598,7 +46030,7 @@ fn cmd_logout(registry: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
 Additional source module.
 
 ```rust
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
@@ -45607,6 +46039,87 @@ use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
+
+// =============================================================================
+// Phase 43C: Refinement Type Enforcement
+// =============================================================================
+
+/// Tracks refinement type constraints across scopes for mutation enforcement.
+/// When a variable with a refinement type is defined, we register its constraint.
+/// When that variable is mutated via `Set`, we re-emit the assertion.
+pub struct RefinementContext<'a> {
+    /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
+    scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+}
+
+impl<'a> RefinementContext<'a> {
+    pub fn new() -> Self {
+        Self { scopes: vec![HashMap::new()] }
+    }
+
+    fn push_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn register(&mut self, var: Symbol, bound_var: Symbol, predicate: &'a LogicExpr<'a>) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(var, (bound_var, predicate));
+        }
+    }
+
+    fn get_constraint(&self, var: Symbol) -> Option<(Symbol, &'a LogicExpr<'a>)> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(entry) = scope.get(&var) {
+                return Some(*entry);
+            }
+        }
+        None
+    }
+}
+
+/// Emits a debug_assert for a refinement predicate, substituting the bound variable.
+fn emit_refinement_check(
+    var_name: &str,
+    bound_var: Symbol,
+    predicate: &LogicExpr,
+    interner: &Interner,
+    indent_str: &str,
+    output: &mut String,
+) {
+    let assertion = codegen_assertion(predicate, interner);
+    let bound = interner.resolve(bound_var);
+    let check = if bound == var_name {
+        assertion
+    } else {
+        replace_word(&assertion, bound, var_name)
+    };
+    writeln!(output, "{}debug_assert!({});", indent_str, check).unwrap();
+}
+
+/// Word-boundary replacement to substitute bound variable with actual variable.
+fn replace_word(text: &str, from: &str, to: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut word = String::new();
+    for c in text.chars() {
+        if c.is_alphanumeric() || c == '_' {
+            word.push(c);
+        } else {
+            if !word.is_empty() {
+                result.push_str(if word == from { to } else { &word });
+                word.clear();
+            }
+            result.push(c);
+        }
+    }
+    if !word.is_empty() {
+        result.push_str(if word == from { to } else { &word });
+    }
+    result
+}
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
@@ -45743,12 +46256,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
 
     // Main function
     writeln!(output, "fn main() {{").unwrap();
+    let mut main_ctx = RefinementContext::new();
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -45809,8 +46323,9 @@ fn codegen_function_def(
         // Grand Challenge: Collect mutable vars for this function
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
+        let mut func_ctx = RefinementContext::new();
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -46030,7 +46545,13 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
-pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_vars: &HashSet<Symbol>) -> String {
+pub fn codegen_stmt<'a>(
+    stmt: &Stmt<'a>,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
 
@@ -46049,12 +46570,23 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
                 (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
                 (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
             }
+
+            // Phase 43C: Handle refinement type
+            if let Some(TypeExpr::Refinement { base: _, var: bound_var, predicate }) = ty {
+                emit_refinement_check(var_name, *bound_var, predicate, interner, &indent_str, &mut output);
+                ctx.register(*var, *bound_var, predicate);
+            }
         }
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
             let value_str = codegen_expr(value, interner);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
+
+            // Phase 43C: Check if this variable has a refinement constraint
+            if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
+                emit_refinement_check(target_name, bound_var, predicate, interner, &indent_str, &mut output);
+            }
         }
 
         Stmt::Call { function, args } => {
@@ -46066,14 +46598,18 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
         Stmt::If { cond, then_block, else_block } => {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
+                ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
                 }
+                ctx.pop_scope();
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -46081,9 +46617,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
         Stmt::While { cond, body } => {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
@@ -46091,9 +46629,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
             let var_name = interner.resolve(*var);
             let iter_str = codegen_expr(iterable, interner);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
+            ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
             }
+            ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
@@ -46185,9 +46725,11 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_var
                     writeln!(output, "{}    _ => {{", indent_str).unwrap();
                 }
 
+                ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx));
                 }
+                ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
 
@@ -49773,10 +50315,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 07:23:49 CST 2025
+- **Generated:** Mon Dec 29 08:56:39 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 5168542
+- **Git Commit:** 3013b3f
 - **Documentation Size:** 1.7M
 
 ---

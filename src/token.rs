@@ -244,10 +244,12 @@ pub enum TokenType {
     Slash,
 
     // Grand Challenge: Comparison Operators
-    Lt,     // <
-    Gt,     // >
-    LtEq,   // <=
-    GtEq,   // >=
+    Lt,        // <
+    Gt,        // >
+    LtEq,      // <=
+    GtEq,      // >=
+    EqEq,      // ==
+    NotEq,     // !=
 
     // Phase 38: Arrow for return type syntax
     Arrow,  // ->

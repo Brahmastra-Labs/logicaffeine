@@ -302,6 +302,12 @@ pub fn Home() -> Element {
         style { "{HOME_STYLE}" }
 
         div { class: "home-wrapper",
+            Link {
+                to: Route::Landing {},
+                style: "align-self: flex-start; color: #667eea; text-decoration: none; font-size: 14px; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.10); background: rgba(255, 255, 255, 0.04); transition: all 0.2s ease;",
+                "← Back to Site"
+            }
+
             div { class: "brand-header",
                 h1 { "LOGICAFFEINE" }
                 p { "Choose your path to logical mastery." }

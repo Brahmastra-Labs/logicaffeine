@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use crate::ui::state::AppState;
 use crate::ui::components::chat::ChatDisplay;
 use crate::ui::components::input::InputArea;
-use crate::ui::router::Route;
+use crate::ui::components::app_navbar::AppNavbar;
 
 const WORKSPACE_STYLE: &str = r#"
 .workspace {
@@ -153,16 +153,9 @@ pub fn Workspace(subject: String) -> Element {
     rsx! {
         style { "{WORKSPACE_STYLE}" }
 
-        div { class: "workspace",
-            div { class: "workspace-header",
-                div { class: "breadcrumb",
-                    Link { to: Route::Home {}, "Home" }
-                    span { "›" }
-                    span { "{title}" }
-                }
-                h1 { "LOGOS" }
-            }
+        AppNavbar { title: title.to_string() }
 
+        div { class: "workspace",
             div { class: "workspace-content",
                 div { class: "sidebar",
                     h3 { "The Path" }

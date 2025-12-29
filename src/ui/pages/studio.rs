@@ -1,10 +1,10 @@
 use dioxus::prelude::*;
 use crate::{compile_for_ui, CompileResult};
-use crate::ui::router::Route;
 use crate::ui::components::editor::LiveEditor;
 use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
+use crate::ui::components::app_navbar::AppNavbar;
 
 const STUDIO_STYLE: &str = r#"
 .studio-container {
@@ -247,16 +247,7 @@ pub fn Studio() -> Element {
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
 
-            header { class: "studio-header",
-                div { class: "studio-logo",
-                    span { class: "studio-logo-icon", "\u{03BB}" }
-                    span { class: "studio-logo-text", "LOGOS Studio" }
-                }
-                nav { class: "studio-nav",
-                    Link { class: "studio-nav-btn", to: Route::Home {}, "Home" }
-                    Link { class: "studio-nav-btn", to: Route::Learn {}, "Learn" }
-                }
-            }
+            AppNavbar { title: "Studio".to_string() }
 
             main { class: "studio-main",
                 section {

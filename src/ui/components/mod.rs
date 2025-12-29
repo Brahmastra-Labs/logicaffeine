@@ -1,3 +1,4 @@
+pub mod app_navbar;
 pub mod chat;
 pub mod input;
 pub mod editor;

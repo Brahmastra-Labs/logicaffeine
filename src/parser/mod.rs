@@ -20,7 +20,7 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
 use crate::drs::{Drs, BoxType};
 use crate::error::{ParseError, ParseErrorKind};
@@ -293,68 +293,174 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let base = self.consume_type_name()?;
 
         // Phase 36: Check for "from Module" qualification
-        if self.check(&TokenType::From) {
+        let base_type = if self.check(&TokenType::From) {
             self.advance(); // consume "from"
             let module_name = self.consume_type_name()?;
             let module_str = self.interner.resolve(module_name);
             let base_str = self.interner.resolve(base);
             let qualified = format!("{}::{}", module_str, base_str);
             let qualified_sym = self.interner.intern(&qualified);
+            TypeExpr::Named(qualified_sym)
+        } else {
+            // Phase 38: Get param count from registry OR from built-in std types
+            let base_name = self.interner.resolve(base);
+            let param_count = self.get_generic_param_count(base)
+                .or_else(|| match base_name {
+                    // Built-in generic types for Phase 38 std library
+                    "Result" => Some(2),    // Result of T and E
+                    "Option" => Some(1),    // Option of T
+                    "Seq" | "List" | "Vec" => Some(1),  // Seq of T
+                    "Map" | "HashMap" => Some(2), // Map of K and V
+                    "Pair" => Some(2),      // Pair of A and B
+                    "Triple" => Some(3),    // Triple of A and B and C
+                    _ => None,
+                });
 
-            // Check if qualified type exists in registry
-            if self.type_registry.as_ref().map(|r| r.is_type(qualified_sym)).unwrap_or(false) {
-                return Ok(TypeExpr::Named(qualified_sym));
-            }
-            // Even if not found, return the qualified name for error reporting
-            return Ok(TypeExpr::Named(qualified_sym));
-        }
+            // Check if it's a known generic type with parameters
+            if let Some(count) = param_count {
+                if self.check_of_preposition() || self.check_preposition_is("from") {
+                    self.advance(); // consume "of" or "from"
 
-        // Phase 38: Get param count from registry OR from built-in std types
-        let base_name = self.interner.resolve(base);
-        let param_count = self.get_generic_param_count(base)
-            .or_else(|| match base_name {
-                // Built-in generic types for Phase 38 std library
-                "Result" => Some(2),    // Result of T and E
-                "Option" => Some(1),    // Option of T
-                "Seq" | "List" | "Vec" => Some(1),  // Seq of T
-                "Map" | "HashMap" => Some(2), // Map of K and V
-                "Pair" => Some(2),      // Pair of A and B
-                "Triple" => Some(3),    // Triple of A and B and C
-                _ => None,
-            });
-
-        // Check if it's a known generic type
-        if let Some(count) = param_count {
-            // Check for "of" or "from" separator
-            if self.check_of_preposition() || self.check_preposition_is("from") {
-                self.advance(); // consume "of" or "from"
-
-                let mut params = Vec::new();
-                for i in 0..count {
-                    if i > 0 {
-                        // Expect separator for params > 1: "and", "to", or ","
-                        if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
-                            self.advance();
+                    let mut params = Vec::new();
+                    for i in 0..count {
+                        if i > 0 {
+                            // Expect separator for params > 1: "and", "to", or ","
+                            if self.check(&TokenType::And) || self.check_to_preposition() || self.check(&TokenType::Comma) {
+                                self.advance();
+                            }
                         }
+                        let param = self.parse_type_expression()?;
+                        params.push(param);
                     }
-                    let param = self.parse_type_expression()?;
-                    params.push(param);
+
+                    let params_slice = self.ctx.alloc_type_exprs(params);
+                    TypeExpr::Generic { base, params: params_slice }
+                } else {
+                    // Generic type without parameters - treat as primitive or named
+                    let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+                        || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+                    if is_primitive {
+                        TypeExpr::Primitive(base)
+                    } else {
+                        TypeExpr::Named(base)
+                    }
                 }
-
-                let params_slice = self.ctx.alloc_type_exprs(params);
-                return Ok(TypeExpr::Generic { base, params: params_slice });
+            } else {
+                // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
+                let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
+                    || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
+                if is_primitive {
+                    TypeExpr::Primitive(base)
+                } else {
+                    // User-defined or unknown type
+                    TypeExpr::Named(base)
+                }
             }
+        };
+
+        // Phase 43C: Check for refinement "where" clause
+        if self.check(&TokenType::Where) {
+            self.advance(); // consume "where"
+
+            // Parse the predicate expression (supports compound: `x > 0 and x < 100`)
+            let predicate_expr = self.parse_condition()?;
+
+            // Extract bound variable from the left side of the expression
+            let bound_var = self.extract_bound_var(&predicate_expr)
+                .unwrap_or_else(|| self.interner.intern("it"));
+
+            // Convert imperative Expr to logic LogicExpr
+            let predicate = self.expr_to_logic_predicate(&predicate_expr, bound_var)
+                .ok_or_else(|| ParseError {
+                    kind: ParseErrorKind::InvalidRefinementPredicate,
+                    span: self.peek().span,
+                })?;
+
+            // Allocate the base type
+            let base_alloc = self.ctx.alloc_type_expr(base_type);
+
+            return Ok(TypeExpr::Refinement { base: base_alloc, var: bound_var, predicate });
         }
 
-        // Check if it's a known primitive type (Int, Nat, Text, Bool, Real, Unit)
-        let is_primitive = self.type_registry.as_ref().map(|r| r.is_type(base)).unwrap_or(false)
-            || matches!(base_name, "Int" | "Nat" | "Text" | "Bool" | "Boolean" | "Real" | "Unit");
-        if is_primitive {
-            return Ok(TypeExpr::Primitive(base));
-        }
+        Ok(base_type)
+    }
 
-        // User-defined or unknown type
-        Ok(TypeExpr::Named(base))
+    /// Extracts the leftmost identifier from an expression as the bound variable.
+    fn extract_bound_var(&self, expr: &Expr<'a>) -> Option<Symbol> {
+        match expr {
+            Expr::Identifier(sym) => Some(*sym),
+            Expr::BinaryOp { left, .. } => self.extract_bound_var(left),
+            _ => None,
+        }
+    }
+
+    /// Converts an imperative comparison Expr to a Logic Kernel LogicExpr.
+    /// Used for refinement type predicates: `Int where x > 0`
+    fn expr_to_logic_predicate(&mut self, expr: &Expr<'a>, bound_var: Symbol) -> Option<&'a LogicExpr<'a>> {
+        match expr {
+            Expr::BinaryOp { op, left, right } => {
+                // Map BinaryOpKind to predicate name
+                let pred_name = match op {
+                    BinaryOpKind::Gt => "Greater",
+                    BinaryOpKind::Lt => "Less",
+                    BinaryOpKind::GtEq => "GreaterEqual",
+                    BinaryOpKind::LtEq => "LessEqual",
+                    BinaryOpKind::Eq => "Equal",
+                    BinaryOpKind::NotEq => "NotEqual",
+                    BinaryOpKind::And => {
+                        // Handle compound `x > 0 and x < 100`
+                        let left_logic = self.expr_to_logic_predicate(left, bound_var)?;
+                        let right_logic = self.expr_to_logic_predicate(right, bound_var)?;
+                        return Some(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: left_logic,
+                            op: TokenType::And,
+                            right: right_logic,
+                        }));
+                    }
+                    BinaryOpKind::Or => {
+                        let left_logic = self.expr_to_logic_predicate(left, bound_var)?;
+                        let right_logic = self.expr_to_logic_predicate(right, bound_var)?;
+                        return Some(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: left_logic,
+                            op: TokenType::Or,
+                            right: right_logic,
+                        }));
+                    }
+                    _ => return None, // Arithmetic ops not valid as predicates
+                };
+                let pred_sym = self.interner.intern(pred_name);
+
+                // Convert operands to Terms
+                let left_term = self.expr_to_term(left)?;
+                let right_term = self.expr_to_term(right)?;
+
+                let args = self.ctx.terms.alloc_slice([left_term, right_term]);
+                Some(self.ctx.exprs.alloc(LogicExpr::Predicate { name: pred_sym, args }))
+            }
+            _ => None,
+        }
+    }
+
+    /// Converts an imperative Expr to a logic Term.
+    fn expr_to_term(&mut self, expr: &Expr<'a>) -> Option<Term<'a>> {
+        match expr {
+            Expr::Identifier(sym) => Some(Term::Variable(*sym)),
+            Expr::Literal(lit) => {
+                match lit {
+                    Literal::Number(n) => Some(Term::Value {
+                        kind: NumberKind::Integer(*n),
+                        unit: None,
+                        dimension: None,
+                    }),
+                    Literal::Boolean(b) => {
+                        let sym = self.interner.intern(if *b { "true" } else { "false" });
+                        Some(Term::Constant(sym))
+                    }
+                    _ => None, // Text, Nothing not supported in predicates
+                }
+            }
+            _ => None,
+        }
     }
 
     pub fn process_block_headers(&mut self) {
@@ -1080,6 +1186,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else if self.check(&TokenType::GtEq) {
             self.advance();
             Some(BinaryOpKind::GtEq)
+        } else if self.check(&TokenType::EqEq) {
+            self.advance();
+            Some(BinaryOpKind::Eq)
+        } else if self.check(&TokenType::NotEq) {
+            self.advance();
+            Some(BinaryOpKind::NotEq)
         } else {
             None
         };
