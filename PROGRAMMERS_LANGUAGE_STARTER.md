@@ -1786,6 +1786,38 @@ Inside a zone called "Buffer" of size 64 KB:
     Let data be process_chunk(input).
 ```
 
+### Memory-Mapped Zones
+
+For reading large files without loading them into memory, use **mapped zones**:
+
+```logos
+## Main
+Inside a zone called "BigData" mapped from "dataset.bin":
+    Let bytes be zone's as_slice().
+    Show "File size: " + length of bytes + " bytes".
+    # Process file contents without copying into memory
+```
+
+Mapped zones provide:
+- **Zero-copy I/O:** File contents accessed directly from disk via OS page faults
+- **Read-only access:** You can read the data, but not modify it
+- **Ideal for large files:** Handle gigabyte files without memory issues
+
+| Zone Type | Allocation | Access | Use Case |
+|-----------|------------|--------|----------|
+| Heap | O(1) bump | Read/Write | Temporary data |
+| Mapped | OS page fault | Read-only | Large file processing |
+
+```logos
+## Main
+# Process a massive log file without loading it all
+Inside a zone called "Logs" mapped from "server.log":
+    Let content be zone's as_slice().
+    Repeat for line in split(content, "\n"):
+        If contains(line, "ERROR"):
+            Show line.
+```
+
 ### Nested Zones
 
 Zones can nest. Inner zone data can't escape to outer zones:
@@ -3113,14 +3145,23 @@ Let backup be copy of data.    # Clone - independent copy
 
 ### Zone Reference
 
+#### Zone Types
+| Type | Syntax | Access |
+|------|--------|--------|
+| Heap | `Inside a zone called "X":` | Read/Write |
+| Heap sized | `Inside a zone called "X" of size 64 KB:` | Read/Write |
+| Mapped | `Inside a zone called "X" mapped from "file":` | Read-only |
+
 #### Zone Syntax
 ```logos
 Inside a zone called "Name":
-    # Allocations happen here
-    # Freed when block exits
+    # Heap zone - freed when block exits
 
 Inside a zone called "Buffer" of size 64 KB:
-    # Pre-allocated zone
+    # Pre-allocated heap zone
+
+Inside a zone called "Data" mapped from "file.bin":
+    Let bytes be zone's as_slice().  # Read-only access
 ```
 
 #### Zone Rules
@@ -3130,6 +3171,7 @@ Inside a zone called "Buffer" of size 64 KB:
 | Primitives can escape | Copied automatically |
 | Explicit copy can escape | `a copy of x` works |
 | Inner → outer forbidden | Nested zones are strict |
+| Mapped zones read-only | Cannot allocate or modify |
 
 ### Concurrency Reference
 

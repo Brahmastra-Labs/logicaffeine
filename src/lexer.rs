@@ -2,6 +2,267 @@ use crate::intern::Interner;
 use crate::lexicon::{self, Aspect, Definiteness, Lexicon, Time};
 use crate::token::{BlockType, FocusKind, MeasureKind, Span, Token, TokenType};
 
+// ============================================================================
+// Stage 1: Line Lexer (Spec §2.5.2)
+// ============================================================================
+
+/// Tokens emitted by the LineLexer (Stage 1).
+/// Handles structural tokens (Indent, Dedent, Newline) while treating
+/// all other content as opaque for Stage 2 word classification.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LineToken {
+    /// Block increased indentation
+    Indent,
+    /// Block decreased indentation
+    Dedent,
+    /// Logical newline (statement boundary) - reserved for future use
+    Newline,
+    /// Content to be further tokenized (line content, trimmed)
+    Content { text: String, start: usize, end: usize },
+}
+
+/// Stage 1 Lexer: Handles only lines, indentation, and structural tokens.
+/// Treats all other text as opaque `Content` for the Stage 2 WordLexer.
+pub struct LineLexer<'a> {
+    source: &'a str,
+    bytes: &'a [u8],
+    indent_stack: Vec<usize>,
+    pending_dedents: usize,
+    position: usize,
+    /// True if we need to emit Content for current line
+    has_pending_content: bool,
+    pending_content_start: usize,
+    pending_content_end: usize,
+    pending_content_text: String,
+    /// True after we've finished processing all lines
+    finished_lines: bool,
+    /// True if we've emitted at least one Indent (need to emit Dedents at EOF)
+    emitted_indent: bool,
+}
+
+impl<'a> LineLexer<'a> {
+    pub fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            bytes: source.as_bytes(),
+            indent_stack: vec![0],
+            pending_dedents: 0,
+            position: 0,
+            has_pending_content: false,
+            pending_content_start: 0,
+            pending_content_end: 0,
+            pending_content_text: String::new(),
+            finished_lines: false,
+            emitted_indent: false,
+        }
+    }
+
+    /// Calculate indentation level at current position (at start of line).
+    /// Returns (indent_level, content_start_pos).
+    fn measure_indent(&self, line_start: usize) -> (usize, usize) {
+        let mut indent = 0;
+        let mut pos = line_start;
+
+        while pos < self.bytes.len() {
+            match self.bytes[pos] {
+                b' ' => {
+                    indent += 1;
+                    pos += 1;
+                }
+                b'\t' => {
+                    indent += 4; // Tab = 4 spaces
+                    pos += 1;
+                }
+                _ => break,
+            }
+        }
+
+        (indent, pos)
+    }
+
+    /// Read content from current position until end of line or EOF.
+    /// Returns (content_text, content_start, content_end, next_line_start).
+    fn read_line_content(&self, content_start: usize) -> (String, usize, usize, usize) {
+        let mut pos = content_start;
+
+        // Find end of line
+        while pos < self.bytes.len() && self.bytes[pos] != b'\n' {
+            pos += 1;
+        }
+
+        let content_end = pos;
+        let text = self.source[content_start..content_end].trim_end().to_string();
+
+        // Move past newline if present
+        let next_line_start = if pos < self.bytes.len() && self.bytes[pos] == b'\n' {
+            pos + 1
+        } else {
+            pos
+        };
+
+        (text, content_start, content_end, next_line_start)
+    }
+
+    /// Check if the line starting at `pos` is blank (only whitespace).
+    fn is_blank_line(&self, line_start: usize) -> bool {
+        let mut pos = line_start;
+        while pos < self.bytes.len() {
+            match self.bytes[pos] {
+                b' ' | b'\t' => pos += 1,
+                b'\n' => return true,
+                _ => return false,
+            }
+        }
+        true // EOF counts as blank
+    }
+
+    /// Process the next line and update internal state.
+    /// Returns true if we have tokens to emit, false if we're done.
+    fn process_next_line(&mut self) -> bool {
+        // Skip blank lines
+        while self.position < self.bytes.len() && self.is_blank_line(self.position) {
+            // Skip to next line
+            while self.position < self.bytes.len() && self.bytes[self.position] != b'\n' {
+                self.position += 1;
+            }
+            if self.position < self.bytes.len() {
+                self.position += 1; // Skip the newline
+            }
+        }
+
+        // Check if we've reached EOF
+        if self.position >= self.bytes.len() {
+            self.finished_lines = true;
+            // Emit remaining dedents at EOF
+            if self.indent_stack.len() > 1 {
+                self.pending_dedents = self.indent_stack.len() - 1;
+                self.indent_stack.truncate(1);
+            }
+            return self.pending_dedents > 0;
+        }
+
+        // Measure indentation of current line
+        let (line_indent, content_start) = self.measure_indent(self.position);
+
+        // Read line content
+        let (text, start, end, next_pos) = self.read_line_content(content_start);
+
+        // Skip if content is empty (shouldn't happen after blank line skip, but be safe)
+        if text.is_empty() {
+            self.position = next_pos;
+            return self.process_next_line();
+        }
+
+        let current_indent = *self.indent_stack.last().unwrap();
+
+        // Handle indentation changes
+        if line_indent > current_indent {
+            // Indent: push new level
+            self.indent_stack.push(line_indent);
+            self.emitted_indent = true;
+            // Store content to emit after Indent
+            self.has_pending_content = true;
+            self.pending_content_text = text;
+            self.pending_content_start = start;
+            self.pending_content_end = end;
+            self.position = next_pos;
+            // We'll emit Indent first, then Content
+            return true;
+        } else if line_indent < current_indent {
+            // Dedent: pop until we match
+            while self.indent_stack.len() > 1 {
+                let top = *self.indent_stack.last().unwrap();
+                if line_indent < top {
+                    self.indent_stack.pop();
+                    self.pending_dedents += 1;
+                } else {
+                    break;
+                }
+            }
+            // Store content to emit after Dedents
+            self.has_pending_content = true;
+            self.pending_content_text = text;
+            self.pending_content_start = start;
+            self.pending_content_end = end;
+            self.position = next_pos;
+            return true;
+        } else {
+            // Same indentation level
+            self.has_pending_content = true;
+            self.pending_content_text = text;
+            self.pending_content_start = start;
+            self.pending_content_end = end;
+            self.position = next_pos;
+            return true;
+        }
+    }
+}
+
+impl<'a> Iterator for LineLexer<'a> {
+    type Item = LineToken;
+
+    fn next(&mut self) -> Option<LineToken> {
+        // 1. Emit pending dedents first
+        if self.pending_dedents > 0 {
+            self.pending_dedents -= 1;
+            return Some(LineToken::Dedent);
+        }
+
+        // 2. Emit pending content
+        if self.has_pending_content {
+            self.has_pending_content = false;
+            let text = std::mem::take(&mut self.pending_content_text);
+            let start = self.pending_content_start;
+            let end = self.pending_content_end;
+            return Some(LineToken::Content { text, start, end });
+        }
+
+        // 3. Check if we need to emit Indent (after pushing to stack)
+        // This happens when we detected an indent but haven't emitted the token yet
+        // We need to check if indent_stack was just modified
+
+        // 4. Process next line
+        if !self.finished_lines {
+            let had_indent = self.indent_stack.len();
+            if self.process_next_line() {
+                // Check if we added an indent level
+                if self.indent_stack.len() > had_indent {
+                    return Some(LineToken::Indent);
+                }
+                // Check if we have pending dedents
+                if self.pending_dedents > 0 {
+                    self.pending_dedents -= 1;
+                    return Some(LineToken::Dedent);
+                }
+                // Otherwise emit content
+                if self.has_pending_content {
+                    self.has_pending_content = false;
+                    let text = std::mem::take(&mut self.pending_content_text);
+                    let start = self.pending_content_start;
+                    let end = self.pending_content_end;
+                    return Some(LineToken::Content { text, start, end });
+                }
+            } else if self.pending_dedents > 0 {
+                // EOF with pending dedents
+                self.pending_dedents -= 1;
+                return Some(LineToken::Dedent);
+            }
+        }
+
+        // 5. Emit any remaining dedents at EOF
+        if self.pending_dedents > 0 {
+            self.pending_dedents -= 1;
+            return Some(LineToken::Dedent);
+        }
+
+        None
+    }
+}
+
+// ============================================================================
+// Stage 2: Word Lexer (existing Lexer)
+// ============================================================================
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LexerMode {
     #[default]
@@ -612,52 +873,112 @@ impl<'a> Lexer<'a> {
         self.insert_indentation_tokens(tokens)
     }
 
+    /// Insert Indent/Dedent tokens using LineLexer's two-pass architecture (Spec §2.5.2).
+    ///
+    /// Phase 1: LineLexer determines the structural layout (where indents/dedents occur)
+    /// Phase 2: We correlate these with word token positions
     fn insert_indentation_tokens(&mut self, tokens: Vec<Token>) -> Vec<Token> {
         let mut result = Vec::new();
-        let mut indent_stack: Vec<usize> = vec![0];
         let empty_sym = self.interner.intern("");
 
-        for (i, token) in tokens.iter().enumerate() {
+        // Phase 1: Run LineLexer to determine structural positions
+        let line_lexer = LineLexer::new(&self.source);
+        let line_tokens: Vec<LineToken> = line_lexer.collect();
+
+        // Build a list of (byte_position, is_indent) for structural tokens
+        // Position is where the NEXT Content starts after the Indent/Dedent
+        let mut structural_events: Vec<(usize, bool)> = Vec::new(); // (byte_pos, true=Indent, false=Dedent)
+        let mut pending_indents = 0usize;
+        let mut pending_dedents = 0usize;
+
+        for line_token in &line_tokens {
+            match line_token {
+                LineToken::Indent => {
+                    pending_indents += 1;
+                }
+                LineToken::Dedent => {
+                    pending_dedents += 1;
+                }
+                LineToken::Content { start, .. } => {
+                    // Emit pending dedents first (they come BEFORE the content)
+                    for _ in 0..pending_dedents {
+                        structural_events.push((*start, false)); // false = Dedent
+                    }
+                    pending_dedents = 0;
+
+                    // Emit pending indents (they also come BEFORE the content)
+                    for _ in 0..pending_indents {
+                        structural_events.push((*start, true)); // true = Indent
+                    }
+                    pending_indents = 0;
+                }
+                LineToken::Newline => {}
+            }
+        }
+
+        // Handle any remaining dedents at EOF
+        for _ in 0..pending_dedents {
+            structural_events.push((self.input_len, false));
+        }
+
+        // Sort events by position, with dedents before indents at same position
+        structural_events.sort_by(|a, b| {
+            if a.0 != b.0 {
+                a.0.cmp(&b.0)
+            } else {
+                // Dedents (false) before Indents (true) at same position
+                a.1.cmp(&b.1)
+            }
+        });
+
+        // Phase 2: Insert structural tokens at the right positions
+        // Strategy: For each word token, check if any structural events should be inserted
+        // before it (based on byte position)
+
+        let mut event_idx = 0;
+        let mut last_colon_pos: Option<usize> = None;
+
+        for token in tokens.iter() {
+            let token_start = token.span.start;
+
+            // Insert any structural tokens that should come BEFORE this token
+            while event_idx < structural_events.len() {
+                let (event_pos, is_indent) = structural_events[event_idx];
+
+                // Insert structural tokens before this token if the event position <= token start
+                if event_pos <= token_start {
+                    let span = if is_indent {
+                        // Indent is inserted after the preceding Colon
+                        Span::new(last_colon_pos.unwrap_or(event_pos), last_colon_pos.unwrap_or(event_pos))
+                    } else {
+                        Span::new(event_pos, event_pos)
+                    };
+                    let kind = if is_indent { TokenType::Indent } else { TokenType::Dedent };
+                    result.push(Token::new(kind, empty_sym, span));
+                    event_idx += 1;
+                } else {
+                    break;
+                }
+            }
+
             result.push(token.clone());
 
-            if token.kind == TokenType::Colon {
-                let colon_pos = token.span.end;
-                // Only insert Indent if colon is at end of line (followed by newline)
-                if self.is_end_of_line(colon_pos) {
-                    if let Some(indent) = self.measure_next_line_indent(colon_pos) {
-                        let current_indent = *indent_stack.last().unwrap_or(&0);
-                        if indent > current_indent {
-                            indent_stack.push(indent);
-                            let span = Span::new(colon_pos, colon_pos);
-                            result.push(Token::new(TokenType::Indent, empty_sym, span));
-                        }
-                    }
-                }
-            }
-
-            if token.kind == TokenType::Period {
-                let period_pos = token.span.end;
-                if let Some(next_indent) = self.measure_next_line_indent(period_pos) {
-                    while indent_stack.len() > 1 {
-                        let current_indent = *indent_stack.last().unwrap();
-                        if next_indent < current_indent {
-                            indent_stack.pop();
-                            let span = Span::new(period_pos, period_pos);
-                            result.push(Token::new(TokenType::Dedent, empty_sym, span));
-                        } else {
-                            break;
-                        }
-                    }
-                }
+            // Track colon positions for Indent span calculation
+            if token.kind == TokenType::Colon && self.is_end_of_line(token.span.end) {
+                last_colon_pos = Some(token.span.end);
             }
         }
 
-        while indent_stack.len() > 1 {
-            indent_stack.pop();
-            let span = Span::new(self.input_len, self.input_len);
-            result.push(Token::new(TokenType::Dedent, empty_sym, span));
+        // Insert any remaining structural tokens (typically Dedents at EOF)
+        while event_idx < structural_events.len() {
+            let (event_pos, is_indent) = structural_events[event_idx];
+            let span = Span::new(event_pos, event_pos);
+            let kind = if is_indent { TokenType::Indent } else { TokenType::Dedent };
+            result.push(Token::new(kind, empty_sym, span));
+            event_idx += 1;
         }
 
+        // Ensure EOF is at the end
         let eof_pos = result.iter().position(|t| t.kind == TokenType::EOF);
         if let Some(pos) = eof_pos {
             let eof = result.remove(pos);

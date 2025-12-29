@@ -2107,12 +2107,12 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1906 lines
+Lexer (token.rs, lexer.rs):           2227 lines
 Parser (ast/, parser/):               12251 lines
 Transpilation:                        1341 lines
-Code Generation:                      1552 lines
+Code Generation:                      1622 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1538 lines
+Type Analysis (analysis/):            1918 lines
 Support Infrastructure:               4242 lines
 Desktop UI:                              10122 lines
 Entry Point:                                16 lines
@@ -2120,15 +2120,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        42699
-Test lines:          14746
-Total Rust lines: 57445
+Source lines:        43607
+Test lines:          15105
+Total Rust lines: 58712
 ```
 
 ### File Counts
 ```
-Source files: 102
-Test files:   97
+Source files: 103
+Test files:   99
 ```
 ## Lexicon Data
 
@@ -3312,6 +3312,267 @@ use crate::intern::Interner;
 use crate::lexicon::{self, Aspect, Definiteness, Lexicon, Time};
 use crate::token::{BlockType, FocusKind, MeasureKind, Span, Token, TokenType};
 
+// ============================================================================
+// Stage 1: Line Lexer (Spec §2.5.2)
+// ============================================================================
+
+/// Tokens emitted by the LineLexer (Stage 1).
+/// Handles structural tokens (Indent, Dedent, Newline) while treating
+/// all other content as opaque for Stage 2 word classification.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LineToken {
+    /// Block increased indentation
+    Indent,
+    /// Block decreased indentation
+    Dedent,
+    /// Logical newline (statement boundary) - reserved for future use
+    Newline,
+    /// Content to be further tokenized (line content, trimmed)
+    Content { text: String, start: usize, end: usize },
+}
+
+/// Stage 1 Lexer: Handles only lines, indentation, and structural tokens.
+/// Treats all other text as opaque `Content` for the Stage 2 WordLexer.
+pub struct LineLexer<'a> {
+    source: &'a str,
+    bytes: &'a [u8],
+    indent_stack: Vec<usize>,
+    pending_dedents: usize,
+    position: usize,
+    /// True if we need to emit Content for current line
+    has_pending_content: bool,
+    pending_content_start: usize,
+    pending_content_end: usize,
+    pending_content_text: String,
+    /// True after we've finished processing all lines
+    finished_lines: bool,
+    /// True if we've emitted at least one Indent (need to emit Dedents at EOF)
+    emitted_indent: bool,
+}
+
+impl<'a> LineLexer<'a> {
+    pub fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            bytes: source.as_bytes(),
+            indent_stack: vec![0],
+            pending_dedents: 0,
+            position: 0,
+            has_pending_content: false,
+            pending_content_start: 0,
+            pending_content_end: 0,
+            pending_content_text: String::new(),
+            finished_lines: false,
+            emitted_indent: false,
+        }
+    }
+
+    /// Calculate indentation level at current position (at start of line).
+    /// Returns (indent_level, content_start_pos).
+    fn measure_indent(&self, line_start: usize) -> (usize, usize) {
+        let mut indent = 0;
+        let mut pos = line_start;
+
+        while pos < self.bytes.len() {
+            match self.bytes[pos] {
+                b' ' => {
+                    indent += 1;
+                    pos += 1;
+                }
+                b'\t' => {
+                    indent += 4; // Tab = 4 spaces
+                    pos += 1;
+                }
+                _ => break,
+            }
+        }
+
+        (indent, pos)
+    }
+
+    /// Read content from current position until end of line or EOF.
+    /// Returns (content_text, content_start, content_end, next_line_start).
+    fn read_line_content(&self, content_start: usize) -> (String, usize, usize, usize) {
+        let mut pos = content_start;
+
+        // Find end of line
+        while pos < self.bytes.len() && self.bytes[pos] != b'\n' {
+            pos += 1;
+        }
+
+        let content_end = pos;
+        let text = self.source[content_start..content_end].trim_end().to_string();
+
+        // Move past newline if present
+        let next_line_start = if pos < self.bytes.len() && self.bytes[pos] == b'\n' {
+            pos + 1
+        } else {
+            pos
+        };
+
+        (text, content_start, content_end, next_line_start)
+    }
+
+    /// Check if the line starting at `pos` is blank (only whitespace).
+    fn is_blank_line(&self, line_start: usize) -> bool {
+        let mut pos = line_start;
+        while pos < self.bytes.len() {
+            match self.bytes[pos] {
+                b' ' | b'\t' => pos += 1,
+                b'\n' => return true,
+                _ => return false,
+            }
+        }
+        true // EOF counts as blank
+    }
+
+    /// Process the next line and update internal state.
+    /// Returns true if we have tokens to emit, false if we're done.
+    fn process_next_line(&mut self) -> bool {
+        // Skip blank lines
+        while self.position < self.bytes.len() && self.is_blank_line(self.position) {
+            // Skip to next line
+            while self.position < self.bytes.len() && self.bytes[self.position] != b'\n' {
+                self.position += 1;
+            }
+            if self.position < self.bytes.len() {
+                self.position += 1; // Skip the newline
+            }
+        }
+
+        // Check if we've reached EOF
+        if self.position >= self.bytes.len() {
+            self.finished_lines = true;
+            // Emit remaining dedents at EOF
+            if self.indent_stack.len() > 1 {
+                self.pending_dedents = self.indent_stack.len() - 1;
+                self.indent_stack.truncate(1);
+            }
+            return self.pending_dedents > 0;
+        }
+
+        // Measure indentation of current line
+        let (line_indent, content_start) = self.measure_indent(self.position);
+
+        // Read line content
+        let (text, start, end, next_pos) = self.read_line_content(content_start);
+
+        // Skip if content is empty (shouldn't happen after blank line skip, but be safe)
+        if text.is_empty() {
+            self.position = next_pos;
+            return self.process_next_line();
+        }
+
+        let current_indent = *self.indent_stack.last().unwrap();
+
+        // Handle indentation changes
+        if line_indent > current_indent {
+            // Indent: push new level
+            self.indent_stack.push(line_indent);
+            self.emitted_indent = true;
+            // Store content to emit after Indent
+            self.has_pending_content = true;
+            self.pending_content_text = text;
+            self.pending_content_start = start;
+            self.pending_content_end = end;
+            self.position = next_pos;
+            // We'll emit Indent first, then Content
+            return true;
+        } else if line_indent < current_indent {
+            // Dedent: pop until we match
+            while self.indent_stack.len() > 1 {
+                let top = *self.indent_stack.last().unwrap();
+                if line_indent < top {
+                    self.indent_stack.pop();
+                    self.pending_dedents += 1;
+                } else {
+                    break;
+                }
+            }
+            // Store content to emit after Dedents
+            self.has_pending_content = true;
+            self.pending_content_text = text;
+            self.pending_content_start = start;
+            self.pending_content_end = end;
+            self.position = next_pos;
+            return true;
+        } else {
+            // Same indentation level
+            self.has_pending_content = true;
+            self.pending_content_text = text;
+            self.pending_content_start = start;
+            self.pending_content_end = end;
+            self.position = next_pos;
+            return true;
+        }
+    }
+}
+
+impl<'a> Iterator for LineLexer<'a> {
+    type Item = LineToken;
+
+    fn next(&mut self) -> Option<LineToken> {
+        // 1. Emit pending dedents first
+        if self.pending_dedents > 0 {
+            self.pending_dedents -= 1;
+            return Some(LineToken::Dedent);
+        }
+
+        // 2. Emit pending content
+        if self.has_pending_content {
+            self.has_pending_content = false;
+            let text = std::mem::take(&mut self.pending_content_text);
+            let start = self.pending_content_start;
+            let end = self.pending_content_end;
+            return Some(LineToken::Content { text, start, end });
+        }
+
+        // 3. Check if we need to emit Indent (after pushing to stack)
+        // This happens when we detected an indent but haven't emitted the token yet
+        // We need to check if indent_stack was just modified
+
+        // 4. Process next line
+        if !self.finished_lines {
+            let had_indent = self.indent_stack.len();
+            if self.process_next_line() {
+                // Check if we added an indent level
+                if self.indent_stack.len() > had_indent {
+                    return Some(LineToken::Indent);
+                }
+                // Check if we have pending dedents
+                if self.pending_dedents > 0 {
+                    self.pending_dedents -= 1;
+                    return Some(LineToken::Dedent);
+                }
+                // Otherwise emit content
+                if self.has_pending_content {
+                    self.has_pending_content = false;
+                    let text = std::mem::take(&mut self.pending_content_text);
+                    let start = self.pending_content_start;
+                    let end = self.pending_content_end;
+                    return Some(LineToken::Content { text, start, end });
+                }
+            } else if self.pending_dedents > 0 {
+                // EOF with pending dedents
+                self.pending_dedents -= 1;
+                return Some(LineToken::Dedent);
+            }
+        }
+
+        // 5. Emit any remaining dedents at EOF
+        if self.pending_dedents > 0 {
+            self.pending_dedents -= 1;
+            return Some(LineToken::Dedent);
+        }
+
+        None
+    }
+}
+
+// ============================================================================
+// Stage 2: Word Lexer (existing Lexer)
+// ============================================================================
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LexerMode {
     #[default]
@@ -3922,52 +4183,112 @@ impl<'a> Lexer<'a> {
         self.insert_indentation_tokens(tokens)
     }
 
+    /// Insert Indent/Dedent tokens using LineLexer's two-pass architecture (Spec §2.5.2).
+    ///
+    /// Phase 1: LineLexer determines the structural layout (where indents/dedents occur)
+    /// Phase 2: We correlate these with word token positions
     fn insert_indentation_tokens(&mut self, tokens: Vec<Token>) -> Vec<Token> {
         let mut result = Vec::new();
-        let mut indent_stack: Vec<usize> = vec![0];
         let empty_sym = self.interner.intern("");
 
-        for (i, token) in tokens.iter().enumerate() {
+        // Phase 1: Run LineLexer to determine structural positions
+        let line_lexer = LineLexer::new(&self.source);
+        let line_tokens: Vec<LineToken> = line_lexer.collect();
+
+        // Build a list of (byte_position, is_indent) for structural tokens
+        // Position is where the NEXT Content starts after the Indent/Dedent
+        let mut structural_events: Vec<(usize, bool)> = Vec::new(); // (byte_pos, true=Indent, false=Dedent)
+        let mut pending_indents = 0usize;
+        let mut pending_dedents = 0usize;
+
+        for line_token in &line_tokens {
+            match line_token {
+                LineToken::Indent => {
+                    pending_indents += 1;
+                }
+                LineToken::Dedent => {
+                    pending_dedents += 1;
+                }
+                LineToken::Content { start, .. } => {
+                    // Emit pending dedents first (they come BEFORE the content)
+                    for _ in 0..pending_dedents {
+                        structural_events.push((*start, false)); // false = Dedent
+                    }
+                    pending_dedents = 0;
+
+                    // Emit pending indents (they also come BEFORE the content)
+                    for _ in 0..pending_indents {
+                        structural_events.push((*start, true)); // true = Indent
+                    }
+                    pending_indents = 0;
+                }
+                LineToken::Newline => {}
+            }
+        }
+
+        // Handle any remaining dedents at EOF
+        for _ in 0..pending_dedents {
+            structural_events.push((self.input_len, false));
+        }
+
+        // Sort events by position, with dedents before indents at same position
+        structural_events.sort_by(|a, b| {
+            if a.0 != b.0 {
+                a.0.cmp(&b.0)
+            } else {
+                // Dedents (false) before Indents (true) at same position
+                a.1.cmp(&b.1)
+            }
+        });
+
+        // Phase 2: Insert structural tokens at the right positions
+        // Strategy: For each word token, check if any structural events should be inserted
+        // before it (based on byte position)
+
+        let mut event_idx = 0;
+        let mut last_colon_pos: Option<usize> = None;
+
+        for token in tokens.iter() {
+            let token_start = token.span.start;
+
+            // Insert any structural tokens that should come BEFORE this token
+            while event_idx < structural_events.len() {
+                let (event_pos, is_indent) = structural_events[event_idx];
+
+                // Insert structural tokens before this token if the event position <= token start
+                if event_pos <= token_start {
+                    let span = if is_indent {
+                        // Indent is inserted after the preceding Colon
+                        Span::new(last_colon_pos.unwrap_or(event_pos), last_colon_pos.unwrap_or(event_pos))
+                    } else {
+                        Span::new(event_pos, event_pos)
+                    };
+                    let kind = if is_indent { TokenType::Indent } else { TokenType::Dedent };
+                    result.push(Token::new(kind, empty_sym, span));
+                    event_idx += 1;
+                } else {
+                    break;
+                }
+            }
+
             result.push(token.clone());
 
-            if token.kind == TokenType::Colon {
-                let colon_pos = token.span.end;
-                // Only insert Indent if colon is at end of line (followed by newline)
-                if self.is_end_of_line(colon_pos) {
-                    if let Some(indent) = self.measure_next_line_indent(colon_pos) {
-                        let current_indent = *indent_stack.last().unwrap_or(&0);
-                        if indent > current_indent {
-                            indent_stack.push(indent);
-                            let span = Span::new(colon_pos, colon_pos);
-                            result.push(Token::new(TokenType::Indent, empty_sym, span));
-                        }
-                    }
-                }
-            }
-
-            if token.kind == TokenType::Period {
-                let period_pos = token.span.end;
-                if let Some(next_indent) = self.measure_next_line_indent(period_pos) {
-                    while indent_stack.len() > 1 {
-                        let current_indent = *indent_stack.last().unwrap();
-                        if next_indent < current_indent {
-                            indent_stack.pop();
-                            let span = Span::new(period_pos, period_pos);
-                            result.push(Token::new(TokenType::Dedent, empty_sym, span));
-                        } else {
-                            break;
-                        }
-                    }
-                }
+            // Track colon positions for Indent span calculation
+            if token.kind == TokenType::Colon && self.is_end_of_line(token.span.end) {
+                last_colon_pos = Some(token.span.end);
             }
         }
 
-        while indent_stack.len() > 1 {
-            indent_stack.pop();
-            let span = Span::new(self.input_len, self.input_len);
-            result.push(Token::new(TokenType::Dedent, empty_sym, span));
+        // Insert any remaining structural tokens (typically Dedents at EOF)
+        while event_idx < structural_events.len() {
+            let (event_pos, is_indent) = structural_events[event_idx];
+            let span = Span::new(event_pos, event_pos);
+            let kind = if is_indent { TokenType::Indent } else { TokenType::Dedent };
+            result.push(Token::new(kind, empty_sym, span));
+            event_idx += 1;
         }
 
+        // Ensure EOF is at the end
         let eof_pos = result.iter().position(|t| t.kind == TokenType::EOF);
         if let Some(pos) = eof_pos {
             let eof = result.remove(pos);
@@ -6626,7 +6947,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let cond = self.parse_condition()?;
 
         // Phase 44: Parse optional (decreasing expr)
-        let decreasing = if self.check(&TokenType::LeftParen) {
+        let decreasing = if self.check(&TokenType::LParen) {
             self.advance(); // consume '('
 
             // Expect "decreasing" keyword
@@ -6638,9 +6959,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume "decreasing"
 
-            let variant = self.parse_expr()?;
+            let variant = self.parse_imperative_expr()?;
 
-            if !self.check(&TokenType::RightParen) {
+            if !self.check(&TokenType::RParen) {
                 return Err(ParseError {
                     kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
                     span: self.current_span(),
@@ -22415,11 +22736,13 @@ pub mod registry;
 pub mod discovery;
 pub mod dependencies;
 pub mod escape;
+pub mod ownership;
 
 pub use registry::{TypeRegistry, TypeDef};
 pub use discovery::DiscoveryPass;
 pub use dependencies::{scan_dependencies, Dependency};
 pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
+pub use ownership::{OwnershipChecker, OwnershipError, OwnershipErrorKind, VarState};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use discovery::discover_with_imports;
@@ -24610,7 +24933,8 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
-        Stmt::While { cond, body } => {
+        Stmt::While { cond, body, decreasing: _ } => {
+            // decreasing is compile-time only, ignored at runtime
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
@@ -25143,7 +25467,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -25213,6 +25537,75 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
 
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
+
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
+}
+
+/// Compile LOGOS source to Rust with ownership checking enabled.
+///
+/// This runs the lightweight ownership analysis pass (Phase 45) that catches
+/// use-after-move errors with control flow awareness in milliseconds.
+/// Use this with `--check` flag for instant feedback on ownership errors.
+pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    // Clone for codegen (parser takes ownership)
+    let codegen_registry = type_registry.clone();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
+    // Pass 4: Ownership analysis (Phase 45)
+    // Catches use-after-move errors with control flow awareness
+    let mut ownership_checker = OwnershipChecker::new(&interner);
+    ownership_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
@@ -31598,7 +31991,13 @@ impl<'a> VerificationPass<'a> {
                 Ok(())
             }
 
-            Stmt::While { body, .. } => {
+            Stmt::While { body, decreasing, .. } => {
+                // Phase 44: Termination checking
+                if let Some(variant_expr) = decreasing {
+                    self.check_termination(variant_expr, body)?;
+                }
+
+                // Visit body statements
                 for stmt in *body {
                     self.visit_stmt(stmt)?;
                 }
@@ -31710,6 +32109,137 @@ impl<'a> VerificationPass<'a> {
             "Refinement type verification failed for '{}': {}",
             var_name, e
         ))
+    }
+
+    /// Phase 44: Verify that a loop terminates by checking its decreasing variant.
+    fn check_termination(
+        &self,
+        variant_expr: &Expr,
+        body: &[Stmt],
+    ) -> Result<(), String> {
+        // 1. Map the variant to IR (this is V₀ - value before loop body)
+        let v0 = self.map_imperative_expr(variant_expr)
+            .ok_or_else(|| "Cannot verify termination: variant expression not supported".to_string())?;
+
+        // 2. Get the variant variable name (must be a simple identifier for now)
+        let variant_name = match variant_expr {
+            Expr::Identifier(sym) => self.interner.resolve(*sym),
+            _ => return Err("Decreasing clause must be a simple variable".to_string()),
+        };
+
+        // 3. Simulate the loop body to find V₁ (value after one iteration)
+        let v1 = self.simulate_body_for_variant(variant_name, body)?;
+
+        // 4. Verify: V₁ < V₀ (strictly decreasing)
+        let decreasing_constraint = VerifyExpr::lt(v1.clone(), v0.clone());
+
+        // 5. Verify: V₀ >= 0 (bounded below)
+        let bounded_constraint = VerifyExpr::gte(v0.clone(), VerifyExpr::int(0));
+
+        // 6. Combined: decreasing AND bounded
+        let termination_proof = VerifyExpr::and(decreasing_constraint, bounded_constraint);
+
+        self.session.verify(&termination_proof).map_err(|e| {
+            format!("Termination verification failed for '{}': {}", variant_name, e)
+        })
+    }
+
+    /// Simulate the loop body to determine the final value of the variant.
+    fn simulate_body_for_variant(
+        &self,
+        variant_name: &str,
+        body: &[Stmt],
+    ) -> Result<VerifyExpr, String> {
+        use std::collections::HashMap;
+
+        // Track all bindings in the loop body
+        let mut bindings: HashMap<String, VerifyExpr> = HashMap::new();
+        let mut latest_value: Option<VerifyExpr> = None;
+
+        for stmt in body {
+            match stmt {
+                Stmt::Let { var, value, .. } => {
+                    let var_name = self.interner.resolve(*var);
+                    if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                        bindings.insert(var_name.to_string(), val_ir);
+                    }
+                }
+                Stmt::Set { target, value } => {
+                    let target_name = self.interner.resolve(*target);
+                    if target_name == variant_name {
+                        latest_value = self.map_imperative_expr_with_bindings(value, &bindings);
+                    } else {
+                        // Track other Set statements that might affect bindings
+                        if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                            bindings.insert(target_name.to_string(), val_ir);
+                        }
+                    }
+                }
+                _ => {
+                    // TODO: Handle nested If/While for more complex cases
+                }
+            }
+        }
+
+        latest_value.ok_or_else(|| {
+            format!("Variant '{}' is not modified in loop body", variant_name)
+        })
+    }
+
+    /// Map an imperative expression to Verification IR, substituting known bindings.
+    fn map_imperative_expr_with_bindings(
+        &self,
+        expr: &Expr,
+        bindings: &std::collections::HashMap<String, VerifyExpr>,
+    ) -> Option<VerifyExpr> {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => Some(VerifyExpr::int(*n)),
+            Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
+            Expr::Literal(Literal::Text(_)) => None,
+            Expr::Literal(Literal::Nothing) => None,
+
+            Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                // Check if we have a known binding for this variable
+                if let Some(bound_val) = bindings.get(name) {
+                    Some(bound_val.clone())
+                } else {
+                    Some(VerifyExpr::var(name))
+                }
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let l = self.map_imperative_expr_with_bindings(left, bindings)?;
+                let r = self.map_imperative_expr_with_bindings(right, bindings)?;
+                let verify_op = match op {
+                    BinaryOpKind::Add => VerifyOp::Add,
+                    BinaryOpKind::Subtract => VerifyOp::Sub,
+                    BinaryOpKind::Multiply => VerifyOp::Mul,
+                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Eq => VerifyOp::Eq,
+                    BinaryOpKind::NotEq => VerifyOp::Neq,
+                    BinaryOpKind::Gt => VerifyOp::Gt,
+                    BinaryOpKind::Lt => VerifyOp::Lt,
+                    BinaryOpKind::GtEq => VerifyOp::Gte,
+                    BinaryOpKind::LtEq => VerifyOp::Lte,
+                    BinaryOpKind::And => VerifyOp::And,
+                    BinaryOpKind::Or => VerifyOp::Or,
+                };
+                Some(VerifyExpr::binary(verify_op, l, r))
+            }
+
+            Expr::Call { function, args } => {
+                let func_name = self.interner.resolve(*function);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .filter_map(|a| self.map_imperative_expr_with_bindings(a, bindings))
+                    .collect();
+                Some(VerifyExpr::apply(func_name, verify_args))
+            }
+
+            // Unsupported expressions
+            _ => None,
+        }
     }
 
     /// Map an imperative expression to Verification IR.
@@ -49032,6 +49562,12 @@ pub enum VerificationErrorKind {
 
     /// Z3 initialization or internal error.
     SolverError { message: String },
+
+    /// Phase 44: Loop termination cannot be proven.
+    TerminationViolation {
+        variant: String,
+        reason: String,
+    },
 }
 
 /// A counter-example showing why verification failed.
@@ -49098,6 +49634,11 @@ impl fmt::Display for VerificationError {
             }
             VerificationErrorKind::SolverError { message } => {
                 writeln!(f, "Solver error: {}", message)?;
+            }
+            VerificationErrorKind::TerminationViolation { variant, reason } => {
+                writeln!(f, "Cannot prove loop terminates.")?;
+                writeln!(f)?;
+                writeln!(f, "Variant '{}' does not strictly decrease: {}", variant, reason)?;
             }
         }
         Ok(())
@@ -49207,6 +49748,19 @@ impl VerificationError {
     pub fn with_span(mut self, start: usize, end: usize) -> Self {
         self.span = Some((start, end));
         self
+    }
+
+    /// Phase 44: Create a termination violation error.
+    pub fn termination_violation(variant: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::TerminationViolation {
+                variant: variant.into(),
+                reason: reason.into(),
+            },
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
     }
 }
 
@@ -51107,7 +51661,8 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
-        Stmt::While { cond, body } => {
+        Stmt::While { cond, body, decreasing: _ } => {
+            // decreasing is compile-time only, ignored at runtime
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
@@ -51640,7 +52195,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -51710,6 +52265,75 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
 
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
+
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
+}
+
+/// Compile LOGOS source to Rust with ownership checking enabled.
+///
+/// This runs the lightweight ownership analysis pass (Phase 45) that catches
+/// use-after-move errors with control flow awareness in milliseconds.
+/// Use this with `--check` flag for instant feedback on ownership errors.
+pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    // Clone for codegen (parser takes ownership)
+    let codegen_registry = type_registry.clone();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
+    // Pass 4: Ownership analysis (Phase 45)
+    // Catches use-after-move errors with control flow awareness
+    let mut ownership_checker = OwnershipChecker::new(&interner);
+    ownership_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
@@ -54275,7 +54899,13 @@ impl<'a> VerificationPass<'a> {
                 Ok(())
             }
 
-            Stmt::While { body, .. } => {
+            Stmt::While { body, decreasing, .. } => {
+                // Phase 44: Termination checking
+                if let Some(variant_expr) = decreasing {
+                    self.check_termination(variant_expr, body)?;
+                }
+
+                // Visit body statements
                 for stmt in *body {
                     self.visit_stmt(stmt)?;
                 }
@@ -54387,6 +55017,137 @@ impl<'a> VerificationPass<'a> {
             "Refinement type verification failed for '{}': {}",
             var_name, e
         ))
+    }
+
+    /// Phase 44: Verify that a loop terminates by checking its decreasing variant.
+    fn check_termination(
+        &self,
+        variant_expr: &Expr,
+        body: &[Stmt],
+    ) -> Result<(), String> {
+        // 1. Map the variant to IR (this is V₀ - value before loop body)
+        let v0 = self.map_imperative_expr(variant_expr)
+            .ok_or_else(|| "Cannot verify termination: variant expression not supported".to_string())?;
+
+        // 2. Get the variant variable name (must be a simple identifier for now)
+        let variant_name = match variant_expr {
+            Expr::Identifier(sym) => self.interner.resolve(*sym),
+            _ => return Err("Decreasing clause must be a simple variable".to_string()),
+        };
+
+        // 3. Simulate the loop body to find V₁ (value after one iteration)
+        let v1 = self.simulate_body_for_variant(variant_name, body)?;
+
+        // 4. Verify: V₁ < V₀ (strictly decreasing)
+        let decreasing_constraint = VerifyExpr::lt(v1.clone(), v0.clone());
+
+        // 5. Verify: V₀ >= 0 (bounded below)
+        let bounded_constraint = VerifyExpr::gte(v0.clone(), VerifyExpr::int(0));
+
+        // 6. Combined: decreasing AND bounded
+        let termination_proof = VerifyExpr::and(decreasing_constraint, bounded_constraint);
+
+        self.session.verify(&termination_proof).map_err(|e| {
+            format!("Termination verification failed for '{}': {}", variant_name, e)
+        })
+    }
+
+    /// Simulate the loop body to determine the final value of the variant.
+    fn simulate_body_for_variant(
+        &self,
+        variant_name: &str,
+        body: &[Stmt],
+    ) -> Result<VerifyExpr, String> {
+        use std::collections::HashMap;
+
+        // Track all bindings in the loop body
+        let mut bindings: HashMap<String, VerifyExpr> = HashMap::new();
+        let mut latest_value: Option<VerifyExpr> = None;
+
+        for stmt in body {
+            match stmt {
+                Stmt::Let { var, value, .. } => {
+                    let var_name = self.interner.resolve(*var);
+                    if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                        bindings.insert(var_name.to_string(), val_ir);
+                    }
+                }
+                Stmt::Set { target, value } => {
+                    let target_name = self.interner.resolve(*target);
+                    if target_name == variant_name {
+                        latest_value = self.map_imperative_expr_with_bindings(value, &bindings);
+                    } else {
+                        // Track other Set statements that might affect bindings
+                        if let Some(val_ir) = self.map_imperative_expr_with_bindings(value, &bindings) {
+                            bindings.insert(target_name.to_string(), val_ir);
+                        }
+                    }
+                }
+                _ => {
+                    // TODO: Handle nested If/While for more complex cases
+                }
+            }
+        }
+
+        latest_value.ok_or_else(|| {
+            format!("Variant '{}' is not modified in loop body", variant_name)
+        })
+    }
+
+    /// Map an imperative expression to Verification IR, substituting known bindings.
+    fn map_imperative_expr_with_bindings(
+        &self,
+        expr: &Expr,
+        bindings: &std::collections::HashMap<String, VerifyExpr>,
+    ) -> Option<VerifyExpr> {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => Some(VerifyExpr::int(*n)),
+            Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
+            Expr::Literal(Literal::Text(_)) => None,
+            Expr::Literal(Literal::Nothing) => None,
+
+            Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                // Check if we have a known binding for this variable
+                if let Some(bound_val) = bindings.get(name) {
+                    Some(bound_val.clone())
+                } else {
+                    Some(VerifyExpr::var(name))
+                }
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let l = self.map_imperative_expr_with_bindings(left, bindings)?;
+                let r = self.map_imperative_expr_with_bindings(right, bindings)?;
+                let verify_op = match op {
+                    BinaryOpKind::Add => VerifyOp::Add,
+                    BinaryOpKind::Subtract => VerifyOp::Sub,
+                    BinaryOpKind::Multiply => VerifyOp::Mul,
+                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Eq => VerifyOp::Eq,
+                    BinaryOpKind::NotEq => VerifyOp::Neq,
+                    BinaryOpKind::Gt => VerifyOp::Gt,
+                    BinaryOpKind::Lt => VerifyOp::Lt,
+                    BinaryOpKind::GtEq => VerifyOp::Gte,
+                    BinaryOpKind::LtEq => VerifyOp::Lte,
+                    BinaryOpKind::And => VerifyOp::And,
+                    BinaryOpKind::Or => VerifyOp::Or,
+                };
+                Some(VerifyExpr::binary(verify_op, l, r))
+            }
+
+            Expr::Call { function, args } => {
+                let func_name = self.interner.resolve(*function);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .filter_map(|a| self.map_imperative_expr_with_bindings(a, bindings))
+                    .collect();
+                Some(VerifyExpr::apply(func_name, verify_args))
+            }
+
+            // Unsupported expressions
+            _ => None,
+        }
     }
 
     /// Map an imperative expression to Verification IR.
@@ -56358,10 +57119,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 14:01:06 CST 2025
+- **Generated:** Mon Dec 29 15:08:15 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 28b6cc5
+- **Git Commit:** 0ff47d6
 - **Documentation Size:** 1.9M
 
 ---

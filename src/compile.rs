@@ -21,7 +21,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -91,6 +91,75 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
 
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
+
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
+}
+
+/// Compile LOGOS source to Rust with ownership checking enabled.
+///
+/// This runs the lightweight ownership analysis pass (Phase 45) that catches
+/// use-after-move errors with control flow awareness in milliseconds.
+/// Use this with `--check` flag for instant feedback on ownership errors.
+pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    // Clone for codegen (parser takes ownership)
+    let codegen_registry = type_registry.clone();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
+    // Pass 4: Ownership analysis (Phase 45)
+    // Catches use-after-move errors with control flow awareness
+    let mut ownership_checker = OwnershipChecker::new(&interner);
+    ownership_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
