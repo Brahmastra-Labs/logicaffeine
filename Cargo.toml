@@ -2,7 +2,7 @@
 name = "logos"
 version = "0.1.0"
 edition = "2021"
-authors = ["Logicaffeine Team"]
+authors = ["Tristen Harr"]
 license = "BUSL-1.1"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
 build = "build.rs"

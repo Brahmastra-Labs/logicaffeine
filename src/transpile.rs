@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use crate::ast::{LogicExpr, NounPhrase, Term};
+use crate::ast::logic::NumberKind;
 use crate::formatter::{LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
 use crate::intern::Interner;
 use crate::registry::SymbolRegistry;
@@ -51,6 +52,51 @@ impl<'a> Term<'a> {
         interner: &Interner,
     ) -> std::fmt::Result {
         self.write_to_inner(w, registry, interner, true)
+    }
+
+    /// Write term preserving original case (for code generation)
+    pub fn write_to_raw<W: Write>(
+        &self,
+        w: &mut W,
+        interner: &Interner,
+    ) -> std::fmt::Result {
+        match self {
+            Term::Constant(name) | Term::Variable(name) => {
+                write!(w, "{}", interner.resolve(*name))
+            }
+            Term::Function(name, args) => {
+                write!(w, "{}(", interner.resolve(*name))?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
+                    arg.write_to_raw(w, interner)?;
+                }
+                write!(w, ")")
+            }
+            Term::Group(members) => {
+                write!(w, "(")?;
+                for (i, m) in members.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
+                    m.write_to_raw(w, interner)?;
+                }
+                write!(w, ")")
+            }
+            Term::Possessed { possessor, possessed } => {
+                possessor.write_to_raw(w, interner)?;
+                write!(w, ".{}", interner.resolve(*possessed))
+            }
+            Term::Value { kind, .. } => match kind {
+                NumberKind::Integer(n) => write!(w, "{}", n),
+                NumberKind::Real(f) => write!(w, "{}", f),
+                NumberKind::Symbolic(s) => write!(w, "{}", interner.resolve(*s)),
+            }
+            Term::Sigma(predicate) => write!(w, "σ({})", interner.resolve(*predicate)),
+            Term::Intension(predicate) => write!(w, "^{}", interner.resolve(*predicate)),
+            Term::Proposition(expr) => write!(w, "[proposition]"),
+        }
     }
 
     fn write_to_inner<W: Write>(
@@ -161,24 +207,32 @@ impl<'a> LogicExpr<'a> {
                 } else {
                     registry.get_symbol(*name, interner)
                 };
-                write!(w, "{}(", fmt.sanitize(&pred_name))?;
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(w, ", ")?;
-                    }
-                    if fmt.use_full_names() {
-                        arg.write_to_full(w, registry, interner)?;
-                    } else {
-                        arg.write_to(w, registry, interner)?;
-                    }
-                }
-                write!(w, ")")
+                fmt.write_predicate(w, &pred_name, args, registry, interner)
             }
 
             LogicExpr::Identity { left, right } => {
-                left.write_to(w, registry, interner)?;
-                write!(w, " = ")?;
-                right.write_to(w, registry, interner)
+                if fmt.wrap_identity() {
+                    write!(w, "(")?;
+                }
+                if fmt.preserve_case() {
+                    left.write_to_raw(w, interner)?;
+                } else if fmt.use_full_names() {
+                    left.write_to_full(w, registry, interner)?;
+                } else {
+                    left.write_to(w, registry, interner)?;
+                }
+                write!(w, "{}", fmt.identity())?;
+                if fmt.preserve_case() {
+                    right.write_to_raw(w, interner)?;
+                } else if fmt.use_full_names() {
+                    right.write_to_full(w, registry, interner)?;
+                } else {
+                    right.write_to(w, registry, interner)?;
+                }
+                if fmt.wrap_identity() {
+                    write!(w, ")")?;
+                }
+                Ok(())
             }
 
             LogicExpr::Metaphor { tenor, vehicle } => {
@@ -265,7 +319,16 @@ impl<'a> LogicExpr<'a> {
                 body.write_logic(w, registry, interner, fmt)
             }
 
-            LogicExpr::Atom(s) => write!(w, "{}", fmt.sanitize(&registry.get_symbol(*s, interner))),
+            LogicExpr::Atom(s) => {
+                let name = if fmt.preserve_case() {
+                    interner.resolve(*s).to_string()
+                } else if fmt.use_full_names() {
+                    registry.get_symbol_full(*s, interner)
+                } else {
+                    registry.get_symbol(*s, interner)
+                };
+                write!(w, "{}", fmt.sanitize(&name))
+            }
 
             LogicExpr::Lambda { variable, body } => {
                 let mut b = String::new();
@@ -373,15 +436,31 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Comparative { adjective, subject, object, difference } => {
-                write!(w, "{}er(", interner.resolve(*adjective))?;
-                subject.write_to(w, registry, interner)?;
-                write!(w, ", ")?;
-                object.write_to(w, registry, interner)?;
-                if let Some(diff) = difference {
-                    write!(w, ", ")?;
-                    diff.write_to(w, registry, interner)?;
+                let adj = interner.resolve(*adjective);
+                let mut subj_buf = String::new();
+                if fmt.preserve_case() {
+                    subject.write_to_raw(&mut subj_buf, interner)?;
+                } else {
+                    subject.write_to(&mut subj_buf, registry, interner)?;
                 }
-                write!(w, ")")
+                let mut obj_buf = String::new();
+                if fmt.preserve_case() {
+                    object.write_to_raw(&mut obj_buf, interner)?;
+                } else {
+                    object.write_to(&mut obj_buf, registry, interner)?;
+                }
+                let diff_str = if let Some(diff) = difference {
+                    let mut diff_buf = String::new();
+                    if fmt.preserve_case() {
+                        diff.write_to_raw(&mut diff_buf, interner)?;
+                    } else {
+                        diff.write_to(&mut diff_buf, registry, interner)?;
+                    }
+                    Some(diff_buf)
+                } else {
+                    None
+                };
+                fmt.write_comparative(w, adj, &subj_buf, &obj_buf, diff_str.as_deref())
             }
 
             LogicExpr::Superlative { adjective, subject, domain } => {

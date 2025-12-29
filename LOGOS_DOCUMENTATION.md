@@ -106,9 +106,10 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Generator Engine](#generator-engine)
     - [Grader](#grader)
 20. [Logos Core Runtime](#logos-core-runtime)
+21. [Examples](#examples)
 
 ### Appendix
-16. [Metadata](#metadata)
+22. [Metadata](#metadata)
 
 ---
 
@@ -2033,14 +2034,24 @@ Comprehensive tests covering quantifiers, modals, temporal logic, relative claus
 
 ---
 
+#### E2E Test Harness
+
+**File:** `tests/common/mod.rs`
+
+Shared test utilities for E2E tests. Provides run_logos() function that compiles LOGOS source to Rust, creates a temp Cargo project, builds and runs it, and returns E2EResult with stdout/stderr/success/rust_code.
+
+**Example:** run_logos(source) -> E2EResult { stdout, stderr, success, rust_code }
+
+---
+
 ## Statistics
 
 ### By Compiler Stage
 ```
 Lexer (token.rs, lexer.rs):           1821 lines
 Parser (ast/, parser/):               11586 lines
-Transpilation:                        1030 lines
-Code Generation:                      1256 lines
+Transpilation:                        1341 lines
+Code Generation:                      1172 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            1240 lines
 Support Infrastructure:               4222 lines
@@ -2050,9 +2061,9 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        39548
+Source lines:        39775
 Test lines:          13200
-Total Rust lines: 52748
+Total Rust lines: 52975
 ```
 
 ### File Counts
@@ -16470,6 +16481,7 @@ Converts AST to logical notation. Implements symbolic substitution, quantifier f
 use std::fmt::Write;
 
 use crate::ast::{LogicExpr, NounPhrase, Term};
+use crate::ast::logic::NumberKind;
 use crate::formatter::{LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
 use crate::intern::Interner;
 use crate::registry::SymbolRegistry;
@@ -16520,6 +16532,51 @@ impl<'a> Term<'a> {
         interner: &Interner,
     ) -> std::fmt::Result {
         self.write_to_inner(w, registry, interner, true)
+    }
+
+    /// Write term preserving original case (for code generation)
+    pub fn write_to_raw<W: Write>(
+        &self,
+        w: &mut W,
+        interner: &Interner,
+    ) -> std::fmt::Result {
+        match self {
+            Term::Constant(name) | Term::Variable(name) => {
+                write!(w, "{}", interner.resolve(*name))
+            }
+            Term::Function(name, args) => {
+                write!(w, "{}(", interner.resolve(*name))?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
+                    arg.write_to_raw(w, interner)?;
+                }
+                write!(w, ")")
+            }
+            Term::Group(members) => {
+                write!(w, "(")?;
+                for (i, m) in members.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ", ")?;
+                    }
+                    m.write_to_raw(w, interner)?;
+                }
+                write!(w, ")")
+            }
+            Term::Possessed { possessor, possessed } => {
+                possessor.write_to_raw(w, interner)?;
+                write!(w, ".{}", interner.resolve(*possessed))
+            }
+            Term::Value { kind, .. } => match kind {
+                NumberKind::Integer(n) => write!(w, "{}", n),
+                NumberKind::Real(f) => write!(w, "{}", f),
+                NumberKind::Symbolic(s) => write!(w, "{}", interner.resolve(*s)),
+            }
+            Term::Sigma(predicate) => write!(w, "σ({})", interner.resolve(*predicate)),
+            Term::Intension(predicate) => write!(w, "^{}", interner.resolve(*predicate)),
+            Term::Proposition(expr) => write!(w, "[proposition]"),
+        }
     }
 
     fn write_to_inner<W: Write>(
@@ -16630,24 +16687,32 @@ impl<'a> LogicExpr<'a> {
                 } else {
                     registry.get_symbol(*name, interner)
                 };
-                write!(w, "{}(", fmt.sanitize(&pred_name))?;
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        write!(w, ", ")?;
-                    }
-                    if fmt.use_full_names() {
-                        arg.write_to_full(w, registry, interner)?;
-                    } else {
-                        arg.write_to(w, registry, interner)?;
-                    }
-                }
-                write!(w, ")")
+                fmt.write_predicate(w, &pred_name, args, registry, interner)
             }
 
             LogicExpr::Identity { left, right } => {
-                left.write_to(w, registry, interner)?;
-                write!(w, " = ")?;
-                right.write_to(w, registry, interner)
+                if fmt.wrap_identity() {
+                    write!(w, "(")?;
+                }
+                if fmt.preserve_case() {
+                    left.write_to_raw(w, interner)?;
+                } else if fmt.use_full_names() {
+                    left.write_to_full(w, registry, interner)?;
+                } else {
+                    left.write_to(w, registry, interner)?;
+                }
+                write!(w, "{}", fmt.identity())?;
+                if fmt.preserve_case() {
+                    right.write_to_raw(w, interner)?;
+                } else if fmt.use_full_names() {
+                    right.write_to_full(w, registry, interner)?;
+                } else {
+                    right.write_to(w, registry, interner)?;
+                }
+                if fmt.wrap_identity() {
+                    write!(w, ")")?;
+                }
+                Ok(())
             }
 
             LogicExpr::Metaphor { tenor, vehicle } => {
@@ -16734,7 +16799,16 @@ impl<'a> LogicExpr<'a> {
                 body.write_logic(w, registry, interner, fmt)
             }
 
-            LogicExpr::Atom(s) => write!(w, "{}", fmt.sanitize(&registry.get_symbol(*s, interner))),
+            LogicExpr::Atom(s) => {
+                let name = if fmt.preserve_case() {
+                    interner.resolve(*s).to_string()
+                } else if fmt.use_full_names() {
+                    registry.get_symbol_full(*s, interner)
+                } else {
+                    registry.get_symbol(*s, interner)
+                };
+                write!(w, "{}", fmt.sanitize(&name))
+            }
 
             LogicExpr::Lambda { variable, body } => {
                 let mut b = String::new();
@@ -16842,15 +16916,31 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Comparative { adjective, subject, object, difference } => {
-                write!(w, "{}er(", interner.resolve(*adjective))?;
-                subject.write_to(w, registry, interner)?;
-                write!(w, ", ")?;
-                object.write_to(w, registry, interner)?;
-                if let Some(diff) = difference {
-                    write!(w, ", ")?;
-                    diff.write_to(w, registry, interner)?;
+                let adj = interner.resolve(*adjective);
+                let mut subj_buf = String::new();
+                if fmt.preserve_case() {
+                    subject.write_to_raw(&mut subj_buf, interner)?;
+                } else {
+                    subject.write_to(&mut subj_buf, registry, interner)?;
                 }
-                write!(w, ")")
+                let mut obj_buf = String::new();
+                if fmt.preserve_case() {
+                    object.write_to_raw(&mut obj_buf, interner)?;
+                } else {
+                    object.write_to(&mut obj_buf, registry, interner)?;
+                }
+                let diff_str = if let Some(diff) = difference {
+                    let mut diff_buf = String::new();
+                    if fmt.preserve_case() {
+                        diff.write_to_raw(&mut diff_buf, interner)?;
+                    } else {
+                        diff.write_to(&mut diff_buf, registry, interner)?;
+                    }
+                    Some(diff_buf)
+                } else {
+                    None
+                };
+                fmt.write_comparative(w, adj, &subj_buf, &obj_buf, diff_str.as_deref())
             }
 
             LogicExpr::Superlative { adjective, subject, domain } => {
@@ -16985,7 +17075,11 @@ impl<'a> LogicExpr<'a> {
 LatexFormatter, UnicodeFormatter, and LogicFormatter traits. Handles symbol sanitization and operator rendering for clean output.
 
 ```rust
-use crate::ast::{AspectOperator, ModalDomain, QuantifierKind, TemporalOperator, VoiceOperator};
+use std::fmt::Write;
+
+use crate::ast::{AspectOperator, ModalDomain, QuantifierKind, TemporalOperator, Term, VoiceOperator};
+use crate::intern::Interner;
+use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
 
 pub trait LogicFormatter {
@@ -17036,6 +17130,16 @@ pub trait LogicFormatter {
     }
 
     fn not(&self) -> &'static str;
+
+    // Identity operator (used in Identity expressions)
+    fn identity(&self) -> &'static str {
+        " = "
+    }
+
+    // Whether to wrap identity expressions in parentheses
+    fn wrap_identity(&self) -> bool {
+        false
+    }
 
     // Modal operators
     fn modal(&self, domain: ModalDomain, force: f32, body: &str) -> String {
@@ -17133,6 +17237,52 @@ pub trait LogicFormatter {
     // Whether to use full predicate names instead of abbreviations
     fn use_full_names(&self) -> bool {
         false
+    }
+
+    // Whether to preserve original case (for code generation)
+    fn preserve_case(&self) -> bool {
+        false
+    }
+
+    /// Hook for customizing how comparatives are rendered.
+    /// Default implementation uses standard logic notation: tallER(subj, obj) or tallER(subj, obj, diff)
+    fn write_comparative<W: Write>(
+        &self,
+        w: &mut W,
+        adjective: &str,
+        subject: &str,
+        object: &str,
+        difference: Option<&str>,
+    ) -> std::fmt::Result {
+        if let Some(diff) = difference {
+            write!(w, "{}er({}, {}, {})", adjective, subject, object, diff)
+        } else {
+            write!(w, "{}er({}, {})", adjective, subject, object)
+        }
+    }
+
+    /// Hook for customizing how predicates are rendered.
+    /// Default implementation uses standard logic notation: Name(Arg1, Arg2)
+    fn write_predicate<W: Write>(
+        &self,
+        w: &mut W,
+        name: &str,
+        args: &[Term],
+        registry: &mut SymbolRegistry,
+        interner: &Interner,
+    ) -> std::fmt::Result {
+        write!(w, "{}(", self.sanitize(name))?;
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                write!(w, ", ")?;
+            }
+            if self.use_full_names() {
+                arg.write_to_full(w, registry, interner)?;
+            } else {
+                arg.write_to(w, registry, interner)?;
+            }
+        }
+        write!(w, ")")
     }
 }
 
@@ -17305,6 +17455,149 @@ impl LogicFormatter for SimpleFOLFormatter {
     }
 }
 
+/// Formatter that produces Rust boolean expressions for runtime assertions.
+/// Used by codegen to convert LogicExpr into debug_assert!() compatible code.
+pub struct RustFormatter;
+
+impl LogicFormatter for RustFormatter {
+    // Operators map to Rust boolean operators
+    fn and(&self) -> &'static str { "&&" }
+    fn or(&self) -> &'static str { "||" }
+    fn not(&self) -> &'static str { "!" }
+    fn implies(&self) -> &'static str { "||" } // Handled via binary_op override
+    fn iff(&self) -> &'static str { "==" }
+    fn identity(&self) -> &'static str { " == " } // Rust equality
+    fn wrap_identity(&self) -> bool { true } // Wrap in parens for valid Rust
+
+    // Use full variable names, not abbreviations
+    fn use_full_names(&self) -> bool { true }
+    fn preserve_case(&self) -> bool { true } // Keep original variable case
+
+    // Quantifiers: runtime can't check universal quantification, emit comments
+    fn universal(&self) -> String { "/* ∀ */".to_string() }
+    fn existential(&self) -> String { "/* ∃ */".to_string() }
+    fn cardinal(&self, n: u32) -> String { format!("/* ∃={} */", n) }
+    fn at_least(&self, n: u32) -> String { format!("/* ∃≥{} */", n) }
+    fn at_most(&self, n: u32) -> String { format!("/* ∃≤{} */", n) }
+
+    // Modal/Temporal operators are stripped for runtime (not checkable)
+    fn necessity(&self) -> &'static str { "" }
+    fn possibility(&self) -> &'static str { "" }
+    fn past(&self) -> &'static str { "" }
+    fn future(&self) -> &'static str { "" }
+    fn progressive(&self) -> &'static str { "" }
+    fn perfect(&self) -> &'static str { "" }
+    fn habitual(&self) -> &'static str { "" }
+    fn iterative(&self) -> &'static str { "" }
+    fn passive(&self) -> &'static str { "" }
+    fn categorical_all(&self) -> &'static str { "" }
+    fn categorical_no(&self) -> &'static str { "" }
+    fn categorical_some(&self) -> &'static str { "" }
+    fn categorical_not(&self) -> &'static str { "" }
+
+    fn lambda(&self, var: &str, body: &str) -> String {
+        format!("|{}| {{ {} }}", var, body)
+    }
+
+    fn counterfactual(&self, a: &str, c: &str) -> String {
+        format!("/* if {} then {} */", a, c)
+    }
+
+    fn superlative(&self, _: &str, _: &str, _: &str) -> String {
+        "/* superlative */".to_string()
+    }
+
+    // Override comparative for Rust: map adjectives to comparison operators
+    fn write_comparative<W: Write>(
+        &self,
+        w: &mut W,
+        adjective: &str,
+        subject: &str,
+        object: &str,
+        _difference: Option<&str>,
+    ) -> std::fmt::Result {
+        let adj_lower = adjective.to_lowercase();
+        match adj_lower.as_str() {
+            "great" | "big" | "large" | "tall" | "old" | "high" | "more" | "greater" => {
+                write!(w, "({} > {})", subject, object)
+            }
+            "small" | "little" | "short" | "young" | "low" | "less" | "fewer" => {
+                write!(w, "({} < {})", subject, object)
+            }
+            _ => write!(w, "({} > {})", subject, object) // default to greater-than
+        }
+    }
+
+    // Override unary_op to wrap in parens for valid Rust
+    fn unary_op(&self, op: &TokenType, operand: &str) -> String {
+        match op {
+            TokenType::Not => format!("(!{})", operand),
+            _ => format!("/* unknown unary */({})", operand),
+        }
+    }
+
+    // Override binary_op for implication desugaring: A → B = !A || B
+    fn binary_op(&self, op: &TokenType, left: &str, right: &str) -> String {
+        match op {
+            TokenType::If | TokenType::Then => format!("(!({}) || ({}))", left, right),
+            TokenType::And => format!("({} && {})", left, right),
+            TokenType::Or => format!("({} || {})", left, right),
+            TokenType::Iff => format!("({} == {})", left, right),
+            _ => "/* unknown op */".to_string(),
+        }
+    }
+
+    // Core predicate mapping: semantic interpretation of predicates to Rust operators
+    fn write_predicate<W: Write>(
+        &self,
+        w: &mut W,
+        name: &str,
+        args: &[Term],
+        _registry: &mut SymbolRegistry,
+        interner: &Interner,
+    ) -> std::fmt::Result {
+        // Helper to render a term at given index to a string, preserving original case
+        let render = |idx: usize| -> String {
+            let mut buf = String::new();
+            if let Some(arg) = args.get(idx) {
+                let _ = arg.write_to_raw(&mut buf, interner);
+            }
+            buf
+        };
+
+        match name.to_lowercase().as_str() {
+            // Comparisons
+            "greater" if args.len() == 2 => write!(w, "({} > {})", render(0), render(1)),
+            "less" if args.len() == 2 => write!(w, "({} < {})", render(0), render(1)),
+            "equal" | "equals" if args.len() == 2 => write!(w, "({} == {})", render(0), render(1)),
+            "notequal" | "not_equal" if args.len() == 2 => write!(w, "({} != {})", render(0), render(1)),
+            "greaterequal" | "atleast" | "at_least" if args.len() == 2 => write!(w, "({} >= {})", render(0), render(1)),
+            "lessequal" | "atmost" | "at_most" if args.len() == 2 => write!(w, "({} <= {})", render(0), render(1)),
+
+            // Unary checks
+            "positive" if args.len() == 1 => write!(w, "({} > 0)", render(0)),
+            "negative" if args.len() == 1 => write!(w, "({} < 0)", render(0)),
+            "zero" if args.len() == 1 => write!(w, "({} == 0)", render(0)),
+            "empty" if args.len() == 1 => write!(w, "{}.is_empty()", render(0)),
+
+            // Collection membership
+            "in" if args.len() == 2 => write!(w, "{}.contains(&{})", render(1), render(0)),
+            "contains" if args.len() == 2 => write!(w, "{}.contains(&{})", render(0), render(1)),
+
+            // Fallback: method call for 1 arg, function call for N args
+            _ if args.len() == 1 => write!(w, "{}.is_{}()", render(0), name.to_lowercase()),
+            _ => {
+                write!(w, "{}(", name.to_lowercase())?;
+                for i in 0..args.len() {
+                    if i > 0 { write!(w, ", ")?; }
+                    write!(w, "{}", render(i))?;
+                }
+                write!(w, ")")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -17378,6 +17671,35 @@ mod tests {
     fn latex_counterfactual() {
         let f = LatexFormatter;
         assert_eq!(f.counterfactual("P", "Q"), r"(P \boxright Q)");
+    }
+
+    // RustFormatter tests
+    #[test]
+    fn rust_binary_operators() {
+        let f = RustFormatter;
+        assert_eq!(f.binary_op(&TokenType::And, "P", "Q"), "(P && Q)");
+        assert_eq!(f.binary_op(&TokenType::Or, "P", "Q"), "(P || Q)");
+        assert_eq!(f.binary_op(&TokenType::Iff, "P", "Q"), "(P == Q)");
+    }
+
+    #[test]
+    fn rust_implication_desugaring() {
+        let f = RustFormatter;
+        // A → B desugars to !A || B
+        assert_eq!(f.binary_op(&TokenType::If, "P", "Q"), "(!(P) || (Q))");
+    }
+
+    #[test]
+    fn rust_lambda() {
+        let f = RustFormatter;
+        assert_eq!(f.lambda("x", "x > 0"), "|x| { x > 0 }");
+    }
+
+    #[test]
+    fn rust_quantifiers_as_comments() {
+        let f = RustFormatter;
+        assert_eq!(f.universal(), "/* ∀ */");
+        assert_eq!(f.existential(), "/* ∃ */");
     }
 }
 
@@ -22580,8 +22902,9 @@ use std::fmt::Write;
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
-use crate::token::TokenType;
+use crate::registry::SymbolRegistry;
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
@@ -23336,101 +23659,16 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     }
 }
 
+/// Converts a LogicExpr to a Rust boolean expression for debug_assert!().
+/// Uses RustFormatter to unify all logic-to-Rust translation.
 pub fn codegen_assertion(expr: &LogicExpr, interner: &Interner) -> String {
-    match expr {
-        LogicExpr::Atom(sym) => interner.resolve(*sym).to_string(),
+    let mut registry = SymbolRegistry::new();
+    let formatter = RustFormatter;
+    let mut buf = String::new();
 
-        LogicExpr::Identity { left, right } => {
-            let left_str = codegen_term(left, interner);
-            let right_str = codegen_term(right, interner);
-            format!("({} == {})", left_str, right_str)
-        }
-
-        LogicExpr::Predicate { name, args } => {
-            let pred_name = interner.resolve(*name).to_lowercase();
-            match pred_name.as_str() {
-                "greater" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} > {})", left, right)
-                }
-                "less" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} < {})", left, right)
-                }
-                "equal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} == {})", left, right)
-                }
-                "greaterequal" | "greaterorequal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} >= {})", left, right)
-                }
-                "lessequal" | "lessorequal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} <= {})", left, right)
-                }
-                "positive" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} > 0)", arg)
-                }
-                "negative" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} < 0)", arg)
-                }
-                "zero" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} == 0)", arg)
-                }
-                _ => {
-                    let args_str: Vec<String> = args.iter()
-                        .map(|a| codegen_term(a, interner))
-                        .collect();
-                    format!("{}({})", interner.resolve(*name), args_str.join(", "))
-                }
-            }
-        }
-
-        LogicExpr::BinaryOp { left, op, right } => {
-            let left_str = codegen_assertion(left, interner);
-            let right_str = codegen_assertion(right, interner);
-            let op_str = match op {
-                TokenType::And => "&&",
-                TokenType::Or => "||",
-                TokenType::Iff => "==",
-                _ => "/* unknown op */",
-            };
-            format!("({} {} {})", left_str, op_str, right_str)
-        }
-
-        LogicExpr::UnaryOp { op, operand } => {
-            let operand_str = codegen_assertion(operand, interner);
-            match op {
-                TokenType::Not => format!("(!{})", operand_str),
-                _ => format!("/* unknown unary op */({})", operand_str),
-            }
-        }
-
-        LogicExpr::Comparative { adjective, subject, object, .. } => {
-            let adj_name = interner.resolve(*adjective).to_lowercase();
-            let subj_str = codegen_term(subject, interner);
-            let obj_str = codegen_term(object, interner);
-            match adj_name.as_str() {
-                "great" | "big" | "large" | "tall" | "old" | "high" => {
-                    format!("({} > {})", subj_str, obj_str)
-                }
-                "small" | "little" | "short" | "young" | "low" => {
-                    format!("({} < {})", subj_str, obj_str)
-                }
-                _ => format!("({} > {})", subj_str, obj_str), // default to greater-than
-            }
-        }
-
-        _ => "/* unsupported LogicExpr */true".to_string(),
+    match expr.write_logic(&mut buf, &mut registry, interner, &formatter) {
+        Ok(_) => buf,
+        Err(_) => "/* error generating assertion */ false".to_string(),
     }
 }
 
@@ -39489,6 +39727,1044 @@ pub fn Workspace(subject: String) -> Element {
 
 ---
 
+### Registry: Browse
+
+**File:** `src/ui/pages/registry/browse.rs`
+
+Package registry browser. Lists available LOGOS packages with search and filtering.
+
+```rust
+//! Phase 39: Registry Browse Page
+//!
+//! Main page for browsing and searching packages.
+
+use dioxus::prelude::*;
+use crate::ui::router::Route;
+use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
+
+const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+
+const REGISTRY_STYLE: &str = r#"
+.registry-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: #e8e8e8;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.registry-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 48px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.header-left h1 {
+    font-size: 24px;
+    font-weight: 700;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0;
+}
+
+.back-link {
+    color: #888;
+    text-decoration: none;
+    font-size: 14px;
+}
+
+.back-link:hover {
+    color: #fff;
+}
+
+.login-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: #24292e;
+    color: white;
+    text-decoration: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+
+.login-btn:hover {
+    background: #2f363d;
+}
+
+.user-menu {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.2);
+}
+
+.user-name {
+    font-size: 14px;
+    color: #e8e8e8;
+}
+
+.logout-btn {
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #888;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.logout-btn:hover {
+    border-color: rgba(255,255,255,0.4);
+    color: #fff;
+}
+
+.search-section {
+    padding: 48px;
+    text-align: center;
+}
+
+.search-title {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.search-subtitle {
+    color: #888;
+    margin-bottom: 32px;
+}
+
+.search-bar {
+    width: 100%;
+    max-width: 600px;
+    padding: 16px 24px;
+    font-size: 16px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    color: #fff;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.search-bar:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+.search-bar::placeholder {
+    color: #666;
+}
+
+.package-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 24px;
+    padding: 0 48px 48px;
+}
+
+.package-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 24px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.package-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(102, 126, 234, 0.4);
+    background: rgba(255,255,255,0.05);
+}
+
+.package-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+
+.package-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.verified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 999px;
+}
+
+.package-version {
+    font-size: 13px;
+    color: #888;
+    background: rgba(255,255,255,0.05);
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.package-description {
+    color: #aaa;
+    font-size: 14px;
+    line-height: 1.5;
+    margin-bottom: 16px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.package-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: #666;
+}
+
+.package-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.package-keywords {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.keyword-tag {
+    font-size: 11px;
+    padding: 3px 8px;
+    background: rgba(102, 126, 234, 0.15);
+    color: #667eea;
+    border-radius: 4px;
+}
+
+.loading-spinner {
+    text-align: center;
+    padding: 48px;
+    color: #888;
+}
+
+.error-message {
+    text-align: center;
+    padding: 48px;
+    color: #f87171;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 48px;
+    color: #888;
+}
+
+.stats-section {
+    display: flex;
+    justify-content: center;
+    gap: 48px;
+    padding: 24px 48px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #667eea;
+}
+
+.stat-label {
+    font-size: 13px;
+    color: #666;
+}
+"#;
+
+#[component]
+pub fn Registry() -> Element {
+    let mut auth_state = use_context::<RegistryAuthState>();
+    let auth_state_for_check = auth_state.clone();
+    let mut packages = use_signal(Vec::<RegistryPackage>::new);
+    let mut search_query = use_signal(String::new);
+    let mut is_loading = use_signal(|| true);
+    let mut error = use_signal(|| None::<String>);
+
+    // Check for OAuth callback params in URL
+    use_effect(move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(window) = web_sys::window() {
+                if let Ok(search) = window.location().search() {
+                    if let Ok(params) = web_sys::UrlSearchParams::new_with_str(&search) {
+                        if let Some(token) = params.get("token") {
+                            if let Some(login) = params.get("login") {
+                                // Login successful
+                                let user = GitHubUser {
+                                    id: String::new(),
+                                    login: login.clone(),
+                                    name: None,
+                                    avatar_url: None,
+                                };
+                                auth_state.login(token, user);
+
+                                // Clear URL params
+                                if let Ok(history) = window.history() {
+                                    let _ = history.replace_state_with_url(
+                                        &wasm_bindgen::JsValue::NULL,
+                                        "",
+                                        Some("/registry"),
+                                    );
+                                }
+                            }
+                        }
+
+                        if let Some(err) = params.get("error") {
+                            error.set(Some(err));
+                            // Clear URL params
+                            if let Ok(history) = window.history() {
+                                let _ = history.replace_state_with_url(
+                                    &wasm_bindgen::JsValue::NULL,
+                                    "",
+                                    Some("/registry"),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Fetch packages
+    use_effect(move || {
+        spawn(async move {
+            is_loading.set(true);
+            match fetch_packages(None).await {
+                Ok(pkgs) => packages.set(pkgs),
+                Err(e) => error.set(Some(e)),
+            }
+            is_loading.set(false);
+        });
+    });
+
+    let filtered_packages: Vec<RegistryPackage> = {
+        let query = search_query.read().to_lowercase();
+        if query.is_empty() {
+            packages.read().clone()
+        } else {
+            packages
+                .read()
+                .iter()
+                .filter(|p| {
+                    p.name.to_lowercase().contains(&query)
+                        || p.description
+                            .as_ref()
+                            .map(|d| d.to_lowercase().contains(&query))
+                            .unwrap_or(false)
+                        || p.keywords.iter().any(|k| k.to_lowercase().contains(&query))
+                })
+                .cloned()
+                .collect()
+        }
+    };
+
+    rsx! {
+        style { "{REGISTRY_STYLE}" }
+
+        div { class: "registry-container",
+            header { class: "registry-header",
+                div { class: "header-left",
+                    Link { to: Route::Home {}, class: "back-link", "< Back" }
+                    h1 { "Package Registry" }
+                }
+                div { class: "header-right",
+                    if auth_state_for_check.is_authenticated() {
+                        UserMenu { auth_state: auth_state_for_check.clone() }
+                    } else {
+                        a {
+                            class: "login-btn",
+                            href: "{RegistryAuthState::get_auth_url()}",
+                            // GitHub icon
+                            svg {
+                                width: "20",
+                                height: "20",
+                                view_box: "0 0 24 24",
+                                fill: "currentColor",
+                                path {
+                                    d: "M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
+                                }
+                            }
+                            "Login with GitHub"
+                        }
+                    }
+                }
+            }
+
+            div { class: "search-section",
+                h2 { class: "search-title", "Find LOGOS Packages" }
+                p { class: "search-subtitle", "Discover libraries to enhance your logic programs" }
+                input {
+                    class: "search-bar",
+                    r#type: "search",
+                    placeholder: "Search packages by name, description, or keyword...",
+                    value: "{search_query}",
+                    oninput: move |e| search_query.set(e.value()),
+                }
+            }
+
+            if *is_loading.read() {
+                div { class: "loading-spinner", "Loading packages..." }
+            } else if let Some(err) = error.read().as_ref() {
+                div { class: "error-message", "Error: {err}" }
+            } else if filtered_packages.is_empty() {
+                div { class: "empty-state",
+                    if search_query.read().is_empty() {
+                        "No packages published yet. Be the first!"
+                    } else {
+                        "No packages match your search."
+                    }
+                }
+            } else {
+                div { class: "package-grid",
+                    for package in filtered_packages {
+                        PackageCard { package: package }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn PackageCard(package: RegistryPackage) -> Element {
+    rsx! {
+        Link {
+            to: Route::PackageDetail { name: package.name.clone() },
+            class: "package-card",
+            div { class: "package-header",
+                h3 { class: "package-name",
+                    "{package.name}"
+                    if package.verified {
+                        span { class: "verified-badge", "Official" }
+                    }
+                }
+                if let Some(version) = &package.latest_version {
+                    span { class: "package-version", "v{version}" }
+                }
+            }
+            p { class: "package-description",
+                "{package.description.as_deref().unwrap_or(\"No description\")}"
+            }
+            div { class: "package-meta",
+                span { "{package.downloads} downloads" }
+                span { "by {package.owner}" }
+            }
+            if !package.keywords.is_empty() {
+                div { class: "package-keywords",
+                    for keyword in package.keywords.iter().take(3) {
+                        span { class: "keyword-tag", "{keyword}" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn UserMenu(auth_state: RegistryAuthState) -> Element {
+    let user = auth_state.user.read().clone();
+    let auth_for_logout = auth_state.clone();
+
+    rsx! {
+        div { class: "user-menu",
+            if let Some(u) = user.as_ref() {
+                if let Some(avatar) = &u.avatar_url {
+                    img {
+                        class: "user-avatar",
+                        src: "{avatar}",
+                        alt: "{u.login}"
+                    }
+                }
+                span { class: "user-name", "{u.login}" }
+            }
+            button {
+                class: "logout-btn",
+                onclick: move |_| {
+                    let mut auth = auth_for_logout.clone();
+                    auth.logout();
+                },
+                "Logout"
+            }
+        }
+    }
+}
+
+async fn fetch_packages(search: Option<&str>) -> Result<Vec<RegistryPackage>, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_net::http::Request;
+
+        let url = match search {
+            Some(q) if !q.is_empty() => format!("{}/packages?search={}", REGISTRY_API_URL, q),
+            _ => format!("{}/packages", REGISTRY_API_URL),
+        };
+
+        let response = Request::get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !response.ok() {
+            return Err("Failed to fetch packages".to_string());
+        }
+
+        #[derive(serde::Deserialize)]
+        struct PackagesResponse {
+            packages: Vec<RegistryPackage>,
+        }
+
+        let data: PackagesResponse = response.json().await.map_err(|e| e.to_string())?;
+        Ok(data.packages)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Ok(vec![])
+    }
+}
+
+```
+
+---
+
+### Registry: Module
+
+**File:** `src/ui/pages/registry/mod.rs`
+
+Registry pages module exports for Browse and PackageDetail pages.
+
+```rust
+//! Phase 39: Package Registry UI
+//!
+//! Browse, search, and view LOGOS packages.
+
+pub mod browse;
+pub mod package_detail;
+
+pub use browse::Registry;
+pub use package_detail::PackageDetail;
+
+```
+
+---
+
+### Registry: Package Detail
+
+**File:** `src/ui/pages/registry/package_detail.rs`
+
+Individual package view showing metadata, versions, dependencies, and documentation.
+
+```rust
+//! Phase 39: Package Detail Page
+//!
+//! View package README, versions, and dependencies.
+
+use dioxus::prelude::*;
+use crate::ui::router::Route;
+use crate::ui::state::PackageDetails;
+
+const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+
+const DETAIL_STYLE: &str = r#"
+.detail-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: #e8e8e8;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.detail-header {
+    padding: 24px 48px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.back-link {
+    color: #888;
+    text-decoration: none;
+    font-size: 14px;
+    margin-bottom: 16px;
+    display: inline-block;
+}
+
+.back-link:hover {
+    color: #fff;
+}
+
+.package-title {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 8px;
+}
+
+.package-title h1 {
+    font-size: 32px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.verified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+}
+
+.package-meta {
+    display: flex;
+    gap: 24px;
+    color: #888;
+    font-size: 14px;
+}
+
+.package-meta a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+.package-meta a:hover {
+    text-decoration: underline;
+}
+
+.detail-content {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 48px;
+    padding: 48px;
+}
+
+.main-content {
+    min-width: 0;
+}
+
+.tab-nav {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    padding-bottom: 0;
+}
+
+.tab-btn {
+    padding: 12px 24px;
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 14px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color 0.2s, border-color 0.2s;
+}
+
+.tab-btn:hover {
+    color: #fff;
+}
+
+.tab-btn.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+}
+
+.readme-content {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 32px;
+    line-height: 1.7;
+}
+
+.readme-content h1, .readme-content h2, .readme-content h3 {
+    color: #fff;
+    margin-top: 24px;
+    margin-bottom: 12px;
+}
+
+.readme-content code {
+    background: rgba(255,255,255,0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.readme-content pre {
+    background: rgba(0,0,0,0.3);
+    padding: 16px;
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.versions-list {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.version-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.version-item:last-child {
+    border-bottom: none;
+}
+
+.version-name {
+    font-weight: 600;
+    color: #fff;
+}
+
+.version-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 13px;
+    color: #666;
+}
+
+.yanked-badge {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+}
+
+.sidebar {
+    position: sticky;
+    top: 24px;
+}
+
+.sidebar-section {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+
+.sidebar-section h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0 0 16px;
+}
+
+.install-cmd {
+    display: block;
+    background: rgba(0,0,0,0.3);
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-family: monospace;
+    font-size: 14px;
+    color: #22c55e;
+    word-break: break-all;
+}
+
+.meta-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.meta-item:last-child {
+    border-bottom: none;
+}
+
+.meta-label {
+    color: #888;
+}
+
+.meta-value {
+    color: #fff;
+}
+
+.meta-value a {
+    color: #667eea;
+    text-decoration: none;
+}
+
+.meta-value a:hover {
+    text-decoration: underline;
+}
+
+.loading-spinner {
+    text-align: center;
+    padding: 48px;
+    color: #888;
+}
+
+.error-message {
+    text-align: center;
+    padding: 48px;
+    color: #f87171;
+}
+
+.keywords-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.keyword-tag {
+    font-size: 12px;
+    padding: 4px 10px;
+    background: rgba(102, 126, 234, 0.15);
+    color: #667eea;
+    border-radius: 4px;
+}
+"#;
+
+#[derive(Clone, PartialEq)]
+enum DetailTab {
+    Readme,
+    Versions,
+}
+
+#[component]
+pub fn PackageDetail(name: String) -> Element {
+    let mut details = use_signal(|| None::<PackageDetails>);
+    let mut error = use_signal(|| None::<String>);
+    let mut is_loading = use_signal(|| true);
+    let mut active_tab = use_signal(|| DetailTab::Readme);
+
+    // Fetch package details
+    use_effect({
+        let name = name.clone();
+        move || {
+            let name = name.clone();
+            spawn(async move {
+                is_loading.set(true);
+                match fetch_package_details(&name).await {
+                    Ok(d) => details.set(Some(d)),
+                    Err(e) => error.set(Some(e)),
+                }
+                is_loading.set(false);
+            });
+        }
+    });
+
+    rsx! {
+        style { "{DETAIL_STYLE}" }
+
+        div { class: "detail-container",
+            if *is_loading.read() {
+                div { class: "loading-spinner", "Loading package..." }
+            } else if let Some(err) = error.read().as_ref() {
+                div { class: "error-message",
+                    Link { to: Route::Registry {}, class: "back-link", "< Back to Registry" }
+                    p { "Error: {err}" }
+                }
+            } else if let Some(pkg) = details.read().as_ref() {
+                // Header
+                header { class: "detail-header",
+                    Link { to: Route::Registry {}, class: "back-link", "< Back to Registry" }
+                    div { class: "package-title",
+                        h1 { "{pkg.name}" }
+                        if pkg.verified {
+                            span { class: "verified-badge", "Official" }
+                        }
+                    }
+                    div { class: "package-meta",
+                        span { "by {pkg.owner}" }
+                        if let Some(repo) = &pkg.repository {
+                            a { href: "{repo}", target: "_blank", "Repository" }
+                        }
+                        if let Some(license) = &pkg.license {
+                            span { "{license}" }
+                        }
+                    }
+                }
+
+                // Content
+                div { class: "detail-content",
+                    main { class: "main-content",
+                        nav { class: "tab-nav",
+                            button {
+                                class: if *active_tab.read() == DetailTab::Readme { "tab-btn active" } else { "tab-btn" },
+                                onclick: move |_| active_tab.set(DetailTab::Readme),
+                                "README"
+                            }
+                            button {
+                                class: if *active_tab.read() == DetailTab::Versions { "tab-btn active" } else { "tab-btn" },
+                                onclick: move |_| active_tab.set(DetailTab::Versions),
+                                "Versions ({pkg.versions.len()})"
+                            }
+                        }
+
+                        match *active_tab.read() {
+                            DetailTab::Readme => rsx! {
+                                div { class: "readme-content",
+                                    if let Some(readme) = &pkg.readme {
+                                        // Note: In production, render markdown properly
+                                        pre { "{readme}" }
+                                    } else {
+                                        p { "No README available." }
+                                    }
+                                }
+                            },
+                            DetailTab::Versions => rsx! {
+                                div { class: "versions-list",
+                                    for version in pkg.versions.iter() {
+                                        div { class: "version-item",
+                                            span { class: "version-name",
+                                                "v{version.version}"
+                                                if version.yanked {
+                                                    span { class: "yanked-badge", "yanked" }
+                                                }
+                                            }
+                                            div { class: "version-meta",
+                                                span { "{format_size(version.size)}" }
+                                                span { "{version.published_at}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    }
+
+                    aside { class: "sidebar",
+                        div { class: "sidebar-section",
+                            h3 { "Install" }
+                            code { class: "install-cmd", "largo add {pkg.name}" }
+                        }
+
+                        div { class: "sidebar-section",
+                            h3 { "Details" }
+                            div { class: "meta-item",
+                                span { class: "meta-label", "Downloads" }
+                                span { class: "meta-value", "{pkg.downloads}" }
+                            }
+                            if !pkg.versions.is_empty() {
+                                div { class: "meta-item",
+                                    span { class: "meta-label", "Latest" }
+                                    span { class: "meta-value", "v{pkg.versions[0].version}" }
+                                }
+                            }
+                            if let Some(homepage) = &pkg.homepage {
+                                div { class: "meta-item",
+                                    span { class: "meta-label", "Homepage" }
+                                    span { class: "meta-value",
+                                        a { href: "{homepage}", target: "_blank", "Link" }
+                                    }
+                                }
+                            }
+                        }
+
+                        if !pkg.keywords.is_empty() {
+                            div { class: "sidebar-section",
+                                h3 { "Keywords" }
+                                div { class: "keywords-list",
+                                    for keyword in pkg.keywords.iter() {
+                                        span { class: "keyword-tag", "{keyword}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn format_size(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{} B", bytes)
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+async fn fetch_package_details(name: &str) -> Result<PackageDetails, String> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use gloo_net::http::Request;
+
+        let url = format!("{}/packages/{}", REGISTRY_API_URL, name);
+
+        let response = Request::get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !response.ok() {
+            return Err("Package not found".to_string());
+        }
+
+        response.json().await.map_err(|e| e.to_string())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Err("Not available in non-WASM builds".to_string())
+    }
+}
+
+```
+
+---
+
 ### Component: achievement_toast
 
 **File:** `src/ui/components/achievement_toast.rs`
@@ -43108,6 +44384,492 @@ pub fn args() -> Vec<String> {
 
 ---
 
+## Examples
+
+Example programs demonstrating LOGOS capabilities.
+
+**Location:** `examples/`
+
+### Demo: Transpiler Showcase
+
+**File:** `examples/demo.rs`
+
+Interactive demonstration of LOGICAFFEINE's English-to-FOL transpilation. Shows basic predication, temporal logic, aspectual operators, quantifiers, modals, relative clauses, and more with live output.
+
+```rust
+use logos::{compile, compile_all_scopes, compile_with_options, CompileOptions, OutputFormat};
+
+fn main() {
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!("                    LOGICAFFEINE 1.0 DEMO");
+    println!("              Montague Semantics + Lambda Calculus");
+    println!("═══════════════════════════════════════════════════════════════════\n");
+
+    section("BASIC PREDICATION");
+    demo(&[
+        "John runs.",
+        "Mary sleeps.",
+        "Socrates thinks.",
+        "The dog barks.",
+    ]);
+
+    section("TEMPORAL LOGIC (Past/Future)");
+    demo(&[
+        "John ran.",
+        "John runs.",
+        "John will run.",
+        "Mary jumped.",
+        "The dog barked.",
+        "The cat will sleep.",
+        "Socrates taught Plato.",
+    ]);
+
+    section("ASPECTUAL OPERATORS (Progressive)");
+    demo(&[
+        "John is running.",
+        "Mary is sleeping.",
+        "John was running.",
+        "The dog was barking.",
+        "Mary is reading.",
+    ]);
+
+    section("DEFINITENESS (Russell's Descriptions)");
+    demo(&[
+        "A dog barks.",
+        "The dog barks.",
+        "A cat sleeps.",
+        "The cat ran.",
+        "A man loves Mary.",
+        "The king is bald.",
+        "The president speaks.",
+    ]);
+
+    section("UNIVERSAL & EXISTENTIAL QUANTIFIERS");
+    demo(&[
+        "All men are mortal.",
+        "Some cats are black.",
+        "No dogs are cats.",
+        "All birds fly.",
+        "Some philosophers are wise.",
+        "No fish can walk.",
+        "Every student studies.",
+    ]);
+
+    section("GENERALIZED QUANTIFIERS");
+    demo(&[
+        "Most dogs bark.",
+        "Few cats swim.",
+        "Three dogs ran.",
+        "At least two birds fly.",
+        "At most five cats sleep.",
+    ]);
+
+    section("BINARY RELATIONS");
+    demo(&[
+        "John loves Mary.",
+        "Mary loves John.",
+        "Socrates taught Plato.",
+        "The cat chased the mouse.",
+        "Bill sees John.",
+    ]);
+
+    section("TERNARY RELATIONS (Ditransitives)");
+    demo(&[
+        "John gave the book to Mary.",
+        "Mary sent a letter to John.",
+    ]);
+
+    section("REFLEXIVE BINDING");
+    demo(&[
+        "John loves himself.",
+        "Mary sees herself.",
+        "John gave the book to himself.",
+        "The cat cleaned itself.",
+    ]);
+
+    section("RELATIVE CLAUSES (Subject Gap)");
+    demo(&[
+        "All dogs that bark are loud.",
+        "All cats that sleep are lazy.",
+        "All men who think are wise.",
+        "All birds that fly are free.",
+    ]);
+
+    section("RELATIVE CLAUSES (Object Gap)");
+    demo(&[
+        "The cat that the dog chased ran.",
+        "The man who Mary loves left.",
+        "The book that John read is good.",
+    ]);
+
+    section("ADJECTIVES AS PREDICATES");
+    demo(&[
+        "All happy dogs are friendly.",
+        "All old men are wise.",
+        "Some tall women are athletes.",
+        "All big cats are dangerous.",
+    ]);
+
+    section("MODAL OPERATORS (Alethic)");
+    demo(&[
+        "All cats must sleep.",
+        "Some birds can fly.",
+        "John can swim.",
+        "All code cannot run.",
+        "Mary can dance.",
+    ]);
+
+    section("MODAL OPERATORS (Deontic)");
+    demo(&[
+        "All students should study.",
+        "John may leave.",
+        "Mary should work.",
+    ]);
+
+    section("IDENTITY STATEMENTS");
+    demo(&[
+        "Clark is equal to Superman.",
+        "Socrates is identical to Socrates.",
+        "Hesperus is equal to Phosphorus.",
+        "Bruce is equal to Batman.",
+    ]);
+
+    section("LOGICAL CONNECTIVES");
+    demo(&[
+        "John runs and Mary sleeps.",
+        "John runs or Mary sleeps.",
+        "If John runs, then Mary sleeps.",
+        "A if and only if B.",
+        "All men are mortal and some cats are black.",
+    ]);
+
+    section("WH-QUESTIONS");
+    demo(&[
+        "Who loves Mary?",
+        "What does John love?",
+    ]);
+
+    section("YES/NO QUESTIONS");
+    demo(&[
+        "Does John love Mary?",
+        "Does the dog bark?",
+    ]);
+
+    section("PASSIVE VOICE");
+    demo(&[
+        "Mary was loved by John.",
+        "The book was read.",
+    ]);
+
+    println!("\n═══════════════════════════════════════════════════════════════════");
+    println!("                    SCOPE AMBIGUITY ANALYSIS");
+    println!("═══════════════════════════════════════════════════════════════════\n");
+
+    scope_demo("All dogs bark.");
+    scope_demo("John loves Mary.");
+    scope_demo("All men are mortal.");
+    scope_demo("Some cats are black.");
+
+    println!("\n═══════════════════════════════════════════════════════════════════");
+    println!("                       LaTeX OUTPUT");
+    println!("═══════════════════════════════════════════════════════════════════\n");
+
+    let latex_options = CompileOptions {
+        format: OutputFormat::LaTeX,
+    };
+
+    let latex_examples = vec![
+        "All men are mortal.",
+        "John ran.",
+        "John was running.",
+        "The dog barks.",
+        "A if and only if B.",
+        "Who loves Mary?",
+    ];
+
+    for input in &latex_examples {
+        println!("Input:  \"{}\"", input);
+        match compile_with_options(input, latex_options) {
+            Ok(output) => println!("LaTeX:  {}\n", output),
+            Err(e) => println!("Error:  {:?}\n", e),
+        }
+    }
+
+    section("COMPARATIVES (Degree Semantics)");
+    demo(&[
+        "John is taller than Mary.",
+        "The dog is faster than the cat.",
+        "Mary is smarter than John.",
+        "Bill is older than Bob.",
+    ]);
+
+    section("SUPERLATIVES");
+    demo(&[
+        "John is the tallest man.",
+        "Rex is the fastest dog.",
+        "Mary is the smartest student.",
+    ]);
+
+    section("PLURALS & AGGREGATION (Mereology)");
+    demo(&[
+        "John and Mary met.",
+        "John and Mary ran.",
+        "The students gathered.",
+        "Bill and Bob collaborated.",
+    ]);
+
+    section("EXISTENTIAL CLAIMS");
+    demo(&["God is."]);
+
+    section("SCOPAL ADVERBS");
+    demo(&[
+        "John almost died.",
+        "Mary nearly won.",
+        "John allegedly stole.",
+        "Bill probably left.",
+    ]);
+
+    section("CONTROL THEORY (Subject Control)");
+    demo(&[
+        "John wants to run.",
+        "Mary tried to leave.",
+        "Bill hopes to win.",
+        "John decided to stay.",
+    ]);
+
+    section("CONTROL THEORY (Object Control)");
+    demo(&[
+        "John persuaded Mary to leave.",
+        "Bill forced John to run.",
+        "Mary convinced Bill to stay.",
+    ]);
+
+    section("CONTROL THEORY (Promise - Special Case)");
+    demo(&["John promised Mary to leave."]);
+
+    section("PRESUPPOSITION TRIGGERS");
+    demo(&[
+        "John stopped smoking.",
+        "Mary started running.",
+        "John regrets leaving.",
+        "Bill stopped working.",
+        "Mary started singing.",
+    ]);
+
+    section("FOCUS OPERATORS");
+    demo(&[
+        "Only John loves Mary.",
+        "Even John ran.",
+        "Only Mary left.",
+        "Even Bill won.",
+    ]);
+
+    section("MANNER ADVERBS (Neo-Davidsonian)");
+    demo(&[
+        "John ran quickly.",
+        "Mary spoke loudly.",
+        "Bill worked carefully.",
+    ]);
+
+    section("COUNTERFACTUALS");
+    demo(&["If John had run, Mary would sleep."]);
+
+    section("POSSESSION (Genitive Case)");
+    demo(&[
+        "John's dog barks.",
+        "Mary's cat sleeps.",
+        "The king's horse ran.",
+        "The dog of John barks.",
+        "John loves Mary's cat.",
+        "John's dog chased the cat.",
+    ]);
+
+    section("DITRANSITIVE PASSIVES");
+    demo(&[
+        "The book was given to Mary by John.",
+        "The letter was sent to Bill by Mary.",
+        "The story was told to the children by the teacher.",
+    ]);
+
+    section("RAISING VERBS (vs Control)");
+    demo(&[
+        "John seems to sleep.",
+        "Mary appears to run.",
+        "John happens to win.",
+        "John wants to run.",
+    ]);
+
+    section("TEMPORAL ADVERBS (Time Coordinates)");
+    demo(&[
+        "John ran yesterday.",
+        "Mary runs today.",
+        "Bill will leave tomorrow.",
+        "John runs now.",
+    ]);
+
+    section("NON-INTERSECTIVE ADJECTIVES");
+    demo(&[
+        "A fake gun is dangerous.",
+        "A former senator spoke.",
+        "The alleged thief escaped.",
+    ]);
+
+    section("INTERSECTIVE VS NON-INTERSECTIVE");
+    demo(&[
+        "A red ball bounced.",
+        "A fake ball bounced.",
+    ]);
+
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!("                         SUMMARY");
+    println!("═══════════════════════════════════════════════════════════════════");
+    println!("Logicaffeine 1.0 supports:");
+    println!("  • First-Order Logic with N-ary predicates");
+    println!("  • Temporal operators (P, F) for tense");
+    println!("  • Aspectual operators (Prog, Perf)");
+    println!("  • Russell's definite descriptions");
+    println!("  • Generalized quantifiers (Most, Few, Cardinal, AtLeast, AtMost)");
+    println!("  • Modal logic (Alethic □/◇, Deontic O/P)");
+    println!("  • Lambda calculus (β-reduction)");
+    println!("  • Scope ambiguity enumeration");
+    println!("  • Wh-questions as lambda abstractions");
+    println!("  • Comparatives & Superlatives (Degree Semantics)");
+    println!("  • Plurals & Aggregation (Mereology)");
+    println!("  • Scopal Adverbs (Almost, Nearly, Allegedly, Probably)");
+    println!("  • Manner Adverbs (Neo-Davidsonian event semantics)");
+    println!("  • Existential claims (bare copula)");
+    println!("  • Control Theory (PRO binding - Subject/Object control)");
+    println!("  • Presupposition triggers (Stop, Start, Regret)");
+    println!("  • Focus operators (Only, Even)");
+    println!("  • Counterfactual conditionals");
+    println!("  • Reflexive binding (himself, herself, itself)");
+    println!("  • Relative clauses (subject-gap & object-gap)");
+    println!("  • Passive voice");
+    println!("  • Identity statements");
+    println!("  • Possession / Genitive case ('s and 'of' constructions)");
+    println!("  • Ditransitive passives ('given to X by Y')");
+    println!("  • Raising verbs (seem, appear, happen) vs Control verbs");
+    println!("  • Temporal adverbs (yesterday, today, tomorrow, now)");
+    println!("  • Non-intersective adjectives (fake, former, alleged)");
+    println!("═══════════════════════════════════════════════════════════════════\n");
+}
+
+fn section(title: &str) {
+    println!("--- {} ---\n", title);
+}
+
+fn demo(sentences: &[&str]) {
+    for input in sentences {
+        println!("  \"{}\"", input);
+        match compile(input) {
+            Ok(output) => println!("  → {}\n", output),
+            Err(e) => println!("  → Error: {:?}\n", e),
+        }
+    }
+}
+
+fn scope_demo(input: &str) {
+    println!("Input: \"{}\"", input);
+    match compile_all_scopes(input) {
+        Ok(readings) => {
+            println!("Readings: {}", readings.len());
+            for (i, reading) in readings.iter().enumerate() {
+                println!("  [{}] {}", i + 1, reading);
+            }
+        }
+        Err(e) => println!("Error: {:?}", e),
+    }
+    println!();
+}
+
+```
+
+---
+
+### Demo: Mergesort Compilation
+
+**File:** `examples/compile_mergesort.rs`
+
+End-to-end example compiling a complete LOGOS mergesort implementation to Rust. Demonstrates function definitions, collection operations, comparison operators, and recursive algorithms.
+
+```rust
+use logos::compile::compile_to_rust;
+
+fn main() {
+    let source = r#"## To Merge (left: Seq of Int) and (right: Seq of Int) -> Seq of Int:
+    Let result be a new Seq of Int.
+    Let i be 1.
+    Let j be 1.
+    Let n_left be length of left.
+    Let n_right be length of right.
+
+    While i is at most n_left and j is at most n_right:
+        Let l_val be item i of left.
+        Let r_val be item j of right.
+
+        If l_val is less than r_val:
+            Push l_val to result.
+            Set i to i + 1.
+        Otherwise:
+            Push r_val to result.
+            Set j to j + 1.
+
+    While i is at most n_left:
+        Let v be item i of left.
+        Push v to result.
+        Set i to i + 1.
+
+    While j is at most n_right:
+        Let v be item j of right.
+        Push v to result.
+        Set j to j + 1.
+
+    Return result.
+
+## To MergeSort (items: Seq of Int) -> Seq of Int:
+    Let n be length of items.
+    If n is less than 2:
+        Return copy of items.
+
+    Let mid be n / 2.
+    Let left_slice be items 1 through mid.
+    Let right_slice be items (mid + 1) through n.
+
+    Let sorted_left be MergeSort(copy of left_slice).
+    Let sorted_right be MergeSort(copy of right_slice).
+
+    Return Merge(sorted_left, sorted_right).
+
+## Main
+    Let numbers be a new Seq of Int.
+    Push 3 to numbers.
+    Push 1 to numbers.
+    Push 4 to numbers.
+    Push 1 to numbers.
+    Push 5 to numbers.
+    Push 9 to numbers.
+    Push 2 to numbers.
+    Push 6 to numbers.
+
+    Show numbers.
+    Let sorted be MergeSort(numbers).
+    Show sorted."#;
+
+    match compile_to_rust(source) {
+        Ok(rust_code) => {
+            print!("{}", rust_code);
+        }
+        Err(e) => {
+            eprintln!("Compilation error: {:?}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+```
+
+---
+
 ## Additional Modules
 
 Any additional source files not explicitly categorized above.
@@ -43842,8 +45604,9 @@ use std::fmt::Write;
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
-use crate::token::TokenType;
+use crate::registry::SymbolRegistry;
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
@@ -44598,101 +46361,16 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     }
 }
 
+/// Converts a LogicExpr to a Rust boolean expression for debug_assert!().
+/// Uses RustFormatter to unify all logic-to-Rust translation.
 pub fn codegen_assertion(expr: &LogicExpr, interner: &Interner) -> String {
-    match expr {
-        LogicExpr::Atom(sym) => interner.resolve(*sym).to_string(),
+    let mut registry = SymbolRegistry::new();
+    let formatter = RustFormatter;
+    let mut buf = String::new();
 
-        LogicExpr::Identity { left, right } => {
-            let left_str = codegen_term(left, interner);
-            let right_str = codegen_term(right, interner);
-            format!("({} == {})", left_str, right_str)
-        }
-
-        LogicExpr::Predicate { name, args } => {
-            let pred_name = interner.resolve(*name).to_lowercase();
-            match pred_name.as_str() {
-                "greater" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} > {})", left, right)
-                }
-                "less" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} < {})", left, right)
-                }
-                "equal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} == {})", left, right)
-                }
-                "greaterequal" | "greaterorequal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} >= {})", left, right)
-                }
-                "lessequal" | "lessorequal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} <= {})", left, right)
-                }
-                "positive" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} > 0)", arg)
-                }
-                "negative" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} < 0)", arg)
-                }
-                "zero" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} == 0)", arg)
-                }
-                _ => {
-                    let args_str: Vec<String> = args.iter()
-                        .map(|a| codegen_term(a, interner))
-                        .collect();
-                    format!("{}({})", interner.resolve(*name), args_str.join(", "))
-                }
-            }
-        }
-
-        LogicExpr::BinaryOp { left, op, right } => {
-            let left_str = codegen_assertion(left, interner);
-            let right_str = codegen_assertion(right, interner);
-            let op_str = match op {
-                TokenType::And => "&&",
-                TokenType::Or => "||",
-                TokenType::Iff => "==",
-                _ => "/* unknown op */",
-            };
-            format!("({} {} {})", left_str, op_str, right_str)
-        }
-
-        LogicExpr::UnaryOp { op, operand } => {
-            let operand_str = codegen_assertion(operand, interner);
-            match op {
-                TokenType::Not => format!("(!{})", operand_str),
-                _ => format!("/* unknown unary op */({})", operand_str),
-            }
-        }
-
-        LogicExpr::Comparative { adjective, subject, object, .. } => {
-            let adj_name = interner.resolve(*adjective).to_lowercase();
-            let subj_str = codegen_term(subject, interner);
-            let obj_str = codegen_term(object, interner);
-            match adj_name.as_str() {
-                "great" | "big" | "large" | "tall" | "old" | "high" => {
-                    format!("({} > {})", subj_str, obj_str)
-                }
-                "small" | "little" | "short" | "young" | "low" => {
-                    format!("({} < {})", subj_str, obj_str)
-                }
-                _ => format!("({} > {})", subj_str, obj_str), // default to greater-than
-            }
-        }
-
-        _ => "/* unsupported LogicExpr */true".to_string(),
+    match expr.write_logic(&mut buf, &mut registry, interner, &formatter) {
+        Ok(_) => buf,
+        Err(_) => "/* error generating assertion */ false".to_string(),
     }
 }
 
@@ -46550,7 +48228,7 @@ Rust package configuration with dependencies: bumpalo (arena allocator), dioxus 
 name = "logos"
 version = "0.1.0"
 edition = "2021"
-authors = ["Logicaffeine Team"]
+authors = ["Tristen Harr"]
 license = "BUSL-1.1"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
 build = "build.rs"
@@ -48095,11 +49773,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 06:39:25 CST 2025
+- **Generated:** Mon Dec 29 07:23:49 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 216ddc7
-- **Documentation Size:** 1.6M
+- **Git Commit:** 5168542
+- **Documentation Size:** 1.7M
 
 ---
 

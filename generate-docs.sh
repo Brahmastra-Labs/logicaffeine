@@ -119,9 +119,10 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Generator Engine](#generator-engine)
     - [Grader](#grader)
 20. [Logos Core Runtime](#logos-core-runtime)
+21. [Examples](#examples)
 
 ### Appendix
-16. [Metadata](#metadata)
+22. [Metadata](#metadata)
 
 ---
 
@@ -1763,6 +1764,10 @@ add_test_description "tests/integration_tests.rs" \
     "Comprehensive tests covering quantifiers, modals, temporal logic, relative clauses, and basic parsing." \
     "Universal, existential, and generic quantification patterns"
 
+add_test_description "tests/common/mod.rs" \
+    "E2E Test Harness" \
+    "Shared test utilities for E2E tests. Provides run_logos() function that compiles LOGOS source to Rust, creates a temp Cargo project, builds and runs it, and returns E2EResult with stdout/stderr/success/rust_code." \
+    "run_logos(source) -> E2EResult { stdout, stderr, success, rust_code }"
 
 # STATISTICS
 # ==============================================================================
@@ -2396,6 +2401,29 @@ if [ -d "src/ui" ]; then
                 esac
             fi
         done
+
+        # Registry subdirectory
+        if [ -d "src/ui/pages/registry" ]; then
+            for file in src/ui/pages/registry/*.rs; do
+                if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    case "$filename" in
+                        mod.rs)
+                            add_file "$file" "Registry: Module" "Registry pages module exports for Browse and PackageDetail pages."
+                            ;;
+                        browse.rs)
+                            add_file "$file" "Registry: Browse" "Package registry browser. Lists available LOGOS packages with search and filtering."
+                            ;;
+                        package_detail.rs)
+                            add_file "$file" "Registry: Package Detail" "Individual package view showing metadata, versions, dependencies, and documentation."
+                            ;;
+                        *)
+                            add_file "$file" "Registry: ${filename%.rs}" "Registry page component."
+                            ;;
+                    esac
+                fi
+            done
+        fi
     fi
 
     if [ -d "src/ui/components" ]; then
@@ -2570,6 +2598,25 @@ add_file "logos_core/src/env.rs" \
     "Environment access. get(key) retrieves environment variable, args() returns command-line arguments as Vec<String>."
 
 # ==============================================================================
+# EXAMPLES
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+## Examples
+
+Example programs demonstrating LOGOS capabilities.
+
+**Location:** `examples/`
+
+EOF
+
+add_file "examples/demo.rs" \
+    "Demo: Transpiler Showcase" \
+    "Interactive demonstration of LOGICAFFEINE's English-to-FOL transpilation. Shows basic predication, temporal logic, aspectual operators, quantifiers, modals, relative clauses, and more with live output."
+
+add_file "examples/compile_mergesort.rs" \
+    "Demo: Mergesort Compilation" \
+    "End-to-end example compiling a complete LOGOS mergesort implementation to Rust. Demonstrates function definitions, collection operations, comparison operators, and recursive algorithms."
+
 # ==============================================================================
 # DYNAMIC FILE DISCOVERY
 # ==============================================================================

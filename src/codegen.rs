@@ -4,8 +4,9 @@ use std::fmt::Write;
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
-use crate::token::TokenType;
+use crate::registry::SymbolRegistry;
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
@@ -760,101 +761,16 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     }
 }
 
+/// Converts a LogicExpr to a Rust boolean expression for debug_assert!().
+/// Uses RustFormatter to unify all logic-to-Rust translation.
 pub fn codegen_assertion(expr: &LogicExpr, interner: &Interner) -> String {
-    match expr {
-        LogicExpr::Atom(sym) => interner.resolve(*sym).to_string(),
+    let mut registry = SymbolRegistry::new();
+    let formatter = RustFormatter;
+    let mut buf = String::new();
 
-        LogicExpr::Identity { left, right } => {
-            let left_str = codegen_term(left, interner);
-            let right_str = codegen_term(right, interner);
-            format!("({} == {})", left_str, right_str)
-        }
-
-        LogicExpr::Predicate { name, args } => {
-            let pred_name = interner.resolve(*name).to_lowercase();
-            match pred_name.as_str() {
-                "greater" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} > {})", left, right)
-                }
-                "less" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} < {})", left, right)
-                }
-                "equal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} == {})", left, right)
-                }
-                "greaterequal" | "greaterorequal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} >= {})", left, right)
-                }
-                "lessequal" | "lessorequal" if args.len() == 2 => {
-                    let left = codegen_term(&args[0], interner);
-                    let right = codegen_term(&args[1], interner);
-                    format!("({} <= {})", left, right)
-                }
-                "positive" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} > 0)", arg)
-                }
-                "negative" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} < 0)", arg)
-                }
-                "zero" if args.len() == 1 => {
-                    let arg = codegen_term(&args[0], interner);
-                    format!("({} == 0)", arg)
-                }
-                _ => {
-                    let args_str: Vec<String> = args.iter()
-                        .map(|a| codegen_term(a, interner))
-                        .collect();
-                    format!("{}({})", interner.resolve(*name), args_str.join(", "))
-                }
-            }
-        }
-
-        LogicExpr::BinaryOp { left, op, right } => {
-            let left_str = codegen_assertion(left, interner);
-            let right_str = codegen_assertion(right, interner);
-            let op_str = match op {
-                TokenType::And => "&&",
-                TokenType::Or => "||",
-                TokenType::Iff => "==",
-                _ => "/* unknown op */",
-            };
-            format!("({} {} {})", left_str, op_str, right_str)
-        }
-
-        LogicExpr::UnaryOp { op, operand } => {
-            let operand_str = codegen_assertion(operand, interner);
-            match op {
-                TokenType::Not => format!("(!{})", operand_str),
-                _ => format!("/* unknown unary op */({})", operand_str),
-            }
-        }
-
-        LogicExpr::Comparative { adjective, subject, object, .. } => {
-            let adj_name = interner.resolve(*adjective).to_lowercase();
-            let subj_str = codegen_term(subject, interner);
-            let obj_str = codegen_term(object, interner);
-            match adj_name.as_str() {
-                "great" | "big" | "large" | "tall" | "old" | "high" => {
-                    format!("({} > {})", subj_str, obj_str)
-                }
-                "small" | "little" | "short" | "young" | "low" => {
-                    format!("({} < {})", subj_str, obj_str)
-                }
-                _ => format!("({} > {})", subj_str, obj_str), // default to greater-than
-            }
-        }
-
-        _ => "/* unsupported LogicExpr */true".to_string(),
+    match expr.write_logic(&mut buf, &mut registry, interner, &formatter) {
+        Ok(_) => buf,
+        Err(_) => "/* error generating assertion */ false".to_string(),
     }
 }
 

@@ -1,4 +1,8 @@
-use crate::ast::{AspectOperator, ModalDomain, QuantifierKind, TemporalOperator, VoiceOperator};
+use std::fmt::Write;
+
+use crate::ast::{AspectOperator, ModalDomain, QuantifierKind, TemporalOperator, Term, VoiceOperator};
+use crate::intern::Interner;
+use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
 
 pub trait LogicFormatter {
@@ -49,6 +53,16 @@ pub trait LogicFormatter {
     }
 
     fn not(&self) -> &'static str;
+
+    // Identity operator (used in Identity expressions)
+    fn identity(&self) -> &'static str {
+        " = "
+    }
+
+    // Whether to wrap identity expressions in parentheses
+    fn wrap_identity(&self) -> bool {
+        false
+    }
 
     // Modal operators
     fn modal(&self, domain: ModalDomain, force: f32, body: &str) -> String {
@@ -146,6 +160,52 @@ pub trait LogicFormatter {
     // Whether to use full predicate names instead of abbreviations
     fn use_full_names(&self) -> bool {
         false
+    }
+
+    // Whether to preserve original case (for code generation)
+    fn preserve_case(&self) -> bool {
+        false
+    }
+
+    /// Hook for customizing how comparatives are rendered.
+    /// Default implementation uses standard logic notation: tallER(subj, obj) or tallER(subj, obj, diff)
+    fn write_comparative<W: Write>(
+        &self,
+        w: &mut W,
+        adjective: &str,
+        subject: &str,
+        object: &str,
+        difference: Option<&str>,
+    ) -> std::fmt::Result {
+        if let Some(diff) = difference {
+            write!(w, "{}er({}, {}, {})", adjective, subject, object, diff)
+        } else {
+            write!(w, "{}er({}, {})", adjective, subject, object)
+        }
+    }
+
+    /// Hook for customizing how predicates are rendered.
+    /// Default implementation uses standard logic notation: Name(Arg1, Arg2)
+    fn write_predicate<W: Write>(
+        &self,
+        w: &mut W,
+        name: &str,
+        args: &[Term],
+        registry: &mut SymbolRegistry,
+        interner: &Interner,
+    ) -> std::fmt::Result {
+        write!(w, "{}(", self.sanitize(name))?;
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                write!(w, ", ")?;
+            }
+            if self.use_full_names() {
+                arg.write_to_full(w, registry, interner)?;
+            } else {
+                arg.write_to(w, registry, interner)?;
+            }
+        }
+        write!(w, ")")
     }
 }
 
@@ -318,6 +378,149 @@ impl LogicFormatter for SimpleFOLFormatter {
     }
 }
 
+/// Formatter that produces Rust boolean expressions for runtime assertions.
+/// Used by codegen to convert LogicExpr into debug_assert!() compatible code.
+pub struct RustFormatter;
+
+impl LogicFormatter for RustFormatter {
+    // Operators map to Rust boolean operators
+    fn and(&self) -> &'static str { "&&" }
+    fn or(&self) -> &'static str { "||" }
+    fn not(&self) -> &'static str { "!" }
+    fn implies(&self) -> &'static str { "||" } // Handled via binary_op override
+    fn iff(&self) -> &'static str { "==" }
+    fn identity(&self) -> &'static str { " == " } // Rust equality
+    fn wrap_identity(&self) -> bool { true } // Wrap in parens for valid Rust
+
+    // Use full variable names, not abbreviations
+    fn use_full_names(&self) -> bool { true }
+    fn preserve_case(&self) -> bool { true } // Keep original variable case
+
+    // Quantifiers: runtime can't check universal quantification, emit comments
+    fn universal(&self) -> String { "/* ∀ */".to_string() }
+    fn existential(&self) -> String { "/* ∃ */".to_string() }
+    fn cardinal(&self, n: u32) -> String { format!("/* ∃={} */", n) }
+    fn at_least(&self, n: u32) -> String { format!("/* ∃≥{} */", n) }
+    fn at_most(&self, n: u32) -> String { format!("/* ∃≤{} */", n) }
+
+    // Modal/Temporal operators are stripped for runtime (not checkable)
+    fn necessity(&self) -> &'static str { "" }
+    fn possibility(&self) -> &'static str { "" }
+    fn past(&self) -> &'static str { "" }
+    fn future(&self) -> &'static str { "" }
+    fn progressive(&self) -> &'static str { "" }
+    fn perfect(&self) -> &'static str { "" }
+    fn habitual(&self) -> &'static str { "" }
+    fn iterative(&self) -> &'static str { "" }
+    fn passive(&self) -> &'static str { "" }
+    fn categorical_all(&self) -> &'static str { "" }
+    fn categorical_no(&self) -> &'static str { "" }
+    fn categorical_some(&self) -> &'static str { "" }
+    fn categorical_not(&self) -> &'static str { "" }
+
+    fn lambda(&self, var: &str, body: &str) -> String {
+        format!("|{}| {{ {} }}", var, body)
+    }
+
+    fn counterfactual(&self, a: &str, c: &str) -> String {
+        format!("/* if {} then {} */", a, c)
+    }
+
+    fn superlative(&self, _: &str, _: &str, _: &str) -> String {
+        "/* superlative */".to_string()
+    }
+
+    // Override comparative for Rust: map adjectives to comparison operators
+    fn write_comparative<W: Write>(
+        &self,
+        w: &mut W,
+        adjective: &str,
+        subject: &str,
+        object: &str,
+        _difference: Option<&str>,
+    ) -> std::fmt::Result {
+        let adj_lower = adjective.to_lowercase();
+        match adj_lower.as_str() {
+            "great" | "big" | "large" | "tall" | "old" | "high" | "more" | "greater" => {
+                write!(w, "({} > {})", subject, object)
+            }
+            "small" | "little" | "short" | "young" | "low" | "less" | "fewer" => {
+                write!(w, "({} < {})", subject, object)
+            }
+            _ => write!(w, "({} > {})", subject, object) // default to greater-than
+        }
+    }
+
+    // Override unary_op to wrap in parens for valid Rust
+    fn unary_op(&self, op: &TokenType, operand: &str) -> String {
+        match op {
+            TokenType::Not => format!("(!{})", operand),
+            _ => format!("/* unknown unary */({})", operand),
+        }
+    }
+
+    // Override binary_op for implication desugaring: A → B = !A || B
+    fn binary_op(&self, op: &TokenType, left: &str, right: &str) -> String {
+        match op {
+            TokenType::If | TokenType::Then => format!("(!({}) || ({}))", left, right),
+            TokenType::And => format!("({} && {})", left, right),
+            TokenType::Or => format!("({} || {})", left, right),
+            TokenType::Iff => format!("({} == {})", left, right),
+            _ => "/* unknown op */".to_string(),
+        }
+    }
+
+    // Core predicate mapping: semantic interpretation of predicates to Rust operators
+    fn write_predicate<W: Write>(
+        &self,
+        w: &mut W,
+        name: &str,
+        args: &[Term],
+        _registry: &mut SymbolRegistry,
+        interner: &Interner,
+    ) -> std::fmt::Result {
+        // Helper to render a term at given index to a string, preserving original case
+        let render = |idx: usize| -> String {
+            let mut buf = String::new();
+            if let Some(arg) = args.get(idx) {
+                let _ = arg.write_to_raw(&mut buf, interner);
+            }
+            buf
+        };
+
+        match name.to_lowercase().as_str() {
+            // Comparisons
+            "greater" if args.len() == 2 => write!(w, "({} > {})", render(0), render(1)),
+            "less" if args.len() == 2 => write!(w, "({} < {})", render(0), render(1)),
+            "equal" | "equals" if args.len() == 2 => write!(w, "({} == {})", render(0), render(1)),
+            "notequal" | "not_equal" if args.len() == 2 => write!(w, "({} != {})", render(0), render(1)),
+            "greaterequal" | "atleast" | "at_least" if args.len() == 2 => write!(w, "({} >= {})", render(0), render(1)),
+            "lessequal" | "atmost" | "at_most" if args.len() == 2 => write!(w, "({} <= {})", render(0), render(1)),
+
+            // Unary checks
+            "positive" if args.len() == 1 => write!(w, "({} > 0)", render(0)),
+            "negative" if args.len() == 1 => write!(w, "({} < 0)", render(0)),
+            "zero" if args.len() == 1 => write!(w, "({} == 0)", render(0)),
+            "empty" if args.len() == 1 => write!(w, "{}.is_empty()", render(0)),
+
+            // Collection membership
+            "in" if args.len() == 2 => write!(w, "{}.contains(&{})", render(1), render(0)),
+            "contains" if args.len() == 2 => write!(w, "{}.contains(&{})", render(0), render(1)),
+
+            // Fallback: method call for 1 arg, function call for N args
+            _ if args.len() == 1 => write!(w, "{}.is_{}()", render(0), name.to_lowercase()),
+            _ => {
+                write!(w, "{}(", name.to_lowercase())?;
+                for i in 0..args.len() {
+                    if i > 0 { write!(w, ", ")?; }
+                    write!(w, "{}", render(i))?;
+                }
+                write!(w, ")")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -391,5 +594,34 @@ mod tests {
     fn latex_counterfactual() {
         let f = LatexFormatter;
         assert_eq!(f.counterfactual("P", "Q"), r"(P \boxright Q)");
+    }
+
+    // RustFormatter tests
+    #[test]
+    fn rust_binary_operators() {
+        let f = RustFormatter;
+        assert_eq!(f.binary_op(&TokenType::And, "P", "Q"), "(P && Q)");
+        assert_eq!(f.binary_op(&TokenType::Or, "P", "Q"), "(P || Q)");
+        assert_eq!(f.binary_op(&TokenType::Iff, "P", "Q"), "(P == Q)");
+    }
+
+    #[test]
+    fn rust_implication_desugaring() {
+        let f = RustFormatter;
+        // A → B desugars to !A || B
+        assert_eq!(f.binary_op(&TokenType::If, "P", "Q"), "(!(P) || (Q))");
+    }
+
+    #[test]
+    fn rust_lambda() {
+        let f = RustFormatter;
+        assert_eq!(f.lambda("x", "x > 0"), "|x| { x > 0 }");
+    }
+
+    #[test]
+    fn rust_quantifiers_as_comments() {
+        let f = RustFormatter;
+        assert_eq!(f.universal(), "/* ∀ */");
+        assert_eq!(f.existential(), "/* ∃ */");
     }
 }
