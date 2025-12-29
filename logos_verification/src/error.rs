@@ -203,6 +203,18 @@ impl VerificationError {
         }
     }
 
+    /// Create a refinement type violation error.
+    pub fn refinement_violation(type_name: impl Into<String>, explanation: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::RefinementViolation {
+                type_name: type_name.into(),
+            },
+            span: None,
+            explanation: explanation.into(),
+            counterexample: None,
+        }
+    }
+
     /// Set the span for this error.
     pub fn with_span(mut self, start: usize, end: usize) -> Self {
         self.span = Some((start, end));

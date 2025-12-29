@@ -93,6 +93,8 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
     - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
+    - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
+    - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
     - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
     - [End-to-End Tests](#end-to-end-tests)
@@ -219,6 +221,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Zone System** - Region-based memory with Heap (bumpalo arena) and Mapped (memmap2 file) variants; escape analysis enforces Hotel California rule; O(1) alloc/bulk dealloc
 - **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
 - **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
+- **Z3 Static Verification** - Smart Full Mapping: Int/Bool direct, Object uninterpreted sort, Predicates/Modals/Temporals → Apply; \`compile_to_rust_verified()\` opt-in; graceful degradation for complex linguistic constructs
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1679,6 +1682,16 @@ add_test_description "tests/phase42_drs.rs" \
     "Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries." \
     "Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))"
 
+add_test_description "tests/phase_verification.rs" \
+    "Phase 42b: Z3 Static Verification" \
+    "Z3 SMT solver tests for static verification. Tests tautology/contradiction checking, integer bounds (>, <, ==), and LicensePlan access control. Verifier uses validity check: P is valid iff NOT(P) is UNSAT. Requires verification feature." \
+    "Assert x > 5 (with x = 10) → Z3 proves valid"
+
+add_test_description "tests/phase_verification_refinement.rs" \
+    "Phase 42c: Refinement Verification" \
+    "Static verification of refinement type constraints. Tests valid/invalid literals (-5 rejected for 'it > 0'), variable tracking through Let bindings, compound predicates (it > 0 and it < 100), boundary conditions (>= 0 allows 0), and comparison operators (>, <, >=, <=, ==). verify_with_binding() proves constraints." \
+    "Let x: Int where it > 0 be -5. → Verification failed: refinement predicate not satisfied"
+
 add_test_description "tests/phase43_type_check.rs" \
     "Phase 43B: Type Checking" \
     "Static type checking for LOGOS. Detects type mismatches between annotations and literals. TypeMismatch error reports expected vs found types." \
@@ -2133,7 +2146,7 @@ add_file "src/codegen.rs" \
 
 add_file "src/compile.rs" \
     "Compilation Orchestration" \
-    "High-level compilation pipeline. compile_to_rust() coordinates lexer→parser→codegen for imperative programs. Manages parser mode switching between declarative and imperative contexts. Handles ## Main and ## Definition block routing."
+    "High-level compilation pipeline. compile_to_rust() coordinates lexer→parser→codegen for imperative programs. compile_to_rust_verified() adds Z3 verification pass for Assert statements (requires verification feature). Manages parser mode switching between declarative and imperative contexts. Handles ## Main and ## Definition block routing."
 
 add_file "src/scope.rs" \
     "Scope Management" \
@@ -2245,6 +2258,10 @@ add_file "src/diagnostic.rs" \
 add_file "src/sourcemap.rs" \
     "Source Map" \
     "Maps generated Rust code back to LOGOS source positions. OwnershipRole enum (GiveObject, GiveRecipient, ShowObject, ShowRecipient, LetBinding, SetTarget, ZoneLocal) tracks semantic context. VarOrigin stores logos_name, span, and role. Enables friendly error messages for ownership/lifetime violations."
+
+add_file "src/verification.rs" \
+    "Verification Pass (AST Mapper)" \
+    "Bridges LOGOS AST to logos_verification IR. VerificationPass maps Stmt::Let → declare+assume, Stmt::Set → assume (simplified SSA), Stmt::Assert/Trust → verify. check_refinement() verifies refinement type constraints at Let bindings. Maps LogicExpr to VerifyExpr with special handling for comparison predicates (Greater, Less, GreaterEqual, LessEqual, Equal, NotEqual). Complex linguistic constructs gracefully degrade to Bool(true)."
 
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Suggestions & Styling
@@ -2635,6 +2652,45 @@ add_file "logos_core/src/env.rs" \
 add_file "logos_core/src/memory.rs" \
     "Zone Memory Management" \
     "Phase 8.5 & 8.6: Zone-based memory. Zone enum with Heap (bumpalo arena) and Mapped (memmap2 file) variants. new_heap(capacity) for arena allocation, new_mapped(path) for zero-copy file IO. alloc()/alloc_slice() for heap zones, as_slice() for mapped zones. reset() for bulk deallocation. Implements 'Hotel California' rule: values can enter but cannot escape."
+
+# ==============================================================================
+# LOGOS VERIFICATION CRATE
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+
+## Logos Verification Crate
+
+**Location:** `logos_verification/`
+
+Z3-based static verification for LOGOS Assert statements. Premium feature requiring Pro+ license.
+
+### Architecture
+
+- **Smart Full Mapping**: Int/Bool → direct Z3 sorts; Object → uninterpreted sort; Predicates/Modals/Temporals → Apply (uninterpreted functions)
+- Z3 reasons structurally without semantic knowledge
+- Validity check: P is valid iff NOT(P) is UNSAT
+
+EOF
+
+add_file "logos_verification/src/lib.rs" \
+    "Verification Crate Entry" \
+    "Re-exports VerifyExpr, VerifyOp, VerifyType, Verifier, VerificationSession, LicensePlan, LicenseValidator, VerificationError. Smart Full Mapping strategy documentation."
+
+add_file "logos_verification/src/ir.rs" \
+    "Verification IR" \
+    "Lightweight AST for Z3 encoding. VerifyType (Int, Bool, Object), VerifyOp (arithmetic, comparison, logic), VerifyExpr (Int, Bool, Var, Binary, Not, ForAll, Exists, Apply). Convenience methods: eq, gt, lt, gte, lte, neq, and, or, implies. Apply is the 'catch-all' for uninterpreted functions."
+
+add_file "logos_verification/src/solver.rs" \
+    "Z3 Solver Wrapper" \
+    "Verifier struct with check_bool(), check_int_greater_than(), check_int_less_than(), check_int_equals(). VerificationSession for incremental constraint building with declare(), assume(), verify(). verify_with_binding() for scoped refinement type checking. Encoder converts VerifyExpr to Z3 ASTs."
+
+add_file "logos_verification/src/license.rs" \
+    "License Validation" \
+    "LicensePlan enum (None, Free, Supporter, Pro, Premium, Lifetime, Enterprise) with can_verify() method. LicenseValidator validates Stripe subscription IDs (sub_*) against api.logicaffeine.com/validate with 24-hour caching."
+
+add_file "logos_verification/src/error.rs" \
+    "Verification Errors" \
+    "VerificationError with Socratic explanations. Kinds: ContradictoryAssertion, BoundsViolation, RefinementViolation, LicenseRequired, LicenseInvalid, LicenseInsufficientPlan, SolverUnknown, SolverError. CounterExample provides failing variable assignments."
 
 # ==============================================================================
 # EXAMPLES

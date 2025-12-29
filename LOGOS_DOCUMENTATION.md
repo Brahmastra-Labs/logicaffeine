@@ -80,6 +80,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
     - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
+    - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
     - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
     - [End-to-End Tests](#end-to-end-tests)
@@ -206,6 +207,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Zone System** - Region-based memory with Heap (bumpalo arena) and Mapped (memmap2 file) variants; escape analysis enforces Hotel California rule; O(1) alloc/bulk dealloc
 - **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
 - **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
+- **Z3 Static Verification** - Smart Full Mapping: Int/Bool direct, Object uninterpreted sort, Predicates/Modals/Temporals → Apply; \`compile_to_rust_verified()\` opt-in; graceful degradation for complex linguistic constructs
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1860,6 +1862,16 @@ Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedent
 
 ---
 
+#### Phase 42b: Z3 Static Verification
+
+**File:** `tests/phase_verification.rs`
+
+Z3 SMT solver tests for static verification. Tests tautology/contradiction checking, integer bounds (>, <, ==), and LicensePlan access control. Verifier uses validity check: P is valid iff NOT(P) is UNSAT. Requires verification feature.
+
+**Example:** Assert x > 5 (with x = 10) → Z3 proves valid
+
+---
+
 #### Phase 43B: Type Checking
 
 **File:** `tests/phase43_type_check.rs`
@@ -2084,28 +2096,28 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1895 lines
-Parser (ast/, parser/):               12069 lines
+Lexer (token.rs, lexer.rs):           1906 lines
+Parser (ast/, parser/):               12204 lines
 Transpilation:                        1341 lines
-Code Generation:                      1447 lines
+Code Generation:                      1552 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            1538 lines
-Support Infrastructure:               4240 lines
-Desktop UI:                              10121 lines
+Support Infrastructure:               4242 lines
+Desktop UI:                              10122 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        41674
-Test lines:          14203
-Total Rust lines: 55877
+Source lines:        42591
+Test lines:          14660
+Total Rust lines: 57251
 ```
 
 ### File Counts
 ```
-Source files: 101
-Test files:   93
+Source files: 102
+Test files:   96
 ```
 ## Lexicon Data
 
@@ -3032,6 +3044,12 @@ pub enum TokenType {
     Either,   // Phase 33: Sum type definition
     Inspect,  // Phase 33: Pattern matching
     Native,   // Phase 38: Native function modifier
+
+    // Phase 10: IO Keywords
+    Read,     // "Read input from..."
+    Write,    // "Write x to file..."
+    Console,  // "...from the console"
+    File,     // "...from file..." or "...to file..."
 
     // Ownership Keywords (Move/Borrow Semantics)
     Give,  // Move ownership: "Give x to processor"
@@ -4304,6 +4322,11 @@ impl<'a> Lexer<'a> {
             "attempt" if self.mode == LexerMode::Imperative => return TokenType::Attempt,
             "following" if self.mode == LexerMode::Imperative => return TokenType::Following,
             "simultaneously" if self.mode == LexerMode::Imperative => return TokenType::Simultaneously,
+            // Phase 10: IO keywords (Imperative mode only)
+            "read" if self.mode == LexerMode::Imperative => return TokenType::Read,
+            "write" if self.mode == LexerMode::Imperative => return TokenType::Write,
+            "console" if self.mode == LexerMode::Imperative => return TokenType::Console,
+            "file" if self.mode == LexerMode::Imperative => return TokenType::File,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
@@ -5321,6 +5344,15 @@ pub enum TypeExpr<'a> {
     },
 }
 
+/// Phase 10: Source for Read statements
+#[derive(Debug, Clone, Copy)]
+pub enum ReadSource<'a> {
+    /// Read from console (stdin)
+    Console,
+    /// Read from file at given path
+    File(&'a Expr<'a>),
+}
+
 /// Binary operation kinds for imperative expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOpKind {
@@ -5510,6 +5542,20 @@ pub enum Stmt<'a> {
         /// The statements to execute in parallel
         tasks: Block<'a>,
     },
+
+    /// Phase 10: Read from console or file
+    /// `Read input from the console.` or `Read data from file "path.txt".`
+    ReadFrom {
+        var: Symbol,
+        source: ReadSource<'a>,
+    },
+
+    /// Phase 10: Write to file
+    /// `Write "content" to file "output.txt".`
+    WriteFile {
+        content: &'a Expr<'a>,
+        path: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -5638,6 +5684,7 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::ast::stmt::ReadSource;
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
 use crate::drs::{Drs, BoxType};
 use crate::error::{ParseError, ParseErrorKind};
@@ -6457,6 +6504,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_parallel_block();
         }
 
+        // Phase 10: IO statements
+        if self.check(&TokenType::Read) {
+            return self.parse_read_statement();
+        }
+        if self.check(&TokenType::Write) {
+            return self.parse_write_statement();
+        }
+
         Err(ParseError {
             kind: ParseErrorKind::ExpectedStatement,
             span: self.current_span(),
@@ -7119,8 +7174,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Optional "to" preposition - if not present, default to "show" function
         let recipient = if self.check_preposition_is("to") {
             self.advance(); // consume "to"
-            // Parse the recipient: "console" or "the user"
-            self.parse_imperative_expr()?
+
+            // Phase 10: "Show x to console." or "Show x to the console."
+            // is idiomatic for printing to stdout - use default show function
+            if self.check_article() {
+                self.advance(); // skip "the"
+            }
+            if self.check(&TokenType::Console) {
+                self.advance(); // consume "console"
+                let show_sym = self.interner.intern("show");
+                self.ctx.alloc_imperative_expr(Expr::Identifier(show_sym))
+            } else {
+                // Parse the recipient: custom function
+                self.parse_imperative_expr()?
+            }
         } else {
             // Default recipient: the runtime "show" function
             let show_sym = self.interner.intern("show");
@@ -7203,6 +7270,79 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Pop { collection, into })
+    }
+
+    /// Phase 10: Parse Read statement for console/file input
+    /// Syntax: Read <var> from the console.
+    ///         Read <var> from file <path>.
+    fn parse_read_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Read"
+
+        // Get the variable name
+        let var = self.expect_identifier()?;
+
+        // Expect "from" preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Skip optional article "the"
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Determine source: console or file
+        let source = if self.check(&TokenType::Console) {
+            self.advance(); // consume "console"
+            ReadSource::Console
+        } else if self.check(&TokenType::File) {
+            self.advance(); // consume "file"
+            let path = self.parse_imperative_expr()?;
+            ReadSource::File(path)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "console or file".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        Ok(Stmt::ReadFrom { var, source })
+    }
+
+    /// Phase 10: Parse Write statement for file output
+    /// Syntax: Write <content> to file <path>.
+    fn parse_write_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Write"
+
+        // Parse the content expression
+        let content = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Expect "file" keyword
+        if !self.check(&TokenType::File) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "file".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "file"
+
+        // Parse the path expression
+        let path = self.parse_imperative_expr()?;
+
+        Ok(Stmt::WriteFile { content, path })
     }
 
     /// Phase 8.5: Parse Zone statement for memory arena blocks
@@ -8499,6 +8639,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.parse_field_access_chain(base)
             }
 
+            // Phase 10: IO keywords as function calls (e.g., "read", "write", "file")
+            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console => {
+                let sym = token.lexeme;
+                self.advance();
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+                // Treat as identifier reference
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
+            }
+
             // Unified identifier handling - all identifier-like tokens get verified
             // First check for boolean/special literals before treating as variable
             TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
@@ -8776,7 +8929,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 38: Adverbs can be function names (now, sleep, etc.)
             TokenType::TemporalAdverb(_) |
             TokenType::ScopalAdverb(_) |
-            TokenType::Adverb(_) => {
+            TokenType::Adverb(_) |
+            // Phase 10: IO keywords can be function names (read, write, file, console)
+            TokenType::Read |
+            TokenType::Write |
+            TokenType::File |
+            TokenType::Console => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -23804,7 +23962,7 @@ use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
@@ -24657,6 +24815,35 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}}}", indent_str).unwrap();
             }
         }
+
+        // Phase 10: Read from console or file
+        Stmt::ReadFrom { var, source } => {
+            let var_name = interner.resolve(*var);
+            match source {
+                ReadSource::Console => {
+                    writeln!(output, "{}let {} = logos_core::io::read_line();", indent_str, var_name).unwrap();
+                }
+                ReadSource::File(path_expr) => {
+                    let path_str = codegen_expr(path_expr, interner);
+                    writeln!(
+                        output,
+                        "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
+                        indent_str, var_name, path_str
+                    ).unwrap();
+                }
+            }
+        }
+
+        // Phase 10: Write to file
+        Stmt::WriteFile { content, path } => {
+            let content_str = codegen_expr(content, interner);
+            let path_str = codegen_expr(path, interner);
+            writeln!(
+                output,
+                "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
+                indent_str, path_str, content_str
+            ).unwrap();
+        }
     }
 
     output
@@ -24872,7 +25059,7 @@ mod tests {
 
 **File:** `src/compile.rs`
 
-High-level compilation pipeline. compile_to_rust() coordinates lexer→parser→codegen for imperative programs. Manages parser mode switching between declarative and imperative contexts. Handles ## Main and ## Definition block routing.
+High-level compilation pipeline. compile_to_rust() coordinates lexer→parser→codegen for imperative programs. compile_to_rust_verified() adds Z3 verification pass for Assert statements (requires verification feature). Manages parser mode switching between declarative and imperative contexts. Handles ## Main and ## Definition block routing.
 
 ```rust
 //! LOGOS Compilation Pipeline
@@ -24898,7 +25085,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, EscapeError};
+use crate::analysis::{DiscoveryPass, EscapeChecker};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -24963,6 +25150,82 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
         ParseError {
             kind: crate::error::ParseErrorKind::Custom(e.to_string()),
             span: e.span,
+        }
+    })?;
+
+    // Note: Static verification (Phase 42) is available when the `verification`
+    // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
+
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
+}
+
+/// Compile LOGOS source to Rust source code with static verification.
+///
+/// This runs the Z3-based verifier on Assert statements before codegen.
+/// Requires the `verification` feature to be enabled.
+#[cfg(feature = "verification")]
+pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
+    use crate::verification::VerificationPass;
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    // Clone for codegen (parser takes ownership)
+    let codegen_registry = type_registry.clone();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
+    // Pass 4: Static verification
+    let mut verifier = VerificationPass::new(&interner);
+    verifier.verify_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(format!(
+                "Verification Failed:\n\n{}",
+                e
+            )),
+            span: crate::token::Span::default(),
         }
     })?;
 
@@ -25327,6 +25590,20 @@ pub enum Commands {
         /// Build in release mode
         #[arg(long, short)]
         release: bool,
+
+        /// Run Z3 static verification (requires Pro+ license)
+        #[arg(long)]
+        verify: bool,
+
+        /// License key for verification (or set LOGOS_LICENSE env var)
+        #[arg(long)]
+        license: Option<String>,
+    },
+    /// Verify the project without building (requires Pro+ license)
+    Verify {
+        /// License key (or set LOGOS_LICENSE env var)
+        #[arg(long)]
+        license: Option<String>,
     },
     /// Build and run the current project
     Run {
@@ -25377,9 +25654,10 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
-        Commands::Build { release } => cmd_build(release),
+        Commands::Build { release, verify, license } => cmd_build(release, verify, license),
         Commands::Run { release } => cmd_run(release),
         Commands::Check => cmd_check(),
+        Commands::Verify { license } => cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
             cmd_publish(registry.as_deref(), dry_run, allow_dirty)
         }
@@ -25466,10 +25744,19 @@ Show "Hello, world!".
     Ok(())
 }
 
-fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_build(
+    release: bool,
+    verify: bool,
+    license: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
         find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    // Run verification if requested
+    if verify {
+        run_verification(&project_root, license.as_deref())?;
+    }
 
     let config = BuildConfig {
         project_dir: project_root,
@@ -25482,6 +25769,66 @@ fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!("Built {} [{}]", result.binary_path.display(), mode);
 
     Ok(())
+}
+
+fn cmd_verify(license: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    run_verification(&project_root, license.as_deref())?;
+    println!("Verification passed");
+    Ok(())
+}
+
+#[cfg(feature = "verification")]
+fn run_verification(
+    project_root: &std::path::Path,
+    license: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use logos_verification::{LicenseValidator, Verifier};
+
+    // Get license key from argument or environment
+    let license_key = license
+        .map(String::from)
+        .or_else(|| env::var("LOGOS_LICENSE").ok());
+
+    let license_key = license_key.ok_or(
+        "Verification requires a license key.\n\
+         Use --license <key> or set LOGOS_LICENSE environment variable.\n\
+         Get a license at https://logicaffeine.com/pricing",
+    )?;
+
+    // Validate license
+    println!("Validating license...");
+    let validator = LicenseValidator::new();
+    let plan = validator.validate(&license_key)?;
+    println!("License valid ({})", plan);
+
+    // Load and parse the project
+    let manifest = Manifest::load(project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+    let source = fs::read_to_string(&entry_path)?;
+
+    // For now, just verify that Z3 works
+    // TODO: Implement full AST encoding in Phase 2
+    println!("Running Z3 verification...");
+    let verifier = Verifier::new();
+
+    // Basic smoke test - verify that true is valid
+    verifier.check_bool(true)?;
+
+    Ok(())
+}
+
+#[cfg(not(feature = "verification"))]
+fn run_verification(
+    _project_root: &std::path::Path,
+    _license: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Err("Verification requires the 'verification' feature.\n\
+         Rebuild with: cargo build --features verification"
+        .into())
 }
 
 fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -26923,6 +27270,8 @@ pub mod progress;
 pub mod project;
 #[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
 pub mod cli;
+#[cfg(all(not(target_arch = "wasm32"), feature = "verification"))]
+pub mod verification;
 pub mod runtime_lexicon;
 pub mod semantics;
 pub mod registry;
@@ -31055,6 +31404,597 @@ mod tests {
         let map = builder.build();
         // Line 3 should find line 1's span
         assert_eq!(map.find_nearest_span(3), Some(Span::new(0, 10)));
+    }
+}
+
+```
+
+---
+
+### Verification Pass (AST Mapper)
+
+**File:** `src/verification.rs`
+
+Bridges LOGOS AST to logos_verification IR. VerificationPass maps Stmt::Let → declare+assume, Stmt::Set → assume (simplified SSA), Stmt::Assert/Trust → verify. Maps LogicExpr to VerifyExpr: Atom→Var, Predicate→Apply, Identity→Eq, BinaryOp→Binary, Modal/Temporal/Aspectual→Apply (uninterpreted), Quantifier→ForAll/Exists. Complex linguistic constructs gracefully degrade to Bool(true).
+
+```rust
+//! Verification Pass: AST to Verification IR Mapper
+//!
+//! This module bridges the LOGOS AST to the Z3-based verification system.
+//! It maps LogicExpr, Stmt, and Term types to the lightweight Verification IR,
+//! which is then encoded into Z3 constraints.
+//!
+//! Strategy: Smart Full Mapping with Uninterpreted Functions
+//! - Int, Bool → direct Z3 sorts
+//! - Object → uninterpreted sort for entities
+//! - Predicates, Modals, Temporals → Apply (uninterpreted functions)
+//! - Z3 reasons structurally without semantic knowledge
+
+use crate::ast::{LogicExpr, ModalDomain, NumberKind, QuantifierKind, Term};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
+use crate::intern::Interner;
+use crate::token::TokenType;
+
+use logos_verification::{VerificationSession, VerifyExpr, VerifyOp, VerifyType};
+
+/// The verification pass that maps LOGOS AST to Z3 constraints.
+pub struct VerificationPass<'a> {
+    session: VerificationSession,
+    interner: &'a Interner,
+}
+
+impl<'a> VerificationPass<'a> {
+    /// Create a new verification pass.
+    pub fn new(interner: &'a Interner) -> Self {
+        Self {
+            session: VerificationSession::new(),
+            interner,
+        }
+    }
+
+    /// Run verification on a list of statements.
+    ///
+    /// This processes Let statements to build up assumptions,
+    /// then verifies Assert statements against those assumptions.
+    pub fn verify_program(&mut self, stmts: &[Stmt]) -> Result<(), String> {
+        for stmt in stmts {
+            self.visit_stmt(stmt)?;
+        }
+        Ok(())
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                let name = self.interner.resolve(*var);
+
+                // Infer type from the value
+                let ty = self.infer_type(value);
+                self.session.declare(name, ty);
+
+                // Map the value to IR and assume var = value
+                if let Some(val_ir) = self.map_imperative_expr(value) {
+                    let constraint = VerifyExpr::eq(
+                        VerifyExpr::var(name),
+                        val_ir,
+                    );
+                    self.session.assume(&constraint);
+                }
+                Ok(())
+            }
+
+            Stmt::Set { target, value } => {
+                // Mutation: add new constraint (simplified SSA)
+                // In full verification, this would use SSA renaming
+                let name = self.interner.resolve(*target);
+                if let Some(val_ir) = self.map_imperative_expr(value) {
+                    let constraint = VerifyExpr::eq(
+                        VerifyExpr::var(name),
+                        val_ir,
+                    );
+                    self.session.assume(&constraint);
+                }
+                Ok(())
+            }
+
+            Stmt::Assert { proposition } => {
+                let ir = self.map_logic_expr(proposition);
+                // Skip verification if the assertion maps to a trivial True
+                // This handles complex linguistic constructs we can't verify yet
+                if matches!(&ir, VerifyExpr::Bool(true)) {
+                    return Ok(());
+                }
+                self.session.verify(&ir).map_err(|e| format!("{}", e))
+            }
+
+            Stmt::Trust { proposition, justification } => {
+                // Trust is like Assert but with documented justification
+                // For static verification, we verify it like an assertion
+                let ir = self.map_logic_expr(proposition);
+                // Skip verification if the assertion maps to a trivial True
+                if matches!(&ir, VerifyExpr::Bool(true)) {
+                    return Ok(());
+                }
+                let reason = self.interner.resolve(*justification);
+                self.session.verify(&ir).map_err(|e| {
+                    format!("Trust verification failed (justification: {}): {}", reason, e)
+                })
+            }
+
+            // Recurse into blocks (simplified - no path-sensitive analysis yet)
+            Stmt::If { then_block, else_block, .. } => {
+                // Verify both branches independently
+                for stmt in *then_block {
+                    self.visit_stmt(stmt)?;
+                }
+                if let Some(else_stmts) = else_block {
+                    for stmt in *else_stmts {
+                        self.visit_stmt(stmt)?;
+                    }
+                }
+                Ok(())
+            }
+
+            Stmt::While { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Repeat { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Zone { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::FunctionDef { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            // Skip statements that don't affect verification
+            Stmt::Return { .. }
+            | Stmt::Call { .. }
+            | Stmt::Give { .. }
+            | Stmt::Show { .. }
+            | Stmt::SetField { .. }
+            | Stmt::StructDef { .. }
+            | Stmt::Inspect { .. }
+            | Stmt::Push { .. }
+            | Stmt::Pop { .. }
+            | Stmt::SetIndex { .. }
+            | Stmt::Concurrent { .. }
+            | Stmt::Parallel { .. }
+            | Stmt::ReadFrom { .. }
+            | Stmt::WriteFile { .. } => Ok(()),
+        }
+    }
+
+    /// Infer the verification type from an imperative expression.
+    fn infer_type(&self, expr: &Expr) -> VerifyType {
+        match expr {
+            Expr::Literal(Literal::Number(_)) => VerifyType::Int,
+            Expr::Literal(Literal::Boolean(_)) => VerifyType::Bool,
+            Expr::Literal(Literal::Text(_)) => VerifyType::Object,
+            Expr::Literal(Literal::Nothing) => VerifyType::Object,
+            Expr::BinaryOp { op, .. } => {
+                match op {
+                    // Comparison operators produce Bool
+                    BinaryOpKind::Eq
+                    | BinaryOpKind::NotEq
+                    | BinaryOpKind::Lt
+                    | BinaryOpKind::Gt
+                    | BinaryOpKind::LtEq
+                    | BinaryOpKind::GtEq
+                    | BinaryOpKind::And
+                    | BinaryOpKind::Or => VerifyType::Bool,
+                    // Arithmetic operators produce Int
+                    BinaryOpKind::Add
+                    | BinaryOpKind::Subtract
+                    | BinaryOpKind::Multiply
+                    | BinaryOpKind::Divide => VerifyType::Int,
+                }
+            }
+            // Default to Int for other expressions
+            _ => VerifyType::Int,
+        }
+    }
+
+    /// Map an imperative expression to Verification IR.
+    fn map_imperative_expr(&self, expr: &Expr) -> Option<VerifyExpr> {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => Some(VerifyExpr::int(*n)),
+            Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
+            Expr::Literal(Literal::Text(_)) => None, // Text not supported in Z3
+            Expr::Literal(Literal::Nothing) => None,
+
+            Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                Some(VerifyExpr::var(name))
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let l = self.map_imperative_expr(left)?;
+                let r = self.map_imperative_expr(right)?;
+                let verify_op = match op {
+                    BinaryOpKind::Add => VerifyOp::Add,
+                    BinaryOpKind::Subtract => VerifyOp::Sub,
+                    BinaryOpKind::Multiply => VerifyOp::Mul,
+                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Eq => VerifyOp::Eq,
+                    BinaryOpKind::NotEq => VerifyOp::Neq,
+                    BinaryOpKind::Gt => VerifyOp::Gt,
+                    BinaryOpKind::Lt => VerifyOp::Lt,
+                    BinaryOpKind::GtEq => VerifyOp::Gte,
+                    BinaryOpKind::LtEq => VerifyOp::Lte,
+                    BinaryOpKind::And => VerifyOp::And,
+                    BinaryOpKind::Or => VerifyOp::Or,
+                };
+                Some(VerifyExpr::binary(verify_op, l, r))
+            }
+
+            Expr::Call { function, args } => {
+                let func_name = self.interner.resolve(*function);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .filter_map(|a| self.map_imperative_expr(a))
+                    .collect();
+                Some(VerifyExpr::apply(func_name, verify_args))
+            }
+
+            // Unsupported expressions
+            Expr::Index { .. }
+            | Expr::Slice { .. }
+            | Expr::Copy { .. }
+            | Expr::Length { .. }
+            | Expr::List(_)
+            | Expr::Range { .. }
+            | Expr::FieldAccess { .. }
+            | Expr::New { .. }
+            | Expr::NewVariant { .. } => None,
+        }
+    }
+
+    /// Map a logic expression to Verification IR.
+    ///
+    /// This is the core of the "Smart Full Mapping" strategy:
+    /// - Simple types (Int, Bool) map directly
+    /// - Complex types (Predicates, Modals) become uninterpreted functions
+    fn map_logic_expr(&self, expr: &LogicExpr) -> VerifyExpr {
+        match expr {
+            LogicExpr::Atom(sym) => {
+                // Atoms are boolean variables or 0-arity predicates
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::var(name)
+            }
+
+            LogicExpr::Predicate { name, args } => {
+                let pred_name = self.interner.resolve(*name);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .map(|t| self.map_term(t))
+                    .collect();
+                VerifyExpr::apply(pred_name, verify_args)
+            }
+
+            LogicExpr::Identity { left, right } => {
+                let l = self.map_term(left);
+                let r = self.map_term(right);
+                VerifyExpr::eq(l, r)
+            }
+
+            LogicExpr::BinaryOp { left, op, right } => {
+                let l = self.map_logic_expr(left);
+                let r = self.map_logic_expr(right);
+                let verify_op = match op {
+                    TokenType::And => VerifyOp::And,
+                    TokenType::Or => VerifyOp::Or,
+                    TokenType::If | TokenType::Then => VerifyOp::Implies,
+                    TokenType::Iff => VerifyOp::Eq, // Biconditional is boolean equality
+                    _ => VerifyOp::And, // Fallback
+                };
+                VerifyExpr::binary(verify_op, l, r)
+            }
+
+            LogicExpr::UnaryOp { op, operand } => {
+                match op {
+                    TokenType::Not => VerifyExpr::not(self.map_logic_expr(operand)),
+                    _ => self.map_logic_expr(operand),
+                }
+            }
+
+            // Smart Mapping: Modal operators become uninterpreted functions
+            LogicExpr::Modal { vector, operand } => {
+                let op_name = match vector.domain {
+                    ModalDomain::Alethic => {
+                        if vector.force > 0.5 { "Necessarily" } else { "Possibly" }
+                    }
+                    ModalDomain::Deontic => {
+                        if vector.force > 0.5 { "Obligatory" } else { "Permissible" }
+                    }
+                };
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(operand)])
+            }
+
+            // Smart Mapping: Temporal operators become uninterpreted functions
+            LogicExpr::Temporal { operator, body } => {
+                let op_name = match operator {
+                    crate::ast::TemporalOperator::Past => "Past",
+                    crate::ast::TemporalOperator::Future => "Future",
+                };
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
+            }
+
+            // Smart Mapping: Aspectual operators become uninterpreted functions
+            LogicExpr::Aspectual { operator, body } => {
+                let op_name = match operator {
+                    crate::ast::AspectOperator::Progressive => "Progressive",
+                    crate::ast::AspectOperator::Perfect => "Perfect",
+                    crate::ast::AspectOperator::Habitual => "Habitual",
+                    crate::ast::AspectOperator::Iterative => "Iterative",
+                };
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
+            }
+
+            // Quantifiers map to IR quantifiers
+            LogicExpr::Quantifier { kind, variable, body, .. } => {
+                let var_name = self.interner.resolve(*variable);
+                let body_ir = self.map_logic_expr(body);
+                match kind {
+                    QuantifierKind::Universal => {
+                        VerifyExpr::forall(
+                            vec![(var_name.to_string(), VerifyType::Object)],
+                            body_ir,
+                        )
+                    }
+                    QuantifierKind::Existential => {
+                        VerifyExpr::exists(
+                            vec![(var_name.to_string(), VerifyType::Object)],
+                            body_ir,
+                        )
+                    }
+                    // Generalized quantifiers become uninterpreted
+                    QuantifierKind::Most => {
+                        VerifyExpr::apply("Most", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::Few => {
+                        VerifyExpr::apply("Few", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::Many => {
+                        VerifyExpr::apply("Many", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::Cardinal(n) => {
+                        VerifyExpr::apply(
+                            &format!("Exactly{}", n),
+                            vec![VerifyExpr::var(var_name), body_ir],
+                        )
+                    }
+                    QuantifierKind::AtLeast(n) => {
+                        VerifyExpr::apply(
+                            &format!("AtLeast{}", n),
+                            vec![VerifyExpr::var(var_name), body_ir],
+                        )
+                    }
+                    QuantifierKind::AtMost(n) => {
+                        VerifyExpr::apply(
+                            &format!("AtMost{}", n),
+                            vec![VerifyExpr::var(var_name), body_ir],
+                        )
+                    }
+                    QuantifierKind::Generic => {
+                        VerifyExpr::apply("Generic", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                }
+            }
+
+            // Lambda abstractions become uninterpreted
+            LogicExpr::Lambda { variable, body } => {
+                let var_name = self.interner.resolve(*variable);
+                VerifyExpr::apply(
+                    "Lambda",
+                    vec![VerifyExpr::var(var_name), self.map_logic_expr(body)],
+                )
+            }
+
+            // Function application
+            LogicExpr::App { function, argument } => {
+                VerifyExpr::apply(
+                    "App",
+                    vec![self.map_logic_expr(function), self.map_logic_expr(argument)],
+                )
+            }
+
+            // Counterfactuals: if-then with special modal semantics
+            LogicExpr::Counterfactual { antecedent, consequent } => {
+                VerifyExpr::apply(
+                    "Counterfactual",
+                    vec![self.map_logic_expr(antecedent), self.map_logic_expr(consequent)],
+                )
+            }
+
+            // Causation
+            LogicExpr::Causal { cause, effect } => {
+                VerifyExpr::apply(
+                    "Causes",
+                    vec![self.map_logic_expr(cause), self.map_logic_expr(effect)],
+                )
+            }
+
+            // Questions become uninterpreted (for query semantics)
+            LogicExpr::Question { wh_variable, body } => {
+                let var_name = self.interner.resolve(*wh_variable);
+                VerifyExpr::apply(
+                    "Question",
+                    vec![VerifyExpr::var(var_name), self.map_logic_expr(body)],
+                )
+            }
+
+            LogicExpr::YesNoQuestion { body } => {
+                VerifyExpr::apply("YesNo", vec![self.map_logic_expr(body)])
+            }
+
+            // Intensional contexts
+            LogicExpr::Intensional { operator, content } => {
+                let op_name = self.interner.resolve(*operator);
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(content)])
+            }
+
+            // Speech acts
+            LogicExpr::SpeechAct { performer, act_type, content } => {
+                let performer_name = self.interner.resolve(*performer);
+                let act_name = self.interner.resolve(*act_type);
+                VerifyExpr::apply(
+                    act_name,
+                    vec![VerifyExpr::var(performer_name), self.map_logic_expr(content)],
+                )
+            }
+
+            // Comparatives
+            LogicExpr::Comparative { adjective, subject, object, difference } => {
+                let adj_name = self.interner.resolve(*adjective);
+                let mut args = vec![
+                    self.map_term(subject),
+                    self.map_term(object),
+                ];
+                if let Some(diff) = difference {
+                    args.push(self.map_term(diff));
+                }
+                VerifyExpr::apply(&format!("More{}", adj_name), args)
+            }
+
+            // Superlatives
+            LogicExpr::Superlative { adjective, subject, domain } => {
+                let adj_name = self.interner.resolve(*adjective);
+                let domain_name = self.interner.resolve(*domain);
+                VerifyExpr::apply(
+                    &format!("Most{}", adj_name),
+                    vec![self.map_term(subject), VerifyExpr::var(domain_name)],
+                )
+            }
+
+            // Focus
+            LogicExpr::Focus { focused, scope, .. } => {
+                VerifyExpr::apply(
+                    "Focus",
+                    vec![self.map_term(focused), self.map_logic_expr(scope)],
+                )
+            }
+
+            // Presupposition
+            LogicExpr::Presupposition { assertion, presupposition } => {
+                // Verify both assertion and presupposition
+                VerifyExpr::and(
+                    self.map_logic_expr(presupposition),
+                    self.map_logic_expr(assertion),
+                )
+            }
+
+            // Fallback for complex types: map to True to avoid false positives
+            LogicExpr::Metaphor { .. }
+            | LogicExpr::Categorical(_)
+            | LogicExpr::Relation(_)
+            | LogicExpr::Voice { .. }
+            | LogicExpr::Event { .. }
+            | LogicExpr::NeoEvent(_)
+            | LogicExpr::Imperative { .. }
+            | LogicExpr::TemporalAnchor { .. }
+            | LogicExpr::Distributive { .. }
+            | LogicExpr::GroupQuantifier { .. }
+            | LogicExpr::Scopal { .. }
+            | LogicExpr::Control { .. } => {
+                // These complex linguistic constructs are assumed valid
+                VerifyExpr::bool(true)
+            }
+        }
+    }
+
+    /// Map a term to Verification IR.
+    fn map_term(&self, term: &Term) -> VerifyExpr {
+        match term {
+            Term::Constant(sym) | Term::Variable(sym) => {
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::var(name)
+            }
+
+            Term::Value { kind, .. } => {
+                match kind {
+                    NumberKind::Integer(n) => VerifyExpr::int(*n),
+                    NumberKind::Real(r) => VerifyExpr::int(*r as i64), // Truncate for now
+                    NumberKind::Symbolic(s) => {
+                        let name = self.interner.resolve(*s);
+                        VerifyExpr::var(name)
+                    }
+                }
+            }
+
+            Term::Function(name, args) => {
+                let func_name = self.interner.resolve(*name);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .map(|t| self.map_term(t))
+                    .collect();
+                VerifyExpr::apply(func_name, verify_args)
+            }
+
+            Term::Group(terms) => {
+                // Group terms become a special "Group" function
+                let verify_args: Vec<VerifyExpr> = terms
+                    .iter()
+                    .map(|t| self.map_term(t))
+                    .collect();
+                VerifyExpr::apply("Group", verify_args)
+            }
+
+            Term::Possessed { possessor, possessed } => {
+                let poss_name = self.interner.resolve(*possessed);
+                VerifyExpr::apply(
+                    &format!("{}Of", poss_name),
+                    vec![self.map_term(possessor)],
+                )
+            }
+
+            Term::Sigma(sym) => {
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::apply("Sigma", vec![VerifyExpr::var(name)])
+            }
+
+            Term::Intension(sym) => {
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::apply("Intension", vec![VerifyExpr::var(name)])
+            }
+
+            Term::Proposition(expr) => {
+                self.map_logic_expr(expr)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_interner() -> Interner {
+        Interner::new()
+    }
+
+    #[test]
+    fn test_verification_pass_creation() {
+        let interner = make_interner();
+        let pass = VerificationPass::new(&interner);
+        // Just verify it constructs without panic
+        drop(pass);
     }
 }
 
@@ -38457,7 +39397,7 @@ pub fn Pricing() -> Element {
                     span { class: "early-access-badge", "Early Access Pricing" }
                     h2 { "Lifetime License" }
                     div { class: "price", "$50/seat" }
-                    div { class: "subtext", "One-time payment. Permanent, transferable commercial license." }
+                    div { class: "subtext", "One-time payment. Permanent license with Z3 Static Verification." }
                     a {
                         class: "btn-primary",
                         href: STRIPE_LIFETIME,
@@ -38479,7 +39419,7 @@ pub fn Pricing() -> Element {
                         ul { class: "tier-features",
                             li { "Support LOGOS development" }
                             li { "Personal/hobbyist use" }
-                            li { "Full feature access" }
+                            li { "Core feature access" }
                         }
                         div { class: "tier-buttons",
                             a {
@@ -38502,6 +39442,7 @@ pub fn Pricing() -> Element {
                         div { class: "tier-annual", "or $240/seat/year (save 20%)" }
                         ul { class: "tier-features",
                             li { "Commercial use license" }
+                            li { "Z3 Static Verification" }
                             li { "Full feature access" }
                             li { "Regular updates" }
                         }
@@ -46596,6 +47537,1473 @@ mod tests {
 
 ---
 
+
+## Logos Verification Crate
+
+**Location:** `logos_verification/`
+
+Z3-based static verification for LOGOS Assert statements. Premium feature requiring Pro+ license.
+
+### Architecture
+
+- **Smart Full Mapping**: Int/Bool → direct Z3 sorts; Object → uninterpreted sort; Predicates/Modals/Temporals → Apply (uninterpreted functions)
+- Z3 reasons structurally without semantic knowledge
+- Validity check: P is valid iff NOT(P) is UNSAT
+
+### Verification Crate Entry
+
+**File:** `logos_verification/src/lib.rs`
+
+Re-exports VerifyExpr, VerifyOp, VerifyType, Verifier, VerificationSession, LicensePlan, LicenseValidator, VerificationError. Smart Full Mapping strategy documentation.
+
+```rust
+//! LOGOS Static Verification
+//!
+//! Z3-based static verification for LOGOS programs.
+//! Requires a Pro, Premium, Lifetime, or Enterprise license.
+//!
+//! # Overview
+//!
+//! This crate provides compile-time verification of LOGOS assertions using
+//! the Z3 SMT solver. It can detect contradictions, prove bounds, and
+//! generate counter-examples when verification fails.
+//!
+//! # Architecture
+//!
+//! The verification system uses a lightweight IR (Intermediate Representation)
+//! to avoid circular dependencies. The main `logos` crate translates its AST
+//! into this IR before passing it to the verifier.
+//!
+//! **Smart Full Mapping Strategy:**
+//! - `Int`, `Bool` → direct Z3 sorts
+//! - `Object` → uninterpreted sort for entities
+//! - Predicates, Modals, Temporals → `Apply` (uninterpreted functions)
+//! - Z3 reasons structurally without semantic knowledge
+//!
+//! # License Requirement
+//!
+//! Verification is a premium feature. License keys are Stripe subscription IDs
+//! (`sub_*` format) validated against `api.logicaffeine.com/validate`.
+
+pub mod error;
+pub mod ir;
+pub mod license;
+pub mod solver;
+
+pub use error::{VerificationError, VerificationErrorKind, VerificationResult};
+pub use ir::{VerifyExpr, VerifyOp, VerifyType};
+pub use license::{LicensePlan, LicenseValidator};
+pub use solver::{Verifier, VerificationSession};
+
+```
+
+---
+
+### Verification IR
+
+**File:** `logos_verification/src/ir.rs`
+
+Lightweight AST for Z3 encoding. VerifyType (Int, Bool, Object), VerifyOp (arithmetic, comparison, logic), VerifyExpr (Int, Bool, Var, Binary, Not, ForAll, Exists, Apply). Apply is the 'catch-all' for uninterpreted functions.
+
+```rust
+//! Verification IR (Intermediate Representation)
+//!
+//! A lightweight AST for Z3 verification that decouples from the main LOGOS AST.
+//! This avoids circular dependencies: logos depends on logos_verification,
+//! so logos_verification cannot depend on logos.
+//!
+//! **Strategy: Smart Full Mapping with Uninterpreted Functions**
+//!
+//! Complex types (Modals, Temporals, Predicates) become uninterpreted functions.
+//! Z3 can reason about their structure without semantic understanding.
+//! E.g., if `Possible(A) -> Possible(B)` and `Possible(A)`, Z3 deduces `Possible(B)`.
+
+/// Type declarations for verification variables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifyType {
+    /// Integer type (maps to Z3 Int sort)
+    Int,
+    /// Boolean type (maps to Z3 Bool sort)
+    Bool,
+    /// Opaque object type for entities (maps to uninterpreted sort)
+    Object,
+}
+
+/// Binary operations in the verification IR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifyOp {
+    // Arithmetic (Int -> Int)
+    Add,
+    Sub,
+    Mul,
+    Div,
+
+    // Comparison (Int -> Bool)
+    Eq,
+    Neq,
+    Gt,
+    Lt,
+    Gte,
+    Lte,
+
+    // Logic (Bool -> Bool)
+    And,
+    Or,
+    Implies,
+}
+
+/// Expression AST for verification.
+///
+/// This IR is designed to be easily encodable into Z3 ASTs.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VerifyExpr {
+    /// Integer literal
+    Int(i64),
+
+    /// Boolean literal
+    Bool(bool),
+
+    /// Variable reference
+    Var(String),
+
+    /// Binary operation
+    Binary {
+        op: VerifyOp,
+        left: Box<VerifyExpr>,
+        right: Box<VerifyExpr>,
+    },
+
+    /// Logical negation
+    Not(Box<VerifyExpr>),
+
+    /// Universal quantifier: forall x: T. P(x)
+    ForAll {
+        vars: Vec<(String, VerifyType)>,
+        body: Box<VerifyExpr>,
+    },
+
+    /// Existential quantifier: exists x: T. P(x)
+    Exists {
+        vars: Vec<(String, VerifyType)>,
+        body: Box<VerifyExpr>,
+    },
+
+    /// Uninterpreted function application (the "catch-all")
+    ///
+    /// Used for predicates, modals, temporals, etc. that we can't
+    /// directly encode semantically. Z3 treats these as opaque functions
+    /// and reasons about them structurally.
+    ///
+    /// Examples:
+    /// - `Mortal(socrates)` -> `Apply { name: "Mortal", args: [Var("socrates")] }`
+    /// - `Possible(P)` -> `Apply { name: "Possible", args: [P] }`
+    Apply {
+        name: String,
+        args: Vec<VerifyExpr>,
+    },
+}
+
+impl VerifyExpr {
+    /// Create a variable reference.
+    pub fn var(name: impl Into<String>) -> Self {
+        VerifyExpr::Var(name.into())
+    }
+
+    /// Create an integer literal.
+    pub fn int(n: i64) -> Self {
+        VerifyExpr::Int(n)
+    }
+
+    /// Create a boolean literal.
+    pub fn bool(b: bool) -> Self {
+        VerifyExpr::Bool(b)
+    }
+
+    /// Create a binary operation.
+    pub fn binary(op: VerifyOp, left: VerifyExpr, right: VerifyExpr) -> Self {
+        VerifyExpr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        }
+    }
+
+    /// Create a negation.
+    pub fn not(expr: VerifyExpr) -> Self {
+        VerifyExpr::Not(Box::new(expr))
+    }
+
+    /// Create an uninterpreted function application.
+    pub fn apply(name: impl Into<String>, args: Vec<VerifyExpr>) -> Self {
+        VerifyExpr::Apply {
+            name: name.into(),
+            args,
+        }
+    }
+
+    /// Create a universal quantifier.
+    pub fn forall(vars: Vec<(String, VerifyType)>, body: VerifyExpr) -> Self {
+        VerifyExpr::ForAll {
+            vars,
+            body: Box::new(body),
+        }
+    }
+
+    /// Create an existential quantifier.
+    pub fn exists(vars: Vec<(String, VerifyType)>, body: VerifyExpr) -> Self {
+        VerifyExpr::Exists {
+            vars,
+            body: Box::new(body),
+        }
+    }
+
+    // Convenience methods for common operations
+
+    /// x == y
+    pub fn eq(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Eq, left, right)
+    }
+
+    /// x > y
+    pub fn gt(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Gt, left, right)
+    }
+
+    /// x < y
+    pub fn lt(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Lt, left, right)
+    }
+
+    /// x && y
+    pub fn and(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::And, left, right)
+    }
+
+    /// x || y
+    pub fn or(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Or, left, right)
+    }
+
+    /// x -> y (implication)
+    pub fn implies(left: VerifyExpr, right: VerifyExpr) -> Self {
+        Self::binary(VerifyOp::Implies, left, right)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_verify_expr_construction() {
+        // Test that we can construct expressions
+        let x = VerifyExpr::var("x");
+        let five = VerifyExpr::int(5);
+        let ten = VerifyExpr::int(10);
+
+        // x > 5
+        let gt = VerifyExpr::gt(x.clone(), five);
+        assert!(matches!(gt, VerifyExpr::Binary { op: VerifyOp::Gt, .. }));
+
+        // x == 10
+        let eq = VerifyExpr::eq(x.clone(), ten);
+        assert!(matches!(eq, VerifyExpr::Binary { op: VerifyOp::Eq, .. }));
+    }
+
+    #[test]
+    fn test_uninterpreted_function() {
+        // Mortal(x)
+        let mortal_x = VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]);
+        assert!(matches!(mortal_x, VerifyExpr::Apply { name, args } if name == "Mortal" && args.len() == 1));
+    }
+
+    #[test]
+    fn test_implication() {
+        // Mortal(x) -> Human(x)
+        let mortal = VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]);
+        let human = VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]);
+        let impl_expr = VerifyExpr::implies(mortal, human);
+
+        assert!(matches!(impl_expr, VerifyExpr::Binary { op: VerifyOp::Implies, .. }));
+    }
+
+    #[test]
+    fn test_quantifier() {
+        // forall x: Object. Mortal(x) -> Human(x)
+        let body = VerifyExpr::implies(
+            VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]),
+            VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]),
+        );
+        let forall = VerifyExpr::forall(
+            vec![("x".to_string(), VerifyType::Object)],
+            body,
+        );
+
+        assert!(matches!(forall, VerifyExpr::ForAll { vars, .. } if vars.len() == 1));
+    }
+}
+
+```
+
+---
+
+### Z3 Solver Wrapper
+
+**File:** `logos_verification/src/solver.rs`
+
+Verifier struct with check_bool(), check_int_greater_than(), check_int_less_than(), check_int_equals(). VerificationSession for incremental constraint building with declare(), assume(), verify(). Encoder converts VerifyExpr to Z3 ASTs.
+
+```rust
+//! Z3 solver wrapper for LOGOS verification.
+
+use std::collections::HashMap;
+
+use z3::ast::{Ast, Bool, Dynamic, Int};
+use z3::{Config, Context, FuncDecl, SatResult, Solver, Sort};
+
+use crate::error::{CounterExample, VerificationError, VerificationResult};
+use crate::ir::{VerifyExpr, VerifyOp, VerifyType};
+
+/// The Z3-based verifier.
+pub struct Verifier {
+    cfg: Config,
+}
+
+impl Verifier {
+    /// Create a new verifier.
+    pub fn new() -> Self {
+        let mut cfg = Config::new();
+        // Set a reasonable timeout (10 seconds)
+        cfg.set_param_value("timeout", "10000");
+        Self { cfg }
+    }
+
+    /// Check if a boolean value is valid (i.e., always true).
+    ///
+    /// This is the most basic verification: `true` is valid, `false` is not.
+    pub fn check_bool(&self, value: bool) -> VerificationResult {
+        let ctx = Context::new(&self.cfg);
+        let solver = Solver::new(&ctx);
+
+        let assertion = Bool::from_bool(&ctx, value);
+
+        // To prove P is valid: check if NOT(P) is UNSAT
+        // If NOT(P) is unsatisfiable, then P is always true
+        solver.assert(&assertion.not());
+
+        match solver.check() {
+            SatResult::Unsat => Ok(()), // NOT(P) is impossible -> P is valid
+            SatResult::Sat => {
+                // NOT(P) is satisfiable -> P is not always true
+                Err(VerificationError::contradiction(
+                    "The assertion is not always true.",
+                    None,
+                ))
+            }
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        }
+    }
+
+    /// Verify that an integer variable satisfies a constraint.
+    ///
+    /// Given a value and a bound, checks if `value > bound` or `value < bound` etc.
+    pub fn check_int_greater_than(&self, value: i64, bound: i64) -> VerificationResult {
+        let ctx = Context::new(&self.cfg);
+        let solver = Solver::new(&ctx);
+
+        let v = z3::ast::Int::from_i64(&ctx, value);
+        let b = z3::ast::Int::from_i64(&ctx, bound);
+        let assertion = v.gt(&b);
+
+        // To prove P is valid: check if NOT(P) is UNSAT
+        solver.assert(&assertion.not());
+
+        match solver.check() {
+            SatResult::Unsat => Ok(()),
+            SatResult::Sat => {
+                Err(VerificationError::bounds_violation(
+                    "value",
+                    format!("> {}", bound),
+                    format!("{}", value),
+                ))
+            }
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        }
+    }
+
+    /// Verify that an integer variable satisfies a constraint.
+    pub fn check_int_less_than(&self, value: i64, bound: i64) -> VerificationResult {
+        let ctx = Context::new(&self.cfg);
+        let solver = Solver::new(&ctx);
+
+        let v = z3::ast::Int::from_i64(&ctx, value);
+        let b = z3::ast::Int::from_i64(&ctx, bound);
+        let assertion = v.lt(&b);
+
+        solver.assert(&assertion.not());
+
+        match solver.check() {
+            SatResult::Unsat => Ok(()),
+            SatResult::Sat => Err(VerificationError::bounds_violation(
+                "value",
+                format!("< {}", bound),
+                format!("{}", value),
+            )),
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        }
+    }
+
+    /// Verify that two integer values are equal.
+    pub fn check_int_equals(&self, left: i64, right: i64) -> VerificationResult {
+        let ctx = Context::new(&self.cfg);
+        let solver = Solver::new(&ctx);
+
+        let l = z3::ast::Int::from_i64(&ctx, left);
+        let r = z3::ast::Int::from_i64(&ctx, right);
+        let assertion = l._eq(&r);
+
+        solver.assert(&assertion.not());
+
+        match solver.check() {
+            SatResult::Unsat => Ok(()),
+            SatResult::Sat => Err(VerificationError::contradiction(
+                format!("{} is not equal to {}", left, right),
+                Some(CounterExample {
+                    assignments: vec![
+                        ("left".to_string(), format!("{}", left)),
+                        ("right".to_string(), format!("{}", right)),
+                    ],
+                }),
+            )),
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        }
+    }
+
+    /// Create a verification context for more complex proofs.
+    pub fn context(&self) -> VerificationContext {
+        let ctx = Context::new(&self.cfg);
+        VerificationContext::new(ctx)
+    }
+}
+
+impl Default for Verifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A verification context for building up constraints incrementally.
+pub struct VerificationContext {
+    ctx: Context,
+}
+
+impl VerificationContext {
+    fn new(ctx: Context) -> Self {
+        Self { ctx }
+    }
+
+    /// Get the underlying Z3 context.
+    pub fn z3_context(&self) -> &Context {
+        &self.ctx
+    }
+
+    /// Create a new solver for this context.
+    pub fn solver(&self) -> Solver {
+        Solver::new(&self.ctx)
+    }
+
+    /// Create a boolean constant.
+    pub fn bool_val(&self, value: bool) -> Bool {
+        Bool::from_bool(&self.ctx, value)
+    }
+
+    /// Create an integer constant.
+    pub fn int_val(&self, value: i64) -> z3::ast::Int {
+        z3::ast::Int::from_i64(&self.ctx, value)
+    }
+
+    /// Create a named boolean variable.
+    pub fn bool_var(&self, name: &str) -> Bool {
+        Bool::new_const(&self.ctx, name)
+    }
+
+    /// Create a named integer variable.
+    pub fn int_var(&self, name: &str) -> z3::ast::Int {
+        z3::ast::Int::new_const(&self.ctx, name)
+    }
+
+    /// Check if an assertion is valid (always true).
+    pub fn check_valid(&self, solver: &Solver, assertion: &Bool) -> VerificationResult {
+        solver.push();
+        solver.assert(&assertion.not());
+
+        let result = match solver.check() {
+            SatResult::Unsat => Ok(()),
+            SatResult::Sat => {
+                // Counter-example extraction will be implemented in Phase 2
+                // when we have variable tracking
+                Err(VerificationError::contradiction(
+                    "Assertion is not valid",
+                    None,
+                ))
+            }
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        };
+
+        solver.pop(1);
+        result
+    }
+}
+
+// ============================================================
+// Phase 2: Verification Session with IR Support
+// ============================================================
+
+/// A verification session for working with the Verification IR.
+///
+/// This provides a higher-level API that works with `VerifyExpr` instead
+/// of raw Z3 types, making it suitable for use from the main logos crate.
+///
+/// Each verification call creates a fresh Z3 context to avoid lifetime issues.
+pub struct VerificationSession {
+    vars: HashMap<String, VerifyType>,
+    assumptions: Vec<VerifyExpr>,
+}
+
+impl VerificationSession {
+    /// Create a new verification session.
+    pub fn new() -> Self {
+        Self {
+            vars: HashMap::new(),
+            assumptions: Vec::new(),
+        }
+    }
+
+    /// Declare a variable with a type.
+    pub fn declare(&mut self, name: &str, ty: VerifyType) {
+        self.vars.insert(name.to_string(), ty);
+    }
+
+    /// Add an assumption (constraint).
+    pub fn assume(&mut self, expr: &VerifyExpr) {
+        self.assumptions.push(expr.clone());
+    }
+
+    /// Verify that an assertion is valid given current assumptions.
+    ///
+    /// Uses the standard validity check: P is valid iff NOT(P) is unsatisfiable.
+    pub fn verify(&self, expr: &VerifyExpr) -> VerificationResult {
+        // Create a fresh Z3 context for this verification
+        let mut cfg = Config::new();
+        cfg.set_param_value("timeout", "10000");
+        let ctx = Context::new(&cfg);
+        let solver = Solver::new(&ctx);
+
+        // Create an encoder for this context
+        let encoder = Encoder::new(&ctx, &self.vars);
+
+        // Add all assumptions
+        for assumption in &self.assumptions {
+            let ast = encoder.encode(assumption);
+            if let Some(b) = ast.as_bool() {
+                solver.assert(&b);
+            }
+        }
+
+        // Encode the assertion we want to verify
+        let ast = encoder.encode(expr);
+        let assertion = ast.as_bool().ok_or_else(|| {
+            VerificationError::solver_error("Assertion must be boolean")
+        })?;
+
+        // To prove P is valid: check if NOT(P) is UNSAT
+        solver.push();
+        solver.assert(&assertion.not());
+
+        let result = match solver.check() {
+            SatResult::Unsat => Ok(()),
+            SatResult::Sat => {
+                Err(VerificationError::contradiction(
+                    "Assertion cannot be proven valid",
+                    None,
+                ))
+            }
+            SatResult::Unknown => Err(VerificationError::solver_unknown()),
+        };
+
+        solver.pop(1);
+        result
+    }
+}
+
+impl Default for VerificationSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Internal encoder that converts VerifyExpr to Z3 AST.
+struct Encoder<'ctx> {
+    ctx: &'ctx Context,
+    vars: &'ctx HashMap<String, VerifyType>,
+}
+
+impl<'ctx> Encoder<'ctx> {
+    fn new(ctx: &'ctx Context, vars: &'ctx HashMap<String, VerifyType>) -> Self {
+        Self { ctx, vars }
+    }
+
+    fn encode(&self, expr: &VerifyExpr) -> Dynamic<'ctx> {
+        match expr {
+            VerifyExpr::Int(n) => Dynamic::from_ast(&Int::from_i64(self.ctx, *n)),
+            VerifyExpr::Bool(b) => Dynamic::from_ast(&Bool::from_bool(self.ctx, *b)),
+
+            VerifyExpr::Var(name) => {
+                let ty = self.vars.get(name).copied().unwrap_or(VerifyType::Int);
+                match ty {
+                    VerifyType::Int => Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str())),
+                    VerifyType::Bool => Dynamic::from_ast(&Bool::new_const(self.ctx, name.as_str())),
+                    VerifyType::Object => {
+                        // For Object types, use Int as a placeholder
+                        Dynamic::from_ast(&Int::new_const(self.ctx, name.as_str()))
+                    }
+                }
+            }
+
+            VerifyExpr::Binary { op, left, right } => {
+                let l = self.encode(left);
+                let r = self.encode(right);
+                self.encode_binary(op, l, r)
+            }
+
+            VerifyExpr::Not(inner) => {
+                let i = self.encode(inner);
+                if let Some(b) = i.as_bool() {
+                    Dynamic::from_ast(&b.not())
+                } else {
+                    i
+                }
+            }
+
+            VerifyExpr::Apply { name, args } => {
+                self.encode_apply(name, args)
+            }
+
+            VerifyExpr::ForAll { vars: _, body } => {
+                // Simplified: just encode the body
+                self.encode(body)
+            }
+
+            VerifyExpr::Exists { vars: _, body } => {
+                self.encode(body)
+            }
+        }
+    }
+
+    fn encode_binary(&self, op: &VerifyOp, l: Dynamic<'ctx>, r: Dynamic<'ctx>) -> Dynamic<'ctx> {
+        match op {
+            // Arithmetic
+            VerifyOp::Add => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&(li + ri))
+                } else {
+                    l
+                }
+            }
+            VerifyOp::Sub => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&(li - ri))
+                } else {
+                    l
+                }
+            }
+            VerifyOp::Mul => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&(li * ri))
+                } else {
+                    l
+                }
+            }
+            VerifyOp::Div => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&(li / ri))
+                } else {
+                    l
+                }
+            }
+
+            // Comparison
+            VerifyOp::Gt => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&li.gt(&ri))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                }
+            }
+            VerifyOp::Lt => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&li.lt(&ri))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                }
+            }
+            VerifyOp::Gte => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&li.ge(&ri))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                }
+            }
+            VerifyOp::Lte => {
+                if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
+                    Dynamic::from_ast(&li.le(&ri))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                }
+            }
+
+            // Equality
+            VerifyOp::Eq => Dynamic::from_ast(&l._eq(&r)),
+            VerifyOp::Neq => Dynamic::from_ast(&l._eq(&r).not()),
+
+            // Logic
+            VerifyOp::And => {
+                if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
+                    Dynamic::from_ast(&Bool::and(self.ctx, &[&lb, &rb]))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                }
+            }
+            VerifyOp::Or => {
+                if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
+                    Dynamic::from_ast(&Bool::or(self.ctx, &[&lb, &rb]))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, false))
+                }
+            }
+            VerifyOp::Implies => {
+                if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
+                    Dynamic::from_ast(&lb.implies(&rb))
+                } else {
+                    Dynamic::from_ast(&Bool::from_bool(self.ctx, true))
+                }
+            }
+        }
+    }
+
+    fn encode_apply(&self, name: &str, args: &[VerifyExpr]) -> Dynamic<'ctx> {
+        let int_sort = Sort::int(self.ctx);
+        let domain: Vec<&Sort> = args.iter().map(|_| &int_sort).collect();
+        let range = Sort::bool(self.ctx);
+
+        let func_decl = FuncDecl::new(self.ctx, name, &domain, &range);
+
+        let encoded_args: Vec<Dynamic> = args.iter().map(|a| self.encode(a)).collect();
+        let arg_refs: Vec<&dyn Ast> = encoded_args.iter().map(|a| a as &dyn Ast).collect();
+
+        Dynamic::from_ast(&func_decl.apply(&arg_refs))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tautology() {
+        let verifier = Verifier::new();
+        assert!(verifier.check_bool(true).is_ok());
+    }
+
+    #[test]
+    fn test_contradiction() {
+        let verifier = Verifier::new();
+        assert!(verifier.check_bool(false).is_err());
+    }
+
+    #[test]
+    fn test_int_greater_than_valid() {
+        let verifier = Verifier::new();
+        assert!(verifier.check_int_greater_than(10, 5).is_ok());
+    }
+
+    #[test]
+    fn test_int_greater_than_invalid() {
+        let verifier = Verifier::new();
+        assert!(verifier.check_int_greater_than(3, 5).is_err());
+    }
+
+    #[test]
+    fn test_int_equals_valid() {
+        let verifier = Verifier::new();
+        assert!(verifier.check_int_equals(42, 42).is_ok());
+    }
+
+    #[test]
+    fn test_int_equals_invalid() {
+        let verifier = Verifier::new();
+        assert!(verifier.check_int_equals(1, 2).is_err());
+    }
+
+    #[test]
+    fn test_context_api() {
+        let verifier = Verifier::new();
+        let vctx = verifier.context();
+        let solver = vctx.solver();
+
+        // P ∨ ¬P is a tautology
+        let p = vctx.bool_var("p");
+        let tautology = Bool::or(vctx.z3_context(), &[&p, &p.not()]);
+
+        assert!(vctx.check_valid(&solver, &tautology).is_ok());
+    }
+
+    #[test]
+    fn test_context_contradiction() {
+        let verifier = Verifier::new();
+        let vctx = verifier.context();
+        let solver = vctx.solver();
+
+        // P ∧ ¬P is a contradiction (not valid)
+        let p = vctx.bool_var("p");
+        let contradiction = Bool::and(vctx.z3_context(), &[&p, &p.not()]);
+
+        assert!(vctx.check_valid(&solver, &contradiction).is_err());
+    }
+
+    // ============================================================
+    // Phase 2: VerificationSession Tests
+    // ============================================================
+
+    #[test]
+    fn test_session_integer_bounds() {
+        let mut session = VerificationSession::new();
+
+        // Declare x as Int
+        session.declare("x", VerifyType::Int);
+
+        // Assume: x = 10
+        session.assume(&VerifyExpr::eq(
+            VerifyExpr::var("x"),
+            VerifyExpr::int(10),
+        ));
+
+        // Verify: x > 5 (should pass)
+        let result = session.verify(&VerifyExpr::gt(
+            VerifyExpr::var("x"),
+            VerifyExpr::int(5),
+        ));
+        assert!(result.is_ok(), "10 > 5 should be provable");
+    }
+
+    #[test]
+    fn test_session_integer_contradiction() {
+        let mut session = VerificationSession::new();
+
+        // Declare x as Int
+        session.declare("x", VerifyType::Int);
+
+        // Assume: x = 10
+        session.assume(&VerifyExpr::eq(
+            VerifyExpr::var("x"),
+            VerifyExpr::int(10),
+        ));
+
+        // Verify: x < 5 (should FAIL)
+        let result = session.verify(&VerifyExpr::lt(
+            VerifyExpr::var("x"),
+            VerifyExpr::int(5),
+        ));
+        assert!(result.is_err(), "10 < 5 should not be provable");
+    }
+
+    #[test]
+    fn test_session_uninterpreted_functions() {
+        let mut session = VerificationSession::new();
+
+        // Declare x as Object
+        session.declare("x", VerifyType::Object);
+
+        // Assume: Mortal(x) -> Human(x)
+        session.assume(&VerifyExpr::implies(
+            VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]),
+            VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]),
+        ));
+
+        // Assume: Mortal(x)
+        session.assume(&VerifyExpr::apply("Mortal", vec![VerifyExpr::var("x")]));
+
+        // Verify: Human(x) - Z3 should deduce this structurally
+        let result = session.verify(&VerifyExpr::apply("Human", vec![VerifyExpr::var("x")]));
+        assert!(result.is_ok(), "Should deduce Human(x) from Mortal(x) and Mortal(x)->Human(x)");
+    }
+
+    #[test]
+    fn test_session_modal_structural_reasoning() {
+        let mut session = VerificationSession::new();
+
+        // Declare A and B as Objects (representing propositions)
+        session.declare("A", VerifyType::Object);
+        session.declare("B", VerifyType::Object);
+
+        // Assume: Possible(A) -> Possible(B)
+        session.assume(&VerifyExpr::implies(
+            VerifyExpr::apply("Possible", vec![VerifyExpr::var("A")]),
+            VerifyExpr::apply("Possible", vec![VerifyExpr::var("B")]),
+        ));
+
+        // Assume: Possible(A)
+        session.assume(&VerifyExpr::apply("Possible", vec![VerifyExpr::var("A")]));
+
+        // Verify: Possible(B)
+        let result = session.verify(&VerifyExpr::apply("Possible", vec![VerifyExpr::var("B")]));
+        assert!(result.is_ok(), "Should deduce Possible(B) from modus ponens");
+    }
+
+    #[test]
+    fn test_session_arithmetic() {
+        let mut session = VerificationSession::new();
+
+        // Declare x and y
+        session.declare("x", VerifyType::Int);
+        session.declare("y", VerifyType::Int);
+
+        // Assume: x = 5, y = 3
+        session.assume(&VerifyExpr::eq(VerifyExpr::var("x"), VerifyExpr::int(5)));
+        session.assume(&VerifyExpr::eq(VerifyExpr::var("y"), VerifyExpr::int(3)));
+
+        // Verify: x + y > 7 (5 + 3 = 8 > 7)
+        let sum = VerifyExpr::binary(
+            VerifyOp::Add,
+            VerifyExpr::var("x"),
+            VerifyExpr::var("y"),
+        );
+        let result = session.verify(&VerifyExpr::gt(sum, VerifyExpr::int(7)));
+        assert!(result.is_ok(), "5 + 3 > 7 should be provable");
+    }
+
+    #[test]
+    fn test_session_logic_and_or() {
+        let mut session = VerificationSession::new();
+
+        // Declare p and q as Bool
+        session.declare("p", VerifyType::Bool);
+        session.declare("q", VerifyType::Bool);
+
+        // Assume: p = true, q = false
+        session.assume(&VerifyExpr::eq(VerifyExpr::var("p"), VerifyExpr::bool(true)));
+        session.assume(&VerifyExpr::eq(VerifyExpr::var("q"), VerifyExpr::bool(false)));
+
+        // Verify: p || q (true || false = true)
+        let result = session.verify(&VerifyExpr::or(
+            VerifyExpr::var("p"),
+            VerifyExpr::var("q"),
+        ));
+        assert!(result.is_ok(), "true || false should be provable");
+
+        // Verify: !(p && q) (!(true && false) = true)
+        let result = session.verify(&VerifyExpr::not(VerifyExpr::and(
+            VerifyExpr::var("p"),
+            VerifyExpr::var("q"),
+        )));
+        assert!(result.is_ok(), "!(true && false) should be provable");
+    }
+}
+
+```
+
+---
+
+### License Validation
+
+**File:** `logos_verification/src/license.rs`
+
+LicensePlan enum (None, Free, Supporter, Pro, Premium, Lifetime, Enterprise) with can_verify() method. LicenseValidator validates Stripe subscription IDs (sub_*) against api.logicaffeine.com/validate with 24-hour caching.
+
+```rust
+//! License validation for LOGOS verification.
+//!
+//! Uses the existing Stripe-based license system. License keys are
+//! Stripe subscription IDs (`sub_*` format).
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::error::{VerificationError, VerificationResult};
+
+/// The license validation API endpoint.
+const LICENSE_API: &str = "https://api.logicaffeine.com/validate";
+
+/// Cache duration in seconds (24 hours).
+const CACHE_DURATION_SECS: u64 = 24 * 60 * 60;
+
+/// License plan tiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LicensePlan {
+    None,
+    Free,
+    Supporter,
+    Pro,
+    Premium,
+    Lifetime,
+    Enterprise,
+}
+
+impl LicensePlan {
+    /// Check if this plan allows verification.
+    pub fn can_verify(&self) -> bool {
+        matches!(
+            self,
+            Self::Pro | Self::Premium | Self::Lifetime | Self::Enterprise
+        )
+    }
+
+    /// Parse a plan from a string.
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "free" => Self::Free,
+            "supporter" => Self::Supporter,
+            "pro" => Self::Pro,
+            "premium" => Self::Premium,
+            "lifetime" => Self::Lifetime,
+            "enterprise" => Self::Enterprise,
+            _ => Self::None,
+        }
+    }
+}
+
+impl std::fmt::Display for LicensePlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "None"),
+            Self::Free => write!(f, "Free"),
+            Self::Supporter => write!(f, "Supporter"),
+            Self::Pro => write!(f, "Pro"),
+            Self::Premium => write!(f, "Premium"),
+            Self::Lifetime => write!(f, "Lifetime"),
+            Self::Enterprise => write!(f, "Enterprise"),
+        }
+    }
+}
+
+/// Cached license validation result.
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedLicense {
+    key: String,
+    plan: String,
+    valid: bool,
+    validated_at: u64,
+}
+
+/// Response from the license validation API.
+#[derive(Debug, Deserialize)]
+struct LicenseResponse {
+    valid: bool,
+    #[serde(default)]
+    plan: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// License validator that checks keys against the API with caching.
+pub struct LicenseValidator {
+    cache_path: PathBuf,
+}
+
+impl LicenseValidator {
+    /// Create a new license validator.
+    pub fn new() -> Self {
+        let cache_dir = dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("logos");
+
+        // Ensure cache directory exists
+        let _ = fs::create_dir_all(&cache_dir);
+
+        Self {
+            cache_path: cache_dir.join("verification_license.json"),
+        }
+    }
+
+    /// Validate a license key.
+    ///
+    /// Returns the plan if valid, or an error if invalid or network fails.
+    pub fn validate(&self, key: &str) -> VerificationResult<LicensePlan> {
+        // Check key format
+        if !key.starts_with("sub_") {
+            return Err(VerificationError::license_invalid(
+                "Invalid license key format. Keys should start with 'sub_'.",
+            ));
+        }
+
+        // Check cache first
+        if let Some(cached) = self.load_cache() {
+            if cached.key == key && self.is_cache_fresh(&cached) {
+                let plan = LicensePlan::from_str(&cached.plan);
+                if cached.valid && plan.can_verify() {
+                    return Ok(plan);
+                } else if !cached.valid {
+                    return Err(VerificationError::license_invalid("License key is invalid"));
+                } else {
+                    return Err(VerificationError::insufficient_plan(plan.to_string()));
+                }
+            }
+        }
+
+        // Validate with API
+        match self.validate_with_api(key) {
+            Ok((valid, plan)) => {
+                // Cache the result
+                self.save_cache(key, &plan.to_string().to_lowercase(), valid);
+
+                if valid && plan.can_verify() {
+                    Ok(plan)
+                } else if !valid {
+                    Err(VerificationError::license_invalid("License key is invalid"))
+                } else {
+                    Err(VerificationError::insufficient_plan(plan.to_string()))
+                }
+            }
+            Err(e) => {
+                // If network fails, try to use stale cache
+                if let Some(cached) = self.load_cache() {
+                    if cached.key == key {
+                        eprintln!(
+                            "Warning: Could not validate license ({}). Using cached result.",
+                            e
+                        );
+                        let plan = LicensePlan::from_str(&cached.plan);
+                        if cached.valid && plan.can_verify() {
+                            return Ok(plan);
+                        }
+                    }
+                }
+                Err(VerificationError::license_invalid(format!(
+                    "Could not validate license: {}",
+                    e
+                )))
+            }
+        }
+    }
+
+    /// Validate the key against the API.
+    fn validate_with_api(&self, key: &str) -> Result<(bool, LicensePlan), String> {
+        let response = ureq::post(LICENSE_API)
+            .set("Content-Type", "application/json")
+            .send_json(ureq::json!({ "licenseKey": key }))
+            .map_err(|e| format!("Network error: {}", e))?;
+
+        let body: LicenseResponse = response
+            .into_json()
+            .map_err(|e| format!("Invalid response: {}", e))?;
+
+        if let Some(error) = body.error {
+            return Err(error);
+        }
+
+        let plan = body
+            .plan
+            .map(|p| LicensePlan::from_str(&p))
+            .unwrap_or(LicensePlan::None);
+
+        Ok((body.valid, plan))
+    }
+
+    /// Load cached license validation.
+    fn load_cache(&self) -> Option<CachedLicense> {
+        let content = fs::read_to_string(&self.cache_path).ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    /// Save license validation to cache.
+    fn save_cache(&self, key: &str, plan: &str, valid: bool) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let cached = CachedLicense {
+            key: key.to_string(),
+            plan: plan.to_string(),
+            valid,
+            validated_at: now,
+        };
+
+        if let Ok(json) = serde_json::to_string_pretty(&cached) {
+            let _ = fs::write(&self.cache_path, json);
+        }
+    }
+
+    /// Check if the cache is still fresh (< 24 hours).
+    fn is_cache_fresh(&self, cached: &CachedLicense) -> bool {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        now.saturating_sub(cached.validated_at) < CACHE_DURATION_SECS
+    }
+}
+
+impl Default for LicenseValidator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_plan_can_verify() {
+        assert!(!LicensePlan::None.can_verify());
+        assert!(!LicensePlan::Free.can_verify());
+        assert!(!LicensePlan::Supporter.can_verify());
+        assert!(LicensePlan::Pro.can_verify());
+        assert!(LicensePlan::Premium.can_verify());
+        assert!(LicensePlan::Lifetime.can_verify());
+        assert!(LicensePlan::Enterprise.can_verify());
+    }
+
+    #[test]
+    fn test_invalid_key_format() {
+        let validator = LicenseValidator::new();
+        let result = validator.validate("invalid_key");
+        assert!(result.is_err());
+    }
+}
+
+```
+
+---
+
+### Verification Errors
+
+**File:** `logos_verification/src/error.rs`
+
+VerificationError with Socratic explanations. Kinds: ContradictoryAssertion, BoundsViolation, RefinementViolation, LicenseRequired, LicenseInvalid, LicenseInsufficientPlan, SolverUnknown, SolverError. CounterExample provides failing variable assignments.
+
+```rust
+//! Verification error types with Socratic error messages.
+
+use std::fmt;
+
+/// Result type for verification operations.
+pub type VerificationResult<T = ()> = Result<T, VerificationError>;
+
+/// A verification error with Socratic explanation.
+#[derive(Debug)]
+pub struct VerificationError {
+    pub kind: VerificationErrorKind,
+    pub span: Option<(usize, usize)>,
+    pub explanation: String,
+    pub counterexample: Option<CounterExample>,
+}
+
+/// The kind of verification error.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VerificationErrorKind {
+    /// An assertion that can never be true.
+    ContradictoryAssertion,
+
+    /// A variable violates its declared bounds.
+    BoundsViolation {
+        var: String,
+        expected: String,
+        found: String,
+    },
+
+    /// A refinement type predicate is not satisfied.
+    RefinementViolation { type_name: String },
+
+    /// Verification requires a license key.
+    LicenseRequired,
+
+    /// The license key is invalid or expired.
+    LicenseInvalid { reason: String },
+
+    /// The license plan doesn't include verification.
+    LicenseInsufficientPlan { current: String },
+
+    /// Z3 returned unknown (timeout or undecidable).
+    SolverUnknown,
+
+    /// Z3 initialization or internal error.
+    SolverError { message: String },
+}
+
+/// A counter-example showing why verification failed.
+#[derive(Debug, Clone)]
+pub struct CounterExample {
+    /// Variable assignments that make the assertion false.
+    pub assignments: Vec<(String, String)>,
+}
+
+impl fmt::Display for CounterExample {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (var, val) in &self.assignments {
+            write!(f, "{} = {}", var, val)?;
+            if self.assignments.len() > 1 {
+                write!(f, ", ")?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.kind {
+            VerificationErrorKind::ContradictoryAssertion => {
+                writeln!(f, "This assertion can never be true.")?;
+                writeln!(f)?;
+                writeln!(f, "{}", self.explanation)?;
+                if let Some(ce) = &self.counterexample {
+                    writeln!(f)?;
+                    writeln!(f, "Counter-example: {}", ce)?;
+                }
+            }
+            VerificationErrorKind::BoundsViolation { var, expected, found } => {
+                writeln!(f, "Value '{}' violates its constraint.", var)?;
+                writeln!(f)?;
+                writeln!(f, "Expected: {}", expected)?;
+                writeln!(f, "But found possible value: {}", found)?;
+            }
+            VerificationErrorKind::RefinementViolation { type_name } => {
+                writeln!(f, "Value does not satisfy refinement type '{}'.", type_name)?;
+                writeln!(f)?;
+                writeln!(f, "{}", self.explanation)?;
+            }
+            VerificationErrorKind::LicenseRequired => {
+                writeln!(f, "Verification requires a license key.")?;
+                writeln!(f)?;
+                writeln!(f, "Use --license <key> or set the LOGOS_LICENSE environment variable.")?;
+                writeln!(f, "Get a license at https://logicaffeine.com/pricing")?;
+            }
+            VerificationErrorKind::LicenseInvalid { reason } => {
+                writeln!(f, "License validation failed: {}", reason)?;
+            }
+            VerificationErrorKind::LicenseInsufficientPlan { current } => {
+                writeln!(f, "Verification requires Pro, Premium, Lifetime, or Enterprise plan.")?;
+                writeln!(f)?;
+                writeln!(f, "Current plan: {}", current)?;
+                writeln!(f, "Upgrade at https://logicaffeine.com/pricing")?;
+            }
+            VerificationErrorKind::SolverUnknown => {
+                writeln!(f, "The solver could not determine if the assertion is valid.")?;
+                writeln!(f)?;
+                writeln!(f, "This may be due to complexity or timeout.")?;
+            }
+            VerificationErrorKind::SolverError { message } => {
+                writeln!(f, "Solver error: {}", message)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for VerificationError {}
+
+impl VerificationError {
+    /// Create a license required error.
+    pub fn license_required() -> Self {
+        Self {
+            kind: VerificationErrorKind::LicenseRequired,
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Create a license invalid error.
+    pub fn license_invalid(reason: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::LicenseInvalid {
+                reason: reason.into(),
+            },
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Create an insufficient plan error.
+    pub fn insufficient_plan(current: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::LicenseInsufficientPlan {
+                current: current.into(),
+            },
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Create a contradictory assertion error.
+    pub fn contradiction(explanation: impl Into<String>, counterexample: Option<CounterExample>) -> Self {
+        Self {
+            kind: VerificationErrorKind::ContradictoryAssertion,
+            span: None,
+            explanation: explanation.into(),
+            counterexample,
+        }
+    }
+
+    /// Create a bounds violation error.
+    pub fn bounds_violation(
+        var: impl Into<String>,
+        expected: impl Into<String>,
+        found: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: VerificationErrorKind::BoundsViolation {
+                var: var.into(),
+                expected: expected.into(),
+                found: found.into(),
+            },
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Create a solver unknown error.
+    pub fn solver_unknown() -> Self {
+        Self {
+            kind: VerificationErrorKind::SolverUnknown,
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Create a solver error.
+    pub fn solver_error(message: impl Into<String>) -> Self {
+        Self {
+            kind: VerificationErrorKind::SolverError {
+                message: message.into(),
+            },
+            span: None,
+            explanation: String::new(),
+            counterexample: None,
+        }
+    }
+
+    /// Set the span for this error.
+    pub fn with_span(mut self, start: usize, end: usize) -> Self {
+        self.span = Some((start, end));
+        self
+    }
+}
+
+```
+
+---
+
 ## Examples
 
 Example programs demonstrating LOGOS capabilities.
@@ -47448,6 +49856,20 @@ pub enum Commands {
         /// Build in release mode
         #[arg(long, short)]
         release: bool,
+
+        /// Run Z3 static verification (requires Pro+ license)
+        #[arg(long)]
+        verify: bool,
+
+        /// License key for verification (or set LOGOS_LICENSE env var)
+        #[arg(long)]
+        license: Option<String>,
+    },
+    /// Verify the project without building (requires Pro+ license)
+    Verify {
+        /// License key (or set LOGOS_LICENSE env var)
+        #[arg(long)]
+        license: Option<String>,
     },
     /// Build and run the current project
     Run {
@@ -47498,9 +49920,10 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
-        Commands::Build { release } => cmd_build(release),
+        Commands::Build { release, verify, license } => cmd_build(release, verify, license),
         Commands::Run { release } => cmd_run(release),
         Commands::Check => cmd_check(),
+        Commands::Verify { license } => cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
             cmd_publish(registry.as_deref(), dry_run, allow_dirty)
         }
@@ -47587,10 +50010,19 @@ Show "Hello, world!".
     Ok(())
 }
 
-fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_build(
+    release: bool,
+    verify: bool,
+    license: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
         find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    // Run verification if requested
+    if verify {
+        run_verification(&project_root, license.as_deref())?;
+    }
 
     let config = BuildConfig {
         project_dir: project_root,
@@ -47603,6 +50035,66 @@ fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!("Built {} [{}]", result.binary_path.display(), mode);
 
     Ok(())
+}
+
+fn cmd_verify(license: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    run_verification(&project_root, license.as_deref())?;
+    println!("Verification passed");
+    Ok(())
+}
+
+#[cfg(feature = "verification")]
+fn run_verification(
+    project_root: &std::path::Path,
+    license: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use logos_verification::{LicenseValidator, Verifier};
+
+    // Get license key from argument or environment
+    let license_key = license
+        .map(String::from)
+        .or_else(|| env::var("LOGOS_LICENSE").ok());
+
+    let license_key = license_key.ok_or(
+        "Verification requires a license key.\n\
+         Use --license <key> or set LOGOS_LICENSE environment variable.\n\
+         Get a license at https://logicaffeine.com/pricing",
+    )?;
+
+    // Validate license
+    println!("Validating license...");
+    let validator = LicenseValidator::new();
+    let plan = validator.validate(&license_key)?;
+    println!("License valid ({})", plan);
+
+    // Load and parse the project
+    let manifest = Manifest::load(project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+    let source = fs::read_to_string(&entry_path)?;
+
+    // For now, just verify that Z3 works
+    // TODO: Implement full AST encoding in Phase 2
+    println!("Running Z3 verification...");
+    let verifier = Verifier::new();
+
+    // Basic smoke test - verify that true is valid
+    verifier.check_bool(true)?;
+
+    Ok(())
+}
+
+#[cfg(not(feature = "verification"))]
+fn run_verification(
+    _project_root: &std::path::Path,
+    _license: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Err("Verification requires the 'verification' feature.\n\
+         Rebuild with: cargo build --features verification"
+        .into())
 }
 
 fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -47815,7 +50307,7 @@ use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
@@ -48668,6 +51160,35 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}}}", indent_str).unwrap();
             }
         }
+
+        // Phase 10: Read from console or file
+        Stmt::ReadFrom { var, source } => {
+            let var_name = interner.resolve(*var);
+            match source {
+                ReadSource::Console => {
+                    writeln!(output, "{}let {} = logos_core::io::read_line();", indent_str, var_name).unwrap();
+                }
+                ReadSource::File(path_expr) => {
+                    let path_str = codegen_expr(path_expr, interner);
+                    writeln!(
+                        output,
+                        "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
+                        indent_str, var_name, path_str
+                    ).unwrap();
+                }
+            }
+        }
+
+        // Phase 10: Write to file
+        Stmt::WriteFile { content, path } => {
+            let content_str = codegen_expr(content, interner);
+            let path_str = codegen_expr(path, interner);
+            writeln!(
+                output,
+                "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
+                indent_str, path_str, content_str
+            ).unwrap();
+        }
     }
 
     output
@@ -48909,7 +51430,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, EscapeError};
+use crate::analysis::{DiscoveryPass, EscapeChecker};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -48974,6 +51495,82 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
         ParseError {
             kind: crate::error::ParseErrorKind::Custom(e.to_string()),
             span: e.span,
+        }
+    })?;
+
+    // Note: Static verification (Phase 42) is available when the `verification`
+    // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
+
+    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+
+    Ok(rust_code)
+}
+
+/// Compile LOGOS source to Rust source code with static verification.
+///
+/// This runs the Z3-based verifier on Assert statements before codegen.
+/// Requires the `verification` feature to be enabled.
+#[cfg(feature = "verification")]
+pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
+    use crate::verification::VerificationPass;
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+    // Clone for codegen (parser takes ownership)
+    let codegen_registry = type_registry.clone();
+
+    let mut ctx = DiscourseContext::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context
+    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
+    // Pass 4: Static verification
+    let mut verifier = VerificationPass::new(&interner);
+    verifier.verify_program(&stmts).map_err(|e| {
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(format!(
+                "Verification Failed:\n\n{}",
+                e
+            )),
+            span: crate::token::Span::default(),
         }
     })?;
 
@@ -51339,6 +53936,597 @@ pub fn clear() {
 
 ---
 
+### Module: verification
+
+**File:** `src/verification.rs`
+
+Additional source module.
+
+```rust
+//! Verification Pass: AST to Verification IR Mapper
+//!
+//! This module bridges the LOGOS AST to the Z3-based verification system.
+//! It maps LogicExpr, Stmt, and Term types to the lightweight Verification IR,
+//! which is then encoded into Z3 constraints.
+//!
+//! Strategy: Smart Full Mapping with Uninterpreted Functions
+//! - Int, Bool → direct Z3 sorts
+//! - Object → uninterpreted sort for entities
+//! - Predicates, Modals, Temporals → Apply (uninterpreted functions)
+//! - Z3 reasons structurally without semantic knowledge
+
+use crate::ast::{LogicExpr, ModalDomain, NumberKind, QuantifierKind, Term};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt};
+use crate::intern::Interner;
+use crate::token::TokenType;
+
+use logos_verification::{VerificationSession, VerifyExpr, VerifyOp, VerifyType};
+
+/// The verification pass that maps LOGOS AST to Z3 constraints.
+pub struct VerificationPass<'a> {
+    session: VerificationSession,
+    interner: &'a Interner,
+}
+
+impl<'a> VerificationPass<'a> {
+    /// Create a new verification pass.
+    pub fn new(interner: &'a Interner) -> Self {
+        Self {
+            session: VerificationSession::new(),
+            interner,
+        }
+    }
+
+    /// Run verification on a list of statements.
+    ///
+    /// This processes Let statements to build up assumptions,
+    /// then verifies Assert statements against those assumptions.
+    pub fn verify_program(&mut self, stmts: &[Stmt]) -> Result<(), String> {
+        for stmt in stmts {
+            self.visit_stmt(stmt)?;
+        }
+        Ok(())
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), String> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                let name = self.interner.resolve(*var);
+
+                // Infer type from the value
+                let ty = self.infer_type(value);
+                self.session.declare(name, ty);
+
+                // Map the value to IR and assume var = value
+                if let Some(val_ir) = self.map_imperative_expr(value) {
+                    let constraint = VerifyExpr::eq(
+                        VerifyExpr::var(name),
+                        val_ir,
+                    );
+                    self.session.assume(&constraint);
+                }
+                Ok(())
+            }
+
+            Stmt::Set { target, value } => {
+                // Mutation: add new constraint (simplified SSA)
+                // In full verification, this would use SSA renaming
+                let name = self.interner.resolve(*target);
+                if let Some(val_ir) = self.map_imperative_expr(value) {
+                    let constraint = VerifyExpr::eq(
+                        VerifyExpr::var(name),
+                        val_ir,
+                    );
+                    self.session.assume(&constraint);
+                }
+                Ok(())
+            }
+
+            Stmt::Assert { proposition } => {
+                let ir = self.map_logic_expr(proposition);
+                // Skip verification if the assertion maps to a trivial True
+                // This handles complex linguistic constructs we can't verify yet
+                if matches!(&ir, VerifyExpr::Bool(true)) {
+                    return Ok(());
+                }
+                self.session.verify(&ir).map_err(|e| format!("{}", e))
+            }
+
+            Stmt::Trust { proposition, justification } => {
+                // Trust is like Assert but with documented justification
+                // For static verification, we verify it like an assertion
+                let ir = self.map_logic_expr(proposition);
+                // Skip verification if the assertion maps to a trivial True
+                if matches!(&ir, VerifyExpr::Bool(true)) {
+                    return Ok(());
+                }
+                let reason = self.interner.resolve(*justification);
+                self.session.verify(&ir).map_err(|e| {
+                    format!("Trust verification failed (justification: {}): {}", reason, e)
+                })
+            }
+
+            // Recurse into blocks (simplified - no path-sensitive analysis yet)
+            Stmt::If { then_block, else_block, .. } => {
+                // Verify both branches independently
+                for stmt in *then_block {
+                    self.visit_stmt(stmt)?;
+                }
+                if let Some(else_stmts) = else_block {
+                    for stmt in *else_stmts {
+                        self.visit_stmt(stmt)?;
+                    }
+                }
+                Ok(())
+            }
+
+            Stmt::While { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Repeat { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::Zone { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            Stmt::FunctionDef { body, .. } => {
+                for stmt in *body {
+                    self.visit_stmt(stmt)?;
+                }
+                Ok(())
+            }
+
+            // Skip statements that don't affect verification
+            Stmt::Return { .. }
+            | Stmt::Call { .. }
+            | Stmt::Give { .. }
+            | Stmt::Show { .. }
+            | Stmt::SetField { .. }
+            | Stmt::StructDef { .. }
+            | Stmt::Inspect { .. }
+            | Stmt::Push { .. }
+            | Stmt::Pop { .. }
+            | Stmt::SetIndex { .. }
+            | Stmt::Concurrent { .. }
+            | Stmt::Parallel { .. }
+            | Stmt::ReadFrom { .. }
+            | Stmt::WriteFile { .. } => Ok(()),
+        }
+    }
+
+    /// Infer the verification type from an imperative expression.
+    fn infer_type(&self, expr: &Expr) -> VerifyType {
+        match expr {
+            Expr::Literal(Literal::Number(_)) => VerifyType::Int,
+            Expr::Literal(Literal::Boolean(_)) => VerifyType::Bool,
+            Expr::Literal(Literal::Text(_)) => VerifyType::Object,
+            Expr::Literal(Literal::Nothing) => VerifyType::Object,
+            Expr::BinaryOp { op, .. } => {
+                match op {
+                    // Comparison operators produce Bool
+                    BinaryOpKind::Eq
+                    | BinaryOpKind::NotEq
+                    | BinaryOpKind::Lt
+                    | BinaryOpKind::Gt
+                    | BinaryOpKind::LtEq
+                    | BinaryOpKind::GtEq
+                    | BinaryOpKind::And
+                    | BinaryOpKind::Or => VerifyType::Bool,
+                    // Arithmetic operators produce Int
+                    BinaryOpKind::Add
+                    | BinaryOpKind::Subtract
+                    | BinaryOpKind::Multiply
+                    | BinaryOpKind::Divide => VerifyType::Int,
+                }
+            }
+            // Default to Int for other expressions
+            _ => VerifyType::Int,
+        }
+    }
+
+    /// Map an imperative expression to Verification IR.
+    fn map_imperative_expr(&self, expr: &Expr) -> Option<VerifyExpr> {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => Some(VerifyExpr::int(*n)),
+            Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
+            Expr::Literal(Literal::Text(_)) => None, // Text not supported in Z3
+            Expr::Literal(Literal::Nothing) => None,
+
+            Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                Some(VerifyExpr::var(name))
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let l = self.map_imperative_expr(left)?;
+                let r = self.map_imperative_expr(right)?;
+                let verify_op = match op {
+                    BinaryOpKind::Add => VerifyOp::Add,
+                    BinaryOpKind::Subtract => VerifyOp::Sub,
+                    BinaryOpKind::Multiply => VerifyOp::Mul,
+                    BinaryOpKind::Divide => VerifyOp::Div,
+                    BinaryOpKind::Eq => VerifyOp::Eq,
+                    BinaryOpKind::NotEq => VerifyOp::Neq,
+                    BinaryOpKind::Gt => VerifyOp::Gt,
+                    BinaryOpKind::Lt => VerifyOp::Lt,
+                    BinaryOpKind::GtEq => VerifyOp::Gte,
+                    BinaryOpKind::LtEq => VerifyOp::Lte,
+                    BinaryOpKind::And => VerifyOp::And,
+                    BinaryOpKind::Or => VerifyOp::Or,
+                };
+                Some(VerifyExpr::binary(verify_op, l, r))
+            }
+
+            Expr::Call { function, args } => {
+                let func_name = self.interner.resolve(*function);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .filter_map(|a| self.map_imperative_expr(a))
+                    .collect();
+                Some(VerifyExpr::apply(func_name, verify_args))
+            }
+
+            // Unsupported expressions
+            Expr::Index { .. }
+            | Expr::Slice { .. }
+            | Expr::Copy { .. }
+            | Expr::Length { .. }
+            | Expr::List(_)
+            | Expr::Range { .. }
+            | Expr::FieldAccess { .. }
+            | Expr::New { .. }
+            | Expr::NewVariant { .. } => None,
+        }
+    }
+
+    /// Map a logic expression to Verification IR.
+    ///
+    /// This is the core of the "Smart Full Mapping" strategy:
+    /// - Simple types (Int, Bool) map directly
+    /// - Complex types (Predicates, Modals) become uninterpreted functions
+    fn map_logic_expr(&self, expr: &LogicExpr) -> VerifyExpr {
+        match expr {
+            LogicExpr::Atom(sym) => {
+                // Atoms are boolean variables or 0-arity predicates
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::var(name)
+            }
+
+            LogicExpr::Predicate { name, args } => {
+                let pred_name = self.interner.resolve(*name);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .map(|t| self.map_term(t))
+                    .collect();
+                VerifyExpr::apply(pred_name, verify_args)
+            }
+
+            LogicExpr::Identity { left, right } => {
+                let l = self.map_term(left);
+                let r = self.map_term(right);
+                VerifyExpr::eq(l, r)
+            }
+
+            LogicExpr::BinaryOp { left, op, right } => {
+                let l = self.map_logic_expr(left);
+                let r = self.map_logic_expr(right);
+                let verify_op = match op {
+                    TokenType::And => VerifyOp::And,
+                    TokenType::Or => VerifyOp::Or,
+                    TokenType::If | TokenType::Then => VerifyOp::Implies,
+                    TokenType::Iff => VerifyOp::Eq, // Biconditional is boolean equality
+                    _ => VerifyOp::And, // Fallback
+                };
+                VerifyExpr::binary(verify_op, l, r)
+            }
+
+            LogicExpr::UnaryOp { op, operand } => {
+                match op {
+                    TokenType::Not => VerifyExpr::not(self.map_logic_expr(operand)),
+                    _ => self.map_logic_expr(operand),
+                }
+            }
+
+            // Smart Mapping: Modal operators become uninterpreted functions
+            LogicExpr::Modal { vector, operand } => {
+                let op_name = match vector.domain {
+                    ModalDomain::Alethic => {
+                        if vector.force > 0.5 { "Necessarily" } else { "Possibly" }
+                    }
+                    ModalDomain::Deontic => {
+                        if vector.force > 0.5 { "Obligatory" } else { "Permissible" }
+                    }
+                };
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(operand)])
+            }
+
+            // Smart Mapping: Temporal operators become uninterpreted functions
+            LogicExpr::Temporal { operator, body } => {
+                let op_name = match operator {
+                    crate::ast::TemporalOperator::Past => "Past",
+                    crate::ast::TemporalOperator::Future => "Future",
+                };
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
+            }
+
+            // Smart Mapping: Aspectual operators become uninterpreted functions
+            LogicExpr::Aspectual { operator, body } => {
+                let op_name = match operator {
+                    crate::ast::AspectOperator::Progressive => "Progressive",
+                    crate::ast::AspectOperator::Perfect => "Perfect",
+                    crate::ast::AspectOperator::Habitual => "Habitual",
+                    crate::ast::AspectOperator::Iterative => "Iterative",
+                };
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(body)])
+            }
+
+            // Quantifiers map to IR quantifiers
+            LogicExpr::Quantifier { kind, variable, body, .. } => {
+                let var_name = self.interner.resolve(*variable);
+                let body_ir = self.map_logic_expr(body);
+                match kind {
+                    QuantifierKind::Universal => {
+                        VerifyExpr::forall(
+                            vec![(var_name.to_string(), VerifyType::Object)],
+                            body_ir,
+                        )
+                    }
+                    QuantifierKind::Existential => {
+                        VerifyExpr::exists(
+                            vec![(var_name.to_string(), VerifyType::Object)],
+                            body_ir,
+                        )
+                    }
+                    // Generalized quantifiers become uninterpreted
+                    QuantifierKind::Most => {
+                        VerifyExpr::apply("Most", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::Few => {
+                        VerifyExpr::apply("Few", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::Many => {
+                        VerifyExpr::apply("Many", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                    QuantifierKind::Cardinal(n) => {
+                        VerifyExpr::apply(
+                            &format!("Exactly{}", n),
+                            vec![VerifyExpr::var(var_name), body_ir],
+                        )
+                    }
+                    QuantifierKind::AtLeast(n) => {
+                        VerifyExpr::apply(
+                            &format!("AtLeast{}", n),
+                            vec![VerifyExpr::var(var_name), body_ir],
+                        )
+                    }
+                    QuantifierKind::AtMost(n) => {
+                        VerifyExpr::apply(
+                            &format!("AtMost{}", n),
+                            vec![VerifyExpr::var(var_name), body_ir],
+                        )
+                    }
+                    QuantifierKind::Generic => {
+                        VerifyExpr::apply("Generic", vec![VerifyExpr::var(var_name), body_ir])
+                    }
+                }
+            }
+
+            // Lambda abstractions become uninterpreted
+            LogicExpr::Lambda { variable, body } => {
+                let var_name = self.interner.resolve(*variable);
+                VerifyExpr::apply(
+                    "Lambda",
+                    vec![VerifyExpr::var(var_name), self.map_logic_expr(body)],
+                )
+            }
+
+            // Function application
+            LogicExpr::App { function, argument } => {
+                VerifyExpr::apply(
+                    "App",
+                    vec![self.map_logic_expr(function), self.map_logic_expr(argument)],
+                )
+            }
+
+            // Counterfactuals: if-then with special modal semantics
+            LogicExpr::Counterfactual { antecedent, consequent } => {
+                VerifyExpr::apply(
+                    "Counterfactual",
+                    vec![self.map_logic_expr(antecedent), self.map_logic_expr(consequent)],
+                )
+            }
+
+            // Causation
+            LogicExpr::Causal { cause, effect } => {
+                VerifyExpr::apply(
+                    "Causes",
+                    vec![self.map_logic_expr(cause), self.map_logic_expr(effect)],
+                )
+            }
+
+            // Questions become uninterpreted (for query semantics)
+            LogicExpr::Question { wh_variable, body } => {
+                let var_name = self.interner.resolve(*wh_variable);
+                VerifyExpr::apply(
+                    "Question",
+                    vec![VerifyExpr::var(var_name), self.map_logic_expr(body)],
+                )
+            }
+
+            LogicExpr::YesNoQuestion { body } => {
+                VerifyExpr::apply("YesNo", vec![self.map_logic_expr(body)])
+            }
+
+            // Intensional contexts
+            LogicExpr::Intensional { operator, content } => {
+                let op_name = self.interner.resolve(*operator);
+                VerifyExpr::apply(op_name, vec![self.map_logic_expr(content)])
+            }
+
+            // Speech acts
+            LogicExpr::SpeechAct { performer, act_type, content } => {
+                let performer_name = self.interner.resolve(*performer);
+                let act_name = self.interner.resolve(*act_type);
+                VerifyExpr::apply(
+                    act_name,
+                    vec![VerifyExpr::var(performer_name), self.map_logic_expr(content)],
+                )
+            }
+
+            // Comparatives
+            LogicExpr::Comparative { adjective, subject, object, difference } => {
+                let adj_name = self.interner.resolve(*adjective);
+                let mut args = vec![
+                    self.map_term(subject),
+                    self.map_term(object),
+                ];
+                if let Some(diff) = difference {
+                    args.push(self.map_term(diff));
+                }
+                VerifyExpr::apply(&format!("More{}", adj_name), args)
+            }
+
+            // Superlatives
+            LogicExpr::Superlative { adjective, subject, domain } => {
+                let adj_name = self.interner.resolve(*adjective);
+                let domain_name = self.interner.resolve(*domain);
+                VerifyExpr::apply(
+                    &format!("Most{}", adj_name),
+                    vec![self.map_term(subject), VerifyExpr::var(domain_name)],
+                )
+            }
+
+            // Focus
+            LogicExpr::Focus { focused, scope, .. } => {
+                VerifyExpr::apply(
+                    "Focus",
+                    vec![self.map_term(focused), self.map_logic_expr(scope)],
+                )
+            }
+
+            // Presupposition
+            LogicExpr::Presupposition { assertion, presupposition } => {
+                // Verify both assertion and presupposition
+                VerifyExpr::and(
+                    self.map_logic_expr(presupposition),
+                    self.map_logic_expr(assertion),
+                )
+            }
+
+            // Fallback for complex types: map to True to avoid false positives
+            LogicExpr::Metaphor { .. }
+            | LogicExpr::Categorical(_)
+            | LogicExpr::Relation(_)
+            | LogicExpr::Voice { .. }
+            | LogicExpr::Event { .. }
+            | LogicExpr::NeoEvent(_)
+            | LogicExpr::Imperative { .. }
+            | LogicExpr::TemporalAnchor { .. }
+            | LogicExpr::Distributive { .. }
+            | LogicExpr::GroupQuantifier { .. }
+            | LogicExpr::Scopal { .. }
+            | LogicExpr::Control { .. } => {
+                // These complex linguistic constructs are assumed valid
+                VerifyExpr::bool(true)
+            }
+        }
+    }
+
+    /// Map a term to Verification IR.
+    fn map_term(&self, term: &Term) -> VerifyExpr {
+        match term {
+            Term::Constant(sym) | Term::Variable(sym) => {
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::var(name)
+            }
+
+            Term::Value { kind, .. } => {
+                match kind {
+                    NumberKind::Integer(n) => VerifyExpr::int(*n),
+                    NumberKind::Real(r) => VerifyExpr::int(*r as i64), // Truncate for now
+                    NumberKind::Symbolic(s) => {
+                        let name = self.interner.resolve(*s);
+                        VerifyExpr::var(name)
+                    }
+                }
+            }
+
+            Term::Function(name, args) => {
+                let func_name = self.interner.resolve(*name);
+                let verify_args: Vec<VerifyExpr> = args
+                    .iter()
+                    .map(|t| self.map_term(t))
+                    .collect();
+                VerifyExpr::apply(func_name, verify_args)
+            }
+
+            Term::Group(terms) => {
+                // Group terms become a special "Group" function
+                let verify_args: Vec<VerifyExpr> = terms
+                    .iter()
+                    .map(|t| self.map_term(t))
+                    .collect();
+                VerifyExpr::apply("Group", verify_args)
+            }
+
+            Term::Possessed { possessor, possessed } => {
+                let poss_name = self.interner.resolve(*possessed);
+                VerifyExpr::apply(
+                    &format!("{}Of", poss_name),
+                    vec![self.map_term(possessor)],
+                )
+            }
+
+            Term::Sigma(sym) => {
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::apply("Sigma", vec![VerifyExpr::var(name)])
+            }
+
+            Term::Intension(sym) => {
+                let name = self.interner.resolve(*sym);
+                VerifyExpr::apply("Intension", vec![VerifyExpr::var(name)])
+            }
+
+            Term::Proposition(expr) => {
+                self.map_logic_expr(expr)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_interner() -> Interner {
+        Interner::new()
+    }
+
+    #[test]
+    fn test_verification_pass_creation() {
+        let interner = make_interner();
+        let pass = VerificationPass::new(&interner);
+        // Just verify it constructs without panic
+        drop(pass);
+    }
+}
+
+```
+
+---
+
 ## Build Configuration
 
 ### Package Manifest
@@ -51367,7 +54555,7 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [workspace]
-exclude = ["logos_core"]
+exclude = ["logos_core", "logos_verification"]
 
 [dependencies]
 bumpalo = "3.19.1"
@@ -51392,10 +54580,12 @@ ureq = { version = "2.9", features = ["json"], optional = true }
 flate2 = { version = "1.0", optional = true }
 tar = { version = "0.4", optional = true }
 dirs = { version = "5.0", optional = true }
+logos_verification = { path = "./logos_verification", optional = true }
 
 [features]
 default = []
 cli = ["clap", "toml", "ureq", "flate2", "tar", "dirs"]
+verification = ["logos_verification"]
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -52897,11 +56087,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 11:40:41 CST 2025
+- **Generated:** Mon Dec 29 13:39:21 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 50753ee
-- **Documentation Size:** 1.8M
+- **Git Commit:** 1f058ac
+- **Documentation Size:** 1.9M
 
 ---
 

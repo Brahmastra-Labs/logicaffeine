@@ -38,6 +38,8 @@ pub mod progress;
 pub mod project;
 #[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
 pub mod cli;
+#[cfg(all(not(target_arch = "wasm32"), feature = "verification"))]
+pub mod verification;
 pub mod runtime_lexicon;
 pub mod semantics;
 pub mod registry;

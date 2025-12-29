@@ -3115,9 +3115,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
+    /// Parse unary expressions (currently just unary minus)
+    fn parse_unary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::{Expr, Literal};
+
+        if self.check(&TokenType::Minus) {
+            self.advance(); // consume '-'
+            let operand = self.parse_unary_expr()?; // recursive for --5
+            // Implement as 0 - operand (no UnaryOp variant in Expr)
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Subtract,
+                left: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(0))),
+                right: operand,
+            }));
+        }
+        self.parse_primary_expr()
+    }
+
     /// Parse multiplicative expressions (*, /) - left-to-right associative
     fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let mut left = self.parse_primary_expr()?;
+        let mut left = self.parse_unary_expr()?;
 
         loop {
             let op = match &self.peek().kind {
@@ -3131,7 +3148,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 _ => break,
             };
-            let right = self.parse_primary_expr()?;
+            let right = self.parse_unary_expr()?;
             left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op,
                 left,
