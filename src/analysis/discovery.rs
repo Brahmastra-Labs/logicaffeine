@@ -34,6 +34,11 @@ impl<'a> DiscoveryPass<'a> {
             if self.check_block_header(BlockType::Definition) {
                 self.advance(); // consume ## Definition
                 self.scan_definition_block(&mut registry);
+            } else if self.check_block_header(BlockType::TypeDef) {
+                // Inline type definition: ## A Point has: or ## A Color is one of:
+                // The article is part of the block header, so don't skip it
+                self.advance(); // consume ## A/An
+                self.parse_type_definition_inline(&mut registry);
             } else {
                 self.advance();
             }
@@ -66,9 +71,18 @@ impl<'a> DiscoveryPass<'a> {
         }
     }
 
+    /// Parse inline type definition where article was part of block header (## A Point has:)
+    fn parse_type_definition_inline(&mut self, registry: &mut TypeRegistry) {
+        // Don't skip article - it was part of the block header
+        self.parse_type_definition_body(registry);
+    }
+
     fn try_parse_type_definition(&mut self, registry: &mut TypeRegistry) {
         self.advance(); // skip article
+        self.parse_type_definition_body(registry);
+    }
 
+    fn parse_type_definition_body(&mut self, registry: &mut TypeRegistry) {
         if let Some(name_sym) = self.consume_noun_or_proper() {
             // Phase 34: Check for "of [T]" which indicates user-defined generic
             let type_params = if self.check_preposition("of") {
@@ -97,13 +111,27 @@ impl<'a> DiscoveryPass<'a> {
                 }
             }
 
-            // Check for "is either:" pattern (Phase 33/34: Sum types with variants)
+            // Check for "is either:" or "is one of:" pattern (Phase 33/34: Sum types with variants)
             if self.check_copula() {
                 self.advance(); // consume is/are
 
-                // Phase 33: Check for "either:" pattern
-                if self.check_either() {
+                // Phase 33: Check for "either:" or "one of:" pattern
+                let is_enum_pattern = if self.check_either() {
                     self.advance(); // consume "either"
+                    true
+                } else if self.check_word("one") {
+                    self.advance(); // consume "one"
+                    if self.check_word("of") {
+                        self.advance(); // consume "of"
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if is_enum_pattern {
                     if self.check_colon() {
                         self.advance(); // consume ":"
                         // Skip newline if present
@@ -206,7 +234,10 @@ impl<'a> DiscoveryPass<'a> {
         self.parse_enum_variants_with_params(&[])
     }
 
-    /// Parse variant fields in natural syntax: "with a radius, which is Int."
+    /// Parse variant fields in natural syntax.
+    /// Supports multiple syntaxes:
+    /// - "with a radius, which is Int." (verbose natural)
+    /// - "with radius Int" (concise natural - no article/comma)
     fn parse_variant_fields_natural_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
         let mut fields = Vec::new();
 
@@ -214,14 +245,16 @@ impl<'a> DiscoveryPass<'a> {
         self.advance();
 
         loop {
-            // Skip article
+            // Skip article (optional)
             if self.check_article() {
                 self.advance();
             }
 
             // Get field name
             if let Some(field_name) = self.consume_noun_or_proper() {
-                // Expect ", which is Type" pattern
+                // Support multiple type annotation patterns:
+                // 1. ", which is Type" (verbose)
+                // 2. " Type" (concise - just a type name after field name)
                 let ty = if self.check_comma() {
                     self.advance(); // consume ","
                     // Consume "which"
@@ -234,7 +267,8 @@ impl<'a> DiscoveryPass<'a> {
                     }
                     self.consume_field_type_with_params(type_params)
                 } else {
-                    FieldType::Primitive(self.interner.intern("Unknown"))
+                    // Concise syntax: "radius Int" - type immediately follows field name
+                    self.consume_field_type_with_params(type_params)
                 };
 
                 fields.push(FieldDef {
@@ -243,7 +277,7 @@ impl<'a> DiscoveryPass<'a> {
                     is_public: true, // Variant fields are always public
                 });
 
-                // Check for "and" to continue: ", and a height, which is Int"
+                // Check for "and" to continue: "and height Int"
                 // May have comma before "and"
                 if self.check_comma() {
                     self.advance(); // consume comma before "and"
@@ -331,22 +365,32 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse field: "a [public] name, which is Type."
+            // Parse field: "a [public] name, which is Type." or "an x: Int."
             if self.check_article() {
                 self.advance(); // consume "a"/"an"
 
                 // Check for "public" modifier
-                let is_public = if self.check_word("public") {
+                let has_public_keyword = if self.check_word("public") {
                     self.advance();
                     true
                 } else {
                     false
                 };
+                // Visibility determined later based on syntax used
+                let mut is_public = has_public_keyword;
 
                 // Get field name
                 if let Some(field_name) = self.consume_noun_or_proper() {
-                    // Expect ", which is Type." pattern
-                    let ty = if self.check_comma() {
+                    // Support both syntaxes:
+                    // 1. "name: Type." (concise) - public by default (no visibility syntax)
+                    // 2. "name, which is Type." (natural) - private unless "public" keyword
+                    let ty = if self.check_colon() {
+                        // Concise syntax: "x: Int" - public by default
+                        is_public = true;
+                        self.advance(); // consume ":"
+                        self.consume_field_type_with_params(type_params)
+                    } else if self.check_comma() {
+                        // Natural syntax: uses has_public_keyword for visibility
                         self.advance(); // consume ","
                         // Consume "which"
                         if self.check_word("which") {

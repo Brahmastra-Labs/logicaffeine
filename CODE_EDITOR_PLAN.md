@@ -1,7 +1,7 @@
 # LOGOS Code Editor / Playground
 
 **Status:** Draft
-**Version:** 0.1.0
+**Version:** 0.2.0
 **Last Updated:** December 2024
 
 ---
@@ -10,7 +10,7 @@
 
 > **This section documents what's currently working in the LOGOS programming language.**
 
-### 0.1 Fully Implemented (848 tests passing)
+### 0.1 Fully Implemented (901+ tests passing, 54 phases)
 
 #### Statements
 
@@ -20,6 +20,7 @@
 | **Let (typed)** | `Let x: Int be 5.` | `let x: i64 = 5;` | ✅ |
 | **Let (mutable)** | `Let mutable x be 5.` | `let mut x = 5;` | ✅ |
 | **Set** | `Set x to 10.` | `x = 10;` | ✅ |
+| **SetField** | `Set p's x to 10.` | `p.x = 10;` | ✅ |
 | **Return** | `Return 42.` | `return 42;` | ✅ |
 | **Return (void)** | `Return.` | `return;` | ✅ |
 | **If** | `If x equals 5: ...` | `if x == 5 { ... }` | ✅ |
@@ -29,9 +30,14 @@
 | **Repeat (range)** | `Repeat for i from 1 to 10: ...` | `for i in 1..=10 { ... }` | ✅ |
 | **Call** | `Call function.` | `function();` | ✅ |
 | **Assert** | `Assert that x is greater than 0.` | `debug_assert!(x > 0);` | ✅ |
+| **Trust** | `Trust that x > 0 because "positive".` | `debug_assert!(x > 0, "positive");` | ✅ |
 | **Show** | `Show x.` | `show(x);` | ✅ |
+| **Give** | `Give data to processor.` | Move semantics | ✅ |
 | **Function Def** | `## To verb (x: T):` | `fn verb(x: T) { }` | ✅ |
-| **Call (expr)** | `func(x, y)` | `func(x, y)` | ✅ |
+| **Struct Def** | `## Definition` block | `struct Name { ... }` | ✅ |
+| **Inspect** | `Inspect x: If it is a Variant: ...` | `match x { ... }` | ✅ |
+| **Push** | `Push x to items.` | `items.push(x);` | ✅ |
+| **Pop** | `Pop from items.` / `Pop from items into y.` | `items.pop();` / `let y = items.pop();` | ✅ |
 
 #### Expressions
 
@@ -49,10 +55,21 @@
 | **Inequality** | `x does not equal 5` | `(x != 5)` | ✅ |
 | **Less than** | `x less than 10` | `(x < 10)` | ✅ |
 | **Greater than** | `x greater than 0` | `(x > 0)` | ✅ |
+| **Less/Greater or equal** | `x <= 5`, `x >= 5` | `(x <= 5)`, `(x >= 5)` | ✅ |
+| **Logical And/Or** | `x and y`, `x or y` | `(x && y)`, `(x \|\| y)` | ✅ |
 | **List literals** | `[1, 2, 3]` | `vec![1, 2, 3]` | ✅ |
 | **Empty list** | `[]` | `vec![]` | ✅ |
 | **Indexing** | `item 1 of list` | `list[0]` (1→0 indexed) | ✅ |
+| **Dynamic Index** | `items at i` | `items[i - 1]` | ✅ |
+| **Slice** | `items 1 through 3 of list` | `list[0..3].to_vec()` | ✅ |
+| **Length** | `length of items` | `items.len()` | ✅ |
+| **Copy** | `copy of items` | `items.clone()` | ✅ |
 | **Ranges** | `1 to 10` | `1..=10` | ✅ |
+| **Field Access** | `p's x` / `the x of p` | `p.x` | ✅ |
+| **Constructor** | `a new Point` | `Point::default()` | ✅ |
+| **Generic Constructor** | `a new Box of Int` | `Box::<i64>::default()` | ✅ |
+| **Variant Constructor** | `a new Circle with radius 10` | `Shape::Circle { radius: 10 }` | ✅ |
+| **Function Call** | `func(x, y)` | `func(x, y)` | ✅ |
 
 #### Types
 
@@ -69,6 +86,19 @@
 | `Option of X` | `Option<X>` | ✅ |
 | `Result of X and Y` | `Result<X, Y>` | ✅ |
 
+#### Type System Features
+
+| Feature | Syntax | Status |
+|---------|--------|--------|
+| **Struct definitions** | `## Definition` block with fields | ✅ |
+| **Enum definitions** | `A Shape is either: A Circle. A Point.` | ✅ |
+| **Payload variants** | `A Circle with a radius, which is Int.` | ✅ |
+| **Concise variants** | `A Success (value: Int).` | ✅ |
+| **Generic structs** | `A Box of T with a value, which is T.` | ✅ |
+| **Pattern matching** | `Inspect x: If it is a Circle (radius): ...` | ✅ |
+| **Otherwise clause** | `Otherwise: ...` in Inspect | ✅ |
+| **Refinement types** | `Int where it > 0` (AST ready) | ⚠️ |
+
 #### Runtime Library (logos_core)
 
 The compiler embeds a runtime library with:
@@ -82,18 +112,17 @@ The compiler embeds a runtime library with:
 
 | Feature | What Works | What's Missing |
 |---------|------------|----------------|
-| **Structs** | Definition, constructor (`a new Point`) | Field access (`p's x`) |
-| **Give/Show ownership** | Parser recognizes verbs | Codegen for ownership transfer |
+| **Refinement types** | AST variant exists | Parsing of `where` clauses |
+| **Give/Show ownership** | Parser and AST | Full codegen for ownership transfer |
 
 ### 0.3 Not Yet Implemented
 
 | Feature | Notes |
 |---------|-------|
-| Pattern matching | `Inspect` / `Match` statements |
-| Error handling | Try/catch, Result propagation |
-| Concurrency | Spawn, channels, agents |
 | String interpolation | `"Hello, {name}!"` |
+| Concurrency | Spawn, channels, agents |
 | Higher-order functions | Lambdas, closures |
+| Traits/Interfaces | Polymorphism |
 
 ---
 
@@ -108,7 +137,7 @@ A web-based IDE for writing, compiling, and running LOGOS programs. Think "REPL 
 | Principle | Description |
 |-----------|-------------|
 | **Immediate Feedback** | See generated Rust code as you type |
-| **Run Anywhere** | Execute code without local toolchain |
+| **Run Anywhere** | Execute code in-browser via WASM |
 | **Minimal Friction** | No setup, no accounts, just code |
 | **Progressive Complexity** | Simple by default, powerful when needed |
 
@@ -155,13 +184,25 @@ A web-based IDE for writing, compiling, and running LOGOS programs. Think "REPL 
 | **Rust Output** | View generated Rust code + compilation status |
 | **Console** | Execution output, errors, and REPL history |
 
-### 2.3 Data Flow
+### 2.3 Data Flow (WASM Sandbox)
 
 ```
 User Types → Editor → compile_to_rust() → Rust Panel
-                                      ↓
-User Clicks Run → POST /api/run → Server → cargo build+run → Console
+                                       ↓
+User Clicks Run → WASM Interpreter → In-browser execution → Console
 ```
+
+**Key insight:** No backend server required for code execution. The entire pipeline runs in the browser:
+
+1. LOGOS source → Rust code (already works via `compile_to_rust()`)
+2. Rust code → Interpreted/executed in WASM sandbox
+3. Output captured and displayed in Console
+
+**Benefits:**
+- No server costs for execution
+- Instant feedback (no network latency)
+- Works offline
+- Matches existing Dioxus WASM stack
 
 ---
 
@@ -197,28 +238,28 @@ User Clicks Run → POST /api/run → Server → cargo build+run → Console
 | **Dark/Light Theme** | Theme toggle |
 | **Export to Cargo** | Download as full Cargo project |
 | **Import Examples** | Load pre-built examples |
-| **Collaborative Editing** | Real-time multiplayer |
 
 ---
 
 ## 4. Component Breakdown
 
-### 4.1 New Components to Create
+### 4.1 Existing Components to Reuse
+
+| Component | File | Usage |
+|-----------|------|-------|
+| **LiveEditor** | `src/ui/components/editor.rs` | CodeMirror FFI binding for code input |
+| **LogicOutput** | `src/ui/components/logic_output.rs` | Syntax-highlighted output display |
+| **SocraticGuide** | `src/ui/components/socratic_guide.rs` | Error hints and guidance |
+
+### 4.2 New Components to Create
 
 | Component | File | Description |
 |-----------|------|-------------|
 | **Playground** | `src/ui/pages/playground.rs` | Main page component |
 | **FileTree** | `src/ui/components/file_tree.rs` | File explorer sidebar |
-| **RustOutput** | `src/ui/components/rust_output.rs` | Rust code display |
+| **RustOutput** | `src/ui/components/rust_output.rs` | Rust code display (similar to LogicOutput) |
 | **Console** | `src/ui/components/console.rs` | Execution output |
 | **RunButton** | `src/ui/components/run_button.rs` | Execute button with loading state |
-
-### 4.2 Existing Components to Reuse
-
-| Component | From | Usage |
-|-----------|------|-------|
-| **LiveEditor** | `src/ui/components/editor.rs` | Code input textarea |
-| **SocraticGuide** | `src/ui/components/socratic_guide.rs` | Error hints |
 
 ### 4.3 Component Hierarchy
 
@@ -233,15 +274,15 @@ Playground
 │   │   └── NewFileButton
 │   ├── EditorPanel
 │   │   ├── TabBar (if multiple files)
-│   │   └── LiveEditor
+│   │   └── LiveEditor (existing)
 │   └── RustPanel
-│       ├── RustOutput
+│       ├── RustOutput (new)
 │       └── CompileStatus
 ├── ConsolePanel
-│   ├── Console
-│   └── RunButton
+│   ├── Console (new)
+│   └── RunButton (new)
 └── Footer (optional)
-    └── SocraticGuide
+    └── SocraticGuide (existing)
 ```
 
 ---
@@ -260,7 +301,6 @@ src/
 │       ├── rust_output.rs     # ~100 lines
 │       ├── console.rs         # ~80 lines
 │       └── run_button.rs      # ~50 lines
-└── server.rs                  # ~150 lines (backend)
 ```
 
 ### 5.2 Files to Modify
@@ -269,11 +309,49 @@ src/
 |------|---------|
 | `src/ui/router.rs` | Add `#[route("/playground")] Playground {}` |
 | `src/ui/pages/mod.rs` | Add `pub mod playground; pub use playground::Playground;` |
-| `src/ui/pages/home.rs` | Add 5th portal card linking to Playground |
+| `src/ui/pages/home.rs` | Add portal card linking to Playground |
 | `src/ui/components/mod.rs` | Export new components |
-| `Cargo.toml` | Add `axum`, `tokio` as optional deps for server |
 
-### 5.3 Route Definition
+### 5.3 Dioxus 0.6 Patterns (Match Existing Style)
+
+```rust
+use dioxus::prelude::*;
+
+const PLAYGROUND_STYLE: &str = r#"
+    .playground-container {
+        display: flex;
+        height: 100vh;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    }
+    /* ... */
+"#;
+
+#[component]
+pub fn Playground() -> Element {
+    let source = use_signal(|| String::from("## Main\n\nLet x be 5.\nReturn x.\n"));
+    let rust_code = use_signal(|| None::<String>);
+    let console_output = use_signal(|| Vec::<ConsoleEntry>::new());
+    let is_running = use_signal(|| false);
+
+    // Live compilation on source change
+    use_effect(move || {
+        let src = source.read().clone();
+        match logos::compile_to_rust(&src) {
+            Ok(code) => rust_code.set(Some(code)),
+            Err(e) => rust_code.set(None),
+        }
+    });
+
+    rsx! {
+        style { "{PLAYGROUND_STYLE}" }
+        div { class: "playground-container",
+            // ... components
+        }
+    }
+}
+```
+
+### 5.4 Route Definition
 
 ```rust
 // src/ui/router.rs
@@ -286,117 +364,47 @@ pub enum Route {
 }
 ```
 
-### 5.4 Portal Card Addition
-
-```rust
-// src/ui/pages/home.rs - add to portal-grid
-Link {
-    to: Route::Playground {},
-    class: "portal-card",
-    div { class: "icon", "💻" }
-    h2 { "Playground" }
-    p { "Write, compile, and run LOGOS programs in your browser." }
-    div { class: "arrow", "→" }
-}
-```
-
 ---
 
-## 6. API Specification
+## 6. Execution Architecture (WASM Sandbox)
 
-### 6.1 Endpoints
+### 6.1 Approach
 
-#### POST /api/run
+Since the entire LOGOS compiler already runs in WASM (via Dioxus), execution can happen client-side. Options:
 
-Execute LOGOS source code.
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Interpret Rust AST** | Simpler, no external deps | Limited stdlib support |
+| **WASM-based Rust interpreter** | Full Rust support | Complex, large binary |
+| **Compile to JS** | Native browser execution | Transpilation complexity |
 
-**Request:**
-```json
-{
-  "source": "## Main\nLet x be 5.\nReturn x."
-}
-```
+**Recommended:** Start with a lightweight interpreter for the generated Rust subset:
+- Variable bindings
+- Arithmetic
+- Conditionals and loops
+- `show()` / `println()` captured to console
 
-**Response (success):**
-```json
-{
-  "success": true,
-  "rust_code": "fn main() {\n    let x = 5;\n    return x;\n}\n",
-  "output": "5\n",
-  "execution_time_ms": 127
-}
-```
-
-**Response (compile error):**
-```json
-{
-  "success": false,
-  "error": {
-    "type": "parse",
-    "message": "Unknown verb 'Xyz' at line 2",
-    "line": 2,
-    "column": 1
-  }
-}
-```
-
-**Response (runtime error):**
-```json
-{
-  "success": false,
-  "rust_code": "fn main() { panic!(\"oops\"); }",
-  "error": {
-    "type": "runtime",
-    "message": "thread 'main' panicked at 'oops'"
-  }
-}
-```
-
-### 6.2 Server Implementation
+### 6.2 Execution Flow
 
 ```rust
-// src/server.rs
-use axum::{Router, Json, routing::post};
-use serde::{Deserialize, Serialize};
+// src/ui/components/run_button.rs
+async fn execute_code(rust_code: &str) -> Vec<ConsoleEntry> {
+    let mut output = Vec::new();
 
-#[derive(Deserialize)]
-struct RunRequest {
-    source: String,
-}
+    // Parse generated Rust (subset)
+    // Execute with captured stdout
+    // Return console entries
 
-#[derive(Serialize)]
-struct RunResponse {
-    success: bool,
-    rust_code: Option<String>,
-    output: Option<String>,
-    error: Option<RunError>,
-    execution_time_ms: Option<u64>,
-}
-
-async fn run_handler(Json(req): Json<RunRequest>) -> Json<RunResponse> {
-    // 1. Compile to Rust
-    // 2. Write to temp directory
-    // 3. cargo build + run with timeout
-    // 4. Return output or error
-}
-
-pub async fn run_server() {
-    let app = Router::new()
-        .route("/api/run", post(run_handler));
-
-    axum::serve(listener, app).await.unwrap();
+    output
 }
 ```
 
-### 6.3 Security Considerations
+### 6.3 Future: Full Rust Execution
 
-| Concern | Mitigation |
-|---------|------------|
-| Infinite loops | 5 second execution timeout |
-| Resource exhaustion | Memory limit (256MB) |
-| File system access | Sandboxed temp directory |
-| Network access | Block outbound connections |
-| Malicious code | Run in isolated container (future) |
+For complete Rust support, consider:
+- WebAssembly compilation of generated code
+- Playground API service (Cloudflare Worker)
+- Integration with Rust Playground API
 
 ---
 
@@ -445,18 +453,18 @@ enum ConsoleEntryType {
 }
 ```
 
-### 7.2 Persistence
+### 7.2 Persistence (localStorage)
 
 ```rust
-// Save to localStorage on file change
+use gloo_storage::LocalStorage;
+
 fn save_files(files: &[FileEntry]) {
     let json = serde_json::to_string(files).unwrap();
-    gloo_storage::LocalStorage::set("playground_files", json).unwrap();
+    LocalStorage::set("playground_files", json).unwrap();
 }
 
-// Load from localStorage on mount
 fn load_files() -> Vec<FileEntry> {
-    gloo_storage::LocalStorage::get("playground_files")
+    LocalStorage::get("playground_files")
         .unwrap_or_else(|_| vec![default_file()])
 }
 
@@ -464,7 +472,7 @@ fn default_file() -> FileEntry {
     FileEntry {
         id: uuid(),
         name: "main.lg".into(),
-        content: "## Main\n\nLet message be \"Hello, LOGOS!\".\nReturn message.\n".into(),
+        content: "## Main\n\nLet message be \"Hello, LOGOS!\".\nShow message.\nReturn.\n".into(),
     }
 }
 ```
@@ -485,17 +493,16 @@ fn default_file() -> FileEntry {
 
 **Deliverable:** Can write LOGOS, see Rust output, see errors
 
-### Phase 2: Execution Backend
+### Phase 2: In-Browser Execution
 
-**Goal:** Run code and see output
+**Goal:** Run code and see output (no backend)
 
-- [ ] Create `src/server.rs` with Axum
-- [ ] Implement `/api/run` endpoint
+- [ ] Create lightweight Rust interpreter for generated code subset
 - [ ] Add Console component
 - [ ] Add Run button
-- [ ] Wire up execution flow
+- [ ] Capture `show()`/`println()` output
 
-**Deliverable:** Can click Run and see program output
+**Deliverable:** Can click Run and see program output in browser
 
 ### Phase 3: File Management
 
@@ -521,35 +528,46 @@ fn default_file() -> FileEntry {
 
 **Deliverable:** Polished, delightful experience
 
+### Deployment
+
+Uses existing Cloudflare Pages infrastructure:
+
+```yaml
+# .github/workflows/deploy-frontend.yml pattern
+- dx build --release
+- wrangler pages deploy target/dx/logos/release/web/public --project-name=logicaffeine
+```
+
 ---
 
 ## 9. Styling Guide
 
-### 9.1 Theme Colors (from existing UI)
+### 9.1 Theme Colors (from `src/ui/app.rs`)
 
 ```css
 /* Backgrounds */
 --bg-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
 --bg-panel: rgba(0, 0, 0, 0.3);
---bg-header: rgba(0, 0, 0, 0.2);
+--bg-input: rgba(255, 255, 255, 0.08);
 
 /* Borders */
---border-subtle: rgba(255, 255, 255, 0.08);
+--border-subtle: rgba(255, 255, 255, 0.1);
 --border-accent: rgba(102, 126, 234, 0.5);
 
 /* Text */
 --text-primary: #e8e8e8;
 --text-secondary: #94a3b8;
---text-muted: #888;
+--text-muted: #666;
 
 /* Accent */
 --accent-primary: #667eea;
 --accent-secondary: #764ba2;
 --accent-gradient: linear-gradient(135deg, #667eea, #764ba2);
+--accent-cyan: #00d4ff;
 
 /* Semantic */
 --color-success: #4ade80;
---color-error: #f87171;
+--color-error: #ff6b6b;
 --color-warning: #fbbf24;
 --color-info: #60a5fa;
 ```
@@ -559,14 +577,14 @@ fn default_file() -> FileEntry {
 ```css
 .playground-panel {
     background: rgba(0, 0, 0, 0.3);
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
     display: flex;
     flex-direction: column;
 }
 
 .panel-header {
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
@@ -587,11 +605,16 @@ fn default_file() -> FileEntry {
 }
 
 .console-entry.error {
-    color: #f87171;
+    color: #ff6b6b;
 }
 
 .console-entry.success {
     color: #4ade80;
+}
+
+.console-entry.system {
+    color: #00d4ff;
+    text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
 }
 ```
 
@@ -610,17 +633,7 @@ fn default_file() -> FileEntry {
 | Import example programs | Medium | Low |
 | Vim/Emacs keybindings | Low | Medium |
 
-### 10.2 Infrastructure
-
-| Consideration | Notes |
-|---------------|-------|
-| **Server deployment** | Fly.io, Railway, or similar |
-| **Execution sandboxing** | Firecracker microVMs for production |
-| **Rate limiting** | Prevent abuse of execution endpoint |
-| **Caching** | Cache Rust compilation for identical inputs |
-| **Telemetry** | Track usage patterns (opt-in) |
-
-### 10.3 Integration with Curriculum
+### 10.2 Integration with Curriculum
 
 The Playground could integrate with Learn/Curriculum:
 - "Try it yourself" links open Playground with pre-loaded code
@@ -713,25 +726,6 @@ Return.
 
 ---
 
-### Nested Conditionals
-
-```markdown
-## Main
-
-Let score be 85.
-If score greater than 90:
-    Show "A".
-Otherwise:
-    If score greater than 80:
-        Show "B".
-    Otherwise:
-        Show "C".
-Return.
-```
-**Output:** `B`
-
----
-
 ### While Loops
 
 ```markdown
@@ -773,50 +767,113 @@ cherry
 
 ---
 
-### Repeat Over Range
+### Collection Operations (Phase 43)
 
 ```markdown
 ## Main
 
-Let mutable sum be 0.
-Repeat for i from 1 to 5:
-    Set sum to sum plus i.
-Show sum.
-Return sum.
+Let mutable items be [].
+Push 1 to items.
+Push 2 to items.
+Push 3 to items.
+Let n be length of items.
+Show n.
+Pop from items into last.
+Show last.
+Return.
 ```
-**Output:** `15` (1+2+3+4+5)
+**Output:**
+```
+3
+3
+```
 
 ---
 
-### List Operations
+### Struct Definition and Field Access
 
 ```markdown
+## Definition
+
+A Point has:
+    An x, which is Int.
+    A y, which is Int.
+
 ## Main
 
-Let numbers be [10, 20, 30, 40, 50].
-Let first be item 1 of numbers.
-Let third be item 3 of numbers.
-Show first.
-Show third.
+Let p be a new Point.
+Set p's x to 10.
+Set p's y to 20.
+Show p's x.
+Show p's y.
 Return.
 ```
 **Output:**
 ```
 10
-30
+20
 ```
-> Note: LOGOS uses 1-based indexing!
 
 ---
 
-### Assertions (Debug Checks)
+### Enum Definition and Pattern Matching
+
+```markdown
+## Definition
+
+A Shape is either:
+    A Circle with a radius, which is Int.
+    A Rectangle with a width, which is Int, and a height, which is Int.
+    A Point.
+
+## Main
+
+Let s be a new Circle with radius 5.
+Inspect s:
+    If it is a Circle (radius: r):
+        Show r.
+    If it is a Rectangle (width: w, height: h):
+        Show w times h.
+    If it is a Point:
+        Show "point".
+Return.
+```
+**Output:** `5`
+
+---
+
+### Pattern Matching with Otherwise
+
+```markdown
+## Definition
+
+A Color is either:
+    A Red.
+    A Green.
+    A Blue.
+
+## Main
+
+Let c be a new Green.
+Inspect c:
+    If it is a Red:
+        Show "red".
+    Otherwise:
+        Show "not red".
+Return.
+```
+**Output:** `not red`
+
+---
+
+### Trust Statements (Documented Assertions)
 
 ```markdown
 ## Main
 
 Let age be 25.
-Assert that age is greater than 0.
-Assert that age is less than 150.
+Trust that age is greater than 0 because "Age must be positive".
+Trust that age is less than 150 because "Human lifespan limit".
 Show "Age is valid!".
 Return age.
 ```
@@ -824,78 +881,14 @@ Return age.
 
 ---
 
-### FizzBuzz
-
-```markdown
-## Main
-
-Repeat for i from 1 to 20:
-    If i modulo 15 equals 0:
-        Show "FizzBuzz".
-    Otherwise:
-        If i modulo 3 equals 0:
-            Show "Fizz".
-        Otherwise:
-            If i modulo 5 equals 0:
-                Show "Buzz".
-            Otherwise:
-                Show i.
-Return.
-```
-
----
-
-### Sum of List
-
-```markdown
-## Main
-
-Let numbers be [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].
-Let mutable total be 0.
-Repeat for n in numbers:
-    Set total to total plus n.
-Show "Sum:".
-Show total.
-Return total.
-```
-**Output:**
-```
-Sum:
-55
-```
-
----
-
-### Factorial (Iterative)
-
-```markdown
-## Main
-
-Let n be 5.
-Let mutable result be 1.
-Let mutable i be 1.
-While i less than n plus 1:
-    Set result to result times i.
-    Set i to i plus 1.
-Show "5! =".
-Show result.
-Return result.
-```
-**Output:**
-```
-5! =
-120
-```
-
----
-
-### Basic Function (Procedure)
+### Function Definition
 
 ```markdown
 ## To greet (name: Text):
     Show name.
 
 ## Main
+
 Call greet with "World".
 ```
 **Output:** `World`
@@ -906,9 +899,10 @@ Call greet with "World".
 
 ```markdown
 ## To double (x: Int):
-    Return x + x.
+    Return x plus x.
 
 ## Main
+
 Let result be double(5).
 Show result.
 ```
@@ -920,9 +914,10 @@ Show result.
 
 ```markdown
 ## To add (a: Int) and (b: Int):
-    Return a + b.
+    Return a plus b.
 
 ## Main
+
 Let sum be add(3, 4).
 Show sum.
 ```

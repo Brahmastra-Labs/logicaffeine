@@ -1,0 +1,183 @@
+//! E2E Tests: Enums and Pattern Matching
+//!
+//! Tests enum variants and Inspect pattern matching.
+//! Note: These tests will reveal if enum features are fully implemented.
+
+#[cfg(not(target_arch = "wasm32"))]
+mod common;
+
+#[cfg(not(target_arch = "wasm32"))]
+use common::assert_output;
+
+// === UNIT VARIANTS ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_enum_unit_variant() {
+    assert_output(
+        r#"## A Color is one of:
+    A Red.
+    A Green.
+    A Blue.
+
+## Main
+Let c be a new Red.
+Show "created".
+"#,
+        "created",
+    );
+}
+
+// === PAYLOAD VARIANTS ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_enum_payload_variant() {
+    assert_output(
+        r#"## A Shape is one of:
+    A Circle with radius Int.
+    A Rectangle with width Int and height Int.
+
+## Main
+Let s be a new Circle with radius 10.
+Show "created".
+"#,
+        "created",
+    );
+}
+
+// === SIMPLE PATTERN MATCHING ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_inspect_simple() {
+    assert_output(
+        r#"## A Color is one of:
+    A Red.
+    A Green.
+    A Blue.
+
+## Main
+Let c be a new Red.
+Inspect c:
+    When Red: Show "red".
+    When Green: Show "green".
+    When Blue: Show "blue".
+"#,
+        "red",
+    );
+}
+
+// === PATTERN MATCHING WITH BINDING ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_inspect_with_binding() {
+    assert_output(
+        r#"## A Shape is one of:
+    A Circle with radius Int.
+    A Rectangle with width Int and height Int.
+
+## Main
+Let s be a new Circle with radius 42.
+Inspect s:
+    When Circle (r): Show r.
+    When Rectangle (w, h): Show w.
+"#,
+        "42",
+    );
+}
+
+// === OTHERWISE CLAUSE ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_inspect_otherwise() {
+    assert_output(
+        r#"## A Color is one of:
+    A Red.
+    A Green.
+    A Blue.
+
+## Main
+Let c be a new Blue.
+Inspect c:
+    When Red: Show "red".
+    Otherwise: Show "other".
+"#,
+        "other",
+    );
+}
+
+// === ENUM IN FUNCTION ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_enum_in_function() {
+    assert_output(
+        r#"## A Color is one of:
+    A Red.
+    A Green.
+    A Blue.
+
+## To isRed (c: Color) -> Bool:
+    Inspect c:
+        When Red: Return true.
+        Otherwise: Return false.
+
+## Main
+Let c be a new Red.
+Show isRed(c).
+"#,
+        "true",
+    );
+}
+
+// === ENUM RETURN ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_enum_return() {
+    assert_output(
+        r#"## A Color is one of:
+    A Red.
+    A Green.
+    A Blue.
+
+## To primary -> Color:
+    Return a new Red.
+
+## Main
+Let c be primary().
+Inspect c:
+    When Red: Show "red".
+    Otherwise: Show "other".
+"#,
+        "red",
+    );
+}
+
+// === NESTED INSPECT ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_nested_inspect() {
+    assert_output(
+        r#"## A Color is one of:
+    A Red.
+    A Green.
+    A Blue.
+
+## Main
+Let c1 be a new Red.
+Let c2 be a new Green.
+Inspect c1:
+    When Red:
+        Inspect c2:
+            When Green: Show "red-green".
+            Otherwise: Show "red-other".
+    Otherwise: Show "not-red".
+"#,
+        "red-green",
+    );
+}

@@ -9,6 +9,12 @@ pub trait Showable {
 }
 
 // Primitives: use Display formatting
+impl Showable for i32 {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl Showable for i64 {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
@@ -16,6 +22,12 @@ impl Showable for i64 {
 }
 
 impl Showable for u64 {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for usize {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
@@ -59,15 +71,47 @@ impl<T: Showable> Showable for Vec<T> {
     }
 }
 
+// Slices: same as Vec
+impl<T: Showable> Showable for [T] {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (i, item) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            item.format_show(f)?;
+        }
+        write!(f, "]")
+    }
+}
+
+// Reference to slice
+impl<T: Showable> Showable for &[T] {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (*self).format_show(f)
+    }
+}
+
+// Option type: shows "nothing" or the value
+impl<T: Showable> Showable for Option<T> {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Some(v) => v.format_show(f),
+            None => write!(f, "nothing"),
+        }
+    }
+}
+
 /// The Show verb - prints value with natural formatting
-pub fn show<T: Showable>(value: T) {
+/// Takes a reference to avoid moving the value.
+pub fn show<T: Showable>(value: &T) {
     struct Wrapper<'a, T>(&'a T);
     impl<T: Showable> Display for Wrapper<'_, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             self.0.format_show(f)
         }
     }
-    println!("{}", Wrapper(&value));
+    println!("{}", Wrapper(value));
 }
 
 pub fn read_line() -> String {

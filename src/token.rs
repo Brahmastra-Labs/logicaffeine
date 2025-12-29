@@ -47,6 +47,7 @@ pub enum BlockType {
     Logic,
     Note,
     Function,  // Phase 32: ## To blocks
+    TypeDef,   // Inline type definitions: ## A Point has:, ## A Color is one of:
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,6 +119,14 @@ pub enum TokenType {
     // Ownership Keywords (Move/Borrow Semantics)
     Give,  // Move ownership: "Give x to processor"
     Show,  // Immutable borrow: "Show x to console"
+
+    // Phase 43D: Collection Operations
+    Push,     // "Push x to items"
+    Pop,      // "Pop from items"
+    Copy,     // "copy of slice" → slice.to_vec()
+    Through,  // "items 1 through 3" → inclusive slice
+    Length,   // "length of items" → items.len()
+    At,       // "items at i" → items[i]
 
     // Block Scoping
     Colon,
@@ -233,6 +242,12 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
+
+    // Grand Challenge: Comparison Operators
+    Lt,     // <
+    Gt,     // >
+    LtEq,   // <=
+    GtEq,   // >=
 
     // Phase 38: Arrow for return type syntax
     Arrow,  // ->

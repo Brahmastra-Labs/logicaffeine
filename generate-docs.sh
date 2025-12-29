@@ -90,6 +90,10 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
+    - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
+    - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
+    - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
+    - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1646,6 +1650,98 @@ add_test_description "tests/phase41_event_adjectives.rs" \
     "Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O) ∧ D(O)) and event-modifying (∃e((D(e) ∧ A(e,O)) ∧ B(e))). Lexicon Feature::EventModifier for beautiful/graceful/skillful. Agentive noun mappings (dancer→Dance)." \
     "Olga is a beautiful dancer. → Intersective + Event readings"
 
+add_test_description "tests/phase42_drs.rs" \
+    "Phase 42: Discourse Representation Structures" \
+    "Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries." \
+    "Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))"
+
+add_test_description "tests/phase43_type_check.rs" \
+    "Phase 43B: Type Checking" \
+    "Static type checking for LOGOS. Detects type mismatches between annotations and literals. TypeMismatch error reports expected vs found types." \
+    "Let x: Int be \"hello\". → Error: TypeMismatch { expected: Int, found: Text }"
+
+add_test_description "tests/phase43_refinement.rs" \
+    "Phase 43C: Refinement Types" \
+    "Foundation for refinement types (types with predicates). TypeExpr::Refinement variant stores base type, bound variable, and predicate. Where-clause parsing deferred to future phase." \
+    "Int where it > 0 (planned syntax)"
+
+add_test_description "tests/phase43_collections.rs" \
+    "Phase 43D: Collection Operations" \
+    "Stack-like collection operations for LOGOS. Push/Pop statements, length/copy expressions, 1-based indexing with 'at', slice syntax with 'through'. Runtime helpers logos_index() and logos_index_mut()." \
+    "Push 4 to items. Pop from items into x. length of items. items at 2. items 1 through 3."
+
+# Grand Challenge: Mergesort
+add_test_description "tests/grand_challenge_mergesort.rs" \
+    "Grand Challenge: Mergesort" \
+    "Showcase test demonstrating full language capability: compiles and executes a complete recursive mergesort algorithm. Tests comparison operators (is less than, is greater than, is at most, is at least, <, <=, >, >=), compound conditions with 'and' (→ &&), collection operations (length of, item X of, Push, copy of, slicing with 'through'), typed function definitions with Seq of Int parameters and returns, recursive function calls, and full E2E execution to working Rust." \
+    "## To MergeSort (items: Seq of Int) -> Seq of Int: ... Let sorted be MergeSort(numbers). → Compiles and runs actual sorting algorithm"
+
+# End-to-End Tests
+add_test_description "tests/e2e_collections.rs" \
+    "E2E: Collections" \
+    "Runtime verification of collection operations: list literals [1, 2, 3], Push/Pop, length, 1-based indexing with 'item X of', and slicing with 'through'. Tests actual execution output." \
+    "Let items be [1, 2, 3]. Push 4 to items. Let v be item 2 of items."
+
+add_test_description "tests/e2e_comparisons.rs" \
+    "E2E: Comparisons" \
+    "Runtime verification of comparison operators: equals (is), not equals (is not), less than (<), greater than (>), at most (<=), at least (>=). Both English and symbolic forms." \
+    "If x is less than 10. If x > 5. If x is at most n."
+
+add_test_description "tests/e2e_control_flow.rs" \
+    "E2E: Control Flow" \
+    "Runtime verification of control flow: If/Then/Otherwise conditionals, While loops with conditions, Return statements, nested control structures." \
+    "If x > 0: Return true. Otherwise: Return false. While i <= n: Set i to i + 1."
+
+add_test_description "tests/e2e_edge_cases.rs" \
+    "E2E: Edge Cases" \
+    "Boundary condition tests: empty collections, zero values, single-element operations, edge indices, integer overflow guards." \
+    "Edge cases for robustness testing"
+
+add_test_description "tests/e2e_enums.rs" \
+    "E2E: Enums" \
+    "Runtime verification of sum types: enum instantiation with 'a new Variant', field access, pattern matching with Inspect statement." \
+    "Let shape be a new Circle with radius 5. Inspect shape: Circle: ... Square: ..."
+
+add_test_description "tests/e2e_expressions.rs" \
+    "E2E: Expressions" \
+    "Runtime verification of expressions: arithmetic (+, -, *, /), Boolean operations, operator precedence, parenthesized grouping." \
+    "Let result be (a + b) * c. Let flag be x > 0 and y < 10."
+
+add_test_description "tests/e2e_functions.rs" \
+    "E2E: Functions" \
+    "Runtime verification of function definitions and calls: typed parameters, return types, recursive calls, multi-parameter functions." \
+    "## To Double (n: Int) -> Int: Return n * 2. Let x be Double(5)."
+
+add_test_description "tests/e2e_integration.rs" \
+    "E2E: Integration" \
+    "Multi-function programs testing cross-function calls, shared state, complex control flow across function boundaries." \
+    "Complex programs with multiple interacting functions"
+
+add_test_description "tests/e2e_iteration.rs" \
+    "E2E: Iteration" \
+    "Runtime verification of loops: Repeat/For each iteration, While loops with index variables, collection iteration patterns." \
+    "Repeat for each item in items: ... While i <= n: ..."
+
+add_test_description "tests/e2e_logical.rs" \
+    "E2E: Logical Operators" \
+    "Runtime verification of Boolean logic: AND (and/&&), OR (or/||), NOT (not), compound conditions, short-circuit evaluation." \
+    "If a and b: ... If x or y: ... If not flag: ..."
+
+add_test_description "tests/e2e_structs.rs" \
+    "E2E: Structs" \
+    "Runtime verification of product types: struct instantiation with 'a new Type', field access with possessive (point's x), field mutation with Set." \
+    "Let p be a new Point with x 10 and y 20. Set p's x to 15."
+
+add_test_description "tests/e2e_types.rs" \
+    "E2E: Types" \
+    "Runtime verification of type system: type annotations (Let x: Int), type coercion rules, generic type instantiation." \
+    "Let x: Int be 5. Let items: Seq of Int be a new Seq of Int."
+
+add_test_description "tests/e2e_variables.rs" \
+    "E2E: Variables" \
+    "Runtime verification of variable operations: Let bindings, Set mutation, scoping rules, shadowing behavior." \
+    "Let x be 5. Set x to 10. Let x be 20. (shadowing)"
+
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \
     "Aktionsart/Vendler Classes" \
@@ -1943,6 +2039,10 @@ add_file "src/context.rs" \
     "Discourse Context" \
     "Entity registration and resolution for anaphora. Tracks gender, number, and case attributes for pronoun binding."
 
+add_file "src/drs.rs" \
+    "Discourse Representation Structures" \
+    "Kamp's DRT implementation for donkey anaphora and accessibility. **ReferentSource** tracks where variables are introduced (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). **BoxType** represents DRS boxes (Main, ConditionalAntecedent/Consequent, NegationScope, UniversalRestrictor/Scope, Disjunct). **Referent** stores variable info with noun_class, gender, source, and used_by_pronoun flag. **DrsBox** contains universe of referents with parent pointer. **Drs** manages box stack and provides introduce_referent(), resolve_pronoun(), find_accessible_referent() methods."
+
 add_file "src/view.rs" \
     "AST Views & Resolution" \
     "ExprView (including Causal variant), TermView, NounPhraseView types for AST traversal. Symbol resolution and display utilities."
@@ -1979,6 +2079,10 @@ add_file "src/analysis/discovery.rs" \
     "Discovery Pass" \
     "First pass of two-pass compilation. DiscoveryPass scans source for ## Definition blocks to populate TypeRegistry before full parsing. Enables forward references and mutual recursion in type definitions. Extracts type names, parameters, and kind (struct/enum) from definition headers."
 
+add_file "src/analysis/dependencies.rs" \
+    "Module Dependency Scanner" \
+    "Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##)."
+
 # ==============================================================================
 # CODE GENERATION
 # ==============================================================================
@@ -2014,6 +2118,22 @@ add_file "src/project/manifest.rs" \
 add_file "src/project/build.rs" \
     "Build Orchestration" \
     "Project build pipeline. find_project_root() walks up to find Largo.toml, build() coordinates parse→compile→cargo build, run() executes the built binary."
+
+add_file "src/project/mod.rs" \
+    "Project Module" \
+    "Phase 36/37/39 project infrastructure exports. Provides Loader, Manifest, BuildConfig, Credentials, and RegistryClient. Feature-gated: loader always available, others require 'cli' feature."
+
+add_file "src/project/loader.rs" \
+    "Module Loader" \
+    "Phase 36 module resolution. Supports file:./path.md (local), logos:std/core (built-in), https:// (remote registry). Caches loaded modules, resolves relative paths, embeds std lib at compile time."
+
+add_file "src/project/credentials.rs" \
+    "Credential Management" \
+    "Phase 39 API token storage. Credentials struct persists to ~/.config/logos/credentials.toml with 0600 permissions. Supports LOGOS_TOKEN env var override. TOML format with registry→token map."
+
+add_file "src/project/registry.rs" \
+    "Registry Client" \
+    "Phase 39 package registry HTTP client. RegistryClient handles auth, publish (multipart tarball upload), token validation. create_tarball() packages src/, Largo.toml, README.md, LICENSE. is_git_dirty() for safety checks."
 
 # ==============================================================================
 # SUPPORT INFRASTRUCTURE

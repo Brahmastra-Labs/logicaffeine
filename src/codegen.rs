@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
@@ -5,6 +6,66 @@ use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 use crate::token::TokenType;
+
+/// Grand Challenge: Collect all variables that need `let mut` in Rust.
+/// This includes:
+/// - Variables that are targets of `Set` statements (reassignment)
+/// - Variables that are targets of `Push` statements (mutation via push)
+/// - Variables that are targets of `Pop` statements (mutation via pop)
+fn collect_mutable_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut targets = HashSet::new();
+    for stmt in stmts {
+        collect_mutable_vars_stmt(stmt, &mut targets);
+    }
+    targets
+}
+
+fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::Set { target, .. } => {
+            targets.insert(*target);
+        }
+        Stmt::Push { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Pop { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::SetIndex { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_mutable_vars_stmt(s, targets);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_mutable_vars_stmt(s, targets);
+                }
+            }
+        }
+        Stmt::While { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        Stmt::Repeat { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// Generate complete Rust program with struct definitions and main function.
 ///
@@ -70,6 +131,15 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         }
     }
 
+    // Grand Challenge: Collect variables that need to be mutable
+    let main_stmts: Vec<&Stmt> = stmts.iter()
+        .filter(|s| !matches!(s, Stmt::FunctionDef { .. }))
+        .collect();
+    let mut main_mutable_vars = HashSet::new();
+    for stmt in &main_stmts {
+        collect_mutable_vars_stmt(stmt, &mut main_mutable_vars);
+    }
+
     // Main function
     writeln!(output, "fn main() {{").unwrap();
     for stmt in stmts {
@@ -77,7 +147,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -135,9 +205,11 @@ fn codegen_function_def(
         writeln!(output, "}}\n").unwrap();
     } else {
         // Non-native: emit body
+        // Grand Challenge: Collect mutable vars for this function
+        let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -223,6 +295,11 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 .collect();
             let output_str = codegen_type_expr(output, interner);
             format!("fn({}) -> {}", inputs_str.join(", "), output_str)
+        }
+        // Phase 43C: Refinement types use the base type for Rust type annotation
+        // The constraint predicate is handled separately via debug_assert!
+        TypeExpr::Refinement { base, .. } => {
+            codegen_type_expr(base, interner)
         }
     }
 }
@@ -352,7 +429,7 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
-pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
+pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_vars: &HashSet<Symbol>) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
 
@@ -362,7 +439,10 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let value_str = codegen_expr(value, interner);
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
 
-            match (*mutable, type_annotation) {
+            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
+            let is_mutable = *mutable || mutable_vars.contains(var);
+
+            match (is_mutable, type_annotation) {
                 (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
                 (true, None) => writeln!(output, "{}let mut {} = {};", indent_str, var_name, value_str).unwrap(),
                 (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
@@ -386,12 +466,12 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
                 }
             }
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -401,7 +481,7 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -411,7 +491,7 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let iter_str = codegen_expr(iterable, interner);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -491,9 +571,9 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
                                 let field_name = interner.resolve(*field);
                                 let binding_name = interner.resolve(*binding);
                                 if field_name == binding_name {
-                                    format!("ref {}", field_name)
+                                    field_name.to_string()
                                 } else {
-                                    format!("{}: ref {}", field_name, binding_name)
+                                    format!("{}: {}", field_name, binding_name)
                                 }
                             })
                             .collect();
@@ -505,12 +585,40 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
                 }
 
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars));
                 }
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
 
             writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        Stmt::Push { value, collection } => {
+            let val_str = codegen_expr(value, interner);
+            let coll_str = codegen_expr(collection, interner);
+            writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
+        }
+
+        Stmt::Pop { collection, into } => {
+            let coll_str = codegen_expr(collection, interner);
+            match into {
+                Some(var) => {
+                    let var_name = interner.resolve(*var);
+                    // Unwrap the Option returned by pop() - panics if empty
+                    writeln!(output, "{}let {} = {}.pop().expect(\"Pop from empty collection\");", indent_str, var_name, coll_str).unwrap();
+                }
+                None => {
+                    writeln!(output, "{}{}.pop();", indent_str, coll_str).unwrap();
+                }
+            }
+        }
+
+        Stmt::SetIndex { collection, index, value } => {
+            let coll_str = codegen_expr(collection, interner);
+            let index_str = codegen_expr(index, interner);
+            let value_str = codegen_expr(value, interner);
+            // 1-based indexing: item 2 of items → items[1]
+            writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
     }
 
@@ -537,6 +645,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::GtEq => ">=",
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
             };
             format!("({} {} {})", left_str, op_str, right_str)
         }
@@ -549,13 +659,30 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 
         Expr::Index { collection, index } => {
             let coll_str = codegen_expr(collection, interner);
-            format!("{}[{}]", coll_str, index - 1)
+            let index_str = codegen_expr(index, interner);
+            // Phase 43D: 1-based indexing with runtime bounds check
+            format!("logos_index(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
             let coll_str = codegen_expr(collection, interner);
-            // 1-indexed to 0-indexed: items 2 through 5 → &list[1..5]
-            format!("&{}[{}..{}]", coll_str, start - 1, end)
+            let start_str = codegen_expr(start, interner);
+            let end_str = codegen_expr(end, interner);
+            // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
+            // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
+            format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
+        }
+
+        Expr::Copy { expr } => {
+            let expr_str = codegen_expr(expr, interner);
+            // Phase 43D: Explicit clone to owned Vec
+            format!("{}.to_vec()", expr_str)
+        }
+
+        Expr::Length { collection } => {
+            let coll_str = codegen_expr(collection, interner);
+            // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
+            format!("({}.len() as i64)", coll_str)
         }
 
         Expr::List(ref items) => {
@@ -577,9 +704,20 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             format!("{}.{}", obj_str, field_name)
         }
 
-        Expr::New { type_name, type_args } => {
+        Expr::New { type_name, type_args, init_fields } => {
             let type_str = interner.resolve(*type_name);
-            if type_args.is_empty() {
+            if !init_fields.is_empty() {
+                // Struct initialization with fields: Point { x: 10, y: 20 }
+                let fields_str = init_fields.iter()
+                    .map(|(name, value)| {
+                        let field_name = interner.resolve(*name);
+                        let value_str = codegen_expr(value, interner);
+                        format!("{}: {}", field_name, value_str)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{} {{ {} }}", type_str, fields_str)
+            } else if type_args.is_empty() {
                 format!("{}::default()", type_str)
             } else {
                 // Phase 34: Turbofish syntax for generic instantiation
@@ -615,7 +753,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
         Literal::Number(n) => n.to_string(),
-        Literal::Text(sym) => format!("\"{}\"", interner.resolve(*sym)),
+        // String literals are converted to String for consistent Text type handling
+        Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
     }

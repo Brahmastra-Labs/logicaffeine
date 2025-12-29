@@ -7,6 +7,15 @@ license = "BUSL-1.1"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
 build = "build.rs"
 
+[[bin]]
+name = "logos"
+path = "src/main.rs"
+
+[[bin]]
+name = "largo"
+path = "src/main.rs"
+required-features = ["cli"]
+
 [workspace]
 exclude = ["logos_core"]
 

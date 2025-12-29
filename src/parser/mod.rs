@@ -365,7 +365,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note => ParserMode::Declarative,
+                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -628,6 +628,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         statements.push(func_def);
                         continue;
                     }
+                    BlockType::TypeDef => {
+                        // Type definitions are handled by DiscoveryPass
+                        // Skip content until next block header
+                        self.advance();
+                        self.skip_type_def_content();
+                        continue;
+                    }
                     _ => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -704,6 +711,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 33: Pattern matching on sum types
         if self.check(&TokenType::Inspect) {
             return self.parse_inspect_statement();
+        }
+
+        // Phase 43D: Collection operations
+        if self.check(&TokenType::Push) {
+            return self.parse_push_statement();
+        }
+        if self.check(&TokenType::Pop) {
+            return self.parse_pop_statement();
         }
 
         Err(ParseError {
@@ -963,22 +978,116 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
-        use crate::ast::stmt::BinaryOpKind as ImperativeBinOp;
+        // Grand Challenge: Parse compound conditions with "and" and "or"
+        // "or" has lower precedence than "and"
+        self.parse_or_condition()
+    }
 
-        // Parse left side (identifier)
-        let left = self.parse_imperative_expr()?;
+    /// Parse "or" conditions (lower precedence than "and")
+    fn parse_or_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_and_condition()?;
 
-        // Check for "equals"
-        if self.check(&TokenType::Equals) {
+        while self.check(&TokenType::Or) || self.check_word("or") {
             self.advance();
-            let right = self.parse_imperative_expr()?;
-            Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op: ImperativeBinOp::Eq,
+            let right = self.parse_and_condition()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Or,
                 left,
                 right,
-            }))
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// Parse "and" conditions (higher precedence than "or")
+    fn parse_and_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_comparison()?;
+
+        while self.check(&TokenType::And) || self.check_word("and") {
+            self.advance();
+            let right = self.parse_comparison()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::And,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// Grand Challenge: Parse a single comparison expression
+    fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let left = self.parse_imperative_expr()?;
+
+        // Check for comparison operators
+        let op = if self.check(&TokenType::Equals) {
+            self.advance();
+            Some(BinaryOpKind::Eq)
+        } else if self.check_word("is") {
+            // Peek ahead to determine which comparison
+            let saved_pos = self.current;
+            self.advance(); // consume "is"
+
+            if self.check_word("greater") {
+                self.advance(); // consume "greater"
+                if self.check_word("than") || self.check_preposition_is("than") {
+                    self.advance(); // consume "than"
+                    Some(BinaryOpKind::Gt)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
+            } else if self.check_word("less") {
+                self.advance(); // consume "less"
+                if self.check_word("than") || self.check_preposition_is("than") {
+                    self.advance(); // consume "than"
+                    Some(BinaryOpKind::Lt)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
+            } else if self.check_word("at") {
+                self.advance(); // consume "at"
+                if self.check_word("least") {
+                    self.advance(); // consume "least"
+                    Some(BinaryOpKind::GtEq)
+                } else if self.check_word("most") {
+                    self.advance(); // consume "most"
+                    Some(BinaryOpKind::LtEq)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
+            } else if self.check_word("not") || self.check(&TokenType::Not) {
+                // "is not X" → NotEq
+                self.advance(); // consume "not"
+                Some(BinaryOpKind::NotEq)
+            } else {
+                self.current = saved_pos;
+                None
+            }
+        } else if self.check(&TokenType::Lt) {
+            self.advance();
+            Some(BinaryOpKind::Lt)
+        } else if self.check(&TokenType::Gt) {
+            self.advance();
+            Some(BinaryOpKind::Gt)
+        } else if self.check(&TokenType::LtEq) {
+            self.advance();
+            Some(BinaryOpKind::LtEq)
+        } else if self.check(&TokenType::GtEq) {
+            self.advance();
+            Some(BinaryOpKind::GtEq)
         } else {
-            // Just return the expression as the condition
+            None
+        };
+
+        if let Some(op) = op {
+            let right = self.parse_imperative_expr()?;
+            Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right }))
+        } else {
             Ok(left)
         }
     }
@@ -1018,6 +1127,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
 
+        // Phase 43B: Type check - verify declared type matches value type
+        if let Some(declared_ty) = &ty {
+            if let Some(inferred) = self.infer_literal_type(value) {
+                if !self.check_type_compatibility(declared_ty, inferred) {
+                    let expected = match declared_ty {
+                        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                            self.interner.resolve(*sym).to_string()
+                        }
+                        _ => "unknown".to_string(),
+                    };
+                    return Err(ParseError {
+                        kind: ParseErrorKind::TypeMismatch {
+                            expected,
+                            found: inferred.to_string(),
+                        },
+                        span: self.current_span(),
+                    });
+                }
+            }
+        }
+
         // Bind in ScopeStack if context available
         if let Some(ctx) = self.context.as_mut() {
             use crate::context::{Entity, Gender, Number, OwnershipState};
@@ -1039,6 +1169,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.interner.resolve(sym).eq_ignore_ascii_case("mutable")
         } else {
             false
+        }
+    }
+
+    /// Phase 43B: Infer the type of a literal expression
+    fn infer_literal_type(&self, expr: &Expr<'_>) -> Option<&'static str> {
+        match expr {
+            Expr::Literal(lit) => match lit {
+                crate::ast::Literal::Number(_) => Some("Int"),
+                crate::ast::Literal::Text(_) => Some("Text"),
+                crate::ast::Literal::Boolean(_) => Some("Bool"),
+                crate::ast::Literal::Nothing => Some("Unit"),
+            },
+            _ => None, // Can't infer type for non-literals yet
+        }
+    }
+
+    /// Phase 43B: Check if declared type matches inferred type
+    fn check_type_compatibility(&self, declared: &TypeExpr<'_>, inferred: &str) -> bool {
+        match declared {
+            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                let declared_name = self.interner.resolve(*sym);
+                // Nat is compatible with Int literals
+                declared_name.eq_ignore_ascii_case(inferred)
+                    || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
+            }
+            _ => true, // For generics/functions, skip check for now
         }
     }
 
@@ -1066,12 +1222,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let value = self.parse_imperative_expr()?;
 
         // Phase 31: Handle field access targets
+        // Also handle index targets: Set item N of X to Y
         match target_expr {
             Expr::FieldAccess { object, field } => {
                 Ok(Stmt::SetField { object, field: *field, value })
             }
             Expr::Identifier(target) => {
                 Ok(Stmt::Set { target: *target, value })
+            }
+            Expr::Index { collection, index } => {
+                Ok(Stmt::SetIndex { collection, index, value })
             }
             _ => Err(ParseError {
                 kind: ParseErrorKind::ExpectedIdentifier,
@@ -1088,7 +1248,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(Stmt::Return { value: None });
         }
 
-        let value = self.parse_imperative_expr()?;
+        // Use parse_comparison to support returning comparison results like "n equals 5"
+        let value = self.parse_comparison()?;
         Ok(Stmt::Return { value: Some(value) })
     }
 
@@ -1227,6 +1388,73 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Show { object, recipient })
     }
 
+    /// Phase 43D: Parse Push statement for collection operations
+    /// Syntax: Push x to items.
+    fn parse_push_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Push"
+
+        // Parse the value being pushed
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse the collection
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Push { value, collection })
+    }
+
+    /// Phase 43D: Parse Pop statement for collection operations
+    /// Syntax: Pop from items. OR Pop from items into y.
+    fn parse_pop_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Pop"
+
+        // Expect "from" - can be keyword token or preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse the collection
+        let collection = self.parse_imperative_expr()?;
+
+        // Check for optional "into" binding
+        let into = if self.check_preposition_is("into") {
+            self.advance(); // consume "into"
+
+            // Parse variable name
+            if let TokenType::Noun(sym) | TokenType::ProperName(sym) = &self.peek().kind {
+                let sym = *sym;
+                self.advance();
+                Some(sym)
+            } else if let Some(token) = self.tokens.get(self.current) {
+                // Also handle identifier-like tokens
+                let sym = token.lexeme;
+                self.advance();
+                Some(sym)
+            } else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedIdentifier,
+                    span: self.current_span(),
+                });
+            }
+        } else {
+            None
+        };
+
+        Ok(Stmt::Pop { collection, into })
+    }
+
     /// Phase 33: Parse Inspect statement for pattern matching
     /// Syntax: Inspect target:
     ///             If it is a Variant [(bindings)]:
@@ -1274,28 +1502,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume ":"
 
-                if !self.check(&TokenType::Indent) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedStatement,
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume Indent
-
-                // Parse body statements
-                let mut body_stmts = Vec::new();
-                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                // Handle both inline (Otherwise: stmt.) and block body
+                let body_stmts = if self.check(&TokenType::Indent) {
+                    self.advance(); // consume Indent
+                    let mut stmts = Vec::new();
+                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                        let stmt = self.parse_statement()?;
+                        stmts.push(stmt);
+                        if self.check(&TokenType::Period) {
+                            self.advance();
+                        }
+                    }
+                    if self.check(&TokenType::Dedent) {
+                        self.advance();
+                    }
+                    stmts
+                } else {
+                    // Inline body: "Otherwise: Show x."
                     let stmt = self.parse_statement()?;
-                    body_stmts.push(stmt);
                     if self.check(&TokenType::Period) {
                         self.advance();
                     }
-                }
-
-                // Consume dedent
-                if self.check(&TokenType::Dedent) {
-                    self.advance();
-                }
+                    vec![stmt]
+                };
 
                 let body = self.ctx.stmts.expect("imperative arenas not initialized")
                     .alloc_slice(body_stmts.into_iter());
@@ -1309,6 +1538,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Parse "If it is a VariantName [(bindings)]:"
                 let arm = self.parse_match_arm()?;
                 arms.push(arm);
+            } else if self.check(&TokenType::When) || self.check_word("When") {
+                // Parse "When Variant [(bindings)]:" (concise syntax)
+                let arm = self.parse_when_arm()?;
+                arms.push(arm);
+            } else if self.check(&TokenType::Newline) {
+                // Skip newlines between arms
+                self.advance();
             } else {
                 // Skip unexpected tokens
                 self.advance();
@@ -1402,6 +1638,99 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
     }
 
+    /// Parse a concise match arm: "When Variant [(bindings)]:" or "When Variant: stmt."
+    fn parse_when_arm(&mut self) -> ParseResult<MatchArm<'a>> {
+        self.advance(); // consume "When"
+
+        // Get variant name
+        let variant = self.expect_identifier()?;
+
+        // Look up the enum name and variant definition for this variant
+        let (enum_name, variant_fields) = self.type_registry
+            .as_ref()
+            .and_then(|r| r.find_variant(variant).map(|(enum_name, vdef)| {
+                let fields: Vec<_> = vdef.fields.iter().map(|f| f.name).collect();
+                (Some(enum_name), fields)
+            }))
+            .unwrap_or((None, vec![]));
+
+        // Optional: "(binding)" or "(b1, b2)" - positional bindings
+        let bindings = if self.check(&TokenType::LParen) {
+            let raw_bindings = self.parse_when_bindings()?;
+            // Map positional bindings to actual field names
+            raw_bindings.into_iter().enumerate().map(|(i, binding)| {
+                let field = variant_fields.get(i).copied().unwrap_or(binding);
+                (field, binding)
+            }).collect()
+        } else {
+            vec![]
+        };
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Handle both inline body (When Variant: stmt.) and block body
+        let body_stmts = if self.check(&TokenType::Indent) {
+            self.advance(); // consume Indent
+            let mut stmts = Vec::new();
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                let stmt = self.parse_statement()?;
+                stmts.push(stmt);
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+            }
+            if self.check(&TokenType::Dedent) {
+                self.advance();
+            }
+            stmts
+        } else {
+            // Inline body: "When Red: Show x."
+            let stmt = self.parse_statement()?;
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+            vec![stmt]
+        };
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
+    }
+
+    /// Parse concise When bindings: "(r)" or "(w, h)" - just binding variable names
+    fn parse_when_bindings(&mut self) -> ParseResult<Vec<Symbol>> {
+        self.advance(); // consume '('
+        let mut bindings = Vec::new();
+
+        loop {
+            let binding = self.expect_identifier()?;
+            bindings.push(binding);
+
+            if !self.check(&TokenType::Comma) {
+                break;
+            }
+            self.advance(); // consume ','
+        }
+
+        if !self.check(&TokenType::RParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ')'
+
+        Ok(bindings)
+    }
+
     /// Parse pattern bindings: "(field)" or "(field: binding)" or "(f1, f2: b2)"
     fn parse_pattern_bindings(&mut self) -> ParseResult<Vec<(Symbol, Symbol)>> {
         self.advance(); // consume '('
@@ -1434,9 +1763,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(bindings)
     }
 
-    /// Phase 33: Parse variant constructor fields: "with field1 value1 [and field2 value2]..."
-    /// Example: "with radius 10" or "with width 10 and height 20"
-    fn parse_variant_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+    /// Parse constructor fields: "with field1 value1 [and field2 value2]..."
+    /// Example: "with radius 10" or "with x 10 and y 20"
+    /// Used for both variant constructors and struct initialization
+    fn parse_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
         use crate::ast::Expr;
         let mut fields = Vec::new();
 
@@ -1461,6 +1791,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         Ok(fields)
+    }
+
+    /// Alias for variant constructors (backwards compat)
+    fn parse_variant_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        self.parse_constructor_fields()
+    }
+
+    /// Alias for struct initialization
+    fn parse_struct_init_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        self.parse_constructor_fields()
     }
 
     /// Phase 34: Parse generic type arguments for constructor instantiation
@@ -1493,6 +1833,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         Ok(type_args)
+    }
+
+    /// Skip type definition content until next block header
+    /// Used for TypeDef blocks (## A Point has:, ## A Color is one of:)
+    /// The actual parsing is done by DiscoveryPass
+    fn skip_type_def_content(&mut self) {
+        while !self.is_at_end() {
+            // Stop at next block header
+            if matches!(
+                self.tokens.get(self.current),
+                Some(Token { kind: TokenType::BlockHeader { .. }, .. })
+            ) {
+                break;
+            }
+            self.advance();
+        }
     }
 
     /// Phase 32: Parse function definition after `## To` header
@@ -1678,7 +2034,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
                 let type_args = self.parse_generic_type_args(type_name)?;
-                let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args });
+
+                // Parse optional "with field value" pairs for struct initialization
+                let init_fields = if self.check_word("with") {
+                    self.parse_struct_init_fields()?
+                } else {
+                    vec![]
+                };
+
+                let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args, init_fields });
                 return self.parse_field_access_chain(base);
             }
 
@@ -1723,7 +2087,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                         // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
                         let type_args = self.parse_generic_type_args(type_name)?;
-                        let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args });
+
+                        // Parse optional "with field value" pairs for struct initialization
+                        let init_fields = if self.check_word("with") {
+                            self.parse_struct_init_fields()?
+                        } else {
+                            vec![]
+                        };
+
+                        let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args, init_fields });
                         return self.parse_field_access_chain(base);
                     }
                 }
@@ -1734,30 +2106,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 return self.parse_field_access_chain(base);
             }
 
-            // Index access: "item N of collection"
+            // Index access: "item N of collection" or "item i of collection"
             TokenType::Item => {
                 self.advance(); // consume "item"
 
-                // Parse index (must be a number)
+                // Grand Challenge: Parse index as expression (number, identifier, or parenthesized)
                 let index = if let TokenType::Number(sym) = &self.peek().kind {
+                    // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
                     let num_str = self.interner.resolve(sym);
-                    num_str.parse::<usize>().unwrap_or(0)
+                    let index_val = num_str.parse::<i64>().unwrap_or(0);
+
+                    // Index 0 Guard: LOGOS uses 1-based indexing
+                    if index_val == 0 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ZeroIndex,
+                            span: self.current_span(),
+                        });
+                    }
+
+                    self.ctx.alloc_imperative_expr(
+                        Expr::Literal(crate::ast::Literal::Number(index_val))
+                    )
+                } else if self.check(&TokenType::LParen) {
+                    // Parenthesized expression like (mid + 1)
+                    self.advance(); // consume '('
+                    let inner = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    inner
+                } else if !self.check_preposition_is("of") {
+                    // Variable identifier like i, j, idx (any token that's not "of")
+                    let sym = self.peek().lexeme;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
                 } else {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedExpression,
                         span: self.current_span(),
                     });
                 };
-
-                // Index 0 Guard: LOGOS uses 1-based indexing
-                if index == 0 {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ZeroIndex,
-                        span: self.current_span(),
-                    });
-                }
 
                 // Expect "of"
                 if !self.check_preposition_is("of") {
@@ -1778,41 +2172,68 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Slice access: "items N through M of collection"
-            // OR variable named "items" - disambiguate by checking if next token is a number
+            // OR variable named "items" - disambiguate by checking if next token starts an expression
             TokenType::Items => {
                 // Peek ahead to determine if this is slice syntax or variable usage
-                // If next token is not a number, treat "items" as a variable identifier
-                if let Some(next) = self.tokens.get(self.current + 1) {
-                    if !matches!(next.kind, TokenType::Number(_)) {
-                        // Treat "items" as a variable identifier
-                        let sym = token.lexeme;
-                        self.advance();
-                        return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
-                    }
+                // Slice syntax: "items" followed by number or paren (clear indicators of index)
+                // Variable: "items" followed by something else (operator, dot, etc.)
+                let is_slice_syntax = if let Some(next) = self.tokens.get(self.current + 1) {
+                    matches!(next.kind, TokenType::Number(_) | TokenType::LParen)
+                } else {
+                    false
+                };
+
+                if !is_slice_syntax {
+                    // Treat "items" as a variable identifier
+                    let sym = token.lexeme;
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
                 }
 
                 self.advance(); // consume "items"
 
-                // Parse start index (must be a number)
+                // Grand Challenge: Parse start index as expression (number, identifier, or parenthesized)
                 let start = if let TokenType::Number(sym) = &self.peek().kind {
+                    // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
                     let num_str = self.interner.resolve(sym);
-                    num_str.parse::<usize>().unwrap_or(0)
+                    let start_val = num_str.parse::<i64>().unwrap_or(0);
+
+                    // Index 0 Guard for start
+                    if start_val == 0 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ZeroIndex,
+                            span: self.current_span(),
+                        });
+                    }
+
+                    self.ctx.alloc_imperative_expr(
+                        Expr::Literal(crate::ast::Literal::Number(start_val))
+                    )
+                } else if self.check(&TokenType::LParen) {
+                    // Parenthesized expression like (mid + 1)
+                    self.advance(); // consume '('
+                    let inner = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    inner
+                } else if !self.check_preposition_is("through") {
+                    // Variable identifier like mid, idx
+                    let sym = self.peek().lexeme;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
                 } else {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedNumber,
+                        kind: ParseErrorKind::ExpectedExpression,
                         span: self.current_span(),
                     });
                 };
-
-                // Index 0 Guard for start
-                if start == 0 {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ZeroIndex,
-                        span: self.current_span(),
-                    });
-                }
 
                 // Expect "through"
                 if !self.check_preposition_is("through") {
@@ -1823,38 +2244,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "through"
 
-                // Parse end index (must be a number)
+                // Grand Challenge: Parse end index as expression (number, identifier, or parenthesized)
                 let end = if let TokenType::Number(sym) = &self.peek().kind {
+                    // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
                     let num_str = self.interner.resolve(sym);
-                    num_str.parse::<usize>().unwrap_or(0)
+                    let end_val = num_str.parse::<i64>().unwrap_or(0);
+
+                    // Index 0 Guard for end
+                    if end_val == 0 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ZeroIndex,
+                            span: self.current_span(),
+                        });
+                    }
+
+                    self.ctx.alloc_imperative_expr(
+                        Expr::Literal(crate::ast::Literal::Number(end_val))
+                    )
+                } else if self.check(&TokenType::LParen) {
+                    // Parenthesized expression like (mid + 1)
+                    self.advance(); // consume '('
+                    let inner = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    inner
+                } else if !self.check_preposition_is("of") {
+                    // Variable identifier like n, length
+                    let sym = self.peek().lexeme;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
                 } else {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedNumber,
+                        kind: ParseErrorKind::ExpectedExpression,
                         span: self.current_span(),
                     });
                 };
 
-                // Index 0 Guard for end
-                if end == 0 {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ZeroIndex,
-                        span: self.current_span(),
-                    });
-                }
-
-                // Expect "of"
-                if !self.check_preposition_is("of") {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume "of"
-
-                // Parse collection
-                let collection = self.parse_imperative_expr()?;
+                // "of collection" is now optional - collection can be inferred from context
+                // (e.g., "items 1 through mid" when items is the local variable)
+                let collection = if self.check_preposition_is("of") {
+                    self.advance(); // consume "of"
+                    self.parse_imperative_expr()?
+                } else {
+                    // The variable is the collection itself (already consumed as "items")
+                    // Re-intern "items" to use as the collection identifier
+                    let items_sym = self.interner.intern("items");
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(items_sym))
+                };
 
                 Ok(self.ctx.alloc_imperative_expr(Expr::Slice {
                     collection,
@@ -1886,6 +2329,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "]"
 
+                // Check for typed empty list: [] of Int
+                if items.is_empty() && self.check_word("of") {
+                    self.advance(); // consume "of"
+                    let type_name = self.expect_identifier()?;
+                    // Generate: Seq::<Type>::default()
+                    let seq_sym = self.interner.intern("Seq");
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::New {
+                        type_name: seq_sym,
+                        type_args: vec![type_name],
+                        init_fields: vec![],
+                    }));
+                }
+
                 Ok(self.ctx.alloc_imperative_expr(Expr::List(items)))
             }
 
@@ -1906,6 +2362,40 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Nothing => {
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
+            }
+
+            // Phase 43D: Length expression: "length of items"
+            TokenType::Length => {
+                self.advance(); // consume "length"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let collection = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection }))
+            }
+
+            // Phase 43D: Copy expression: "copy of slice"
+            TokenType::Copy => {
+                self.advance(); // consume "copy"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let expr = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::Copy { expr }))
             }
 
             // Handle verbs in expression context:
@@ -2012,6 +2502,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
 
+            // Parenthesized expression: (expr)
+            TokenType::LParen => {
+                self.advance(); // consume '('
+                let inner = self.parse_imperative_expr()?;
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ')'
+                Ok(inner)
+            }
+
             _ => {
                 Err(ParseError {
                     kind: ParseErrorKind::ExpectedExpression,
@@ -2022,17 +2526,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse a complete imperative expression including binary operators.
+    /// Uses precedence climbing for correct associativity and precedence.
     fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let left = self.parse_primary_expr()?;
+        self.parse_additive_expr()
+    }
 
-        // Check for binary operator
-        if let Some(op) = self.try_parse_binary_op() {
-            let right = self.parse_imperative_expr()?;
-            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+    /// Parse additive expressions (+, -) - left-to-right associative
+    fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_multiplicative_expr()?;
+
+        loop {
+            let op = match &self.peek().kind {
+                TokenType::Plus => {
+                    self.advance();
+                    BinaryOpKind::Add
+                }
+                TokenType::Minus => {
+                    self.advance();
+                    BinaryOpKind::Subtract
+                }
+                _ => break,
+            };
+            let right = self.parse_multiplicative_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op,
                 left,
                 right,
-            }));
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// Parse multiplicative expressions (*, /) - left-to-right associative
+    fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_primary_expr()?;
+
+        loop {
+            let op = match &self.peek().kind {
+                TokenType::Star => {
+                    self.advance();
+                    BinaryOpKind::Multiply
+                }
+                TokenType::Slash => {
+                    self.advance();
+                    BinaryOpKind::Divide
+                }
+                _ => break,
+            };
+            let right = self.parse_primary_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op,
+                left,
+                right,
+            });
         }
 
         Ok(left)

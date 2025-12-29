@@ -72,7 +72,9 @@ fn slice_codegen() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should compile: {:?}", result);
     let code = result.unwrap();
-    assert!(code.contains("[1..5]"), "Should have 1-indexed slice [1..5]: {}", code);
+    // Phase 43D: Slice codegen now uses explicit conversion with dynamic expressions
+    // "items 2 through 5" becomes &list[(2 - 1) as usize..5 as usize] = &list[1..5]
+    assert!(code.contains("(2 - 1) as usize..5 as usize"), "Should have 1-indexed slice: {}", code);
 }
 
 #[test]

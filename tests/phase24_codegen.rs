@@ -1,7 +1,8 @@
+use std::collections::HashSet;
 use logos::arena::Arena;
 use logos::ast::{Expr, Literal, Stmt, BinaryOpKind};
 use logos::codegen::{codegen_expr, codegen_stmt, codegen_program};
-use logos::intern::Interner;
+use logos::intern::{Interner, Symbol};
 use logos::analysis::TypeRegistry;
 
 #[test]
@@ -41,7 +42,8 @@ fn codegen_literal_text() {
     let text_sym = interner.intern("hello world");
     let expr = Expr::Literal(Literal::Text(text_sym));
     let result = codegen_expr(&expr, &interner);
-    assert_eq!(result, "\"hello world\"");
+    // String::from() ensures we get String type, not &str
+    assert_eq!(result, "String::from(\"hello world\")");
 }
 
 #[test]
@@ -98,12 +100,15 @@ fn codegen_index_1_indexed() {
     let list = interner.intern("list");
     let arena: Arena<Expr> = Arena::new();
     let collection = arena.alloc(Expr::Identifier(list));
+    // Phase 43D: Index now takes an expression
+    let index = arena.alloc(Expr::Literal(Literal::Number(1)));
     let expr = Expr::Index {
         collection,
-        index: 1,
+        index,
     };
     let result = codegen_expr(&expr, &interner);
-    assert_eq!(result, "list[0]");
+    // Phase 43D: Now uses logos_index helper for 1-based indexing
+    assert_eq!(result, "logos_index(&list, 1)");
 }
 
 #[test]
@@ -112,12 +117,15 @@ fn codegen_index_5_becomes_4() {
     let items = interner.intern("items");
     let arena: Arena<Expr> = Arena::new();
     let collection = arena.alloc(Expr::Identifier(items));
+    // Phase 43D: Index now takes an expression
+    let index = arena.alloc(Expr::Literal(Literal::Number(5)));
     let expr = Expr::Index {
         collection,
-        index: 5,
+        index,
     };
     let result = codegen_expr(&expr, &interner);
-    assert_eq!(result, "items[4]");
+    // Phase 43D: Now uses logos_index helper for 1-based indexing
+    assert_eq!(result, "logos_index(&items, 5)");
 }
 
 #[test]
@@ -132,7 +140,7 @@ fn codegen_let_statement() {
         value,
         mutable: false,
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert_eq!(result, "let x = 42;\n");
 }
 
@@ -148,7 +156,7 @@ fn codegen_let_mutable() {
         value,
         mutable: true,
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert_eq!(result, "let mut count = 0;\n");
 }
 
@@ -162,7 +170,7 @@ fn codegen_set_statement() {
         target: x,
         value,
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert_eq!(result, "x = 10;\n");
 }
 
@@ -174,7 +182,7 @@ fn codegen_return_with_value() {
     let stmt = Stmt::Return {
         value: Some(value),
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert_eq!(result, "return 42;\n");
 }
 
@@ -182,7 +190,7 @@ fn codegen_return_with_value() {
 fn codegen_return_without_value() {
     let interner = Interner::new();
     let stmt = Stmt::Return { value: None };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert_eq!(result, "return;\n");
 }
 
@@ -199,7 +207,7 @@ fn codegen_if_without_else() {
         then_block: &[],
         else_block: None,
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert!(result.contains("if x {"), "Expected 'if x {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -216,7 +224,7 @@ fn codegen_while_loop() {
         cond,
         body: &[],
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert!(result.contains("while running {"), "Expected 'while running {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -233,7 +241,7 @@ fn codegen_indentation() {
         value,
         mutable: false,
     };
-    let result = codegen_stmt(&stmt, &interner, 1);
+    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new());
     assert_eq!(result, "    let x = 5;\n");
 }
 
@@ -257,6 +265,6 @@ fn codegen_call_statement() {
         function: println,
         args: vec![],
     };
-    let result = codegen_stmt(&stmt, &interner, 0);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new());
     assert_eq!(result, "println();\n");
 }

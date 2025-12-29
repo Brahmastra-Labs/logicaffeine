@@ -61,8 +61,9 @@ fn compile_index_expression() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Index expression should compile: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("list[0]") || rust.contains("list.get(0)"),
-            "Should produce array index: {}", rust);
+    // Phase 43D: Index now uses logos_index helper for 1-based indexing
+    assert!(rust.contains("logos_index(&list, 1)"),
+            "Should produce logos_index call: {}", rust);
 }
 
 #[test]
@@ -71,8 +72,9 @@ fn compile_range_expression() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Range expression should compile: {:?}", result);
     let rust = result.unwrap();
-    assert!(rust.contains("[1..5]") || rust.contains("1..5"),
-            "Should produce range: {}", rust);
+    // Phase 43D: Slice now uses explicit conversion with dynamic expressions
+    assert!(rust.contains("(2 - 1) as usize..5 as usize"),
+            "Should produce slice with conversion: {}", rust);
 }
 
 // =============================================================================

@@ -9,7 +9,7 @@ use crate::intern::Symbol;
 /// - `List of Int` → Generic { base: List, params: [Primitive(Int)] }
 /// - `List of List of Int` → Generic { base: List, params: [Generic { base: List, params: [Primitive(Int)] }] }
 /// - `Result of Int and Text` → Generic { base: Result, params: [Primitive(Int), Primitive(Text)] }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum TypeExpr<'a> {
     /// Primitive type: Int, Nat, Text, Bool
     Primitive(Symbol),
@@ -24,6 +24,16 @@ pub enum TypeExpr<'a> {
     Function {
         inputs: &'a [TypeExpr<'a>],
         output: &'a TypeExpr<'a>,
+    },
+    /// Phase 43C: Refinement type with predicate constraint
+    /// Example: `Int where it > 0`
+    Refinement {
+        /// The base type being refined
+        base: &'a TypeExpr<'a>,
+        /// The bound variable (usually "it")
+        var: Symbol,
+        /// The predicate constraint (from Logic Kernel)
+        predicate: &'a LogicExpr<'a>,
     },
 }
 
@@ -40,6 +50,9 @@ pub enum BinaryOpKind {
     Gt,
     LtEq,
     GtEq,
+    // Grand Challenge: Logical operators for compound conditions
+    And,
+    Or,
 }
 
 /// Block is a sequence of statements.
@@ -161,6 +174,25 @@ pub enum Stmt<'a> {
         arms: Vec<MatchArm<'a>>,
         has_otherwise: bool,            // For exhaustiveness tracking
     },
+
+    /// Phase 43D: Push to collection: `Push x to items.`
+    Push {
+        value: &'a Expr<'a>,
+        collection: &'a Expr<'a>,
+    },
+
+    /// Phase 43D: Pop from collection: `Pop from items.` or `Pop from items into y.`
+    Pop {
+        collection: &'a Expr<'a>,
+        into: Option<Symbol>,
+    },
+
+    /// Index assignment: `Set item N of X to Y.`
+    SetIndex {
+        collection: &'a Expr<'a>,
+        index: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -188,17 +220,27 @@ pub enum Expr<'a> {
         args: Vec<&'a Expr<'a>>,
     },
 
-    /// Index access: item 1 of list (1-indexed)
+    /// Phase 43D: Dynamic index access: `items at i` (1-indexed)
     Index {
         collection: &'a Expr<'a>,
-        index: usize,
+        index: &'a Expr<'a>,
     },
 
-    /// Slice access: items 2 through 5 of list (1-indexed, inclusive)
+    /// Phase 43D: Dynamic slice access: `items 1 through mid` (1-indexed, inclusive)
     Slice {
         collection: &'a Expr<'a>,
-        start: usize,
-        end: usize,
+        start: &'a Expr<'a>,
+        end: &'a Expr<'a>,
+    },
+
+    /// Phase 43D: Copy expression: `copy of slice` → slice.to_vec()
+    Copy {
+        expr: &'a Expr<'a>,
+    },
+
+    /// Phase 43D: Length expression: `length of items` → items.len()
+    Length {
+        collection: &'a Expr<'a>,
     },
 
     /// List literal: [1, 2, 3]
@@ -216,11 +258,12 @@ pub enum Expr<'a> {
         field: Symbol,
     },
 
-    /// Phase 31: Constructor: `a new Point`
+    /// Phase 31: Constructor: `a new Point` or `a new Point with x 10 and y 20`
     /// Phase 34: Extended for generics: `a new Box of Int`
     New {
         type_name: Symbol,
         type_args: Vec<Symbol>,  // Empty for non-generic types
+        init_fields: Vec<(Symbol, &'a Expr<'a>)>,  // Optional field initialization
     },
 
     /// Phase 33: Enum variant constructor: `a new Circle with radius 10`

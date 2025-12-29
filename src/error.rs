@@ -120,6 +120,11 @@ pub enum ParseErrorKind {
         subject_count: usize,
         object_count: usize,
     },
+    // Phase 43: Type checking
+    TypeMismatch {
+        expected: String,
+        found: String,
+    },
 }
 
 #[cold]
@@ -304,6 +309,13 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 The subject has {} element(s) and the object has {} element(s). \
                 Each subject must pair with exactly one object.",
                 pos, subject_count, object_count
+            )
+        }
+        ParseErrorKind::TypeMismatch { expected, found } => {
+            format!(
+                "At position {}, I expected a value of type '{}' but found '{}'. \
+                Types must match in LOGOS. Check that your value matches the declared type.",
+                pos, expected, found
             )
         }
     }

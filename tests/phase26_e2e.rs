@@ -44,11 +44,12 @@ mod tests {
 
     #[test]
     fn compile_set_statement() {
+        // Grand Challenge: x is reassigned, so must be `mut` for valid Rust
         let source = "## Main\nLet x be 5.\nSet x to 10.";
         let result = compile_to_rust(source);
         assert!(result.is_ok(), "Should compile: {:?}", result);
         let rust_code = result.unwrap();
-        assert!(rust_code.contains("let x = 5;"));
+        assert!(rust_code.contains("let mut x = 5;"), "Variable reassigned by Set must be mut: {}", rust_code);
         assert!(rust_code.contains("x = 10;"));
     }
 }

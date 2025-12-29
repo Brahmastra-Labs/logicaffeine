@@ -234,7 +234,49 @@ impl<'a> Lexer<'a> {
                     skip_count = 1; // Skip the '>' character
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' => {
+                // Grand Challenge: Handle <= as a single token
+                '<' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "<=".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // Grand Challenge: Handle >= as a single token
+                '>' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: ">=".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -418,6 +460,8 @@ impl<'a> Lexer<'a> {
                         '-' => TokenType::Minus,
                         '*' => TokenType::Star,
                         '/' => TokenType::Slash,
+                        '<' => TokenType::Lt,
+                        '>' => TokenType::Gt,
                         _ => {
                             self.pos += 1;
                             continue;
@@ -469,6 +513,8 @@ impl<'a> Lexer<'a> {
                                     '-' => TokenType::Minus,
                                     '*' => TokenType::Star,
                                     '/' => TokenType::Slash,
+                                    '<' => TokenType::Lt,
+                                    '>' => TokenType::Gt,
                                     _ => {
                                         self.pos += 1;
                                         continue;
@@ -502,6 +548,8 @@ impl<'a> Lexer<'a> {
                     '-' => TokenType::Minus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Slash,
+                    '<' => TokenType::Lt,
+                    '>' => TokenType::Gt,
                     _ => {
                         self.pos += 1;
                         continue;
@@ -636,10 +684,17 @@ impl<'a> Lexer<'a> {
         let chars: Vec<char> = word.chars().collect();
         let first = chars[0];
         if first.is_ascii_digit() {
+            // Numeric literal: starts with digit (may have underscore separators like 1_000)
             return true;
         }
-        if word.contains('_') && chars.iter().any(|c| c.is_alphabetic()) {
-            return true;
+        // Symbolic numbers like aleph_0, omega_1: letters followed by underscore and digits only
+        // But NOT identifiers like n_left, my_var (which have letters after underscore)
+        if let Some(underscore_pos) = word.rfind('_') {
+            let after_underscore = &word[underscore_pos + 1..];
+            // If everything after the last underscore is digits, it's a symbolic number
+            if !after_underscore.is_empty() && after_underscore.chars().all(|c| c.is_ascii_digit()) {
+                return true;
+            }
         }
         false
     }
@@ -657,6 +712,7 @@ impl<'a> Lexer<'a> {
                 "logic" => BlockType::Logic,
                 "note" => BlockType::Note,
                 "to" => BlockType::Function,  // Phase 32: ## To blocks
+                "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -816,6 +872,20 @@ impl<'a> Lexer<'a> {
             return TokenType::Arrow;
         }
 
+        // Grand Challenge: Comparison operator tokens
+        if word == "<=" {
+            return TokenType::LtEq;
+        }
+        if word == ">=" {
+            return TokenType::GtEq;
+        }
+        if word == "<" {
+            return TokenType::Lt;
+        }
+        if word == ">" {
+            return TokenType::Gt;
+        }
+
         if let Some(kind) = lexicon::lookup_keyword(&lower) {
             return kind;
         }
@@ -886,6 +956,13 @@ impl<'a> Lexer<'a> {
             // In Declarative mode, they fall through to lexicon lookup as verbs
             "give" if self.mode == LexerMode::Imperative => return TokenType::Give,
             "show" if self.mode == LexerMode::Imperative => return TokenType::Show,
+            // Phase 43D: Collection operation keywords (Imperative mode only)
+            "push" if self.mode == LexerMode::Imperative => return TokenType::Push,
+            "pop" if self.mode == LexerMode::Imperative => return TokenType::Pop,
+            "copy" if self.mode == LexerMode::Imperative => return TokenType::Copy,
+            "through" if self.mode == LexerMode::Imperative => return TokenType::Through,
+            "length" if self.mode == LexerMode::Imperative => return TokenType::Length,
+            "at" if self.mode == LexerMode::Imperative => return TokenType::At,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

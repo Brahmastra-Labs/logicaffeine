@@ -77,6 +77,10 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
+    - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
+    - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
+    - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
+    - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1809,6 +1813,186 @@ Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O
 
 ---
 
+#### Phase 42: Discourse Representation Structures
+
+**File:** `tests/phase42_drs.rs`
+
+Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries.
+
+**Example:** Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))
+
+---
+
+#### Phase 43B: Type Checking
+
+**File:** `tests/phase43_type_check.rs`
+
+Static type checking for LOGOS. Detects type mismatches between annotations and literals. TypeMismatch error reports expected vs found types.
+
+**Example:** Let x: Int be "hello". → Error: TypeMismatch { expected: Int, found: Text }
+
+---
+
+#### Phase 43C: Refinement Types
+
+**File:** `tests/phase43_refinement.rs`
+
+Foundation for refinement types (types with predicates). TypeExpr::Refinement variant stores base type, bound variable, and predicate. Where-clause parsing deferred to future phase.
+
+**Example:** Int where it > 0 (planned syntax)
+
+---
+
+#### Phase 43D: Collection Operations
+
+**File:** `tests/phase43_collections.rs`
+
+Stack-like collection operations for LOGOS. Push/Pop statements, length/copy expressions, 1-based indexing with 'at', slice syntax with 'through'. Runtime helpers logos_index() and logos_index_mut().
+
+**Example:** Push 4 to items. Pop from items into x. length of items. items at 2. items 1 through 3.
+
+---
+
+#### Grand Challenge: Mergesort
+
+**File:** `tests/grand_challenge_mergesort.rs`
+
+Showcase test demonstrating full language capability: compiles and executes a complete recursive mergesort algorithm. Tests comparison operators (is less than, is greater than, is at most, is at least, <, <=, >, >=), compound conditions with 'and' (→ &&), collection operations (length of, item X of, Push, copy of, slicing with 'through'), typed function definitions with Seq of Int parameters and returns, recursive function calls, and full E2E execution to working Rust.
+
+**Example:** ## To MergeSort (items: Seq of Int) -> Seq of Int: ... Let sorted be MergeSort(numbers). → Compiles and runs actual sorting algorithm
+
+---
+
+#### E2E: Collections
+
+**File:** `tests/e2e_collections.rs`
+
+Runtime verification of collection operations: list literals [1, 2, 3], Push/Pop, length, 1-based indexing with 'item X of', and slicing with 'through'. Tests actual execution output.
+
+**Example:** Let items be [1, 2, 3]. Push 4 to items. Let v be item 2 of items.
+
+---
+
+#### E2E: Comparisons
+
+**File:** `tests/e2e_comparisons.rs`
+
+Runtime verification of comparison operators: equals (is), not equals (is not), less than (<), greater than (>), at most (<=), at least (>=). Both English and symbolic forms.
+
+**Example:** If x is less than 10. If x > 5. If x is at most n.
+
+---
+
+#### E2E: Control Flow
+
+**File:** `tests/e2e_control_flow.rs`
+
+Runtime verification of control flow: If/Then/Otherwise conditionals, While loops with conditions, Return statements, nested control structures.
+
+**Example:** If x > 0: Return true. Otherwise: Return false. While i <= n: Set i to i + 1.
+
+---
+
+#### E2E: Edge Cases
+
+**File:** `tests/e2e_edge_cases.rs`
+
+Boundary condition tests: empty collections, zero values, single-element operations, edge indices, integer overflow guards.
+
+**Example:** Edge cases for robustness testing
+
+---
+
+#### E2E: Enums
+
+**File:** `tests/e2e_enums.rs`
+
+Runtime verification of sum types: enum instantiation with 'a new Variant', field access, pattern matching with Inspect statement.
+
+**Example:** Let shape be a new Circle with radius 5. Inspect shape: Circle: ... Square: ...
+
+---
+
+#### E2E: Expressions
+
+**File:** `tests/e2e_expressions.rs`
+
+Runtime verification of expressions: arithmetic (+, -, *, /), Boolean operations, operator precedence, parenthesized grouping.
+
+**Example:** Let result be (a + b) * c. Let flag be x > 0 and y < 10.
+
+---
+
+#### E2E: Functions
+
+**File:** `tests/e2e_functions.rs`
+
+Runtime verification of function definitions and calls: typed parameters, return types, recursive calls, multi-parameter functions.
+
+**Example:** ## To Double (n: Int) -> Int: Return n * 2. Let x be Double(5).
+
+---
+
+#### E2E: Integration
+
+**File:** `tests/e2e_integration.rs`
+
+Multi-function programs testing cross-function calls, shared state, complex control flow across function boundaries.
+
+**Example:** Complex programs with multiple interacting functions
+
+---
+
+#### E2E: Iteration
+
+**File:** `tests/e2e_iteration.rs`
+
+Runtime verification of loops: Repeat/For each iteration, While loops with index variables, collection iteration patterns.
+
+**Example:** Repeat for each item in items: ... While i <= n: ...
+
+---
+
+#### E2E: Logical Operators
+
+**File:** `tests/e2e_logical.rs`
+
+Runtime verification of Boolean logic: AND (and/&&), OR (or/||), NOT (not), compound conditions, short-circuit evaluation.
+
+**Example:** If a and b: ... If x or y: ... If not flag: ...
+
+---
+
+#### E2E: Structs
+
+**File:** `tests/e2e_structs.rs`
+
+Runtime verification of product types: struct instantiation with 'a new Type', field access with possessive (point's x), field mutation with Set.
+
+**Example:** Let p be a new Point with x 10 and y 20. Set p's x to 15.
+
+---
+
+#### E2E: Types
+
+**File:** `tests/e2e_types.rs`
+
+Runtime verification of type system: type annotations (Let x: Int), type coercion rules, generic type instantiation.
+
+**Example:** Let x: Int be 5. Let items: Seq of Int be a new Seq of Int.
+
+---
+
+#### E2E: Variables
+
+**File:** `tests/e2e_variables.rs`
+
+Runtime verification of variable operations: Let bindings, Set mutation, scoping rules, shadowing behavior.
+
+**Example:** Let x be 5. Set x to 10. Let x be 20. (shadowing)
+
+---
+
 #### Aktionsart/Vendler Classes
 
 **File:** `tests/aktionsart_tests.rs`
@@ -1853,28 +2037,28 @@ Comprehensive tests covering quantifiers, modals, temporal logic, relative claus
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1729 lines
-Parser (ast/, parser/):               10896 lines
+Lexer (token.rs, lexer.rs):           1821 lines
+Parser (ast/, parser/):               11586 lines
 Transpilation:                        1030 lines
-Code Generation:                      1117 lines
+Code Generation:                      1256 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1195 lines
-Support Infrastructure:               4209 lines
+Type Analysis (analysis/):            1240 lines
+Support Infrastructure:               4222 lines
 Desktop UI:                               9983 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        38124
-Test lines:          10003
-Total Rust lines: 48127
+Source lines:        39548
+Test lines:          13200
+Total Rust lines: 52748
 ```
 
 ### File Counts
 ```
-Source files: 96
-Test files:   69
+Source files: 97
+Test files:   88
 ```
 ## Lexicon Data
 
@@ -2733,6 +2917,7 @@ pub enum BlockType {
     Logic,
     Note,
     Function,  // Phase 32: ## To blocks
+    TypeDef,   // Inline type definitions: ## A Point has:, ## A Color is one of:
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2804,6 +2989,14 @@ pub enum TokenType {
     // Ownership Keywords (Move/Borrow Semantics)
     Give,  // Move ownership: "Give x to processor"
     Show,  // Immutable borrow: "Show x to console"
+
+    // Phase 43D: Collection Operations
+    Push,     // "Push x to items"
+    Pop,      // "Pop from items"
+    Copy,     // "copy of slice" → slice.to_vec()
+    Through,  // "items 1 through 3" → inclusive slice
+    Length,   // "length of items" → items.len()
+    At,       // "items at i" → items[i]
 
     // Block Scoping
     Colon,
@@ -2919,6 +3112,12 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
+
+    // Grand Challenge: Comparison Operators
+    Lt,     // <
+    Gt,     // >
+    LtEq,   // <=
+    GtEq,   // >=
 
     // Phase 38: Arrow for return type syntax
     Arrow,  // ->
@@ -3255,7 +3454,49 @@ impl<'a> Lexer<'a> {
                     skip_count = 1; // Skip the '>' character
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' => {
+                // Grand Challenge: Handle <= as a single token
+                '<' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: "<=".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                // Grand Challenge: Handle >= as a single token
+                '>' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '=' => {
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    items.push(WordItem {
+                        word: ">=".to_string(),
+                        trailing_punct: None,
+                        start: i,
+                        end: i + 2,
+                        punct_pos: None,
+                    });
+                    skip_count = 1;
+                    word_start = i + 2;
+                }
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -3439,6 +3680,8 @@ impl<'a> Lexer<'a> {
                         '-' => TokenType::Minus,
                         '*' => TokenType::Star,
                         '/' => TokenType::Slash,
+                        '<' => TokenType::Lt,
+                        '>' => TokenType::Gt,
                         _ => {
                             self.pos += 1;
                             continue;
@@ -3490,6 +3733,8 @@ impl<'a> Lexer<'a> {
                                     '-' => TokenType::Minus,
                                     '*' => TokenType::Star,
                                     '/' => TokenType::Slash,
+                                    '<' => TokenType::Lt,
+                                    '>' => TokenType::Gt,
                                     _ => {
                                         self.pos += 1;
                                         continue;
@@ -3523,6 +3768,8 @@ impl<'a> Lexer<'a> {
                     '-' => TokenType::Minus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Slash,
+                    '<' => TokenType::Lt,
+                    '>' => TokenType::Gt,
                     _ => {
                         self.pos += 1;
                         continue;
@@ -3657,10 +3904,17 @@ impl<'a> Lexer<'a> {
         let chars: Vec<char> = word.chars().collect();
         let first = chars[0];
         if first.is_ascii_digit() {
+            // Numeric literal: starts with digit (may have underscore separators like 1_000)
             return true;
         }
-        if word.contains('_') && chars.iter().any(|c| c.is_alphabetic()) {
-            return true;
+        // Symbolic numbers like aleph_0, omega_1: letters followed by underscore and digits only
+        // But NOT identifiers like n_left, my_var (which have letters after underscore)
+        if let Some(underscore_pos) = word.rfind('_') {
+            let after_underscore = &word[underscore_pos + 1..];
+            // If everything after the last underscore is digits, it's a symbolic number
+            if !after_underscore.is_empty() && after_underscore.chars().all(|c| c.is_ascii_digit()) {
+                return true;
+            }
         }
         false
     }
@@ -3678,6 +3932,7 @@ impl<'a> Lexer<'a> {
                 "logic" => BlockType::Logic,
                 "note" => BlockType::Note,
                 "to" => BlockType::Function,  // Phase 32: ## To blocks
+                "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -3837,6 +4092,20 @@ impl<'a> Lexer<'a> {
             return TokenType::Arrow;
         }
 
+        // Grand Challenge: Comparison operator tokens
+        if word == "<=" {
+            return TokenType::LtEq;
+        }
+        if word == ">=" {
+            return TokenType::GtEq;
+        }
+        if word == "<" {
+            return TokenType::Lt;
+        }
+        if word == ">" {
+            return TokenType::Gt;
+        }
+
         if let Some(kind) = lexicon::lookup_keyword(&lower) {
             return kind;
         }
@@ -3907,6 +4176,13 @@ impl<'a> Lexer<'a> {
             // In Declarative mode, they fall through to lexicon lookup as verbs
             "give" if self.mode == LexerMode::Imperative => return TokenType::Give,
             "show" if self.mode == LexerMode::Imperative => return TokenType::Show,
+            // Phase 43D: Collection operation keywords (Imperative mode only)
+            "push" if self.mode == LexerMode::Imperative => return TokenType::Push,
+            "pop" if self.mode == LexerMode::Imperative => return TokenType::Pop,
+            "copy" if self.mode == LexerMode::Imperative => return TokenType::Copy,
+            "through" if self.mode == LexerMode::Imperative => return TokenType::Through,
+            "length" if self.mode == LexerMode::Imperative => return TokenType::Length,
+            "at" if self.mode == LexerMode::Imperative => return TokenType::At,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
@@ -4896,7 +5172,7 @@ use crate::intern::Symbol;
 /// - `List of Int` → Generic { base: List, params: [Primitive(Int)] }
 /// - `List of List of Int` → Generic { base: List, params: [Generic { base: List, params: [Primitive(Int)] }] }
 /// - `Result of Int and Text` → Generic { base: Result, params: [Primitive(Int), Primitive(Text)] }
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum TypeExpr<'a> {
     /// Primitive type: Int, Nat, Text, Bool
     Primitive(Symbol),
@@ -4911,6 +5187,16 @@ pub enum TypeExpr<'a> {
     Function {
         inputs: &'a [TypeExpr<'a>],
         output: &'a TypeExpr<'a>,
+    },
+    /// Phase 43C: Refinement type with predicate constraint
+    /// Example: `Int where it > 0`
+    Refinement {
+        /// The base type being refined
+        base: &'a TypeExpr<'a>,
+        /// The bound variable (usually "it")
+        var: Symbol,
+        /// The predicate constraint (from Logic Kernel)
+        predicate: &'a LogicExpr<'a>,
     },
 }
 
@@ -4927,6 +5213,9 @@ pub enum BinaryOpKind {
     Gt,
     LtEq,
     GtEq,
+    // Grand Challenge: Logical operators for compound conditions
+    And,
+    Or,
 }
 
 /// Block is a sequence of statements.
@@ -5048,6 +5337,25 @@ pub enum Stmt<'a> {
         arms: Vec<MatchArm<'a>>,
         has_otherwise: bool,            // For exhaustiveness tracking
     },
+
+    /// Phase 43D: Push to collection: `Push x to items.`
+    Push {
+        value: &'a Expr<'a>,
+        collection: &'a Expr<'a>,
+    },
+
+    /// Phase 43D: Pop from collection: `Pop from items.` or `Pop from items into y.`
+    Pop {
+        collection: &'a Expr<'a>,
+        into: Option<Symbol>,
+    },
+
+    /// Index assignment: `Set item N of X to Y.`
+    SetIndex {
+        collection: &'a Expr<'a>,
+        index: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -5075,17 +5383,27 @@ pub enum Expr<'a> {
         args: Vec<&'a Expr<'a>>,
     },
 
-    /// Index access: item 1 of list (1-indexed)
+    /// Phase 43D: Dynamic index access: `items at i` (1-indexed)
     Index {
         collection: &'a Expr<'a>,
-        index: usize,
+        index: &'a Expr<'a>,
     },
 
-    /// Slice access: items 2 through 5 of list (1-indexed, inclusive)
+    /// Phase 43D: Dynamic slice access: `items 1 through mid` (1-indexed, inclusive)
     Slice {
         collection: &'a Expr<'a>,
-        start: usize,
-        end: usize,
+        start: &'a Expr<'a>,
+        end: &'a Expr<'a>,
+    },
+
+    /// Phase 43D: Copy expression: `copy of slice` → slice.to_vec()
+    Copy {
+        expr: &'a Expr<'a>,
+    },
+
+    /// Phase 43D: Length expression: `length of items` → items.len()
+    Length {
+        collection: &'a Expr<'a>,
     },
 
     /// List literal: [1, 2, 3]
@@ -5103,11 +5421,12 @@ pub enum Expr<'a> {
         field: Symbol,
     },
 
-    /// Phase 31: Constructor: `a new Point`
+    /// Phase 31: Constructor: `a new Point` or `a new Point with x 10 and y 20`
     /// Phase 34: Extended for generics: `a new Box of Int`
     New {
         type_name: Symbol,
         type_args: Vec<Symbol>,  // Empty for non-generic types
+        init_fields: Vec<(Symbol, &'a Expr<'a>)>,  // Optional field initialization
     },
 
     /// Phase 33: Enum variant constructor: `a new Circle with radius 10`
@@ -5166,6 +5485,7 @@ use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
+use crate::drs::{Drs, BoxType};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
@@ -5257,6 +5577,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) mode: ParserMode,
     pub(super) type_registry: Option<TypeRegistry>,
     pub(super) event_reading_mode: bool,
+    pub(super) drs: Drs,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -5286,6 +5607,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: None,
             event_reading_mode: false,
+            drs: Drs::new(),
         }
     }
 
@@ -5328,6 +5650,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: None,
             event_reading_mode: false,
+            drs: Drs::new(),
         }
     }
 
@@ -5362,6 +5685,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: Some(types),
             event_reading_mode: false,
+            drs: Drs::new(),
         }
     }
 
@@ -5504,7 +5828,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note => ParserMode::Declarative,
+                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -5767,6 +6091,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         statements.push(func_def);
                         continue;
                     }
+                    BlockType::TypeDef => {
+                        // Type definitions are handled by DiscoveryPass
+                        // Skip content until next block header
+                        self.advance();
+                        self.skip_type_def_content();
+                        continue;
+                    }
                     _ => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -5843,6 +6174,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 33: Pattern matching on sum types
         if self.check(&TokenType::Inspect) {
             return self.parse_inspect_statement();
+        }
+
+        // Phase 43D: Collection operations
+        if self.check(&TokenType::Push) {
+            return self.parse_push_statement();
+        }
+        if self.check(&TokenType::Pop) {
+            return self.parse_pop_statement();
         }
 
         Err(ParseError {
@@ -6102,22 +6441,116 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
-        use crate::ast::stmt::BinaryOpKind as ImperativeBinOp;
+        // Grand Challenge: Parse compound conditions with "and" and "or"
+        // "or" has lower precedence than "and"
+        self.parse_or_condition()
+    }
 
-        // Parse left side (identifier)
-        let left = self.parse_imperative_expr()?;
+    /// Parse "or" conditions (lower precedence than "and")
+    fn parse_or_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_and_condition()?;
 
-        // Check for "equals"
-        if self.check(&TokenType::Equals) {
+        while self.check(&TokenType::Or) || self.check_word("or") {
             self.advance();
-            let right = self.parse_imperative_expr()?;
-            Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op: ImperativeBinOp::Eq,
+            let right = self.parse_and_condition()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Or,
                 left,
                 right,
-            }))
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// Parse "and" conditions (higher precedence than "or")
+    fn parse_and_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_comparison()?;
+
+        while self.check(&TokenType::And) || self.check_word("and") {
+            self.advance();
+            let right = self.parse_comparison()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::And,
+                left,
+                right,
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// Grand Challenge: Parse a single comparison expression
+    fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let left = self.parse_imperative_expr()?;
+
+        // Check for comparison operators
+        let op = if self.check(&TokenType::Equals) {
+            self.advance();
+            Some(BinaryOpKind::Eq)
+        } else if self.check_word("is") {
+            // Peek ahead to determine which comparison
+            let saved_pos = self.current;
+            self.advance(); // consume "is"
+
+            if self.check_word("greater") {
+                self.advance(); // consume "greater"
+                if self.check_word("than") || self.check_preposition_is("than") {
+                    self.advance(); // consume "than"
+                    Some(BinaryOpKind::Gt)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
+            } else if self.check_word("less") {
+                self.advance(); // consume "less"
+                if self.check_word("than") || self.check_preposition_is("than") {
+                    self.advance(); // consume "than"
+                    Some(BinaryOpKind::Lt)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
+            } else if self.check_word("at") {
+                self.advance(); // consume "at"
+                if self.check_word("least") {
+                    self.advance(); // consume "least"
+                    Some(BinaryOpKind::GtEq)
+                } else if self.check_word("most") {
+                    self.advance(); // consume "most"
+                    Some(BinaryOpKind::LtEq)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
+            } else if self.check_word("not") || self.check(&TokenType::Not) {
+                // "is not X" → NotEq
+                self.advance(); // consume "not"
+                Some(BinaryOpKind::NotEq)
+            } else {
+                self.current = saved_pos;
+                None
+            }
+        } else if self.check(&TokenType::Lt) {
+            self.advance();
+            Some(BinaryOpKind::Lt)
+        } else if self.check(&TokenType::Gt) {
+            self.advance();
+            Some(BinaryOpKind::Gt)
+        } else if self.check(&TokenType::LtEq) {
+            self.advance();
+            Some(BinaryOpKind::LtEq)
+        } else if self.check(&TokenType::GtEq) {
+            self.advance();
+            Some(BinaryOpKind::GtEq)
         } else {
-            // Just return the expression as the condition
+            None
+        };
+
+        if let Some(op) = op {
+            let right = self.parse_imperative_expr()?;
+            Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp { op, left, right }))
+        } else {
             Ok(left)
         }
     }
@@ -6157,6 +6590,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
 
+        // Phase 43B: Type check - verify declared type matches value type
+        if let Some(declared_ty) = &ty {
+            if let Some(inferred) = self.infer_literal_type(value) {
+                if !self.check_type_compatibility(declared_ty, inferred) {
+                    let expected = match declared_ty {
+                        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                            self.interner.resolve(*sym).to_string()
+                        }
+                        _ => "unknown".to_string(),
+                    };
+                    return Err(ParseError {
+                        kind: ParseErrorKind::TypeMismatch {
+                            expected,
+                            found: inferred.to_string(),
+                        },
+                        span: self.current_span(),
+                    });
+                }
+            }
+        }
+
         // Bind in ScopeStack if context available
         if let Some(ctx) = self.context.as_mut() {
             use crate::context::{Entity, Gender, Number, OwnershipState};
@@ -6178,6 +6632,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.interner.resolve(sym).eq_ignore_ascii_case("mutable")
         } else {
             false
+        }
+    }
+
+    /// Phase 43B: Infer the type of a literal expression
+    fn infer_literal_type(&self, expr: &Expr<'_>) -> Option<&'static str> {
+        match expr {
+            Expr::Literal(lit) => match lit {
+                crate::ast::Literal::Number(_) => Some("Int"),
+                crate::ast::Literal::Text(_) => Some("Text"),
+                crate::ast::Literal::Boolean(_) => Some("Bool"),
+                crate::ast::Literal::Nothing => Some("Unit"),
+            },
+            _ => None, // Can't infer type for non-literals yet
+        }
+    }
+
+    /// Phase 43B: Check if declared type matches inferred type
+    fn check_type_compatibility(&self, declared: &TypeExpr<'_>, inferred: &str) -> bool {
+        match declared {
+            TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                let declared_name = self.interner.resolve(*sym);
+                // Nat is compatible with Int literals
+                declared_name.eq_ignore_ascii_case(inferred)
+                    || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
+            }
+            _ => true, // For generics/functions, skip check for now
         }
     }
 
@@ -6205,12 +6685,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let value = self.parse_imperative_expr()?;
 
         // Phase 31: Handle field access targets
+        // Also handle index targets: Set item N of X to Y
         match target_expr {
             Expr::FieldAccess { object, field } => {
                 Ok(Stmt::SetField { object, field: *field, value })
             }
             Expr::Identifier(target) => {
                 Ok(Stmt::Set { target: *target, value })
+            }
+            Expr::Index { collection, index } => {
+                Ok(Stmt::SetIndex { collection, index, value })
             }
             _ => Err(ParseError {
                 kind: ParseErrorKind::ExpectedIdentifier,
@@ -6227,7 +6711,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(Stmt::Return { value: None });
         }
 
-        let value = self.parse_imperative_expr()?;
+        // Use parse_comparison to support returning comparison results like "n equals 5"
+        let value = self.parse_comparison()?;
         Ok(Stmt::Return { value: Some(value) })
     }
 
@@ -6366,6 +6851,73 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Show { object, recipient })
     }
 
+    /// Phase 43D: Parse Push statement for collection operations
+    /// Syntax: Push x to items.
+    fn parse_push_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Push"
+
+        // Parse the value being pushed
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse the collection
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Push { value, collection })
+    }
+
+    /// Phase 43D: Parse Pop statement for collection operations
+    /// Syntax: Pop from items. OR Pop from items into y.
+    fn parse_pop_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Pop"
+
+        // Expect "from" - can be keyword token or preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse the collection
+        let collection = self.parse_imperative_expr()?;
+
+        // Check for optional "into" binding
+        let into = if self.check_preposition_is("into") {
+            self.advance(); // consume "into"
+
+            // Parse variable name
+            if let TokenType::Noun(sym) | TokenType::ProperName(sym) = &self.peek().kind {
+                let sym = *sym;
+                self.advance();
+                Some(sym)
+            } else if let Some(token) = self.tokens.get(self.current) {
+                // Also handle identifier-like tokens
+                let sym = token.lexeme;
+                self.advance();
+                Some(sym)
+            } else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedIdentifier,
+                    span: self.current_span(),
+                });
+            }
+        } else {
+            None
+        };
+
+        Ok(Stmt::Pop { collection, into })
+    }
+
     /// Phase 33: Parse Inspect statement for pattern matching
     /// Syntax: Inspect target:
     ///             If it is a Variant [(bindings)]:
@@ -6413,28 +6965,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume ":"
 
-                if !self.check(&TokenType::Indent) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedStatement,
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume Indent
-
-                // Parse body statements
-                let mut body_stmts = Vec::new();
-                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                // Handle both inline (Otherwise: stmt.) and block body
+                let body_stmts = if self.check(&TokenType::Indent) {
+                    self.advance(); // consume Indent
+                    let mut stmts = Vec::new();
+                    while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                        let stmt = self.parse_statement()?;
+                        stmts.push(stmt);
+                        if self.check(&TokenType::Period) {
+                            self.advance();
+                        }
+                    }
+                    if self.check(&TokenType::Dedent) {
+                        self.advance();
+                    }
+                    stmts
+                } else {
+                    // Inline body: "Otherwise: Show x."
                     let stmt = self.parse_statement()?;
-                    body_stmts.push(stmt);
                     if self.check(&TokenType::Period) {
                         self.advance();
                     }
-                }
-
-                // Consume dedent
-                if self.check(&TokenType::Dedent) {
-                    self.advance();
-                }
+                    vec![stmt]
+                };
 
                 let body = self.ctx.stmts.expect("imperative arenas not initialized")
                     .alloc_slice(body_stmts.into_iter());
@@ -6448,6 +7001,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Parse "If it is a VariantName [(bindings)]:"
                 let arm = self.parse_match_arm()?;
                 arms.push(arm);
+            } else if self.check(&TokenType::When) || self.check_word("When") {
+                // Parse "When Variant [(bindings)]:" (concise syntax)
+                let arm = self.parse_when_arm()?;
+                arms.push(arm);
+            } else if self.check(&TokenType::Newline) {
+                // Skip newlines between arms
+                self.advance();
             } else {
                 // Skip unexpected tokens
                 self.advance();
@@ -6541,6 +7101,99 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
     }
 
+    /// Parse a concise match arm: "When Variant [(bindings)]:" or "When Variant: stmt."
+    fn parse_when_arm(&mut self) -> ParseResult<MatchArm<'a>> {
+        self.advance(); // consume "When"
+
+        // Get variant name
+        let variant = self.expect_identifier()?;
+
+        // Look up the enum name and variant definition for this variant
+        let (enum_name, variant_fields) = self.type_registry
+            .as_ref()
+            .and_then(|r| r.find_variant(variant).map(|(enum_name, vdef)| {
+                let fields: Vec<_> = vdef.fields.iter().map(|f| f.name).collect();
+                (Some(enum_name), fields)
+            }))
+            .unwrap_or((None, vec![]));
+
+        // Optional: "(binding)" or "(b1, b2)" - positional bindings
+        let bindings = if self.check(&TokenType::LParen) {
+            let raw_bindings = self.parse_when_bindings()?;
+            // Map positional bindings to actual field names
+            raw_bindings.into_iter().enumerate().map(|(i, binding)| {
+                let field = variant_fields.get(i).copied().unwrap_or(binding);
+                (field, binding)
+            }).collect()
+        } else {
+            vec![]
+        };
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Handle both inline body (When Variant: stmt.) and block body
+        let body_stmts = if self.check(&TokenType::Indent) {
+            self.advance(); // consume Indent
+            let mut stmts = Vec::new();
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                let stmt = self.parse_statement()?;
+                stmts.push(stmt);
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+            }
+            if self.check(&TokenType::Dedent) {
+                self.advance();
+            }
+            stmts
+        } else {
+            // Inline body: "When Red: Show x."
+            let stmt = self.parse_statement()?;
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+            vec![stmt]
+        };
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(MatchArm { enum_name, variant: Some(variant), bindings, body })
+    }
+
+    /// Parse concise When bindings: "(r)" or "(w, h)" - just binding variable names
+    fn parse_when_bindings(&mut self) -> ParseResult<Vec<Symbol>> {
+        self.advance(); // consume '('
+        let mut bindings = Vec::new();
+
+        loop {
+            let binding = self.expect_identifier()?;
+            bindings.push(binding);
+
+            if !self.check(&TokenType::Comma) {
+                break;
+            }
+            self.advance(); // consume ','
+        }
+
+        if !self.check(&TokenType::RParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ')'
+
+        Ok(bindings)
+    }
+
     /// Parse pattern bindings: "(field)" or "(field: binding)" or "(f1, f2: b2)"
     fn parse_pattern_bindings(&mut self) -> ParseResult<Vec<(Symbol, Symbol)>> {
         self.advance(); // consume '('
@@ -6573,9 +7226,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(bindings)
     }
 
-    /// Phase 33: Parse variant constructor fields: "with field1 value1 [and field2 value2]..."
-    /// Example: "with radius 10" or "with width 10 and height 20"
-    fn parse_variant_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+    /// Parse constructor fields: "with field1 value1 [and field2 value2]..."
+    /// Example: "with radius 10" or "with x 10 and y 20"
+    /// Used for both variant constructors and struct initialization
+    fn parse_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
         use crate::ast::Expr;
         let mut fields = Vec::new();
 
@@ -6600,6 +7254,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         Ok(fields)
+    }
+
+    /// Alias for variant constructors (backwards compat)
+    fn parse_variant_constructor_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        self.parse_constructor_fields()
+    }
+
+    /// Alias for struct initialization
+    fn parse_struct_init_fields(&mut self) -> ParseResult<Vec<(Symbol, &'a Expr<'a>)>> {
+        self.parse_constructor_fields()
     }
 
     /// Phase 34: Parse generic type arguments for constructor instantiation
@@ -6632,6 +7296,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         Ok(type_args)
+    }
+
+    /// Skip type definition content until next block header
+    /// Used for TypeDef blocks (## A Point has:, ## A Color is one of:)
+    /// The actual parsing is done by DiscoveryPass
+    fn skip_type_def_content(&mut self) {
+        while !self.is_at_end() {
+            // Stop at next block header
+            if matches!(
+                self.tokens.get(self.current),
+                Some(Token { kind: TokenType::BlockHeader { .. }, .. })
+            ) {
+                break;
+            }
+            self.advance();
+        }
     }
 
     /// Phase 32: Parse function definition after `## To` header
@@ -6817,7 +7497,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
                 let type_args = self.parse_generic_type_args(type_name)?;
-                let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args });
+
+                // Parse optional "with field value" pairs for struct initialization
+                let init_fields = if self.check_word("with") {
+                    self.parse_struct_init_fields()?
+                } else {
+                    vec![]
+                };
+
+                let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args, init_fields });
                 return self.parse_field_access_chain(base);
             }
 
@@ -6862,7 +7550,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                         // Phase 34: Parse generic type arguments "of Int" or "of Int and Text"
                         let type_args = self.parse_generic_type_args(type_name)?;
-                        let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args });
+
+                        // Parse optional "with field value" pairs for struct initialization
+                        let init_fields = if self.check_word("with") {
+                            self.parse_struct_init_fields()?
+                        } else {
+                            vec![]
+                        };
+
+                        let base = self.ctx.alloc_imperative_expr(Expr::New { type_name, type_args, init_fields });
                         return self.parse_field_access_chain(base);
                     }
                 }
@@ -6873,30 +7569,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 return self.parse_field_access_chain(base);
             }
 
-            // Index access: "item N of collection"
+            // Index access: "item N of collection" or "item i of collection"
             TokenType::Item => {
                 self.advance(); // consume "item"
 
-                // Parse index (must be a number)
+                // Grand Challenge: Parse index as expression (number, identifier, or parenthesized)
                 let index = if let TokenType::Number(sym) = &self.peek().kind {
+                    // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
                     let num_str = self.interner.resolve(sym);
-                    num_str.parse::<usize>().unwrap_or(0)
+                    let index_val = num_str.parse::<i64>().unwrap_or(0);
+
+                    // Index 0 Guard: LOGOS uses 1-based indexing
+                    if index_val == 0 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ZeroIndex,
+                            span: self.current_span(),
+                        });
+                    }
+
+                    self.ctx.alloc_imperative_expr(
+                        Expr::Literal(crate::ast::Literal::Number(index_val))
+                    )
+                } else if self.check(&TokenType::LParen) {
+                    // Parenthesized expression like (mid + 1)
+                    self.advance(); // consume '('
+                    let inner = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    inner
+                } else if !self.check_preposition_is("of") {
+                    // Variable identifier like i, j, idx (any token that's not "of")
+                    let sym = self.peek().lexeme;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
                 } else {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedExpression,
                         span: self.current_span(),
                     });
                 };
-
-                // Index 0 Guard: LOGOS uses 1-based indexing
-                if index == 0 {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ZeroIndex,
-                        span: self.current_span(),
-                    });
-                }
 
                 // Expect "of"
                 if !self.check_preposition_is("of") {
@@ -6917,41 +7635,68 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Slice access: "items N through M of collection"
-            // OR variable named "items" - disambiguate by checking if next token is a number
+            // OR variable named "items" - disambiguate by checking if next token starts an expression
             TokenType::Items => {
                 // Peek ahead to determine if this is slice syntax or variable usage
-                // If next token is not a number, treat "items" as a variable identifier
-                if let Some(next) = self.tokens.get(self.current + 1) {
-                    if !matches!(next.kind, TokenType::Number(_)) {
-                        // Treat "items" as a variable identifier
-                        let sym = token.lexeme;
-                        self.advance();
-                        return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
-                    }
+                // Slice syntax: "items" followed by number or paren (clear indicators of index)
+                // Variable: "items" followed by something else (operator, dot, etc.)
+                let is_slice_syntax = if let Some(next) = self.tokens.get(self.current + 1) {
+                    matches!(next.kind, TokenType::Number(_) | TokenType::LParen)
+                } else {
+                    false
+                };
+
+                if !is_slice_syntax {
+                    // Treat "items" as a variable identifier
+                    let sym = token.lexeme;
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
                 }
 
                 self.advance(); // consume "items"
 
-                // Parse start index (must be a number)
+                // Grand Challenge: Parse start index as expression (number, identifier, or parenthesized)
                 let start = if let TokenType::Number(sym) = &self.peek().kind {
+                    // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
                     let num_str = self.interner.resolve(sym);
-                    num_str.parse::<usize>().unwrap_or(0)
+                    let start_val = num_str.parse::<i64>().unwrap_or(0);
+
+                    // Index 0 Guard for start
+                    if start_val == 0 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ZeroIndex,
+                            span: self.current_span(),
+                        });
+                    }
+
+                    self.ctx.alloc_imperative_expr(
+                        Expr::Literal(crate::ast::Literal::Number(start_val))
+                    )
+                } else if self.check(&TokenType::LParen) {
+                    // Parenthesized expression like (mid + 1)
+                    self.advance(); // consume '('
+                    let inner = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    inner
+                } else if !self.check_preposition_is("through") {
+                    // Variable identifier like mid, idx
+                    let sym = self.peek().lexeme;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
                 } else {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedNumber,
+                        kind: ParseErrorKind::ExpectedExpression,
                         span: self.current_span(),
                     });
                 };
-
-                // Index 0 Guard for start
-                if start == 0 {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ZeroIndex,
-                        span: self.current_span(),
-                    });
-                }
 
                 // Expect "through"
                 if !self.check_preposition_is("through") {
@@ -6962,38 +7707,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "through"
 
-                // Parse end index (must be a number)
+                // Grand Challenge: Parse end index as expression (number, identifier, or parenthesized)
                 let end = if let TokenType::Number(sym) = &self.peek().kind {
+                    // Literal number - check for zero index at compile time
                     let sym = *sym;
                     self.advance();
                     let num_str = self.interner.resolve(sym);
-                    num_str.parse::<usize>().unwrap_or(0)
+                    let end_val = num_str.parse::<i64>().unwrap_or(0);
+
+                    // Index 0 Guard for end
+                    if end_val == 0 {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ZeroIndex,
+                            span: self.current_span(),
+                        });
+                    }
+
+                    self.ctx.alloc_imperative_expr(
+                        Expr::Literal(crate::ast::Literal::Number(end_val))
+                    )
+                } else if self.check(&TokenType::LParen) {
+                    // Parenthesized expression like (mid + 1)
+                    self.advance(); // consume '('
+                    let inner = self.parse_imperative_expr()?;
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    inner
+                } else if !self.check_preposition_is("of") {
+                    // Variable identifier like n, length
+                    let sym = self.peek().lexeme;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
                 } else {
                     return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedNumber,
+                        kind: ParseErrorKind::ExpectedExpression,
                         span: self.current_span(),
                     });
                 };
 
-                // Index 0 Guard for end
-                if end == 0 {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ZeroIndex,
-                        span: self.current_span(),
-                    });
-                }
-
-                // Expect "of"
-                if !self.check_preposition_is("of") {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
-                        span: self.current_span(),
-                    });
-                }
-                self.advance(); // consume "of"
-
-                // Parse collection
-                let collection = self.parse_imperative_expr()?;
+                // "of collection" is now optional - collection can be inferred from context
+                // (e.g., "items 1 through mid" when items is the local variable)
+                let collection = if self.check_preposition_is("of") {
+                    self.advance(); // consume "of"
+                    self.parse_imperative_expr()?
+                } else {
+                    // The variable is the collection itself (already consumed as "items")
+                    // Re-intern "items" to use as the collection identifier
+                    let items_sym = self.interner.intern("items");
+                    self.ctx.alloc_imperative_expr(Expr::Identifier(items_sym))
+                };
 
                 Ok(self.ctx.alloc_imperative_expr(Expr::Slice {
                     collection,
@@ -7025,6 +7792,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "]"
 
+                // Check for typed empty list: [] of Int
+                if items.is_empty() && self.check_word("of") {
+                    self.advance(); // consume "of"
+                    let type_name = self.expect_identifier()?;
+                    // Generate: Seq::<Type>::default()
+                    let seq_sym = self.interner.intern("Seq");
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::New {
+                        type_name: seq_sym,
+                        type_args: vec![type_name],
+                        init_fields: vec![],
+                    }));
+                }
+
                 Ok(self.ctx.alloc_imperative_expr(Expr::List(items)))
             }
 
@@ -7045,6 +7825,40 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Nothing => {
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
+            }
+
+            // Phase 43D: Length expression: "length of items"
+            TokenType::Length => {
+                self.advance(); // consume "length"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let collection = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection }))
+            }
+
+            // Phase 43D: Copy expression: "copy of slice"
+            TokenType::Copy => {
+                self.advance(); // consume "copy"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let expr = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::Copy { expr }))
             }
 
             // Handle verbs in expression context:
@@ -7151,6 +7965,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
 
+            // Parenthesized expression: (expr)
+            TokenType::LParen => {
+                self.advance(); // consume '('
+                let inner = self.parse_imperative_expr()?;
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ')'
+                Ok(inner)
+            }
+
             _ => {
                 Err(ParseError {
                     kind: ParseErrorKind::ExpectedExpression,
@@ -7161,17 +7989,60 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Parse a complete imperative expression including binary operators.
+    /// Uses precedence climbing for correct associativity and precedence.
     fn parse_imperative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
-        let left = self.parse_primary_expr()?;
+        self.parse_additive_expr()
+    }
 
-        // Check for binary operator
-        if let Some(op) = self.try_parse_binary_op() {
-            let right = self.parse_imperative_expr()?;
-            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+    /// Parse additive expressions (+, -) - left-to-right associative
+    fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_multiplicative_expr()?;
+
+        loop {
+            let op = match &self.peek().kind {
+                TokenType::Plus => {
+                    self.advance();
+                    BinaryOpKind::Add
+                }
+                TokenType::Minus => {
+                    self.advance();
+                    BinaryOpKind::Subtract
+                }
+                _ => break,
+            };
+            let right = self.parse_multiplicative_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
                 op,
                 left,
                 right,
-            }));
+            });
+        }
+
+        Ok(left)
+    }
+
+    /// Parse multiplicative expressions (*, /) - left-to-right associative
+    fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let mut left = self.parse_primary_expr()?;
+
+        loop {
+            let op = match &self.peek().kind {
+                TokenType::Star => {
+                    self.advance();
+                    BinaryOpKind::Multiply
+                }
+                TokenType::Slash => {
+                    self.advance();
+                    BinaryOpKind::Divide
+                }
+                _ => break,
+            };
+            let right = self.parse_primary_expr()?;
+            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op,
+                left,
+                right,
+            });
         }
 
         Ok(left)
@@ -10034,9 +10905,11 @@ use super::quantifier::QuantifierParsing;
 use super::question::QuestionParsing;
 use super::verb::LogicVerbParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{LogicExpr, NeoEventData, NounPhrase, Term, ThematicRole};
+use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
+use crate::drs::BoxType;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
+use crate::lexicon::Definiteness;
 use crate::token::TokenType;
 
 pub trait ClauseParsing<'a, 'ctx, 'int> {
@@ -10158,7 +11031,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_conditional(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let is_counterfactual = self.is_counterfactual_context();
 
+        // Enter DRS antecedent box - indefinites here get universal force
+        self.drs.enter_box(BoxType::ConditionalAntecedent);
         let antecedent = self.parse_counterfactual_antecedent()?;
+        self.drs.exit_box();
 
         if self.check(&TokenType::Comma) {
             self.advance();
@@ -10168,9 +11044,16 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
+        // Enter DRS consequent box - can access antecedent referents
+        self.drs.enter_box(BoxType::ConditionalConsequent);
         let consequent = self.parse_counterfactual_consequent()?;
+        self.drs.exit_box();
 
-        Ok(if is_counterfactual {
+        // Get DRS referents that need universal quantification
+        let universal_refs = self.drs.get_universal_referents();
+
+        // Build the conditional expression
+        let conditional = if is_counterfactual {
             self.ctx.exprs.alloc(LogicExpr::Counterfactual {
                 antecedent,
                 consequent,
@@ -10181,7 +11064,20 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 op: TokenType::If,
                 right: consequent,
             })
-        })
+        };
+
+        // Wrap with universal quantifiers for DRS referents
+        let mut result = conditional;
+        for var in universal_refs.into_iter().rev() {
+            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: QuantifierKind::Universal,
+                variable: var,
+                body: result,
+                island_id: self.current_island,
+            });
+        }
+
+        Ok(result)
     }
 
     fn is_counterfactual_context(&self) -> bool {
@@ -10202,16 +11098,45 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
     fn parse_counterfactual_antecedent(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
-        if self.check_content_word() || self.check_pronoun() {
-            let subject = if self.check_pronoun() {
+        if self.check_content_word() || self.check_pronoun() || self.check_article() {
+            // Track if subject is an indefinite that needs DRS registration
+            let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
-                if let TokenType::Pronoun { gender, number, .. } = token.kind {
+                let resolved = if let TokenType::Pronoun { gender, number, .. } = token.kind {
                     self.resolve_pronoun(gender, number).unwrap_or(unknown)
                 } else {
                     unknown
-                }
+                };
+                (resolved, None)
             } else {
-                self.parse_noun_phrase(true)?.noun
+                let np = self.parse_noun_phrase(true)?;
+
+                // Check if this is an indefinite NP that should introduce a DRS referent
+                if np.definiteness == Some(Definiteness::Indefinite) {
+                    let var = self.next_var_name();
+                    let gender = Self::infer_noun_gender(self.interner.resolve(np.noun));
+
+                    // Register in DRS - will get universal force from ConditionalAntecedent box
+                    self.drs.introduce_referent(var, np.noun, gender);
+
+                    // Create type predicate: Farmer(x)
+                    let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: np.noun,
+                        args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    });
+
+                    (var, Some(type_pred))
+                } else {
+                    // Definite or proper name - use as constant
+                    (np.noun, None)
+                }
+            };
+
+            // Determine the subject term type
+            let subject_term = if subject_type_pred.is_some() {
+                Term::Variable(subject)
+            } else {
+                Term::Constant(subject)
             };
 
             // Handle presupposition triggers in antecedent: "If John stopped smoking, ..."
@@ -10257,13 +11182,23 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     self.consume_content_word()?
                 };
                 let be = self.interner.intern("Be");
-                return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                let be_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: be,
                     args: self.ctx.terms.alloc_slice([
-                        Term::Constant(subject),
+                        subject_term,
                         Term::Constant(predicate),
                     ]),
-                }));
+                });
+                // Combine with type predicate if indefinite subject
+                return Ok(if let Some(type_pred) = subject_type_pred {
+                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: type_pred,
+                        op: TokenType::And,
+                        right: be_pred,
+                    })
+                } else {
+                    be_pred
+                });
             }
 
             if self.check(&TokenType::Had) {
@@ -10271,7 +11206,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let verb = self.consume_content_word()?;
                 let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+                    args: self.ctx.terms.alloc_slice([subject_term]),
                 });
 
                 // Handle "because" causal clause in antecedent
@@ -10279,16 +11214,47 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 if self.check(&TokenType::Because) && !self.peek_next_is_string_literal() {
                     self.advance();
                     let cause = self.parse_atom()?;
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::Causal {
+                    let causal = self.ctx.exprs.alloc(LogicExpr::Causal {
                         effect: main_pred,
                         cause,
-                    }));
+                    });
+                    // Combine with type predicate if indefinite subject
+                    return Ok(if let Some(type_pred) = subject_type_pred {
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: causal,
+                        })
+                    } else {
+                        causal
+                    });
                 }
 
-                return Ok(main_pred);
+                // Combine with type predicate if indefinite subject
+                return Ok(if let Some(type_pred) = subject_type_pred {
+                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: type_pred,
+                        op: TokenType::And,
+                        right: main_pred,
+                    })
+                } else {
+                    main_pred
+                });
             }
 
-            return self.parse_predicate_with_subject(subject);
+            // Parse verb phrase with subject
+            let verb_phrase = self.parse_predicate_with_subject(subject)?;
+
+            // Combine with type predicate if indefinite subject
+            return Ok(if let Some(type_pred) = subject_type_pred {
+                self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: type_pred,
+                    op: TokenType::And,
+                    right: verb_phrase,
+                })
+            } else {
+                verb_phrase
+            });
         }
 
         self.parse_sentence()
@@ -18700,6 +19666,463 @@ mod tests {
 
 ---
 
+### Discourse Representation Structures
+
+**File:** `src/drs.rs`
+
+Kamp's DRT implementation for donkey anaphora and accessibility. **ReferentSource** tracks where variables are introduced (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). **BoxType** represents DRS boxes (Main, ConditionalAntecedent/Consequent, NegationScope, UniversalRestrictor/Scope, Disjunct). **Referent** stores variable info with noun_class, gender, source, and used_by_pronoun flag. **DrsBox** contains universe of referents with parent pointer. **Drs** manages box stack and provides introduce_referent(), resolve_pronoun(), find_accessible_referent() methods.
+
+```rust
+use crate::context::Gender;
+use crate::intern::Symbol;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferentSource {
+    /// Indefinite in main clause - gets existential force
+    MainClause,
+    /// Proper name - no quantifier (constant)
+    ProperName,
+    /// Indefinite in conditional antecedent - gets universal force (DRS signature)
+    ConditionalAntecedent,
+    /// Indefinite in universal restrictor (relative clause) - gets universal force
+    UniversalRestrictor,
+    /// Inside negation scope - inaccessible outward
+    NegationScope,
+    /// Inside disjunction - inaccessible outward
+    Disjunct,
+}
+
+impl ReferentSource {
+    pub fn gets_universal_force(&self) -> bool {
+        matches!(
+            self,
+            ReferentSource::ConditionalAntecedent | ReferentSource::UniversalRestrictor
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoxType {
+    /// Top-level discourse box
+    Main,
+    /// Antecedent of conditional ("if" clause)
+    ConditionalAntecedent,
+    /// Consequent of conditional ("then" clause)
+    ConditionalConsequent,
+    /// Scope of negation
+    NegationScope,
+    /// Restrictor of universal quantifier (relative clause in "every X who...")
+    UniversalRestrictor,
+    /// Nuclear scope of universal quantifier
+    UniversalScope,
+    /// Branch of disjunction
+    Disjunct,
+}
+
+impl BoxType {
+    pub fn to_referent_source(&self) -> ReferentSource {
+        match self {
+            BoxType::Main => ReferentSource::MainClause,
+            BoxType::ConditionalAntecedent => ReferentSource::ConditionalAntecedent,
+            BoxType::ConditionalConsequent => ReferentSource::MainClause,
+            BoxType::NegationScope => ReferentSource::NegationScope,
+            BoxType::UniversalRestrictor => ReferentSource::UniversalRestrictor,
+            BoxType::UniversalScope => ReferentSource::MainClause,
+            BoxType::Disjunct => ReferentSource::Disjunct,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Referent {
+    pub variable: Symbol,
+    pub noun_class: Symbol,
+    pub gender: Gender,
+    pub source: ReferentSource,
+    pub used_by_pronoun: bool,
+}
+
+impl Referent {
+    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, source: ReferentSource) -> Self {
+        Self {
+            variable,
+            noun_class,
+            gender,
+            source,
+            used_by_pronoun: false,
+        }
+    }
+
+    pub fn should_be_universal(&self) -> bool {
+        self.source.gets_universal_force() || self.used_by_pronoun
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DrsBox {
+    pub universe: Vec<Referent>,
+    pub box_type: Option<BoxType>,
+    pub parent: Option<usize>,
+}
+
+impl DrsBox {
+    pub fn new(box_type: BoxType, parent: Option<usize>) -> Self {
+        Self {
+            universe: Vec::new(),
+            box_type: Some(box_type),
+            parent,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Drs {
+    boxes: Vec<DrsBox>,
+    main_box: usize,
+    current_box: usize,
+}
+
+impl Drs {
+    pub fn new() -> Self {
+        let main = DrsBox::new(BoxType::Main, None);
+        Self {
+            boxes: vec![main],
+            main_box: 0,
+            current_box: 0,
+        }
+    }
+
+    pub fn enter_box(&mut self, box_type: BoxType) -> usize {
+        let parent = self.current_box;
+        let new_box = DrsBox::new(box_type, Some(parent));
+        let idx = self.boxes.len();
+        self.boxes.push(new_box);
+        self.current_box = idx;
+        idx
+    }
+
+    pub fn exit_box(&mut self) {
+        if let Some(parent) = self.boxes[self.current_box].parent {
+            self.current_box = parent;
+        }
+    }
+
+    pub fn current_box_index(&self) -> usize {
+        self.current_box
+    }
+
+    pub fn current_box_type(&self) -> Option<BoxType> {
+        self.boxes.get(self.current_box).and_then(|b| b.box_type)
+    }
+
+    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender) {
+        let source = self.boxes[self.current_box]
+            .box_type
+            .map(|bt| bt.to_referent_source())
+            .unwrap_or(ReferentSource::MainClause);
+
+        let referent = Referent::new(variable, noun_class, gender, source);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
+        let referent = Referent::new(variable, name, gender, ReferentSource::ProperName);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Check if a referent in box `from_box` can access referents in box `target_box`
+    pub fn is_accessible(&self, target_box: usize, from_box: usize) -> bool {
+        if target_box == from_box {
+            return true;
+        }
+
+        let target = &self.boxes[target_box];
+        let from = &self.boxes[from_box];
+
+        // Check target box type - some boxes block outward access
+        if let Some(bt) = target.box_type {
+            match bt {
+                BoxType::NegationScope | BoxType::Disjunct => {
+                    // These boxes are NOT accessible from outside
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        // Check if from_box can see target_box
+        // Consequent can see antecedent
+        if let (Some(BoxType::ConditionalConsequent), Some(BoxType::ConditionalAntecedent)) =
+            (from.box_type, target.box_type)
+        {
+            // Check if they share the same parent (same conditional)
+            if from.parent == target.parent {
+                return true;
+            }
+        }
+
+        // Universal scope can see universal restrictor
+        if let (Some(BoxType::UniversalScope), Some(BoxType::UniversalRestrictor)) =
+            (from.box_type, target.box_type)
+        {
+            if from.parent == target.parent {
+                return true;
+            }
+        }
+
+        // Can always access ancestors (parent chain)
+        let mut current = from_box;
+        while let Some(parent) = self.boxes[current].parent {
+            if parent == target_box {
+                return true;
+            }
+            current = parent;
+        }
+
+        false
+    }
+
+    /// Resolve a pronoun by finding accessible referents matching gender
+    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender) -> Option<Symbol> {
+        // Search current box and accessible ancestors/siblings
+        let mut candidates = Vec::new();
+
+        // Check all boxes for accessibility
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            if self.is_accessible(box_idx, from_box) {
+                for referent in &drs_box.universe {
+                    let gender_match = gender == Gender::Unknown
+                        || referent.gender == Gender::Unknown
+                        || referent.gender == gender
+                        || gender == Gender::Neuter; // "it" can refer to things
+
+                    if gender_match {
+                        candidates.push((box_idx, referent.variable));
+                    }
+                }
+            }
+        }
+
+        // Return most recent (last) candidate
+        if let Some((box_idx, var)) = candidates.last() {
+            // Mark as used by pronoun
+            let box_idx = *box_idx;
+            let var = *var;
+            for referent in &mut self.boxes[box_idx].universe {
+                if referent.variable == var {
+                    referent.used_by_pronoun = true;
+                    return Some(var);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Resolve a definite description by finding accessible referent matching noun class
+    pub fn resolve_definite(&self, from_box: usize, noun_class: Symbol) -> Option<Symbol> {
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            if self.is_accessible(box_idx, from_box) {
+                for referent in drs_box.universe.iter().rev() {
+                    if referent.noun_class == noun_class {
+                        return Some(referent.variable);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Get all referents that should receive universal quantification
+    pub fn get_universal_referents(&self) -> Vec<Symbol> {
+        let mut result = Vec::new();
+        for drs_box in &self.boxes {
+            for referent in &drs_box.universe {
+                if referent.should_be_universal() {
+                    result.push(referent.variable);
+                }
+            }
+        }
+        result
+    }
+
+    /// Get all referents that should receive existential quantification
+    pub fn get_existential_referents(&self) -> Vec<Symbol> {
+        let mut result = Vec::new();
+        for drs_box in &self.boxes {
+            for referent in &drs_box.universe {
+                if !referent.should_be_universal()
+                    && !matches!(referent.source, ReferentSource::ProperName)
+                {
+                    result.push(referent.variable);
+                }
+            }
+        }
+        result
+    }
+
+    /// Check if we're currently in a conditional antecedent
+    pub fn in_conditional_antecedent(&self) -> bool {
+        matches!(
+            self.boxes.get(self.current_box).and_then(|b| b.box_type),
+            Some(BoxType::ConditionalAntecedent)
+        )
+    }
+
+    /// Check if we're currently in a universal restrictor
+    pub fn in_universal_restrictor(&self) -> bool {
+        matches!(
+            self.boxes.get(self.current_box).and_then(|b| b.box_type),
+            Some(BoxType::UniversalRestrictor)
+        )
+    }
+
+    pub fn clear(&mut self) {
+        self.boxes.clear();
+        let main = DrsBox::new(BoxType::Main, None);
+        self.boxes.push(main);
+        self.main_box = 0;
+        self.current_box = 0;
+    }
+}
+
+impl Default for Drs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intern::Interner;
+
+    #[test]
+    fn referent_source_universal_force() {
+        assert!(ReferentSource::ConditionalAntecedent.gets_universal_force());
+        assert!(ReferentSource::UniversalRestrictor.gets_universal_force());
+        assert!(!ReferentSource::MainClause.gets_universal_force());
+        assert!(!ReferentSource::ProperName.gets_universal_force());
+    }
+
+    #[test]
+    fn drs_new_has_main_box() {
+        let drs = Drs::new();
+        assert_eq!(drs.boxes.len(), 1);
+        assert_eq!(drs.current_box, 0);
+        assert_eq!(drs.boxes[0].box_type, Some(BoxType::Main));
+    }
+
+    #[test]
+    fn drs_enter_exit_box() {
+        let mut drs = Drs::new();
+        assert_eq!(drs.current_box, 0);
+
+        let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
+        assert_eq!(ant_idx, 1);
+        assert_eq!(drs.current_box, 1);
+        assert_eq!(drs.boxes[1].parent, Some(0));
+
+        drs.exit_box();
+        assert_eq!(drs.current_box, 0);
+    }
+
+    #[test]
+    fn drs_introduce_referent_tracks_source() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        let x = interner.intern("x");
+        let farmer = interner.intern("Farmer");
+
+        // In main box - should be MainClause
+        drs.introduce_referent(x, farmer, Gender::Male);
+        assert_eq!(drs.boxes[0].universe[0].source, ReferentSource::MainClause);
+
+        // Enter conditional antecedent
+        drs.enter_box(BoxType::ConditionalAntecedent);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+        assert_eq!(
+            drs.boxes[1].universe[0].source,
+            ReferentSource::ConditionalAntecedent
+        );
+    }
+
+    #[test]
+    fn drs_conditional_antecedent_accessible_from_consequent() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        // Enter conditional antecedent
+        let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.exit_box();
+
+        // Enter conditional consequent
+        let cons_idx = drs.enter_box(BoxType::ConditionalConsequent);
+
+        // Consequent should be able to access antecedent
+        assert!(drs.is_accessible(ant_idx, cons_idx));
+    }
+
+    #[test]
+    fn drs_negation_blocks_accessibility() {
+        let mut drs = Drs::new();
+
+        // Enter negation scope
+        let neg_idx = drs.enter_box(BoxType::NegationScope);
+        drs.exit_box();
+
+        // Main box should NOT be able to access negation scope
+        assert!(!drs.is_accessible(neg_idx, 0));
+    }
+
+    #[test]
+    fn drs_get_universal_referents() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        let x = interner.intern("x");
+        let farmer = interner.intern("Farmer");
+        drs.introduce_referent(x, farmer, Gender::Male);
+
+        drs.enter_box(BoxType::ConditionalAntecedent);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+
+        let universals = drs.get_universal_referents();
+        assert_eq!(universals.len(), 1);
+        assert_eq!(universals[0], y);
+    }
+
+    #[test]
+    fn drs_pronoun_resolution_marks_used() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        drs.enter_box(BoxType::UniversalRestrictor);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+
+        // Resolve "it" - should find donkey
+        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter);
+        assert_eq!(resolved, Some(y));
+
+        // Should be marked as used
+        assert!(drs.boxes[1].universe[0].used_by_pronoun);
+    }
+}
+
+```
+
+---
+
 ### AST Views & Resolution
 
 **File:** `src/view.rs`
@@ -20016,6 +21439,7 @@ impl TypeRegistry {
         // Intrinsic Generics
         reg.register(interner.intern("List"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Seq"), TypeDef::Generic { param_count: 1 });  // Phase 30: Sequences
+        reg.register(interner.intern("Map"), TypeDef::Generic { param_count: 2 });  // Phase 43D: Key-value maps
         reg.register(interner.intern("Option"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Result"), TypeDef::Generic { param_count: 2 });
 
@@ -20085,6 +21509,11 @@ impl<'a> DiscoveryPass<'a> {
             if self.check_block_header(BlockType::Definition) {
                 self.advance(); // consume ## Definition
                 self.scan_definition_block(&mut registry);
+            } else if self.check_block_header(BlockType::TypeDef) {
+                // Inline type definition: ## A Point has: or ## A Color is one of:
+                // The article is part of the block header, so don't skip it
+                self.advance(); // consume ## A/An
+                self.parse_type_definition_inline(&mut registry);
             } else {
                 self.advance();
             }
@@ -20117,9 +21546,18 @@ impl<'a> DiscoveryPass<'a> {
         }
     }
 
+    /// Parse inline type definition where article was part of block header (## A Point has:)
+    fn parse_type_definition_inline(&mut self, registry: &mut TypeRegistry) {
+        // Don't skip article - it was part of the block header
+        self.parse_type_definition_body(registry);
+    }
+
     fn try_parse_type_definition(&mut self, registry: &mut TypeRegistry) {
         self.advance(); // skip article
+        self.parse_type_definition_body(registry);
+    }
 
+    fn parse_type_definition_body(&mut self, registry: &mut TypeRegistry) {
         if let Some(name_sym) = self.consume_noun_or_proper() {
             // Phase 34: Check for "of [T]" which indicates user-defined generic
             let type_params = if self.check_preposition("of") {
@@ -20148,13 +21586,27 @@ impl<'a> DiscoveryPass<'a> {
                 }
             }
 
-            // Check for "is either:" pattern (Phase 33/34: Sum types with variants)
+            // Check for "is either:" or "is one of:" pattern (Phase 33/34: Sum types with variants)
             if self.check_copula() {
                 self.advance(); // consume is/are
 
-                // Phase 33: Check for "either:" pattern
-                if self.check_either() {
+                // Phase 33: Check for "either:" or "one of:" pattern
+                let is_enum_pattern = if self.check_either() {
                     self.advance(); // consume "either"
+                    true
+                } else if self.check_word("one") {
+                    self.advance(); // consume "one"
+                    if self.check_word("of") {
+                        self.advance(); // consume "of"
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if is_enum_pattern {
                     if self.check_colon() {
                         self.advance(); // consume ":"
                         // Skip newline if present
@@ -20257,7 +21709,10 @@ impl<'a> DiscoveryPass<'a> {
         self.parse_enum_variants_with_params(&[])
     }
 
-    /// Parse variant fields in natural syntax: "with a radius, which is Int."
+    /// Parse variant fields in natural syntax.
+    /// Supports multiple syntaxes:
+    /// - "with a radius, which is Int." (verbose natural)
+    /// - "with radius Int" (concise natural - no article/comma)
     fn parse_variant_fields_natural_with_params(&mut self, type_params: &[Symbol]) -> Vec<FieldDef> {
         let mut fields = Vec::new();
 
@@ -20265,14 +21720,16 @@ impl<'a> DiscoveryPass<'a> {
         self.advance();
 
         loop {
-            // Skip article
+            // Skip article (optional)
             if self.check_article() {
                 self.advance();
             }
 
             // Get field name
             if let Some(field_name) = self.consume_noun_or_proper() {
-                // Expect ", which is Type" pattern
+                // Support multiple type annotation patterns:
+                // 1. ", which is Type" (verbose)
+                // 2. " Type" (concise - just a type name after field name)
                 let ty = if self.check_comma() {
                     self.advance(); // consume ","
                     // Consume "which"
@@ -20285,7 +21742,8 @@ impl<'a> DiscoveryPass<'a> {
                     }
                     self.consume_field_type_with_params(type_params)
                 } else {
-                    FieldType::Primitive(self.interner.intern("Unknown"))
+                    // Concise syntax: "radius Int" - type immediately follows field name
+                    self.consume_field_type_with_params(type_params)
                 };
 
                 fields.push(FieldDef {
@@ -20294,7 +21752,7 @@ impl<'a> DiscoveryPass<'a> {
                     is_public: true, // Variant fields are always public
                 });
 
-                // Check for "and" to continue: ", and a height, which is Int"
+                // Check for "and" to continue: "and height Int"
                 // May have comma before "and"
                 if self.check_comma() {
                     self.advance(); // consume comma before "and"
@@ -20382,22 +21840,32 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse field: "a [public] name, which is Type."
+            // Parse field: "a [public] name, which is Type." or "an x: Int."
             if self.check_article() {
                 self.advance(); // consume "a"/"an"
 
                 // Check for "public" modifier
-                let is_public = if self.check_word("public") {
+                let has_public_keyword = if self.check_word("public") {
                     self.advance();
                     true
                 } else {
                     false
                 };
+                // Visibility determined later based on syntax used
+                let mut is_public = has_public_keyword;
 
                 // Get field name
                 if let Some(field_name) = self.consume_noun_or_proper() {
-                    // Expect ", which is Type." pattern
-                    let ty = if self.check_comma() {
+                    // Support both syntaxes:
+                    // 1. "name: Type." (concise) - public by default (no visibility syntax)
+                    // 2. "name, which is Type." (natural) - private unless "public" keyword
+                    let ty = if self.check_colon() {
+                        // Concise syntax: "x: Int" - public by default
+                        is_public = true;
+                        self.advance(); // consume ":"
+                        self.consume_field_type_with_params(type_params)
+                    } else if self.check_comma() {
+                        // Natural syntax: uses has_public_keyword for visibility
                         self.advance(); // consume ","
                         // Consume "which"
                         if self.check_word("which") {
@@ -20812,6 +22280,287 @@ A Point has:
 
 ---
 
+### Module Dependency Scanner
+
+**File:** `src/analysis/dependencies.rs`
+
+Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##).
+
+```rust
+//! Phase 36: Dependency Scanner for the Hyperlink Module System
+//!
+//! Scans the "Abstract" (first paragraph) of a LOGOS document for Markdown links,
+//! which are interpreted as module dependencies.
+//!
+//! Syntax: `[Alias](URI)` where:
+//! - Alias: The name to reference the module by (e.g., "Geometry")
+//! - URI: The location of the module source (e.g., "file:./geo.md", "logos:std")
+
+/// A dependency declaration found in the document's abstract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dependency {
+    /// The alias to use when referencing this module (e.g., "Geometry")
+    pub alias: String,
+    /// The URI pointing to the module source (e.g., "file:./geo.md")
+    pub uri: String,
+    /// Start position in the source for error reporting
+    pub start: usize,
+    /// End position in the source for error reporting
+    pub end: usize,
+}
+
+/// Scans the first paragraph (Abstract) of a LOGOS file for `[Alias](URI)` links.
+///
+/// The Abstract is defined as the first non-empty block of text following the
+/// module header (# Name). Links inside this paragraph are treated as imports.
+/// Scanning stops at the first empty line after the abstract or when a code
+/// block header (`##`) is encountered.
+///
+/// # Example
+///
+/// ```text
+/// # My Game
+///
+/// This module uses [Geometry](file:./geo.md) for math.
+///
+/// ## Main
+/// Let x be 1.
+/// ```
+///
+/// Returns: `[Dependency { alias: "Geometry", uri: "file:./geo.md", ... }]`
+pub fn scan_dependencies(source: &str) -> Vec<Dependency> {
+    let mut dependencies = Vec::new();
+    let mut in_abstract = false;
+    let mut abstract_started = false;
+    let mut current_pos = 0;
+
+    for line in source.lines() {
+        let line_start = current_pos;
+        let trimmed = line.trim();
+
+        // Track position for the next line
+        current_pos += line.len() + 1; // +1 for newline
+
+        // Skip completely empty lines before the abstract starts
+        if trimmed.is_empty() {
+            if abstract_started && in_abstract {
+                // Empty line after abstract content - we're done
+                break;
+            }
+            continue;
+        }
+
+        // Skip the header line (# Title)
+        if trimmed.starts_with("# ") && !trimmed.starts_with("## ") {
+            continue;
+        }
+
+        // Stop at code block headers (## Main, ## Definition, etc.)
+        if trimmed.starts_with("## ") {
+            break;
+        }
+
+        // We found non-empty, non-header content - this is the abstract
+        in_abstract = true;
+        abstract_started = true;
+
+        // Scan this line for Markdown links [Alias](URI)
+        scan_line_for_links(line, line_start, &mut dependencies);
+    }
+
+    dependencies
+}
+
+/// Scans a single line for Markdown link patterns `[Alias](URI)`.
+fn scan_line_for_links(line: &str, line_start: usize, deps: &mut Vec<Dependency>) {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Look for opening bracket
+        if bytes[i] == b'[' {
+            let link_start = line_start + i;
+            i += 1;
+
+            // Read the alias (text between [ and ])
+            let alias_start = i;
+            while i < bytes.len() && bytes[i] != b']' {
+                i += 1;
+            }
+
+            if i >= bytes.len() {
+                // No closing bracket found
+                break;
+            }
+
+            let alias = &line[alias_start..i];
+            i += 1; // Skip ]
+
+            // Expect immediate opening parenthesis
+            if i >= bytes.len() || bytes[i] != b'(' {
+                continue;
+            }
+            i += 1; // Skip (
+
+            // Read the URI (text between ( and ))
+            let uri_start = i;
+            let mut paren_depth = 1;
+            while i < bytes.len() && paren_depth > 0 {
+                if bytes[i] == b'(' {
+                    paren_depth += 1;
+                } else if bytes[i] == b')' {
+                    paren_depth -= 1;
+                }
+                if paren_depth > 0 {
+                    i += 1;
+                }
+            }
+
+            if paren_depth != 0 {
+                // No closing parenthesis found
+                break;
+            }
+
+            let uri = &line[uri_start..i];
+            let link_end = line_start + i + 1;
+            i += 1; // Skip )
+
+            // Skip empty aliases or URIs
+            if alias.is_empty() || uri.is_empty() {
+                continue;
+            }
+
+            deps.push(Dependency {
+                alias: alias.trim().to_string(),
+                uri: uri.trim().to_string(),
+                start: link_start,
+                end: link_end,
+            });
+        } else {
+            i += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn basic_dependency_scanning() {
+        let source = r#"
+# My Game
+
+This uses [Geometry](file:./geo.md) and [Physics](logos:std).
+
+## Main
+Let x be 1.
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0].alias, "Geometry");
+        assert_eq!(deps[0].uri, "file:./geo.md");
+        assert_eq!(deps[1].alias, "Physics");
+        assert_eq!(deps[1].uri, "logos:std");
+    }
+
+    #[test]
+    fn ignores_links_after_abstract() {
+        let source = r#"
+# Header
+
+This is the abstract with [Dep1](file:a.md).
+
+This second paragraph has [Dep2](file:b.md).
+
+## Main
+Let x be 1.
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].alias, "Dep1");
+    }
+
+    #[test]
+    fn no_dependencies_without_abstract() {
+        let source = r#"
+# Module
+
+## Main
+Let x be 1.
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 0);
+    }
+
+    #[test]
+    fn multiline_abstract() {
+        let source = r#"
+# My Project
+
+This project uses [Math](file:./math.md) for calculations
+and [IO](file:./io.md) for input/output operations.
+
+## Main
+Let x be 1.
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 2);
+        assert_eq!(deps[0].alias, "Math");
+        assert_eq!(deps[1].alias, "IO");
+    }
+
+    #[test]
+    fn handles_spaces_in_alias() {
+        let source = r#"
+# App
+
+Uses the [Standard Library](logos:std).
+
+## Main
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].alias, "Standard Library");
+        assert_eq!(deps[0].uri, "logos:std");
+    }
+
+    #[test]
+    fn handles_https_urls() {
+        let source = r#"
+# App
+
+Uses [Physics](https://logicaffeine.dev/pkg/physics).
+
+## Main
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].alias, "Physics");
+        assert_eq!(deps[0].uri, "https://logicaffeine.dev/pkg/physics");
+    }
+
+    #[test]
+    fn handles_multiple_links_on_one_line() {
+        let source = r#"
+# App
+
+Uses [A](file:a.md), [B](file:b.md), and [C](file:c.md).
+
+## Main
+"#;
+        let deps = scan_dependencies(source);
+        assert_eq!(deps.len(), 3);
+        assert_eq!(deps[0].alias, "A");
+        assert_eq!(deps[1].alias, "B");
+        assert_eq!(deps[2].alias, "C");
+    }
+}
+
+```
+
+---
+
 ## Code Generation
 
 Rust code emission from imperative AST.
@@ -20825,6 +22574,7 @@ Rust code emission from imperative AST.
 Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. codegen_expr() handles imperative expressions. Uses String buffer for zero-dependency output.
 
 ```rust
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
@@ -20832,6 +22582,66 @@ use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 use crate::token::TokenType;
+
+/// Grand Challenge: Collect all variables that need `let mut` in Rust.
+/// This includes:
+/// - Variables that are targets of `Set` statements (reassignment)
+/// - Variables that are targets of `Push` statements (mutation via push)
+/// - Variables that are targets of `Pop` statements (mutation via pop)
+fn collect_mutable_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut targets = HashSet::new();
+    for stmt in stmts {
+        collect_mutable_vars_stmt(stmt, &mut targets);
+    }
+    targets
+}
+
+fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::Set { target, .. } => {
+            targets.insert(*target);
+        }
+        Stmt::Push { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Pop { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::SetIndex { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_mutable_vars_stmt(s, targets);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_mutable_vars_stmt(s, targets);
+                }
+            }
+        }
+        Stmt::While { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        Stmt::Repeat { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// Generate complete Rust program with struct definitions and main function.
 ///
@@ -20897,6 +22707,15 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         }
     }
 
+    // Grand Challenge: Collect variables that need to be mutable
+    let main_stmts: Vec<&Stmt> = stmts.iter()
+        .filter(|s| !matches!(s, Stmt::FunctionDef { .. }))
+        .collect();
+    let mut main_mutable_vars = HashSet::new();
+    for stmt in &main_stmts {
+        collect_mutable_vars_stmt(stmt, &mut main_mutable_vars);
+    }
+
     // Main function
     writeln!(output, "fn main() {{").unwrap();
     for stmt in stmts {
@@ -20904,7 +22723,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -20962,9 +22781,11 @@ fn codegen_function_def(
         writeln!(output, "}}\n").unwrap();
     } else {
         // Non-native: emit body
+        // Grand Challenge: Collect mutable vars for this function
+        let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -21050,6 +22871,11 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 .collect();
             let output_str = codegen_type_expr(output, interner);
             format!("fn({}) -> {}", inputs_str.join(", "), output_str)
+        }
+        // Phase 43C: Refinement types use the base type for Rust type annotation
+        // The constraint predicate is handled separately via debug_assert!
+        TypeExpr::Refinement { base, .. } => {
+            codegen_type_expr(base, interner)
         }
     }
 }
@@ -21179,7 +23005,7 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
-pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
+pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_vars: &HashSet<Symbol>) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
 
@@ -21189,7 +23015,10 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let value_str = codegen_expr(value, interner);
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
 
-            match (*mutable, type_annotation) {
+            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
+            let is_mutable = *mutable || mutable_vars.contains(var);
+
+            match (is_mutable, type_annotation) {
                 (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
                 (true, None) => writeln!(output, "{}let mut {} = {};", indent_str, var_name, value_str).unwrap(),
                 (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
@@ -21213,12 +23042,12 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
                 }
             }
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -21228,7 +23057,7 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -21238,7 +23067,7 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let iter_str = codegen_expr(iterable, interner);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -21318,9 +23147,9 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
                                 let field_name = interner.resolve(*field);
                                 let binding_name = interner.resolve(*binding);
                                 if field_name == binding_name {
-                                    format!("ref {}", field_name)
+                                    field_name.to_string()
                                 } else {
-                                    format!("{}: ref {}", field_name, binding_name)
+                                    format!("{}: {}", field_name, binding_name)
                                 }
                             })
                             .collect();
@@ -21332,12 +23161,40 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
                 }
 
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars));
                 }
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
 
             writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        Stmt::Push { value, collection } => {
+            let val_str = codegen_expr(value, interner);
+            let coll_str = codegen_expr(collection, interner);
+            writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
+        }
+
+        Stmt::Pop { collection, into } => {
+            let coll_str = codegen_expr(collection, interner);
+            match into {
+                Some(var) => {
+                    let var_name = interner.resolve(*var);
+                    // Unwrap the Option returned by pop() - panics if empty
+                    writeln!(output, "{}let {} = {}.pop().expect(\"Pop from empty collection\");", indent_str, var_name, coll_str).unwrap();
+                }
+                None => {
+                    writeln!(output, "{}{}.pop();", indent_str, coll_str).unwrap();
+                }
+            }
+        }
+
+        Stmt::SetIndex { collection, index, value } => {
+            let coll_str = codegen_expr(collection, interner);
+            let index_str = codegen_expr(index, interner);
+            let value_str = codegen_expr(value, interner);
+            // 1-based indexing: item 2 of items → items[1]
+            writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
     }
 
@@ -21364,6 +23221,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::GtEq => ">=",
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
             };
             format!("({} {} {})", left_str, op_str, right_str)
         }
@@ -21376,13 +23235,30 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 
         Expr::Index { collection, index } => {
             let coll_str = codegen_expr(collection, interner);
-            format!("{}[{}]", coll_str, index - 1)
+            let index_str = codegen_expr(index, interner);
+            // Phase 43D: 1-based indexing with runtime bounds check
+            format!("logos_index(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
             let coll_str = codegen_expr(collection, interner);
-            // 1-indexed to 0-indexed: items 2 through 5 → &list[1..5]
-            format!("&{}[{}..{}]", coll_str, start - 1, end)
+            let start_str = codegen_expr(start, interner);
+            let end_str = codegen_expr(end, interner);
+            // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
+            // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
+            format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
+        }
+
+        Expr::Copy { expr } => {
+            let expr_str = codegen_expr(expr, interner);
+            // Phase 43D: Explicit clone to owned Vec
+            format!("{}.to_vec()", expr_str)
+        }
+
+        Expr::Length { collection } => {
+            let coll_str = codegen_expr(collection, interner);
+            // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
+            format!("({}.len() as i64)", coll_str)
         }
 
         Expr::List(ref items) => {
@@ -21404,9 +23280,20 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             format!("{}.{}", obj_str, field_name)
         }
 
-        Expr::New { type_name, type_args } => {
+        Expr::New { type_name, type_args, init_fields } => {
             let type_str = interner.resolve(*type_name);
-            if type_args.is_empty() {
+            if !init_fields.is_empty() {
+                // Struct initialization with fields: Point { x: 10, y: 20 }
+                let fields_str = init_fields.iter()
+                    .map(|(name, value)| {
+                        let field_name = interner.resolve(*name);
+                        let value_str = codegen_expr(value, interner);
+                        format!("{}: {}", field_name, value_str)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{} {{ {} }}", type_str, fields_str)
+            } else if type_args.is_empty() {
                 format!("{}::default()", type_str)
             } else {
                 // Phase 34: Turbofish syntax for generic instantiation
@@ -21442,7 +23329,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
         Literal::Number(n) => n.to_string(),
-        Literal::Text(sym) => format!("\"{}\"", interner.resolve(*sym)),
+        // String literals are converted to String for consistent Text type handling
+        Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
     }
@@ -22811,6 +24699,761 @@ mod tests {
 
 ---
 
+### Project Module
+
+**File:** `src/project/mod.rs`
+
+Phase 36/37/39 project infrastructure exports. Provides Loader, Manifest, BuildConfig, Credentials, and RegistryClient. Feature-gated: loader always available, others require 'cli' feature.
+
+```rust
+//! Phase 36/37/39: Project Module System
+//!
+//! Provides infrastructure for multi-file LOGOS projects, including:
+//! - Module loading from various URI schemes (file:, logos:, https:)
+//! - Caching of loaded modules
+//! - Standard library embedding
+//! - Project manifests and build orchestration (Phase 37)
+//! - Package registry client and credentials (Phase 39)
+
+pub mod loader;
+#[cfg(feature = "cli")]
+pub mod manifest;
+#[cfg(feature = "cli")]
+pub mod build;
+#[cfg(feature = "cli")]
+pub mod credentials;
+#[cfg(feature = "cli")]
+pub mod registry;
+
+pub use loader::{Loader, ModuleSource};
+#[cfg(feature = "cli")]
+pub use manifest::{Manifest, ManifestError};
+#[cfg(feature = "cli")]
+pub use build::{build, find_project_root, run, BuildConfig, BuildError, BuildResult};
+#[cfg(feature = "cli")]
+pub use credentials::{Credentials, get_token as get_registry_token};
+#[cfg(feature = "cli")]
+pub use registry::{RegistryClient, create_tarball, is_git_dirty};
+
+```
+
+---
+
+### Module Loader
+
+**File:** `src/project/loader.rs`
+
+Phase 36 module resolution. Supports file:./path.md (local), logos:std/core (built-in), https:// (remote registry). Caches loaded modules, resolves relative paths, embeds std lib at compile time.
+
+```rust
+//! Phase 36: Module Loader
+//!
+//! Handles resolution and loading of module sources from various URI schemes:
+//! - `file:./path.md` - Local filesystem relative to current file
+//! - `logos:std` - Built-in standard library (embedded at compile time)
+//! - `https://logicaffeine.dev/...` - Remote registry (Phase 37)
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// A loaded module's source content and metadata.
+#[derive(Debug, Clone)]
+pub struct ModuleSource {
+    /// The source content of the module
+    pub content: String,
+    /// The resolved path (for error reporting and relative resolution)
+    pub path: PathBuf,
+}
+
+/// Module loader that handles multiple URI schemes.
+///
+/// Caches loaded modules to prevent duplicate loading and supports
+/// cycle detection through the cache.
+pub struct Loader {
+    /// Cache of loaded modules (URI -> ModuleSource)
+    cache: HashMap<String, ModuleSource>,
+    /// Root directory of the project (for relative path resolution)
+    root_path: PathBuf,
+}
+
+impl Loader {
+    /// Creates a new Loader with the given root path.
+    pub fn new(root_path: PathBuf) -> Self {
+        Loader {
+            cache: HashMap::new(),
+            root_path,
+        }
+    }
+
+    /// Resolves a URI to a module source.
+    ///
+    /// Supports:
+    /// - `file:./path.md` - Local filesystem (relative to base_path)
+    /// - `logos:std` - Built-in standard library
+    /// - `logos:core` - Built-in core types
+    /// - `https://logicaffeine.dev/...` - Remote registry (returns error for now)
+    pub fn resolve(&mut self, base_path: &Path, uri: &str) -> Result<&ModuleSource, String> {
+        // Normalize the URI for caching
+        let cache_key = self.normalize_uri(base_path, uri)?;
+
+        // Check cache first
+        if self.cache.contains_key(&cache_key) {
+            return Ok(&self.cache[&cache_key]);
+        }
+
+        // Load based on scheme
+        let source = if uri.starts_with("file:") {
+            self.load_file(base_path, uri)?
+        } else if uri.starts_with("logos:") {
+            self.load_intrinsic(uri)?
+        } else if uri.starts_with("https://") || uri.starts_with("http://") {
+            self.load_remote(uri)?
+        } else {
+            // Default to file: scheme if no scheme provided
+            self.load_file(base_path, &format!("file:{}", uri))?
+        };
+
+        // Cache and return
+        self.cache.insert(cache_key.clone(), source);
+        Ok(&self.cache[&cache_key])
+    }
+
+    /// Normalizes a URI for consistent caching.
+    fn normalize_uri(&self, base_path: &Path, uri: &str) -> Result<String, String> {
+        if uri.starts_with("file:") {
+            let path_str = uri.trim_start_matches("file:");
+            let base_dir = base_path.parent().unwrap_or(&self.root_path);
+            let resolved = base_dir.join(path_str);
+            Ok(format!("file:{}", resolved.display()))
+        } else {
+            Ok(uri.to_string())
+        }
+    }
+
+    /// Loads a module from the local filesystem.
+    fn load_file(&self, base_path: &Path, uri: &str) -> Result<ModuleSource, String> {
+        let path_str = uri.trim_start_matches("file:");
+
+        // Resolve relative to the base file's directory
+        let base_dir = base_path.parent().unwrap_or(&self.root_path);
+        let resolved_path = base_dir.join(path_str);
+
+        // Security: Check that we're not escaping the root path
+        // (Basic check - a real implementation would canonicalize paths)
+        let canonical_root = self.root_path.canonicalize()
+            .unwrap_or_else(|_| self.root_path.clone());
+
+        // Read the file
+        let content = fs::read_to_string(&resolved_path)
+            .map_err(|e| format!("Failed to read '{}': {}", resolved_path.display(), e))?;
+
+        // Check if escaping root (after we know the file exists)
+        if let Ok(canonical_path) = resolved_path.canonicalize() {
+            if !canonical_path.starts_with(&canonical_root) {
+                return Err(format!(
+                    "Security: Cannot load '{}' - path escapes project root",
+                    uri
+                ));
+            }
+        }
+
+        Ok(ModuleSource {
+            content,
+            path: resolved_path,
+        })
+    }
+
+    /// Loads a built-in module (embedded at compile time).
+    fn load_intrinsic(&self, uri: &str) -> Result<ModuleSource, String> {
+        let name = uri.trim_start_matches("logos:");
+
+        match name {
+            "std" => Ok(ModuleSource {
+                content: include_str!("../../assets/std/std.md").to_string(),
+                path: PathBuf::from("logos:std"),
+            }),
+            "core" => Ok(ModuleSource {
+                content: include_str!("../../assets/std/core.md").to_string(),
+                path: PathBuf::from("logos:core"),
+            }),
+            _ => Err(format!("Unknown intrinsic module: '{}'", uri)),
+        }
+    }
+
+    /// Loads a module from a remote URL (Phase 37).
+    fn load_remote(&self, uri: &str) -> Result<ModuleSource, String> {
+        // Phase 37: Implement actual HTTP fetching with caching and lockfile
+        // For now, return an error directing users to use local imports
+        Err(format!(
+            "Remote module loading not yet implemented for '{}'. \
+             Use 'logos fetch' to download dependencies locally first. \
+             (Full remote support coming in Phase 37)",
+            uri
+        ))
+    }
+
+    /// Checks if a module has already been loaded (for cycle detection).
+    pub fn is_loaded(&self, uri: &str) -> bool {
+        self.cache.contains_key(uri)
+    }
+
+    /// Returns all loaded module URIs (for debugging).
+    pub fn loaded_modules(&self) -> Vec<&str> {
+        self.cache.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_file_scheme_resolution() {
+        let temp_dir = tempdir().unwrap();
+        let geo_path = temp_dir.path().join("geo.md");
+        fs::write(&geo_path, "## Definition\nA Point has:\n    an x, which is Int.\n").unwrap();
+
+        let mut loader = Loader::new(temp_dir.path().to_path_buf());
+        let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
+
+        assert!(result.is_ok(), "Should resolve file: scheme: {:?}", result);
+        assert!(result.unwrap().content.contains("Point"));
+    }
+
+    #[test]
+    fn test_logos_std_scheme() {
+        let mut loader = Loader::new(PathBuf::from("."));
+        let result = loader.resolve(&PathBuf::from("main.md"), "logos:std");
+
+        assert!(result.is_ok(), "Should resolve logos:std: {:?}", result);
+    }
+
+    #[test]
+    fn test_logos_core_scheme() {
+        let mut loader = Loader::new(PathBuf::from("."));
+        let result = loader.resolve(&PathBuf::from("main.md"), "logos:core");
+
+        assert!(result.is_ok(), "Should resolve logos:core: {:?}", result);
+    }
+
+    #[test]
+    fn test_unknown_intrinsic() {
+        let mut loader = Loader::new(PathBuf::from("."));
+        let result = loader.resolve(&PathBuf::from("main.md"), "logos:unknown");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown intrinsic"));
+    }
+
+    #[test]
+    fn test_caching() {
+        let temp_dir = tempdir().unwrap();
+        let geo_path = temp_dir.path().join("geo.md");
+        fs::write(&geo_path, "content").unwrap();
+
+        let mut loader = Loader::new(temp_dir.path().to_path_buf());
+
+        // First load
+        let _ = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
+
+        // Should be cached now
+        assert!(loader.loaded_modules().len() == 1);
+    }
+
+    #[test]
+    fn test_missing_file() {
+        let temp_dir = tempdir().unwrap();
+        let mut loader = Loader::new(temp_dir.path().to_path_buf());
+
+        let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./nonexistent.md");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read"));
+    }
+}
+
+```
+
+---
+
+### Credential Management
+
+**File:** `src/project/credentials.rs`
+
+Phase 39 API token storage. Credentials struct persists to ~/.config/logos/credentials.toml with 0600 permissions. Supports LOGOS_TOKEN env var override. TOML format with registry→token map.
+
+```rust
+//! Phase 39: Credential Management
+//!
+//! Stores and retrieves API tokens for the package registry.
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+
+/// Credentials storage format
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+pub struct Credentials {
+    /// Map of registry URL -> token
+    #[serde(default)]
+    pub registries: HashMap<String, String>,
+}
+
+impl Credentials {
+    /// Load credentials from the default location
+    pub fn load() -> Result<Self, CredentialsError> {
+        let path = credentials_path().ok_or(CredentialsError::NoConfigDir)?;
+
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+
+        let content = fs::read_to_string(&path)
+            .map_err(|e| CredentialsError::Io(e.to_string()))?;
+
+        toml::from_str(&content)
+            .map_err(|e| CredentialsError::Parse(e.to_string()))
+    }
+
+    /// Save credentials to the default location
+    pub fn save(&self) -> Result<(), CredentialsError> {
+        let path = credentials_path().ok_or(CredentialsError::NoConfigDir)?;
+
+        // Create parent directory if needed
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| CredentialsError::Io(e.to_string()))?;
+        }
+
+        let content = toml::to_string_pretty(self)
+            .map_err(|e| CredentialsError::Serialize(e.to_string()))?;
+
+        fs::write(&path, content)
+            .map_err(|e| CredentialsError::Io(e.to_string()))?;
+
+        // Set restrictive permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o600);
+            fs::set_permissions(&path, perms)
+                .map_err(|e| CredentialsError::Io(e.to_string()))?;
+        }
+
+        Ok(())
+    }
+
+    /// Get token for a registry
+    pub fn get_token(&self, registry_url: &str) -> Option<&str> {
+        self.registries.get(registry_url).map(|s| s.as_str())
+    }
+
+    /// Set token for a registry
+    pub fn set_token(&mut self, registry_url: &str, token: &str) {
+        self.registries.insert(registry_url.to_string(), token.to_string());
+    }
+
+    /// Remove token for a registry
+    pub fn remove_token(&mut self, registry_url: &str) {
+        self.registries.remove(registry_url);
+    }
+}
+
+/// Get the token for a registry, checking env var first then credentials file
+pub fn get_token(registry_url: &str) -> Option<String> {
+    // Check LOGOS_TOKEN env var first
+    if let Ok(token) = std::env::var("LOGOS_TOKEN") {
+        if !token.is_empty() {
+            return Some(token);
+        }
+    }
+
+    // Fall back to credentials file
+    Credentials::load()
+        .ok()
+        .and_then(|c| c.get_token(registry_url).map(String::from))
+}
+
+/// Get the path to the credentials file
+pub fn credentials_path() -> Option<PathBuf> {
+    // Check LOGOS_CREDENTIALS_PATH env var first
+    if let Ok(path) = std::env::var("LOGOS_CREDENTIALS_PATH") {
+        return Some(PathBuf::from(path));
+    }
+
+    // Use standard config directory
+    dirs::config_dir().map(|p| p.join("logos").join("credentials.toml"))
+}
+
+#[derive(Debug)]
+pub enum CredentialsError {
+    NoConfigDir,
+    Io(String),
+    Parse(String),
+    Serialize(String),
+}
+
+impl std::fmt::Display for CredentialsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoConfigDir => write!(f, "Could not determine config directory"),
+            Self::Io(e) => write!(f, "I/O error: {}", e),
+            Self::Parse(e) => write!(f, "Failed to parse credentials: {}", e),
+            Self::Serialize(e) => write!(f, "Failed to serialize credentials: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for CredentialsError {}
+
+```
+
+---
+
+### Registry Client
+
+**File:** `src/project/registry.rs`
+
+Phase 39 package registry HTTP client. RegistryClient handles auth, publish (multipart tarball upload), token validation. create_tarball() packages src/, Largo.toml, README.md, LICENSE. is_git_dirty() for safety checks.
+
+```rust
+//! Phase 39: Registry Client
+//!
+//! HTTP client for communicating with the LOGOS package registry.
+
+use std::path::Path;
+
+const DEFAULT_REGISTRY_URL: &str = "https://registry.logicaffeine.com";
+
+/// Registry client for API communication
+pub struct RegistryClient {
+    base_url: String,
+    token: String,
+}
+
+impl RegistryClient {
+    pub fn new(base_url: &str, token: &str) -> Self {
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            token: token.to_string(),
+        }
+    }
+
+    pub fn default_url() -> &'static str {
+        DEFAULT_REGISTRY_URL
+    }
+
+    /// Validate the authentication token
+    pub fn validate_token(&self) -> Result<UserInfo, RegistryError> {
+        let url = format!("{}/auth/me", self.base_url);
+
+        let response = ureq::get(&url)
+            .set("Authorization", &format!("Bearer {}", self.token))
+            .call()
+            .map_err(|e| match e {
+                ureq::Error::Status(401, _) => RegistryError::Unauthorized,
+                ureq::Error::Status(403, r) => {
+                    let msg = r.into_string().unwrap_or_default();
+                    RegistryError::Forbidden(msg)
+                }
+                ureq::Error::Status(code, r) => RegistryError::Server {
+                    status: code,
+                    message: r.into_string().unwrap_or_default(),
+                },
+                e => RegistryError::Network(e.to_string()),
+            })?;
+
+        let user: UserInfo = response.into_json()
+            .map_err(|e| RegistryError::Network(e.to_string()))?;
+
+        Ok(user)
+    }
+
+    /// Publish a package to the registry
+    pub fn publish(
+        &self,
+        name: &str,
+        version: &str,
+        tarball: &[u8],
+        metadata: &PublishMetadata,
+    ) -> Result<PublishResult, RegistryError> {
+        use std::io::Read;
+
+        let url = format!("{}/packages/publish", self.base_url);
+
+        // Create multipart form data
+        let boundary = format!("----LargoBoundary{}", rand::random::<u64>());
+
+        let metadata_json = serde_json::to_string(metadata)
+            .map_err(|e| RegistryError::InvalidPackage(e.to_string()))?;
+
+        let mut body = Vec::new();
+
+        // Add metadata field
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n{}\r\n",
+            boundary, metadata_json
+        ).as_bytes());
+
+        // Add tarball field
+        body.extend_from_slice(format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"tarball\"; filename=\"{}-{}.tar.gz\"\r\nContent-Type: application/gzip\r\n\r\n",
+            boundary, name, version
+        ).as_bytes());
+        body.extend_from_slice(tarball);
+        body.extend_from_slice(format!("\r\n--{}--\r\n", boundary).as_bytes());
+
+        let response = ureq::post(&url)
+            .set("Authorization", &format!("Bearer {}", self.token))
+            .set("Content-Type", &format!("multipart/form-data; boundary={}", boundary))
+            .send_bytes(&body)
+            .map_err(|e| match e {
+                ureq::Error::Status(401, _) => RegistryError::Unauthorized,
+                ureq::Error::Status(403, r) => {
+                    let msg = r.into_string().unwrap_or_else(|_| "Forbidden".to_string());
+                    RegistryError::Forbidden(msg)
+                }
+                ureq::Error::Status(409, _) => RegistryError::VersionExists {
+                    name: name.to_string(),
+                    version: version.to_string(),
+                },
+                ureq::Error::Status(413, _) => RegistryError::TooLarge,
+                ureq::Error::Status(code, r) => RegistryError::Server {
+                    status: code,
+                    message: r.into_string().unwrap_or_default(),
+                },
+                e => RegistryError::Network(e.to_string()),
+            })?;
+
+        let result: PublishResult = response.into_json()
+            .map_err(|e| RegistryError::Network(e.to_string()))?;
+
+        Ok(result)
+    }
+}
+
+/// Create a tarball from a LOGOS project
+pub fn create_tarball(project_dir: &Path) -> Result<Vec<u8>, PackageError> {
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use tar::Builder;
+    use std::fs::File;
+    use std::io::Write;
+
+    let mut tarball = Vec::new();
+
+    {
+        let encoder = GzEncoder::new(&mut tarball, Compression::default());
+        let mut builder = Builder::new(encoder);
+
+        // Add Largo.toml
+        let manifest_path = project_dir.join("Largo.toml");
+        if !manifest_path.exists() {
+            return Err(PackageError::MissingFile("Largo.toml".to_string()));
+        }
+        add_file_to_tar(&mut builder, project_dir, "Largo.toml")?;
+
+        // Add src/ directory recursively
+        let src_dir = project_dir.join("src");
+        if !src_dir.exists() {
+            return Err(PackageError::MissingFile("src/".to_string()));
+        }
+        add_dir_recursive(&mut builder, project_dir, "src")?;
+
+        // Add README.md if it exists
+        if project_dir.join("README.md").exists() {
+            add_file_to_tar(&mut builder, project_dir, "README.md")?;
+        }
+
+        // Add LICENSE if it exists
+        if project_dir.join("LICENSE").exists() {
+            add_file_to_tar(&mut builder, project_dir, "LICENSE")?;
+        }
+
+        builder.finish()
+            .map_err(|e| PackageError::TarError(e.to_string()))?;
+    }
+
+    Ok(tarball)
+}
+
+fn add_file_to_tar<W: std::io::Write>(
+    builder: &mut tar::Builder<W>,
+    base_dir: &Path,
+    rel_path: &str,
+) -> Result<(), PackageError> {
+    let full_path = base_dir.join(rel_path);
+    let content = std::fs::read(&full_path)
+        .map_err(|e| PackageError::Io(format!("{}: {}", rel_path, e)))?;
+
+    let mut header = tar::Header::new_gnu();
+    header.set_path(rel_path)
+        .map_err(|e| PackageError::TarError(e.to_string()))?;
+    header.set_size(content.len() as u64);
+    header.set_mode(0o644);
+    header.set_mtime(0); // Reproducible builds
+    header.set_cksum();
+
+    builder.append(&header, content.as_slice())
+        .map_err(|e| PackageError::TarError(e.to_string()))?;
+
+    Ok(())
+}
+
+fn add_dir_recursive<W: std::io::Write>(
+    builder: &mut tar::Builder<W>,
+    base_dir: &Path,
+    rel_dir: &str,
+) -> Result<(), PackageError> {
+    let full_dir = base_dir.join(rel_dir);
+
+    for entry in std::fs::read_dir(&full_dir)
+        .map_err(|e| PackageError::Io(format!("{}: {}", rel_dir, e)))?
+    {
+        let entry = entry.map_err(|e| PackageError::Io(e.to_string()))?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let rel_path = format!("{}/{}", rel_dir, name.to_string_lossy());
+
+        // Skip hidden files and target directory
+        let name_str = name.to_string_lossy();
+        if name_str.starts_with('.') || name_str == "target" {
+            continue;
+        }
+
+        if path.is_dir() {
+            add_dir_recursive(builder, base_dir, &rel_path)?;
+        } else if path.is_file() {
+            // Only include .lg, .md, and common config files
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if matches!(ext, "lg" | "md" | "toml" | "json") || name_str == "LICENSE" {
+                add_file_to_tar(builder, base_dir, &rel_path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if git working directory is dirty
+pub fn is_git_dirty(project_dir: &Path) -> bool {
+    use std::process::Command;
+
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(project_dir)
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => !out.stdout.is_empty(),
+        _ => false, // Not a git repo or git not available
+    }
+}
+
+// ============== Types ==============
+
+#[derive(Debug, serde::Deserialize)]
+pub struct UserInfo {
+    pub id: String,
+    pub login: String,
+    pub name: Option<String>,
+    pub is_admin: bool,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PublishMetadata {
+    pub name: String,
+    pub version: String,
+    pub description: Option<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+    pub keywords: Vec<String>,
+    pub entry_point: String,
+    pub dependencies: std::collections::HashMap<String, String>,
+    pub readme: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PublishResult {
+    pub success: bool,
+    pub package: String,
+    pub version: String,
+    pub sha256: String,
+    pub size: u64,
+}
+
+// ============== Errors ==============
+
+#[derive(Debug)]
+pub enum RegistryError {
+    NoToken,
+    Unauthorized,
+    Forbidden(String),
+    VersionExists { name: String, version: String },
+    TooLarge,
+    Network(String),
+    Server { status: u16, message: String },
+    InvalidPackage(String),
+}
+
+impl std::fmt::Display for RegistryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoToken => write!(
+                f,
+                "No authentication token found.\n\
+                 Run 'largo login' or set LOGOS_TOKEN environment variable."
+            ),
+            Self::Unauthorized => write!(
+                f,
+                "Authentication failed. Your token may be invalid or expired.\n\
+                 Run 'largo login' to get a new token."
+            ),
+            Self::Forbidden(msg) => write!(f, "Access denied: {}", msg),
+            Self::VersionExists { name, version } => write!(
+                f,
+                "Version {} of package '{}' already exists.\n\
+                 Update the version in Largo.toml and try again.",
+                version, name
+            ),
+            Self::TooLarge => write!(f, "Package too large. Maximum size is 10MB."),
+            Self::Network(e) => write!(f, "Network error: {}", e),
+            Self::Server { status, message } => {
+                write!(f, "Registry returned error {}: {}", status, message)
+            }
+            Self::InvalidPackage(e) => write!(f, "Invalid package: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for RegistryError {}
+
+#[derive(Debug)]
+pub enum PackageError {
+    MissingFile(String),
+    Io(String),
+    TarError(String),
+}
+
+impl std::fmt::Display for PackageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingFile(name) => write!(f, "Missing required file: {}", name),
+            Self::Io(e) => write!(f, "I/O error: {}", e),
+            Self::TarError(e) => write!(f, "Failed to create tarball: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for PackageError {}
+
+```
+
+---
+
 ## Public API
 
 The public interface for embedding LOGICAFFEINE in other applications.
@@ -22838,6 +25481,7 @@ pub mod compile;
 pub mod content;
 pub mod context;
 pub mod debug;
+pub mod drs;
 pub mod error;
 pub mod formatter;
 pub mod game;
@@ -26091,6 +28735,11 @@ pub enum ParseErrorKind {
         subject_count: usize,
         object_count: usize,
     },
+    // Phase 43: Type checking
+    TypeMismatch {
+        expected: String,
+        found: String,
+    },
 }
 
 #[cold]
@@ -26275,6 +28924,13 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 The subject has {} element(s) and the object has {} element(s). \
                 Each subject must pair with exactly one object.",
                 pos, subject_count, object_count
+            )
+        }
+        ParseErrorKind::TypeMismatch { expected, found } => {
+            format!(
+                "At position {}, I expected a value of type '{}' but found '{}'. \
+                Types must match in LOGOS. Check that your value matches the declared type.",
+                pos, expected, found
             )
         }
     }
@@ -40103,6 +42759,36 @@ pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
 }
 
+/// Phase 43D: 1-based indexing with clear error messages
+///
+/// LOGOS uses 1-based indexing to match natural language ("the first item").
+/// This function converts 1-based indices to 0-based and provides helpful
+/// error messages for out-of-bounds access.
+#[inline]
+pub fn logos_index<T: Copy>(slice: &[T], index: i64) -> T {
+    if index < 1 {
+        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
+    }
+    let idx = (index - 1) as usize;
+    if idx >= slice.len() {
+        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
+    }
+    slice[idx]
+}
+
+/// Phase 43D: 1-based mutable indexing with clear error messages
+#[inline]
+pub fn logos_index_mut<T>(slice: &mut [T], index: i64) -> &mut T {
+    if index < 1 {
+        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
+    }
+    let idx = (index - 1) as usize;
+    if idx >= slice.len() {
+        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
+    }
+    &mut slice[idx]
+}
+
 pub mod fmt {
     pub fn format<T: std::fmt::Display>(x: T) -> String {
         format!("{}", x)
@@ -40118,6 +42804,9 @@ pub mod prelude {
     pub use crate::time::{now, sleep};
     pub use crate::random::{randomInt, randomFloat};
     pub use crate::env::{get, args};
+    // Phase 43D: Collection indexing helpers
+    pub use crate::logos_index;
+    pub use crate::logos_index_mut;
 }
 
 #[cfg(test)]
@@ -40186,6 +42875,12 @@ pub trait Showable {
 }
 
 // Primitives: use Display formatting
+impl Showable for i32 {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl Showable for i64 {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
@@ -40193,6 +42888,12 @@ impl Showable for i64 {
 }
 
 impl Showable for u64 {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for usize {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
@@ -40236,15 +42937,47 @@ impl<T: Showable> Showable for Vec<T> {
     }
 }
 
+// Slices: same as Vec
+impl<T: Showable> Showable for [T] {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (i, item) in self.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            item.format_show(f)?;
+        }
+        write!(f, "]")
+    }
+}
+
+// Reference to slice
+impl<T: Showable> Showable for &[T] {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (*self).format_show(f)
+    }
+}
+
+// Option type: shows "nothing" or the value
+impl<T: Showable> Showable for Option<T> {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Some(v) => v.format_show(f),
+            None => write!(f, "nothing"),
+        }
+    }
+}
+
 /// The Show verb - prints value with natural formatting
-pub fn show<T: Showable>(value: T) {
+/// Takes a reference to avoid moving the value.
+pub fn show<T: Showable>(value: &T) {
     struct Wrapper<'a, T>(&'a T);
     impl<T: Showable> Display for Wrapper<'_, T> {
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             self.0.format_show(f)
         }
     }
-    println!("{}", Wrapper(&value));
+    println!("{}", Wrapper(value));
 }
 
 pub fn read_line() -> String {
@@ -41103,6 +43836,7 @@ fn cmd_logout(registry: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
 Additional source module.
 
 ```rust
+use std::collections::HashSet;
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
@@ -41110,6 +43844,66 @@ use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 use crate::token::TokenType;
+
+/// Grand Challenge: Collect all variables that need `let mut` in Rust.
+/// This includes:
+/// - Variables that are targets of `Set` statements (reassignment)
+/// - Variables that are targets of `Push` statements (mutation via push)
+/// - Variables that are targets of `Pop` statements (mutation via pop)
+fn collect_mutable_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut targets = HashSet::new();
+    for stmt in stmts {
+        collect_mutable_vars_stmt(stmt, &mut targets);
+    }
+    targets
+}
+
+fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::Set { target, .. } => {
+            targets.insert(*target);
+        }
+        Stmt::Push { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Pop { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::SetIndex { collection, .. } => {
+            // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_mutable_vars_stmt(s, targets);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_mutable_vars_stmt(s, targets);
+                }
+            }
+        }
+        Stmt::While { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        Stmt::Repeat { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// Generate complete Rust program with struct definitions and main function.
 ///
@@ -41175,6 +43969,15 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         }
     }
 
+    // Grand Challenge: Collect variables that need to be mutable
+    let main_stmts: Vec<&Stmt> = stmts.iter()
+        .filter(|s| !matches!(s, Stmt::FunctionDef { .. }))
+        .collect();
+    let mut main_mutable_vars = HashSet::new();
+    for stmt in &main_stmts {
+        collect_mutable_vars_stmt(stmt, &mut main_mutable_vars);
+    }
+
     // Main function
     writeln!(output, "fn main() {{").unwrap();
     for stmt in stmts {
@@ -41182,7 +43985,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -41240,9 +44043,11 @@ fn codegen_function_def(
         writeln!(output, "}}\n").unwrap();
     } else {
         // Non-native: emit body
+        // Grand Challenge: Collect mutable vars for this function
+        let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -41328,6 +44133,11 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 .collect();
             let output_str = codegen_type_expr(output, interner);
             format!("fn({}) -> {}", inputs_str.join(", "), output_str)
+        }
+        // Phase 43C: Refinement types use the base type for Rust type annotation
+        // The constraint predicate is handled separately via debug_assert!
+        TypeExpr::Refinement { base, .. } => {
+            codegen_type_expr(base, interner)
         }
     }
 }
@@ -41457,7 +44267,7 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
-pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
+pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize, mutable_vars: &HashSet<Symbol>) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
 
@@ -41467,7 +44277,10 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let value_str = codegen_expr(value, interner);
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
 
-            match (*mutable, type_annotation) {
+            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
+            let is_mutable = *mutable || mutable_vars.contains(var);
+
+            match (is_mutable, type_annotation) {
                 (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
                 (true, None) => writeln!(output, "{}let mut {} = {};", indent_str, var_name, value_str).unwrap(),
                 (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
@@ -41491,12 +44304,12 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
                 }
             }
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -41506,7 +44319,7 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let cond_str = codegen_expr(cond, interner);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -41516,7 +44329,7 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
             let iter_str = codegen_expr(iterable, interner);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars));
             }
             writeln!(output, "{}}}", indent_str).unwrap();
         }
@@ -41596,9 +44409,9 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
                                 let field_name = interner.resolve(*field);
                                 let binding_name = interner.resolve(*binding);
                                 if field_name == binding_name {
-                                    format!("ref {}", field_name)
+                                    field_name.to_string()
                                 } else {
-                                    format!("{}: ref {}", field_name, binding_name)
+                                    format!("{}: {}", field_name, binding_name)
                                 }
                             })
                             .collect();
@@ -41610,12 +44423,40 @@ pub fn codegen_stmt(stmt: &Stmt, interner: &Interner, indent: usize) -> String {
                 }
 
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars));
                 }
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
 
             writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        Stmt::Push { value, collection } => {
+            let val_str = codegen_expr(value, interner);
+            let coll_str = codegen_expr(collection, interner);
+            writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
+        }
+
+        Stmt::Pop { collection, into } => {
+            let coll_str = codegen_expr(collection, interner);
+            match into {
+                Some(var) => {
+                    let var_name = interner.resolve(*var);
+                    // Unwrap the Option returned by pop() - panics if empty
+                    writeln!(output, "{}let {} = {}.pop().expect(\"Pop from empty collection\");", indent_str, var_name, coll_str).unwrap();
+                }
+                None => {
+                    writeln!(output, "{}{}.pop();", indent_str, coll_str).unwrap();
+                }
+            }
+        }
+
+        Stmt::SetIndex { collection, index, value } => {
+            let coll_str = codegen_expr(collection, interner);
+            let index_str = codegen_expr(index, interner);
+            let value_str = codegen_expr(value, interner);
+            // 1-based indexing: item 2 of items → items[1]
+            writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
     }
 
@@ -41642,6 +44483,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::GtEq => ">=",
+                BinaryOpKind::And => "&&",
+                BinaryOpKind::Or => "||",
             };
             format!("({} {} {})", left_str, op_str, right_str)
         }
@@ -41654,13 +44497,30 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 
         Expr::Index { collection, index } => {
             let coll_str = codegen_expr(collection, interner);
-            format!("{}[{}]", coll_str, index - 1)
+            let index_str = codegen_expr(index, interner);
+            // Phase 43D: 1-based indexing with runtime bounds check
+            format!("logos_index(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
             let coll_str = codegen_expr(collection, interner);
-            // 1-indexed to 0-indexed: items 2 through 5 → &list[1..5]
-            format!("&{}[{}..{}]", coll_str, start - 1, end)
+            let start_str = codegen_expr(start, interner);
+            let end_str = codegen_expr(end, interner);
+            // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
+            // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
+            format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
+        }
+
+        Expr::Copy { expr } => {
+            let expr_str = codegen_expr(expr, interner);
+            // Phase 43D: Explicit clone to owned Vec
+            format!("{}.to_vec()", expr_str)
+        }
+
+        Expr::Length { collection } => {
+            let coll_str = codegen_expr(collection, interner);
+            // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
+            format!("({}.len() as i64)", coll_str)
         }
 
         Expr::List(ref items) => {
@@ -41682,9 +44542,20 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             format!("{}.{}", obj_str, field_name)
         }
 
-        Expr::New { type_name, type_args } => {
+        Expr::New { type_name, type_args, init_fields } => {
             let type_str = interner.resolve(*type_name);
-            if type_args.is_empty() {
+            if !init_fields.is_empty() {
+                // Struct initialization with fields: Point { x: 10, y: 20 }
+                let fields_str = init_fields.iter()
+                    .map(|(name, value)| {
+                        let field_name = interner.resolve(*name);
+                        let value_str = codegen_expr(value, interner);
+                        format!("{}: {}", field_name, value_str)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{} {{ {} }}", type_str, fields_str)
+            } else if type_args.is_empty() {
                 format!("{}::default()", type_str)
             } else {
                 // Phase 34: Turbofish syntax for generic instantiation
@@ -41720,7 +44591,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
         Literal::Number(n) => n.to_string(),
-        Literal::Text(sym) => format!("\"{}\"", interner.resolve(*sym)),
+        // String literals are converted to String for consistent Text type handling
+        Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
     }
@@ -42170,6 +45042,463 @@ mod tests {
         assert!(result.is_ok(), "Should compile: {:?}", result);
         let rust = result.unwrap();
         assert!(rust.contains("return 42;"));
+    }
+}
+
+```
+
+---
+
+### Module: drs
+
+**File:** `src/drs.rs`
+
+Additional source module.
+
+```rust
+use crate::context::Gender;
+use crate::intern::Symbol;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReferentSource {
+    /// Indefinite in main clause - gets existential force
+    MainClause,
+    /// Proper name - no quantifier (constant)
+    ProperName,
+    /// Indefinite in conditional antecedent - gets universal force (DRS signature)
+    ConditionalAntecedent,
+    /// Indefinite in universal restrictor (relative clause) - gets universal force
+    UniversalRestrictor,
+    /// Inside negation scope - inaccessible outward
+    NegationScope,
+    /// Inside disjunction - inaccessible outward
+    Disjunct,
+}
+
+impl ReferentSource {
+    pub fn gets_universal_force(&self) -> bool {
+        matches!(
+            self,
+            ReferentSource::ConditionalAntecedent | ReferentSource::UniversalRestrictor
+        )
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoxType {
+    /// Top-level discourse box
+    Main,
+    /// Antecedent of conditional ("if" clause)
+    ConditionalAntecedent,
+    /// Consequent of conditional ("then" clause)
+    ConditionalConsequent,
+    /// Scope of negation
+    NegationScope,
+    /// Restrictor of universal quantifier (relative clause in "every X who...")
+    UniversalRestrictor,
+    /// Nuclear scope of universal quantifier
+    UniversalScope,
+    /// Branch of disjunction
+    Disjunct,
+}
+
+impl BoxType {
+    pub fn to_referent_source(&self) -> ReferentSource {
+        match self {
+            BoxType::Main => ReferentSource::MainClause,
+            BoxType::ConditionalAntecedent => ReferentSource::ConditionalAntecedent,
+            BoxType::ConditionalConsequent => ReferentSource::MainClause,
+            BoxType::NegationScope => ReferentSource::NegationScope,
+            BoxType::UniversalRestrictor => ReferentSource::UniversalRestrictor,
+            BoxType::UniversalScope => ReferentSource::MainClause,
+            BoxType::Disjunct => ReferentSource::Disjunct,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Referent {
+    pub variable: Symbol,
+    pub noun_class: Symbol,
+    pub gender: Gender,
+    pub source: ReferentSource,
+    pub used_by_pronoun: bool,
+}
+
+impl Referent {
+    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, source: ReferentSource) -> Self {
+        Self {
+            variable,
+            noun_class,
+            gender,
+            source,
+            used_by_pronoun: false,
+        }
+    }
+
+    pub fn should_be_universal(&self) -> bool {
+        self.source.gets_universal_force() || self.used_by_pronoun
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DrsBox {
+    pub universe: Vec<Referent>,
+    pub box_type: Option<BoxType>,
+    pub parent: Option<usize>,
+}
+
+impl DrsBox {
+    pub fn new(box_type: BoxType, parent: Option<usize>) -> Self {
+        Self {
+            universe: Vec::new(),
+            box_type: Some(box_type),
+            parent,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Drs {
+    boxes: Vec<DrsBox>,
+    main_box: usize,
+    current_box: usize,
+}
+
+impl Drs {
+    pub fn new() -> Self {
+        let main = DrsBox::new(BoxType::Main, None);
+        Self {
+            boxes: vec![main],
+            main_box: 0,
+            current_box: 0,
+        }
+    }
+
+    pub fn enter_box(&mut self, box_type: BoxType) -> usize {
+        let parent = self.current_box;
+        let new_box = DrsBox::new(box_type, Some(parent));
+        let idx = self.boxes.len();
+        self.boxes.push(new_box);
+        self.current_box = idx;
+        idx
+    }
+
+    pub fn exit_box(&mut self) {
+        if let Some(parent) = self.boxes[self.current_box].parent {
+            self.current_box = parent;
+        }
+    }
+
+    pub fn current_box_index(&self) -> usize {
+        self.current_box
+    }
+
+    pub fn current_box_type(&self) -> Option<BoxType> {
+        self.boxes.get(self.current_box).and_then(|b| b.box_type)
+    }
+
+    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender) {
+        let source = self.boxes[self.current_box]
+            .box_type
+            .map(|bt| bt.to_referent_source())
+            .unwrap_or(ReferentSource::MainClause);
+
+        let referent = Referent::new(variable, noun_class, gender, source);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
+        let referent = Referent::new(variable, name, gender, ReferentSource::ProperName);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Check if a referent in box `from_box` can access referents in box `target_box`
+    pub fn is_accessible(&self, target_box: usize, from_box: usize) -> bool {
+        if target_box == from_box {
+            return true;
+        }
+
+        let target = &self.boxes[target_box];
+        let from = &self.boxes[from_box];
+
+        // Check target box type - some boxes block outward access
+        if let Some(bt) = target.box_type {
+            match bt {
+                BoxType::NegationScope | BoxType::Disjunct => {
+                    // These boxes are NOT accessible from outside
+                    return false;
+                }
+                _ => {}
+            }
+        }
+
+        // Check if from_box can see target_box
+        // Consequent can see antecedent
+        if let (Some(BoxType::ConditionalConsequent), Some(BoxType::ConditionalAntecedent)) =
+            (from.box_type, target.box_type)
+        {
+            // Check if they share the same parent (same conditional)
+            if from.parent == target.parent {
+                return true;
+            }
+        }
+
+        // Universal scope can see universal restrictor
+        if let (Some(BoxType::UniversalScope), Some(BoxType::UniversalRestrictor)) =
+            (from.box_type, target.box_type)
+        {
+            if from.parent == target.parent {
+                return true;
+            }
+        }
+
+        // Can always access ancestors (parent chain)
+        let mut current = from_box;
+        while let Some(parent) = self.boxes[current].parent {
+            if parent == target_box {
+                return true;
+            }
+            current = parent;
+        }
+
+        false
+    }
+
+    /// Resolve a pronoun by finding accessible referents matching gender
+    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender) -> Option<Symbol> {
+        // Search current box and accessible ancestors/siblings
+        let mut candidates = Vec::new();
+
+        // Check all boxes for accessibility
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            if self.is_accessible(box_idx, from_box) {
+                for referent in &drs_box.universe {
+                    let gender_match = gender == Gender::Unknown
+                        || referent.gender == Gender::Unknown
+                        || referent.gender == gender
+                        || gender == Gender::Neuter; // "it" can refer to things
+
+                    if gender_match {
+                        candidates.push((box_idx, referent.variable));
+                    }
+                }
+            }
+        }
+
+        // Return most recent (last) candidate
+        if let Some((box_idx, var)) = candidates.last() {
+            // Mark as used by pronoun
+            let box_idx = *box_idx;
+            let var = *var;
+            for referent in &mut self.boxes[box_idx].universe {
+                if referent.variable == var {
+                    referent.used_by_pronoun = true;
+                    return Some(var);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Resolve a definite description by finding accessible referent matching noun class
+    pub fn resolve_definite(&self, from_box: usize, noun_class: Symbol) -> Option<Symbol> {
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            if self.is_accessible(box_idx, from_box) {
+                for referent in drs_box.universe.iter().rev() {
+                    if referent.noun_class == noun_class {
+                        return Some(referent.variable);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Get all referents that should receive universal quantification
+    pub fn get_universal_referents(&self) -> Vec<Symbol> {
+        let mut result = Vec::new();
+        for drs_box in &self.boxes {
+            for referent in &drs_box.universe {
+                if referent.should_be_universal() {
+                    result.push(referent.variable);
+                }
+            }
+        }
+        result
+    }
+
+    /// Get all referents that should receive existential quantification
+    pub fn get_existential_referents(&self) -> Vec<Symbol> {
+        let mut result = Vec::new();
+        for drs_box in &self.boxes {
+            for referent in &drs_box.universe {
+                if !referent.should_be_universal()
+                    && !matches!(referent.source, ReferentSource::ProperName)
+                {
+                    result.push(referent.variable);
+                }
+            }
+        }
+        result
+    }
+
+    /// Check if we're currently in a conditional antecedent
+    pub fn in_conditional_antecedent(&self) -> bool {
+        matches!(
+            self.boxes.get(self.current_box).and_then(|b| b.box_type),
+            Some(BoxType::ConditionalAntecedent)
+        )
+    }
+
+    /// Check if we're currently in a universal restrictor
+    pub fn in_universal_restrictor(&self) -> bool {
+        matches!(
+            self.boxes.get(self.current_box).and_then(|b| b.box_type),
+            Some(BoxType::UniversalRestrictor)
+        )
+    }
+
+    pub fn clear(&mut self) {
+        self.boxes.clear();
+        let main = DrsBox::new(BoxType::Main, None);
+        self.boxes.push(main);
+        self.main_box = 0;
+        self.current_box = 0;
+    }
+}
+
+impl Default for Drs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intern::Interner;
+
+    #[test]
+    fn referent_source_universal_force() {
+        assert!(ReferentSource::ConditionalAntecedent.gets_universal_force());
+        assert!(ReferentSource::UniversalRestrictor.gets_universal_force());
+        assert!(!ReferentSource::MainClause.gets_universal_force());
+        assert!(!ReferentSource::ProperName.gets_universal_force());
+    }
+
+    #[test]
+    fn drs_new_has_main_box() {
+        let drs = Drs::new();
+        assert_eq!(drs.boxes.len(), 1);
+        assert_eq!(drs.current_box, 0);
+        assert_eq!(drs.boxes[0].box_type, Some(BoxType::Main));
+    }
+
+    #[test]
+    fn drs_enter_exit_box() {
+        let mut drs = Drs::new();
+        assert_eq!(drs.current_box, 0);
+
+        let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
+        assert_eq!(ant_idx, 1);
+        assert_eq!(drs.current_box, 1);
+        assert_eq!(drs.boxes[1].parent, Some(0));
+
+        drs.exit_box();
+        assert_eq!(drs.current_box, 0);
+    }
+
+    #[test]
+    fn drs_introduce_referent_tracks_source() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        let x = interner.intern("x");
+        let farmer = interner.intern("Farmer");
+
+        // In main box - should be MainClause
+        drs.introduce_referent(x, farmer, Gender::Male);
+        assert_eq!(drs.boxes[0].universe[0].source, ReferentSource::MainClause);
+
+        // Enter conditional antecedent
+        drs.enter_box(BoxType::ConditionalAntecedent);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+        assert_eq!(
+            drs.boxes[1].universe[0].source,
+            ReferentSource::ConditionalAntecedent
+        );
+    }
+
+    #[test]
+    fn drs_conditional_antecedent_accessible_from_consequent() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        // Enter conditional antecedent
+        let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.exit_box();
+
+        // Enter conditional consequent
+        let cons_idx = drs.enter_box(BoxType::ConditionalConsequent);
+
+        // Consequent should be able to access antecedent
+        assert!(drs.is_accessible(ant_idx, cons_idx));
+    }
+
+    #[test]
+    fn drs_negation_blocks_accessibility() {
+        let mut drs = Drs::new();
+
+        // Enter negation scope
+        let neg_idx = drs.enter_box(BoxType::NegationScope);
+        drs.exit_box();
+
+        // Main box should NOT be able to access negation scope
+        assert!(!drs.is_accessible(neg_idx, 0));
+    }
+
+    #[test]
+    fn drs_get_universal_referents() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        let x = interner.intern("x");
+        let farmer = interner.intern("Farmer");
+        drs.introduce_referent(x, farmer, Gender::Male);
+
+        drs.enter_box(BoxType::ConditionalAntecedent);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+
+        let universals = drs.get_universal_referents();
+        assert_eq!(universals.len(), 1);
+        assert_eq!(universals[0], y);
+    }
+
+    #[test]
+    fn drs_pronoun_resolution_marks_used() {
+        let mut interner = Interner::new();
+        let mut drs = Drs::new();
+
+        drs.enter_box(BoxType::UniversalRestrictor);
+        let y = interner.intern("y");
+        let donkey = interner.intern("Donkey");
+        drs.introduce_referent(y, donkey, Gender::Neuter);
+
+        // Resolve "it" - should find donkey
+        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter);
+        assert_eq!(resolved, Some(y));
+
+        // Should be marked as used
+        assert!(drs.boxes[1].universe[0].used_by_pronoun);
     }
 }
 
@@ -43225,6 +46554,15 @@ authors = ["Logicaffeine Team"]
 license = "BUSL-1.1"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
 build = "build.rs"
+
+[[bin]]
+name = "logos"
+path = "src/main.rs"
+
+[[bin]]
+name = "largo"
+path = "src/main.rs"
+required-features = ["cli"]
 
 [workspace]
 exclude = ["logos_core"]
@@ -44757,11 +48095,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Sun Dec 28 09:13:10 CST 2025
+- **Generated:** Mon Dec 29 06:39:25 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 545d5ed
-- **Documentation Size:** 2.0M
+- **Git Commit:** 216ddc7
+- **Documentation Size:** 1.6M
 
 ---
 

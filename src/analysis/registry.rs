@@ -135,6 +135,7 @@ impl TypeRegistry {
         // Intrinsic Generics
         reg.register(interner.intern("List"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Seq"), TypeDef::Generic { param_count: 1 });  // Phase 30: Sequences
+        reg.register(interner.intern("Map"), TypeDef::Generic { param_count: 2 });  // Phase 43D: Key-value maps
         reg.register(interner.intern("Option"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Result"), TypeDef::Generic { param_count: 2 });
 
