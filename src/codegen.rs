@@ -3,7 +3,7 @@ use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
@@ -142,6 +142,17 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
         }
         Stmt::Repeat { body, .. } => {
             for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        // Phase 9: Structured Concurrency blocks
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
                 collect_mutable_vars_stmt(s, targets);
             }
         }
@@ -730,6 +741,149 @@ pub fn codegen_stmt<'a>(
             let value_str = codegen_expr(value, interner);
             // 1-based indexing: item 2 of items → items[1]
             writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
+        }
+
+        // Phase 8.5: Zone (memory arena) block
+        Stmt::Zone { name, capacity, source_file, body } => {
+            let zone_name = interner.resolve(*name);
+
+            // Generate zone creation based on type
+            if let Some(path_sym) = source_file {
+                // Memory-mapped file zone
+                let path = interner.resolve(*path_sym);
+                writeln!(
+                    output,
+                    "{}let {} = logos_core::memory::Zone::new_mapped(\"{}\").expect(\"Failed to map file\");",
+                    indent_str, zone_name, path
+                ).unwrap();
+            } else {
+                // Heap arena zone
+                let cap = capacity.unwrap_or(4096); // Default 4KB
+                writeln!(
+                    output,
+                    "{}let {} = logos_core::memory::Zone::new_heap({});",
+                    indent_str, zone_name, cap
+                ).unwrap();
+            }
+
+            // Open block scope
+            writeln!(output, "{}{{", indent_str).unwrap();
+            ctx.push_scope();
+
+            // Generate body statements
+            for stmt in *body {
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+            }
+
+            ctx.pop_scope();
+            writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        // Phase 9: Concurrent execution block (async, I/O-bound)
+        // Generates tokio::join! for concurrent task execution
+        Stmt::Concurrent { tasks } => {
+            // Collect Let statements to generate tuple destructuring
+            let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(interner.resolve(*var).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+
+            if !let_bindings.is_empty() {
+                // Generate tuple destructuring for concurrent Let bindings
+                writeln!(output, "{}let ({}) = tokio::join!(", indent_str, let_bindings.join(", ")).unwrap();
+            } else {
+                writeln!(output, "{}tokio::join!(", indent_str).unwrap();
+            }
+
+            for (i, stmt) in tasks.iter().enumerate() {
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                // Wrap each statement in an async block
+                write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
+                if i < tasks.len() - 1 {
+                    writeln!(output, ",").unwrap();
+                } else {
+                    writeln!(output).unwrap();
+                }
+            }
+
+            writeln!(output, "{});", indent_str).unwrap();
+        }
+
+        // Phase 9: Parallel execution block (CPU-bound)
+        // Generates rayon::join for two tasks, or thread::spawn for 3+ tasks
+        Stmt::Parallel { tasks } => {
+            // Collect Let statements to generate tuple destructuring
+            let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(interner.resolve(*var).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+
+            if tasks.len() == 2 {
+                // Use rayon::join for exactly 2 tasks
+                if !let_bindings.is_empty() {
+                    writeln!(output, "{}let ({}) = rayon::join(", indent_str, let_bindings.join(", ")).unwrap();
+                } else {
+                    writeln!(output, "{}rayon::join(", indent_str).unwrap();
+                }
+
+                for (i, stmt) in tasks.iter().enumerate() {
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                    write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
+                    if i == 0 {
+                        writeln!(output, ",").unwrap();
+                    } else {
+                        writeln!(output).unwrap();
+                    }
+                }
+                writeln!(output, "{});", indent_str).unwrap();
+            } else {
+                // For 3+ tasks, use thread::spawn pattern
+                writeln!(output, "{}{{", indent_str).unwrap();
+                writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
+                for stmt in *tasks {
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx);
+                    writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
+                             indent_str, inner.trim()).unwrap();
+                }
+                writeln!(output, "{}    ];", indent_str).unwrap();
+                writeln!(output, "{}    for h in handles {{ h.join().unwrap(); }}", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+            }
+        }
+
+        // Phase 10: Read from console or file
+        Stmt::ReadFrom { var, source } => {
+            let var_name = interner.resolve(*var);
+            match source {
+                ReadSource::Console => {
+                    writeln!(output, "{}let {} = logos_core::io::read_line();", indent_str, var_name).unwrap();
+                }
+                ReadSource::File(path_expr) => {
+                    let path_str = codegen_expr(path_expr, interner);
+                    writeln!(
+                        output,
+                        "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
+                        indent_str, var_name, path_str
+                    ).unwrap();
+                }
+            }
+        }
+
+        // Phase 10: Write to file
+        Stmt::WriteFile { content, path } => {
+            let content_str = codegen_expr(content, interner);
+            let path_str = codegen_expr(path, interner);
+            writeln!(
+                output,
+                "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
+                indent_str, path_str, content_str
+            ).unwrap();
         }
     }
 

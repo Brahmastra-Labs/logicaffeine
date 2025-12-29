@@ -7,4 +7,9 @@ description = "Runtime library for LOGOS programs"
 [workspace]
 
 [dependencies]
+bumpalo = "3.19.1"
+memmap2 = "0.9.9"
 rand = "0.8"
+# Phase 9: Structured Concurrency
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+rayon = "1.10"

@@ -59,7 +59,9 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 6: Complex Tense](#phase-6-complex-tense)
     - [Phase 7: Intensional Semantics](#phase-7-intensional-semantics)
     - [Phase 8: Degrees & Comparatives](#phase-8-degrees--comparatives)
+    - [Phase 8.5: Zone System](#phase-85-zone-system)
     - [Phase 9: Noun/Verb Conversion](#phase-9-nounverb-conversion)
+    - [Phase 9.5: Structured Concurrency](#phase-95-structured-concurrency)
     - [Phase 10: Ellipsis & Sluicing](#phase-10-ellipsis--sluicing)
     - [Phase 11: Sorts & Metaphor](#phase-11-sorts--metaphor)
     - [Phase 12: Parse Forest](#phase-12-parse-forest)
@@ -214,6 +216,9 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Curriculum Embedding** - Filesystem-based curriculum (assets/curriculum/) embedded at compile time via include_dir; JSON schemas for eras, modules, exercises
 - **Catch-all 404 Route** - NotFound variant with /:..route pattern prevents router panics on invalid URLs
 - **Refinement Types** - \`Type where predicate\` syntax with RefinementContext tracking; debug_assert!() enforcement at Let binding and Set mutation
+- **Zone System** - Region-based memory with Heap (bumpalo arena) and Mapped (memmap2 file) variants; escape analysis enforces Hotel California rule; O(1) alloc/bulk dealloc
+- **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
+- **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1399,11 +1404,28 @@ add_test_description "tests/phase8_degrees.rs" \
     "Numeric measurements and degree semantics. Tests comparatives with measure phrases, absolute measurements, and symbolic cardinality." \
     "\"John is 2 inches taller than Mary.\" → Taller(j, m, 2 inches)"
 
+# Phase 8.5 & 8.6
+add_test_description "tests/phase85_zones.rs" \
+    "Phase 8.5 & 8.6: Zone System" \
+    "Region-based memory management. Heap zones via bumpalo (Inside a zone called X of size N KB/MB:), memory-mapped files (mapped from 'file.bin'), escape analysis for 'Hotel California' rule (values cannot escape zones), O(1) allocation and bulk deallocation." \
+    "Inside a zone called \"Scratch\" of size 2 MB: Let x be 5. → Zone::new_heap(2097152)"
+
 # Phase 9
 add_test_description "tests/phase9_conversion.rs" \
     "Phase 9: Noun/Verb Conversion" \
     "Zero-derivation (noun→verb): tabled, emailed, googled. Morphological heuristics for silent-e lemma recovery." \
     "\"The committee tabled the motion.\" → Table(committee, motion)"
+
+# Phase 9.5
+add_test_description "tests/phase9_structured_concurrency.rs" \
+    "Phase 9.5: Structured Concurrency" \
+    "Concurrent and parallel execution blocks. 'Attempt all of the following:' generates tokio::join! (async, I/O-bound). 'Simultaneously:' generates rayon::join (CPU-bound, 2 tasks) or thread::spawn (3+ tasks). Let bindings destructure into tuples." \
+    "Simultaneously: Let a be 1. Let b be 2. → let (a, b) = rayon::join(|| 1, || 2);"
+
+add_test_description "tests/diagnostic_bridge.rs" \
+    "Diagnostic Bridge Tests" \
+    "Verifies rustc ownership errors translate to Socratic LOGOS messages. Tests E0382 (use-after-move) produces 'Cannot use X after giving it away' instead of raw rustc output. Ensures users never see cryptic compiler errors." \
+    "Let a be s. Let b be s. → 'Cannot use s after giving it away'"
 
 # Phase 10
 add_test_description "tests/phase10_ellipsis.rs" \
@@ -2089,6 +2111,10 @@ add_file "src/analysis/dependencies.rs" \
     "Module Dependency Scanner" \
     "Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##)."
 
+add_file "src/analysis/escape.rs" \
+    "Escape Analysis" \
+    "Phase 8.5: Zone safety enforcement. EscapeChecker tracks variable zone depths and detects escape violations (return from zone, assignment to outer variable). Socratic error messages explain Hotel California rule. Falls back to Rust's borrow checker for complex patterns."
+
 # ==============================================================================
 # CODE GENERATION
 # ==============================================================================
@@ -2211,6 +2237,14 @@ EOF
 add_file "src/error.rs" \
     "Error Types" \
     "ParseError and ParseErrorKind types. ParseError includes Span for source location. display_with_source() renders errors with ANSI colors, line numbers, underline markers, and 'did you mean?' suggestions. Implements socratic_explanation() for Socratic-style error guidance."
+
+add_file "src/diagnostic.rs" \
+    "Diagnostic Bridge" \
+    "Translates Rust borrow checker errors into friendly LOGOS messages. Parses rustc JSON output (E0382, E0597, E0505) and maps errors back to LOGOS source via SourceMap. LogosError struct with title, explanation, suggestion fields. Socratic messages explain ownership semantics."
+
+add_file "src/sourcemap.rs" \
+    "Source Map" \
+    "Maps generated Rust code back to LOGOS source positions. OwnershipRole enum (GiveObject, GiveRecipient, ShowObject, ShowRecipient, LetBinding, SetTarget, ZoneLocal) tracks semantic context. VarOrigin stores logos_name, span, and role. Enables friendly error messages for ownership/lifetime violations."
 
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Suggestions & Styling
@@ -2597,6 +2631,10 @@ add_file "logos_core/src/random.rs" \
 add_file "logos_core/src/env.rs" \
     "Environment" \
     "Environment access. get(key) retrieves environment variable, args() returns command-line arguments as Vec<String>."
+
+add_file "logos_core/src/memory.rs" \
+    "Zone Memory Management" \
+    "Phase 8.5 & 8.6: Zone-based memory. Zone enum with Heap (bumpalo arena) and Mapped (memmap2 file) variants. new_heap(capacity) for arena allocation, new_mapped(path) for zero-copy file IO. alloc()/alloc_slice() for heap zones, as_slice() for mapped zones. reset() for bulk deallocation. Implements 'Hotel California' rule: values can enter but cannot escape."
 
 # ==============================================================================
 # EXAMPLES

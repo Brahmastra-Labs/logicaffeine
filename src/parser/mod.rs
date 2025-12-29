@@ -21,6 +21,7 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::ast::stmt::ReadSource;
 use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
 use crate::drs::{Drs, BoxType};
 use crate::error::{ParseError, ParseErrorKind};
@@ -827,6 +828,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_pop_statement();
         }
 
+        // Phase 8.5: Memory zone block
+        if self.check(&TokenType::Inside) {
+            return self.parse_zone_statement();
+        }
+
+        // Phase 9: Structured Concurrency blocks
+        if self.check(&TokenType::Attempt) {
+            return self.parse_concurrent_block();
+        }
+        if self.check(&TokenType::Simultaneously) {
+            return self.parse_parallel_block();
+        }
+
+        // Phase 10: IO statements
+        if self.check(&TokenType::Read) {
+            return self.parse_read_statement();
+        }
+        if self.check(&TokenType::Write) {
+            return self.parse_write_statement();
+        }
+
         Err(ParseError {
             kind: ParseErrorKind::ExpectedStatement,
             span: self.current_span(),
@@ -1041,9 +1063,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Call"
 
         // Parse function name (identifier)
+        // Function names can be nouns, adjectives, or verbs (e.g., "work", "process")
+        // Use the token's lexeme to match function definition casing
         let function = match &self.peek().kind {
             TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } => {
+                // Use lexeme (actual text) not lemma to preserve casing
+                let s = self.peek().lexeme;
                 self.advance();
                 s
             }
@@ -1481,8 +1511,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Optional "to" preposition - if not present, default to "show" function
         let recipient = if self.check_preposition_is("to") {
             self.advance(); // consume "to"
-            // Parse the recipient: "console" or "the user"
-            self.parse_imperative_expr()?
+
+            // Phase 10: "Show x to console." or "Show x to the console."
+            // is idiomatic for printing to stdout - use default show function
+            if self.check_article() {
+                self.advance(); // skip "the"
+            }
+            if self.check(&TokenType::Console) {
+                self.advance(); // consume "console"
+                let show_sym = self.interner.intern("show");
+                self.ctx.alloc_imperative_expr(Expr::Identifier(show_sym))
+            } else {
+                // Parse the recipient: custom function
+                self.parse_imperative_expr()?
+            }
         } else {
             // Default recipient: the runtime "show" function
             let show_sym = self.interner.intern("show");
@@ -1565,6 +1607,396 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Pop { collection, into })
+    }
+
+    /// Phase 10: Parse Read statement for console/file input
+    /// Syntax: Read <var> from the console.
+    ///         Read <var> from file <path>.
+    fn parse_read_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Read"
+
+        // Get the variable name
+        let var = self.expect_identifier()?;
+
+        // Expect "from" preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Skip optional article "the"
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Determine source: console or file
+        let source = if self.check(&TokenType::Console) {
+            self.advance(); // consume "console"
+            ReadSource::Console
+        } else if self.check(&TokenType::File) {
+            self.advance(); // consume "file"
+            let path = self.parse_imperative_expr()?;
+            ReadSource::File(path)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "console or file".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        Ok(Stmt::ReadFrom { var, source })
+    }
+
+    /// Phase 10: Parse Write statement for file output
+    /// Syntax: Write <content> to file <path>.
+    fn parse_write_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Write"
+
+        // Parse the content expression
+        let content = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Expect "file" keyword
+        if !self.check(&TokenType::File) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "file".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "file"
+
+        // Parse the path expression
+        let path = self.parse_imperative_expr()?;
+
+        Ok(Stmt::WriteFile { content, path })
+    }
+
+    /// Phase 8.5: Parse Zone statement for memory arena blocks
+    /// Syntax variants:
+    ///   - Inside a new zone called "Scratch":
+    ///   - Inside a zone called "Buffer" of size 1 MB:
+    ///   - Inside a zone called "Data" mapped from "file.bin":
+    fn parse_zone_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Inside"
+
+        // Optional article "a"
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Optional "new"
+        if self.check(&TokenType::New) {
+            self.advance();
+        }
+
+        // Expect "zone"
+        if !self.check(&TokenType::Zone) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "zone".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "zone"
+
+        // Expect "called"
+        if !self.check(&TokenType::Called) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "called"
+
+        // Parse zone name (can be string literal or identifier)
+        let name = match &self.peek().kind {
+            TokenType::StringLiteral(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                // Try to use the lexeme directly as an identifier
+                let token = self.peek().clone();
+                self.advance();
+                token.lexeme
+            }
+        };
+
+        let mut capacity = None;
+        let mut source_file = None;
+
+        // Check for "mapped from" (file-backed zone)
+        if self.check(&TokenType::Mapped) {
+            self.advance(); // consume "mapped"
+
+            // Expect "from"
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "from"
+
+            // Parse file path (must be string literal)
+            if let TokenType::StringLiteral(path) = &self.peek().kind {
+                source_file = Some(*path);
+                self.advance();
+            } else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "file path string".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        }
+        // Check for "of size N Unit" (sized heap zone)
+        else if self.check_of_preposition() {
+            self.advance(); // consume "of"
+
+            // Expect "size"
+            if !self.check(&TokenType::Size) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "size".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "size"
+
+            // Parse size number
+            let size_value = match &self.peek().kind {
+                TokenType::Number(sym) => {
+                    let num_str = self.interner.resolve(*sym);
+                    let val = num_str.replace('_', "").parse::<usize>().unwrap_or(0);
+                    self.advance();
+                    val
+                }
+                TokenType::Cardinal(n) => {
+                    let val = *n as usize;
+                    self.advance();
+                    val
+                }
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedNumber,
+                        span: self.current_span(),
+                    });
+                }
+            };
+
+            // Parse unit (KB, MB, GB, or B)
+            let unit_multiplier = self.parse_size_unit()?;
+            capacity = Some(size_value * unit_multiplier);
+        }
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut body_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            body_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(Stmt::Zone { name, capacity, source_file, body })
+    }
+
+    /// Parse size unit (B, KB, MB, GB) and return multiplier
+    fn parse_size_unit(&mut self) -> ParseResult<usize> {
+        let token = self.peek().clone();
+        let unit_str = self.interner.resolve(token.lexeme).to_uppercase();
+        self.advance();
+
+        match unit_str.as_str() {
+            "B" | "BYTES" | "BYTE" => Ok(1),
+            "KB" | "KILOBYTE" | "KILOBYTES" => Ok(1024),
+            "MB" | "MEGABYTE" | "MEGABYTES" => Ok(1024 * 1024),
+            "GB" | "GIGABYTE" | "GIGABYTES" => Ok(1024 * 1024 * 1024),
+            _ => Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "size unit (B, KB, MB, GB)".to_string(),
+                },
+                span: token.span,
+            }),
+        }
+    }
+
+    /// Phase 9: Parse concurrent execution block (async, I/O-bound)
+    ///
+    /// Syntax:
+    /// ```logos
+    /// Attempt all of the following:
+    ///     Call fetch_user with id.
+    ///     Call fetch_orders with id.
+    /// ```
+    fn parse_concurrent_block(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Attempt"
+
+        // Expect "all"
+        if !self.check(&TokenType::All) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "all".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "all"
+
+        // Expect "of" (preposition)
+        if !self.check_of_preposition() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "of"
+
+        // Expect "the"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "the"
+
+        // Expect "following"
+        if !self.check(&TokenType::Following) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "following".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "following"
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut task_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            task_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let tasks = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(task_stmts.into_iter());
+
+        Ok(Stmt::Concurrent { tasks })
+    }
+
+    /// Phase 9: Parse parallel execution block (CPU-bound)
+    ///
+    /// Syntax:
+    /// ```logos
+    /// Simultaneously:
+    ///     Call compute_hash with data1.
+    ///     Call compute_hash with data2.
+    /// ```
+    fn parse_parallel_block(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Simultaneously"
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut task_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            task_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let tasks = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(task_stmts.into_iter());
+
+        Ok(Stmt::Parallel { tasks })
     }
 
     /// Phase 33: Parse Inspect statement for pattern matching
@@ -2544,6 +2976,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.parse_field_access_chain(base)
             }
 
+            // Phase 10: IO keywords as function calls (e.g., "read", "write", "file")
+            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console => {
+                let sym = token.lexeme;
+                self.advance();
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+                // Treat as identifier reference
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
+            }
+
             // Unified identifier handling - all identifier-like tokens get verified
             // First check for boolean/special literals before treating as variable
             TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
@@ -2821,7 +3266,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 38: Adverbs can be function names (now, sleep, etc.)
             TokenType::TemporalAdverb(_) |
             TokenType::ScopalAdverb(_) |
-            TokenType::Adverb(_) => {
+            TokenType::Adverb(_) |
+            // Phase 10: IO keywords can be function names (read, write, file, console)
+            TokenType::Read |
+            TokenType::Write |
+            TokenType::File |
+            TokenType::Console => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();

@@ -18,17 +18,21 @@ const LOGOS_CORE_FILE: &str = include_str!("../logos_core/src/file.rs");
 const LOGOS_CORE_TIME: &str = include_str!("../logos_core/src/time.rs");
 const LOGOS_CORE_RANDOM: &str = include_str!("../logos_core/src/random.rs");
 const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
+// Phase 8.5: Zone-based memory management
+const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::DiscoveryPass;
+use crate::analysis::{DiscoveryPass, EscapeChecker, EscapeError};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
 use crate::context::DiscourseContext;
+use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
 use crate::error::ParseError;
 use crate::intern::Interner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::sourcemap::SourceMap;
 
 /// Compile LOGOS source to Rust source code.
 pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
@@ -72,6 +76,19 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis - check for zone escape violations
+    // This catches obvious cases like returning zone-local variables
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        // Convert EscapeError to ParseError for now
+        // The error message is already Socratic from EscapeChecker
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
     let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
     Ok(rust_code)
@@ -140,6 +157,9 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
         .map_err(|e| CompileError::Io(e.to_string()))?;
     fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
         .map_err(|e| CompileError::Io(e.to_string()))?;
+    // Phase 8.5: Zone-based memory management
+    fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
 
     Ok(())
 }
@@ -148,15 +168,32 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
 pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, CompileError> {
     compile_to_dir(source, output_dir)?;
 
-    // Run cargo build
+    // Run cargo build with JSON message format for structured error parsing
     let build_output = Command::new("cargo")
         .arg("build")
+        .arg("--message-format=json")
         .current_dir(output_dir)
         .output()
         .map_err(|e| CompileError::Io(e.to_string()))?;
 
     if !build_output.status.success() {
         let stderr = String::from_utf8_lossy(&build_output.stderr);
+        let stdout = String::from_utf8_lossy(&build_output.stdout);
+
+        // Try to parse JSON diagnostics and translate them
+        let diagnostics = parse_rustc_json(&stdout);
+
+        if !diagnostics.is_empty() {
+            // Create a basic source map with the LOGOS source
+            let source_map = SourceMap::new(source.to_string());
+            let interner = Interner::new();
+
+            if let Some(logos_error) = translate_diagnostics(&diagnostics, &source_map, &interner) {
+                return Err(CompileError::Ownership(logos_error));
+            }
+        }
+
+        // Fallback to raw error if translation fails
         return Err(CompileError::Build(stderr.to_string()));
     }
 
@@ -243,6 +280,8 @@ pub enum CompileError {
     Io(String),
     Build(String),
     Runtime(String),
+    /// Translated ownership/borrow checker error with friendly LOGOS message
+    Ownership(LogosError),
 }
 
 impl std::fmt::Display for CompileError {
@@ -252,6 +291,7 @@ impl std::fmt::Display for CompileError {
             CompileError::Io(e) => write!(f, "IO error: {}", e),
             CompileError::Build(e) => write!(f, "Build error: {}", e),
             CompileError::Runtime(e) => write!(f, "Runtime error: {}", e),
+            CompileError::Ownership(e) => write!(f, "{}", e),
         }
     }
 }

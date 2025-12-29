@@ -9,6 +9,11 @@ pub mod audio;
 pub mod codegen;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod compile;
+// Diagnostic Bridge for ownership error translation
+#[cfg(not(target_arch = "wasm32"))]
+pub mod diagnostic;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sourcemap;
 pub mod content;
 pub mod context;
 pub mod debug;

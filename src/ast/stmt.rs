@@ -37,6 +37,15 @@ pub enum TypeExpr<'a> {
     },
 }
 
+/// Phase 10: Source for Read statements
+#[derive(Debug, Clone, Copy)]
+pub enum ReadSource<'a> {
+    /// Read from console (stdin)
+    Console,
+    /// Read from file at given path
+    File(&'a Expr<'a>),
+}
+
 /// Binary operation kinds for imperative expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOpKind {
@@ -192,6 +201,53 @@ pub enum Stmt<'a> {
         collection: &'a Expr<'a>,
         index: &'a Expr<'a>,
         value: &'a Expr<'a>,
+    },
+
+    /// Phase 8.5: Memory arena block (Zone)
+    /// "Inside a new zone called 'Scratch':"
+    /// "Inside a zone called 'Buffer' of size 1 MB:"
+    /// "Inside a zone called 'Data' mapped from 'file.bin':"
+    Zone {
+        /// The variable name for the arena handle (e.g., "Scratch")
+        name: Symbol,
+        /// Optional pre-allocated capacity in bytes (Heap zones only)
+        capacity: Option<usize>,
+        /// Optional file path for memory-mapped zones (Mapped zones only)
+        source_file: Option<Symbol>,
+        /// The code block executed within this memory context
+        body: Block<'a>,
+    },
+
+    /// Phase 9: Concurrent execution block (async, I/O-bound)
+    /// "Attempt all of the following:"
+    /// Semantics: All tasks run concurrently via tokio::join!
+    /// Best for: network requests, file I/O, waiting operations
+    Concurrent {
+        /// The statements to execute concurrently
+        tasks: Block<'a>,
+    },
+
+    /// Phase 9: Parallel execution block (CPU-bound)
+    /// "Simultaneously:"
+    /// Semantics: True parallelism via rayon::join or thread::spawn
+    /// Best for: computation, data processing, number crunching
+    Parallel {
+        /// The statements to execute in parallel
+        tasks: Block<'a>,
+    },
+
+    /// Phase 10: Read from console or file
+    /// `Read input from the console.` or `Read data from file "path.txt".`
+    ReadFrom {
+        var: Symbol,
+        source: ReadSource<'a>,
+    },
+
+    /// Phase 10: Write to file
+    /// `Write "content" to file "output.txt".`
+    WriteFile {
+        content: &'a Expr<'a>,
+        path: &'a Expr<'a>,
     },
 }
 

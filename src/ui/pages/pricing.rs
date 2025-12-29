@@ -657,7 +657,7 @@ pub fn Pricing() -> Element {
                     span { class: "early-access-badge", "Early Access Pricing" }
                     h2 { "Lifetime License" }
                     div { class: "price", "$50/seat" }
-                    div { class: "subtext", "One-time payment. Permanent, transferable commercial license." }
+                    div { class: "subtext", "One-time payment. Permanent license with Z3 Static Verification." }
                     a {
                         class: "btn-primary",
                         href: STRIPE_LIFETIME,
@@ -679,7 +679,7 @@ pub fn Pricing() -> Element {
                         ul { class: "tier-features",
                             li { "Support LOGOS development" }
                             li { "Personal/hobbyist use" }
-                            li { "Full feature access" }
+                            li { "Core feature access" }
                         }
                         div { class: "tier-buttons",
                             a {
@@ -702,6 +702,7 @@ pub fn Pricing() -> Element {
                         div { class: "tier-annual", "or $240/seat/year (save 20%)" }
                         ul { class: "tier-features",
                             li { "Commercial use license" }
+                            li { "Z3 Static Verification" }
                             li { "Full feature access" }
                             li { "Regular updates" }
                         }

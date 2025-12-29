@@ -60,6 +60,7 @@ The programming language is called **LOGOS**.
   - [Parse Forests](#parse-forests)
   - [Discourse & Pronouns](#discourse--pronouns)
 - [Type System](#type-system)
+- [Static Verification](#static-verification)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
 - [Testing](#testing)
@@ -586,6 +587,88 @@ Let text_box be a new Box of Text with contents "hello".
 ```logos
 Let positive: Int where it > 0 be 5.
 ```
+
+---
+
+## Static Verification
+
+LOGOS includes optional Z3-based static verification that can prove assertions at compile time. This is a premium feature requiring a Pro, Premium, Lifetime, or Enterprise license.
+
+### Requirements
+
+**Install Z3** (required for the verification feature):
+
+```bash
+# macOS
+brew install z3
+
+# Ubuntu/Debian
+apt install libz3-dev
+
+# Windows
+# Download from https://github.com/Z3Prover/z3/releases
+```
+
+**Set environment variables** (macOS with Homebrew):
+
+```bash
+export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h
+export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
+export LIBRARY_PATH="/opt/homebrew/lib"
+```
+
+### Building with Verification
+
+```bash
+# Build with verification support
+cargo build --features verification
+
+# Build CLI with verification
+cargo build --features cli,verification
+```
+
+### Usage
+
+```bash
+# Verify a project (requires license)
+largo verify --license sub_xxx
+
+# Build with verification
+largo build --verify --license sub_xxx
+
+# Or use environment variable
+export LOGOS_LICENSE=sub_xxx
+largo build --verify
+```
+
+### What It Verifies
+
+The verifier uses the Z3 SMT solver to check:
+
+- **Tautologies**: Assertions that are always true
+- **Contradictions**: Assertions that can never be true
+- **Integer bounds**: Constraints like `x > 5` given known values
+- **Refinement types**: Values satisfy their declared predicates
+
+When verification fails, you get **Socratic error messages** with counter-examples:
+
+```
+Verification failed.
+You asserted 'x is greater than 10', but x could be 5.
+```
+
+### License Tiers
+
+| Plan | Verification |
+|------|--------------|
+| Free | No |
+| Supporter | No |
+| Pro | Yes |
+| Premium | Yes |
+| Lifetime | Yes |
+| Enterprise | Yes |
+
+Get a license at [logicaffeine.com/pricing](https://logicaffeine.com/pricing).
 
 ---
 

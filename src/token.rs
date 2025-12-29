@@ -116,6 +116,12 @@ pub enum TokenType {
     Inspect,  // Phase 33: Pattern matching
     Native,   // Phase 38: Native function modifier
 
+    // Phase 10: IO Keywords
+    Read,     // "Read input from..."
+    Write,    // "Write x to file..."
+    Console,  // "...from the console"
+    File,     // "...from file..." or "...to file..."
+
     // Ownership Keywords (Move/Borrow Semantics)
     Give,  // Move ownership: "Give x to processor"
     Show,  // Immutable borrow: "Show x to console"
@@ -127,6 +133,18 @@ pub enum TokenType {
     Through,  // "items 1 through 3" → inclusive slice
     Length,   // "length of items" → items.len()
     At,       // "items at i" → items[i]
+
+    // Phase 8.5: Memory Management (Zones)
+    Inside,   // "Inside a new zone..."
+    Zone,     // "...zone called..."
+    Called,   // "...called 'Scratch'"
+    Size,     // "...of size 1 MB"
+    Mapped,   // "...mapped from 'file.bin'"
+
+    // Phase 9: Structured Concurrency
+    Attempt,        // "Attempt all of the following:" -> concurrent (async, I/O-bound)
+    Following,      // "the following"
+    Simultaneously, // "Simultaneously:" -> parallel (CPU-bound)
 
     // Block Scoping
     Colon,

@@ -127,6 +127,8 @@ pub enum ParseErrorKind {
     },
     // Phase 43C: Refinement types
     InvalidRefinementPredicate,
+    // Phase 8.5: Escape analysis errors
+    Custom(String),
 }
 
 #[cold]
@@ -327,6 +329,8 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 pos
             )
         }
+        // Phase 8.5: Escape analysis - the message is already Socratic
+        ParseErrorKind::Custom(msg) => msg.clone(),
     }
 }
 

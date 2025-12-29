@@ -46,7 +46,9 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 6: Complex Tense](#phase-6-complex-tense)
     - [Phase 7: Intensional Semantics](#phase-7-intensional-semantics)
     - [Phase 8: Degrees & Comparatives](#phase-8-degrees--comparatives)
+    - [Phase 8.5: Zone System](#phase-85-zone-system)
     - [Phase 9: Noun/Verb Conversion](#phase-9-nounverb-conversion)
+    - [Phase 9.5: Structured Concurrency](#phase-95-structured-concurrency)
     - [Phase 10: Ellipsis & Sluicing](#phase-10-ellipsis--sluicing)
     - [Phase 11: Sorts & Metaphor](#phase-11-sorts--metaphor)
     - [Phase 12: Parse Forest](#phase-12-parse-forest)
@@ -201,6 +203,9 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Curriculum Embedding** - Filesystem-based curriculum (assets/curriculum/) embedded at compile time via include_dir; JSON schemas for eras, modules, exercises
 - **Catch-all 404 Route** - NotFound variant with /:..route pattern prevents router panics on invalid URLs
 - **Refinement Types** - \`Type where predicate\` syntax with RefinementContext tracking; debug_assert!() enforcement at Let binding and Set mutation
+- **Zone System** - Region-based memory with Heap (bumpalo arena) and Mapped (memmap2 file) variants; escape analysis enforces Hotel California rule; O(1) alloc/bulk dealloc
+- **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
+- **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1345,6 +1350,16 @@ Numeric measurements and degree semantics. Tests comparatives with measure phras
 
 ---
 
+#### Phase 8.5 & 8.6: Zone System
+
+**File:** `tests/phase85_zones.rs`
+
+Region-based memory management. Heap zones via bumpalo (Inside a zone called X of size N KB/MB:), memory-mapped files (mapped from 'file.bin'), escape analysis for 'Hotel California' rule (values cannot escape zones), O(1) allocation and bulk deallocation.
+
+**Example:** Inside a zone called "Scratch" of size 2 MB: Let x be 5. → Zone::new_heap(2097152)
+
+---
+
 #### Phase 9: Noun/Verb Conversion
 
 **File:** `tests/phase9_conversion.rs`
@@ -1352,6 +1367,26 @@ Numeric measurements and degree semantics. Tests comparatives with measure phras
 Zero-derivation (noun→verb): tabled, emailed, googled. Morphological heuristics for silent-e lemma recovery.
 
 **Example:** "The committee tabled the motion." → Table(committee, motion)
+
+---
+
+#### Phase 9.5: Structured Concurrency
+
+**File:** `tests/phase9_structured_concurrency.rs`
+
+Concurrent and parallel execution blocks. 'Attempt all of the following:' generates tokio::join! (async, I/O-bound). 'Simultaneously:' generates rayon::join (CPU-bound, 2 tasks) or thread::spawn (3+ tasks). Let bindings destructure into tuples.
+
+**Example:** Simultaneously: Let a be 1. Let b be 2. → let (a, b) = rayon::join(|| 1, || 2);
+
+---
+
+#### Diagnostic Bridge Tests
+
+**File:** `tests/diagnostic_bridge.rs`
+
+Verifies rustc ownership errors translate to Socratic LOGOS messages. Tests E0382 (use-after-move) produces 'Cannot use X after giving it away' instead of raw rustc output. Ensures users never see cryptic compiler errors.
+
+**Example:** Let a be s. Let b be s. → 'Cannot use s after giving it away'
 
 ---
 
@@ -2049,28 +2084,28 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           1871 lines
-Parser (ast/, parser/):               11698 lines
+Lexer (token.rs, lexer.rs):           1895 lines
+Parser (ast/, parser/):               12069 lines
 Transpilation:                        1341 lines
-Code Generation:                      1282 lines
+Code Generation:                      1447 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1240 lines
-Support Infrastructure:               4231 lines
+Type Analysis (analysis/):            1538 lines
+Support Infrastructure:               4240 lines
 Desktop UI:                              10121 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        40194
-Test lines:          13484
-Total Rust lines: 53678
+Source lines:        41674
+Test lines:          14203
+Total Rust lines: 55877
 ```
 
 ### File Counts
 ```
-Source files: 98
-Test files:   89
+Source files: 101
+Test files:   93
 ```
 ## Lexicon Data
 
@@ -3009,6 +3044,18 @@ pub enum TokenType {
     Through,  // "items 1 through 3" → inclusive slice
     Length,   // "length of items" → items.len()
     At,       // "items at i" → items[i]
+
+    // Phase 8.5: Memory Management (Zones)
+    Inside,   // "Inside a new zone..."
+    Zone,     // "...zone called..."
+    Called,   // "...called 'Scratch'"
+    Size,     // "...of size 1 MB"
+    Mapped,   // "...mapped from 'file.bin'"
+
+    // Phase 9: Structured Concurrency
+    Attempt,        // "Attempt all of the following:" -> concurrent (async, I/O-bound)
+    Following,      // "the following"
+    Simultaneously, // "Simultaneously:" -> parallel (CPU-bound)
 
     // Block Scoping
     Colon,
@@ -4188,6 +4235,8 @@ impl<'a> Lexer<'a> {
         match lower.as_str() {
             "call" => return TokenType::Call,
             "in" if self.mode == LexerMode::Imperative => return TokenType::In,
+            // Phase 8.5: Zone keywords (must come before is_preposition check)
+            "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             _ => {}
         }
 
@@ -4245,6 +4294,16 @@ impl<'a> Lexer<'a> {
             "through" if self.mode == LexerMode::Imperative => return TokenType::Through,
             "length" if self.mode == LexerMode::Imperative => return TokenType::Length,
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Phase 8.5: Zone keywords (Imperative mode only)
+            "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
+            "zone" if self.mode == LexerMode::Imperative => return TokenType::Zone,
+            "called" if self.mode == LexerMode::Imperative => return TokenType::Called,
+            "size" if self.mode == LexerMode::Imperative => return TokenType::Size,
+            "mapped" if self.mode == LexerMode::Imperative => return TokenType::Mapped,
+            // Phase 9: Structured Concurrency keywords (Imperative mode only)
+            "attempt" if self.mode == LexerMode::Imperative => return TokenType::Attempt,
+            "following" if self.mode == LexerMode::Imperative => return TokenType::Following,
+            "simultaneously" if self.mode == LexerMode::Imperative => return TokenType::Simultaneously,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
@@ -5418,6 +5477,39 @@ pub enum Stmt<'a> {
         index: &'a Expr<'a>,
         value: &'a Expr<'a>,
     },
+
+    /// Phase 8.5: Memory arena block (Zone)
+    /// "Inside a new zone called 'Scratch':"
+    /// "Inside a zone called 'Buffer' of size 1 MB:"
+    /// "Inside a zone called 'Data' mapped from 'file.bin':"
+    Zone {
+        /// The variable name for the arena handle (e.g., "Scratch")
+        name: Symbol,
+        /// Optional pre-allocated capacity in bytes (Heap zones only)
+        capacity: Option<usize>,
+        /// Optional file path for memory-mapped zones (Mapped zones only)
+        source_file: Option<Symbol>,
+        /// The code block executed within this memory context
+        body: Block<'a>,
+    },
+
+    /// Phase 9: Concurrent execution block (async, I/O-bound)
+    /// "Attempt all of the following:"
+    /// Semantics: All tasks run concurrently via tokio::join!
+    /// Best for: network requests, file I/O, waiting operations
+    Concurrent {
+        /// The statements to execute concurrently
+        tasks: Block<'a>,
+    },
+
+    /// Phase 9: Parallel execution block (CPU-bound)
+    /// "Simultaneously:"
+    /// Semantics: True parallelism via rayon::join or thread::spawn
+    /// Best for: computation, data processing, number crunching
+    Parallel {
+        /// The statements to execute in parallel
+        tasks: Block<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -6352,6 +6444,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_pop_statement();
         }
 
+        // Phase 8.5: Memory zone block
+        if self.check(&TokenType::Inside) {
+            return self.parse_zone_statement();
+        }
+
+        // Phase 9: Structured Concurrency blocks
+        if self.check(&TokenType::Attempt) {
+            return self.parse_concurrent_block();
+        }
+        if self.check(&TokenType::Simultaneously) {
+            return self.parse_parallel_block();
+        }
+
         Err(ParseError {
             kind: ParseErrorKind::ExpectedStatement,
             span: self.current_span(),
@@ -6566,9 +6671,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Call"
 
         // Parse function name (identifier)
+        // Function names can be nouns, adjectives, or verbs (e.g., "work", "process")
+        // Use the token's lexeme to match function definition casing
         let function = match &self.peek().kind {
             TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } => {
+                // Use lexeme (actual text) not lemma to preserve casing
+                let s = self.peek().lexeme;
                 self.advance();
                 s
             }
@@ -7090,6 +7203,323 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Pop { collection, into })
+    }
+
+    /// Phase 8.5: Parse Zone statement for memory arena blocks
+    /// Syntax variants:
+    ///   - Inside a new zone called "Scratch":
+    ///   - Inside a zone called "Buffer" of size 1 MB:
+    ///   - Inside a zone called "Data" mapped from "file.bin":
+    fn parse_zone_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Inside"
+
+        // Optional article "a"
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Optional "new"
+        if self.check(&TokenType::New) {
+            self.advance();
+        }
+
+        // Expect "zone"
+        if !self.check(&TokenType::Zone) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "zone".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "zone"
+
+        // Expect "called"
+        if !self.check(&TokenType::Called) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "called"
+
+        // Parse zone name (can be string literal or identifier)
+        let name = match &self.peek().kind {
+            TokenType::StringLiteral(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                // Try to use the lexeme directly as an identifier
+                let token = self.peek().clone();
+                self.advance();
+                token.lexeme
+            }
+        };
+
+        let mut capacity = None;
+        let mut source_file = None;
+
+        // Check for "mapped from" (file-backed zone)
+        if self.check(&TokenType::Mapped) {
+            self.advance(); // consume "mapped"
+
+            // Expect "from"
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "from"
+
+            // Parse file path (must be string literal)
+            if let TokenType::StringLiteral(path) = &self.peek().kind {
+                source_file = Some(*path);
+                self.advance();
+            } else {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "file path string".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        }
+        // Check for "of size N Unit" (sized heap zone)
+        else if self.check_of_preposition() {
+            self.advance(); // consume "of"
+
+            // Expect "size"
+            if !self.check(&TokenType::Size) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "size".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "size"
+
+            // Parse size number
+            let size_value = match &self.peek().kind {
+                TokenType::Number(sym) => {
+                    let num_str = self.interner.resolve(*sym);
+                    let val = num_str.replace('_', "").parse::<usize>().unwrap_or(0);
+                    self.advance();
+                    val
+                }
+                TokenType::Cardinal(n) => {
+                    let val = *n as usize;
+                    self.advance();
+                    val
+                }
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedNumber,
+                        span: self.current_span(),
+                    });
+                }
+            };
+
+            // Parse unit (KB, MB, GB, or B)
+            let unit_multiplier = self.parse_size_unit()?;
+            capacity = Some(size_value * unit_multiplier);
+        }
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut body_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            body_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(Stmt::Zone { name, capacity, source_file, body })
+    }
+
+    /// Parse size unit (B, KB, MB, GB) and return multiplier
+    fn parse_size_unit(&mut self) -> ParseResult<usize> {
+        let token = self.peek().clone();
+        let unit_str = self.interner.resolve(token.lexeme).to_uppercase();
+        self.advance();
+
+        match unit_str.as_str() {
+            "B" | "BYTES" | "BYTE" => Ok(1),
+            "KB" | "KILOBYTE" | "KILOBYTES" => Ok(1024),
+            "MB" | "MEGABYTE" | "MEGABYTES" => Ok(1024 * 1024),
+            "GB" | "GIGABYTE" | "GIGABYTES" => Ok(1024 * 1024 * 1024),
+            _ => Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword {
+                    keyword: "size unit (B, KB, MB, GB)".to_string(),
+                },
+                span: token.span,
+            }),
+        }
+    }
+
+    /// Phase 9: Parse concurrent execution block (async, I/O-bound)
+    ///
+    /// Syntax:
+    /// ```logos
+    /// Attempt all of the following:
+    ///     Call fetch_user with id.
+    ///     Call fetch_orders with id.
+    /// ```
+    fn parse_concurrent_block(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Attempt"
+
+        // Expect "all"
+        if !self.check(&TokenType::All) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "all".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "all"
+
+        // Expect "of" (preposition)
+        if !self.check_of_preposition() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "of"
+
+        // Expect "the"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "the"
+
+        // Expect "following"
+        if !self.check(&TokenType::Following) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "following".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "following"
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut task_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            task_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let tasks = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(task_stmts.into_iter());
+
+        Ok(Stmt::Concurrent { tasks })
+    }
+
+    /// Phase 9: Parse parallel execution block (CPU-bound)
+    ///
+    /// Syntax:
+    /// ```logos
+    /// Simultaneously:
+    ///     Call compute_hash with data1.
+    ///     Call compute_hash with data2.
+    /// ```
+    fn parse_parallel_block(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Simultaneously"
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse body statements
+        let mut task_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            task_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let tasks = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(task_stmts.into_iter());
+
+        Ok(Stmt::Parallel { tasks })
     }
 
     /// Phase 33: Parse Inspect statement for pattern matching
@@ -21768,10 +22198,12 @@ Entry point for type analysis. Re-exports TypeRegistry and DiscoveryPass for two
 pub mod registry;
 pub mod discovery;
 pub mod dependencies;
+pub mod escape;
 
 pub use registry::{TypeRegistry, TypeDef};
 pub use discovery::DiscoveryPass;
 pub use dependencies::{scan_dependencies, Dependency};
+pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use discovery::discover_with_imports;
@@ -23046,6 +23478,314 @@ Uses [A](file:a.md), [B](file:b.md), and [C](file:c.md).
 
 ---
 
+### Escape Analysis
+
+**File:** `src/analysis/escape.rs`
+
+Phase 8.5: Zone safety enforcement. EscapeChecker tracks variable zone depths and detects escape violations (return from zone, assignment to outer variable). Socratic error messages explain Hotel California rule. Falls back to Rust's borrow checker for complex patterns.
+
+```rust
+//! Phase 8.5: Escape Analysis for Zone Safety
+//!
+//! Implements the "Hotel California" containment rule: values can enter
+//! zones but cannot escape. This pass checks for obvious violations before
+//! codegen, providing Socratic error messages.
+//!
+//! More complex escape patterns are caught by Rust's borrow checker at
+//! compile time, but this pass catches the common cases with better errors.
+
+use std::collections::HashMap;
+use crate::ast::stmt::{Stmt, Expr, Block};
+use crate::intern::{Interner, Symbol};
+use crate::token::Span;
+
+/// Error type for escape violations
+#[derive(Debug, Clone)]
+pub struct EscapeError {
+    pub kind: EscapeErrorKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum EscapeErrorKind {
+    /// Variable cannot escape zone via return
+    ReturnEscape {
+        variable: String,
+        zone_name: String,
+    },
+    /// Variable cannot escape zone via assignment to outer variable
+    AssignmentEscape {
+        variable: String,
+        target: String,
+        zone_name: String,
+    },
+}
+
+impl std::fmt::Display for EscapeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            EscapeErrorKind::ReturnEscape { variable, zone_name } => {
+                write!(
+                    f,
+                    "Reference '{}' cannot escape zone '{}'.\n\n\
+                    Variables allocated inside a zone are deallocated when the zone ends.\n\
+                    Returning them would create a dangling reference.\n\n\
+                    Tip: Copy the data if you need it outside the zone.",
+                    variable, zone_name
+                )
+            }
+            EscapeErrorKind::AssignmentEscape { variable, target, zone_name } => {
+                write!(
+                    f,
+                    "Reference '{}' cannot escape zone '{}' via assignment to '{}'.\n\n\
+                    Variables allocated inside a zone are deallocated when the zone ends.\n\
+                    Assigning them to outer scope variables would create a dangling reference.\n\n\
+                    Tip: Copy the data if you need it outside the zone.",
+                    variable, zone_name, target
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for EscapeError {}
+
+/// Tracks the "zone depth" of variables for escape analysis
+pub struct EscapeChecker<'a> {
+    /// Maps variable symbols to their zone depth (0 = global/outside all zones)
+    zone_depth: HashMap<Symbol, usize>,
+    /// Current zone depth (increases when entering zones)
+    current_depth: usize,
+    /// Stack of zone names for error messages
+    zone_stack: Vec<Symbol>,
+    /// String interner for resolving symbols
+    interner: &'a Interner,
+}
+
+impl<'a> EscapeChecker<'a> {
+    /// Create a new escape checker
+    pub fn new(interner: &'a Interner) -> Self {
+        Self {
+            zone_depth: HashMap::new(),
+            current_depth: 0,
+            zone_stack: Vec::new(),
+            interner,
+        }
+    }
+
+    /// Check a program (list of statements) for escape violations
+    pub fn check_program(&mut self, stmts: &[Stmt<'_>]) -> Result<(), EscapeError> {
+        self.check_block(stmts)
+    }
+
+    /// Check a block of statements
+    fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), EscapeError> {
+        for stmt in stmts {
+            self.check_stmt(stmt)?;
+        }
+        Ok(())
+    }
+
+    /// Check a single statement for escape violations
+    fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), EscapeError> {
+        match stmt {
+            Stmt::Zone { name, body, .. } => {
+                // Enter zone: increase depth
+                self.current_depth += 1;
+                self.zone_stack.push(*name);
+
+                // Check body statements
+                self.check_block(body)?;
+
+                // Exit zone: decrease depth
+                self.zone_stack.pop();
+                self.current_depth -= 1;
+            }
+
+            Stmt::Let { var, .. } => {
+                // Register variable at current depth
+                self.zone_depth.insert(*var, self.current_depth);
+            }
+
+            Stmt::Return { value: Some(expr) } => {
+                // Return escapes all zones (target depth = 0)
+                self.check_no_escape(expr, 0)?;
+            }
+
+            Stmt::Set { target, value } => {
+                // Assignment: check if value escapes to target's depth
+                let target_depth = self.zone_depth.get(target).copied().unwrap_or(0);
+                self.check_no_escape_with_target(value, target_depth, *target)?;
+            }
+
+            // Recurse into nested blocks
+            Stmt::If { then_block, else_block, .. } => {
+                self.check_block(then_block)?;
+                if let Some(else_b) = else_block {
+                    self.check_block(else_b)?;
+                }
+            }
+
+            Stmt::While { body, .. } => {
+                self.check_block(body)?;
+            }
+
+            Stmt::Repeat { body, .. } => {
+                self.check_block(body)?;
+            }
+
+            Stmt::Inspect { arms, .. } => {
+                for arm in arms {
+                    self.check_block(arm.body)?;
+                }
+            }
+
+            // Other statements don't introduce escape risks
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Check that an expression doesn't escape to a shallower depth
+    fn check_no_escape(&self, expr: &Expr<'_>, max_depth: usize) -> Result<(), EscapeError> {
+        match expr {
+            Expr::Identifier(sym) => {
+                if let Some(&depth) = self.zone_depth.get(sym) {
+                    if depth > max_depth && depth > 0 {
+                        // This variable was defined in a deeper zone
+                        let zone_name = self.zone_stack.get(depth - 1)
+                            .map(|s| self.interner.resolve(*s).to_string())
+                            .unwrap_or_else(|| "unknown".to_string());
+                        let var_name = self.interner.resolve(*sym).to_string();
+                        return Err(EscapeError {
+                            kind: EscapeErrorKind::ReturnEscape {
+                                variable: var_name,
+                                zone_name,
+                            },
+                            span: Span::default(),
+                        });
+                    }
+                }
+            }
+
+            // Recurse into compound expressions
+            Expr::BinaryOp { left, right, .. } => {
+                self.check_no_escape(left, max_depth)?;
+                self.check_no_escape(right, max_depth)?;
+            }
+
+            Expr::Call { args, .. } => {
+                for arg in args {
+                    self.check_no_escape(arg, max_depth)?;
+                }
+            }
+
+            Expr::FieldAccess { object, .. } => {
+                self.check_no_escape(object, max_depth)?;
+            }
+
+            Expr::Index { collection, index } => {
+                self.check_no_escape(collection, max_depth)?;
+                self.check_no_escape(index, max_depth)?;
+            }
+
+            Expr::Slice { collection, start, end } => {
+                self.check_no_escape(collection, max_depth)?;
+                self.check_no_escape(start, max_depth)?;
+                self.check_no_escape(end, max_depth)?;
+            }
+
+            Expr::Copy { expr } | Expr::Length { collection: expr } => {
+                self.check_no_escape(expr, max_depth)?;
+            }
+
+            Expr::List(items) => {
+                for item in items {
+                    self.check_no_escape(item, max_depth)?;
+                }
+            }
+
+            Expr::Range { start, end } => {
+                self.check_no_escape(start, max_depth)?;
+                self.check_no_escape(end, max_depth)?;
+            }
+
+            Expr::New { init_fields, .. } => {
+                for (_, expr) in init_fields {
+                    self.check_no_escape(expr, max_depth)?;
+                }
+            }
+
+            Expr::NewVariant { fields, .. } => {
+                for (_, expr) in fields {
+                    self.check_no_escape(expr, max_depth)?;
+                }
+            }
+
+            // Literals are always safe
+            Expr::Literal(_) => {}
+        }
+        Ok(())
+    }
+
+    /// Check that an expression doesn't escape via assignment
+    fn check_no_escape_with_target(
+        &self,
+        expr: &Expr<'_>,
+        max_depth: usize,
+        target: Symbol,
+    ) -> Result<(), EscapeError> {
+        match expr {
+            Expr::Identifier(sym) => {
+                if let Some(&depth) = self.zone_depth.get(sym) {
+                    if depth > max_depth && depth > 0 {
+                        let zone_name = self.zone_stack.get(depth - 1)
+                            .map(|s| self.interner.resolve(*s).to_string())
+                            .unwrap_or_else(|| "unknown".to_string());
+                        let var_name = self.interner.resolve(*sym).to_string();
+                        let target_name = self.interner.resolve(target).to_string();
+                        return Err(EscapeError {
+                            kind: EscapeErrorKind::AssignmentEscape {
+                                variable: var_name,
+                                target: target_name,
+                                zone_name,
+                            },
+                            span: Span::default(),
+                        });
+                    }
+                }
+            }
+            // For compound expressions, use the simpler check (return style error)
+            _ => self.check_no_escape(expr, max_depth)?,
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Note: Full integration tests are in tests/phase85_zones.rs
+    // These unit tests verify the basic mechanics of the escape checker
+
+    #[test]
+    fn test_escape_checker_basic() {
+        use crate::intern::Interner;
+
+        let mut interner = Interner::new();
+        let checker = EscapeChecker::new(&interner);
+
+        // Just verify creation works
+        assert_eq!(checker.current_depth, 0);
+        assert!(checker.zone_depth.is_empty());
+    }
+}
+
+```
+
+---
+
 ## Code Generation
 
 Rust code emission from imperative AST.
@@ -23203,6 +23943,17 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
         }
         Stmt::Repeat { body, .. } => {
             for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        // Phase 9: Structured Concurrency blocks
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
                 collect_mutable_vars_stmt(s, targets);
             }
         }
@@ -23792,6 +24543,120 @@ pub fn codegen_stmt<'a>(
             // 1-based indexing: item 2 of items → items[1]
             writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
+
+        // Phase 8.5: Zone (memory arena) block
+        Stmt::Zone { name, capacity, source_file, body } => {
+            let zone_name = interner.resolve(*name);
+
+            // Generate zone creation based on type
+            if let Some(path_sym) = source_file {
+                // Memory-mapped file zone
+                let path = interner.resolve(*path_sym);
+                writeln!(
+                    output,
+                    "{}let {} = logos_core::memory::Zone::new_mapped(\"{}\").expect(\"Failed to map file\");",
+                    indent_str, zone_name, path
+                ).unwrap();
+            } else {
+                // Heap arena zone
+                let cap = capacity.unwrap_or(4096); // Default 4KB
+                writeln!(
+                    output,
+                    "{}let {} = logos_core::memory::Zone::new_heap({});",
+                    indent_str, zone_name, cap
+                ).unwrap();
+            }
+
+            // Open block scope
+            writeln!(output, "{}{{", indent_str).unwrap();
+            ctx.push_scope();
+
+            // Generate body statements
+            for stmt in *body {
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+            }
+
+            ctx.pop_scope();
+            writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        // Phase 9: Concurrent execution block (async, I/O-bound)
+        // Generates tokio::join! for concurrent task execution
+        Stmt::Concurrent { tasks } => {
+            // Collect Let statements to generate tuple destructuring
+            let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(interner.resolve(*var).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+
+            if !let_bindings.is_empty() {
+                // Generate tuple destructuring for concurrent Let bindings
+                writeln!(output, "{}let ({}) = tokio::join!(", indent_str, let_bindings.join(", ")).unwrap();
+            } else {
+                writeln!(output, "{}tokio::join!(", indent_str).unwrap();
+            }
+
+            for (i, stmt) in tasks.iter().enumerate() {
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                // Wrap each statement in an async block
+                write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
+                if i < tasks.len() - 1 {
+                    writeln!(output, ",").unwrap();
+                } else {
+                    writeln!(output).unwrap();
+                }
+            }
+
+            writeln!(output, "{});", indent_str).unwrap();
+        }
+
+        // Phase 9: Parallel execution block (CPU-bound)
+        // Generates rayon::join for two tasks, or thread::spawn for 3+ tasks
+        Stmt::Parallel { tasks } => {
+            // Collect Let statements to generate tuple destructuring
+            let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(interner.resolve(*var).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+
+            if tasks.len() == 2 {
+                // Use rayon::join for exactly 2 tasks
+                if !let_bindings.is_empty() {
+                    writeln!(output, "{}let ({}) = rayon::join(", indent_str, let_bindings.join(", ")).unwrap();
+                } else {
+                    writeln!(output, "{}rayon::join(", indent_str).unwrap();
+                }
+
+                for (i, stmt) in tasks.iter().enumerate() {
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                    write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
+                    if i == 0 {
+                        writeln!(output, ",").unwrap();
+                    } else {
+                        writeln!(output).unwrap();
+                    }
+                }
+                writeln!(output, "{});", indent_str).unwrap();
+            } else {
+                // For 3+ tasks, use thread::spawn pattern
+                writeln!(output, "{}{{", indent_str).unwrap();
+                writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
+                for stmt in *tasks {
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx);
+                    writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
+                             indent_str, inner.trim()).unwrap();
+                }
+                writeln!(output, "{}    ];", indent_str).unwrap();
+                writeln!(output, "{}    for h in handles {{ h.join().unwrap(); }}", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+            }
+        }
     }
 
     output
@@ -24030,17 +24895,21 @@ const LOGOS_CORE_FILE: &str = include_str!("../logos_core/src/file.rs");
 const LOGOS_CORE_TIME: &str = include_str!("../logos_core/src/time.rs");
 const LOGOS_CORE_RANDOM: &str = include_str!("../logos_core/src/random.rs");
 const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
+// Phase 8.5: Zone-based memory management
+const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::DiscoveryPass;
+use crate::analysis::{DiscoveryPass, EscapeChecker, EscapeError};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
 use crate::context::DiscourseContext;
+use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
 use crate::error::ParseError;
 use crate::intern::Interner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::sourcemap::SourceMap;
 
 /// Compile LOGOS source to Rust source code.
 pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
@@ -24084,6 +24953,19 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis - check for zone escape violations
+    // This catches obvious cases like returning zone-local variables
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        // Convert EscapeError to ParseError for now
+        // The error message is already Socratic from EscapeChecker
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
     let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
     Ok(rust_code)
@@ -24152,6 +25034,9 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
         .map_err(|e| CompileError::Io(e.to_string()))?;
     fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
         .map_err(|e| CompileError::Io(e.to_string()))?;
+    // Phase 8.5: Zone-based memory management
+    fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
 
     Ok(())
 }
@@ -24160,15 +25045,32 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
 pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, CompileError> {
     compile_to_dir(source, output_dir)?;
 
-    // Run cargo build
+    // Run cargo build with JSON message format for structured error parsing
     let build_output = Command::new("cargo")
         .arg("build")
+        .arg("--message-format=json")
         .current_dir(output_dir)
         .output()
         .map_err(|e| CompileError::Io(e.to_string()))?;
 
     if !build_output.status.success() {
         let stderr = String::from_utf8_lossy(&build_output.stderr);
+        let stdout = String::from_utf8_lossy(&build_output.stdout);
+
+        // Try to parse JSON diagnostics and translate them
+        let diagnostics = parse_rustc_json(&stdout);
+
+        if !diagnostics.is_empty() {
+            // Create a basic source map with the LOGOS source
+            let source_map = SourceMap::new(source.to_string());
+            let interner = Interner::new();
+
+            if let Some(logos_error) = translate_diagnostics(&diagnostics, &source_map, &interner) {
+                return Err(CompileError::Ownership(logos_error));
+            }
+        }
+
+        // Fallback to raw error if translation fails
         return Err(CompileError::Build(stderr.to_string()));
     }
 
@@ -24255,6 +25157,8 @@ pub enum CompileError {
     Io(String),
     Build(String),
     Runtime(String),
+    /// Translated ownership/borrow checker error with friendly LOGOS message
+    Ownership(LogosError),
 }
 
 impl std::fmt::Display for CompileError {
@@ -24264,6 +25168,7 @@ impl std::fmt::Display for CompileError {
             CompileError::Io(e) => write!(f, "IO error: {}", e),
             CompileError::Build(e) => write!(f, "Build error: {}", e),
             CompileError::Runtime(e) => write!(f, "Runtime error: {}", e),
+            CompileError::Ownership(e) => write!(f, "{}", e),
         }
     }
 }
@@ -25989,6 +26894,11 @@ pub mod audio;
 pub mod codegen;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod compile;
+// Diagnostic Bridge for ownership error translation
+#[cfg(not(target_arch = "wasm32"))]
+pub mod diagnostic;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sourcemap;
 pub mod content;
 pub mod context;
 pub mod debug;
@@ -29253,6 +30163,8 @@ pub enum ParseErrorKind {
     },
     // Phase 43C: Refinement types
     InvalidRefinementPredicate,
+    // Phase 8.5: Escape analysis errors
+    Custom(String),
 }
 
 #[cold]
@@ -29453,6 +30365,8 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 pos
             )
         }
+        // Phase 8.5: Escape analysis - the message is already Socratic
+        ParseErrorKind::Custom(msg) => msg.clone(),
     }
 }
 
@@ -29504,6 +30418,643 @@ mod tests {
         let source = "Alll men are mortal.";
         let display = error.display_with_source(source);
         assert!(display.contains("\x1b["), "Should contain ANSI escape codes: {}", display);
+    }
+}
+
+```
+
+---
+
+### Diagnostic Bridge
+
+**File:** `src/diagnostic.rs`
+
+Translates Rust borrow checker errors into friendly LOGOS messages. Parses rustc JSON output (E0382, E0597, E0505) and maps errors back to LOGOS source via SourceMap. LogosError struct with title, explanation, suggestion fields. Socratic messages explain ownership semantics.
+
+```rust
+//! Diagnostic Bridge for LOGOS
+//!
+//! Translates Rust borrow checker errors into friendly LOGOS error messages.
+//! Parses rustc JSON output and maps errors back to LOGOS source.
+
+use crate::intern::Interner;
+use crate::sourcemap::{OwnershipRole, SourceMap};
+use crate::style::Style;
+use crate::token::Span;
+use serde::Deserialize;
+
+/// A translated error message for LOGOS users.
+#[derive(Debug, Clone)]
+pub struct LogosError {
+    pub title: String,
+    pub explanation: String,
+    pub logos_span: Option<Span>,
+    pub suggestion: Option<String>,
+}
+
+impl std::fmt::Display for LogosError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}: {}", Style::bold_red("ownership error"), self.title)?;
+        writeln!(f)?;
+        writeln!(f, "{}", self.explanation)?;
+        if let Some(suggestion) = &self.suggestion {
+            writeln!(f)?;
+            writeln!(f, "{}: {}", Style::cyan("suggestion"), suggestion)?;
+        }
+        Ok(())
+    }
+}
+
+// =============================================================================
+// Rustc JSON Diagnostic Types
+// =============================================================================
+
+/// Rustc JSON diagnostic message (subset of fields we need).
+#[derive(Debug, Deserialize)]
+pub struct RustcDiagnostic {
+    pub message: String,
+    pub code: Option<RustcCode>,
+    pub level: String,
+    pub spans: Vec<RustcSpan>,
+    #[serde(default)]
+    pub children: Vec<RustcDiagnostic>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RustcCode {
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RustcSpan {
+    pub file_name: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub column_start: u32,
+    pub column_end: u32,
+    pub is_primary: bool,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub text: Vec<RustcSpanText>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RustcSpanText {
+    pub text: String,
+    pub highlight_start: u32,
+    pub highlight_end: u32,
+}
+
+/// Parsed rustc output: either a diagnostic or artifact info.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "reason")]
+#[serde(rename_all = "kebab-case")]
+pub enum RustcMessage {
+    CompilerMessage { message: RustcDiagnostic },
+    #[serde(other)]
+    Other,
+}
+
+// =============================================================================
+// JSON Parsing
+// =============================================================================
+
+/// Parse rustc stderr output from `cargo build --message-format=json`.
+pub fn parse_rustc_json(stderr: &str) -> Vec<RustcDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for line in stderr.lines() {
+        // Skip empty lines and non-JSON output
+        if !line.starts_with('{') {
+            continue;
+        }
+
+        match serde_json::from_str::<RustcMessage>(line) {
+            Ok(RustcMessage::CompilerMessage { message }) => {
+                if message.level == "error" {
+                    diagnostics.push(message);
+                }
+            }
+            Ok(RustcMessage::Other) => {} // Ignore artifacts, build-finished, etc.
+            Err(_) => {} // Ignore malformed lines
+        }
+    }
+
+    diagnostics
+}
+
+/// Extract error code from a diagnostic.
+pub fn get_error_code(diag: &RustcDiagnostic) -> Option<&str> {
+    diag.code.as_ref().map(|c| c.code.as_str())
+}
+
+/// Extract the primary span from a diagnostic.
+pub fn get_primary_span(diag: &RustcDiagnostic) -> Option<&RustcSpan> {
+    diag.spans.iter().find(|s| s.is_primary)
+}
+
+/// Extract variable name from rustc error message.
+/// Example: "use of moved value: `data`" -> "data"
+fn extract_var_from_message(message: &str, prefix: &str, suffix: &str) -> Option<String> {
+    let start = message.find(prefix)?;
+    let after_prefix = &message[start + prefix.len()..];
+    let end = after_prefix.find(suffix)?;
+    Some(after_prefix[..end].to_string())
+}
+
+// =============================================================================
+// Diagnostic Bridge
+// =============================================================================
+
+/// Translates rustc diagnostics into LOGOS error messages.
+pub struct DiagnosticBridge<'a> {
+    source_map: &'a SourceMap,
+    interner: &'a Interner,
+}
+
+impl<'a> DiagnosticBridge<'a> {
+    pub fn new(source_map: &'a SourceMap, interner: &'a Interner) -> Self {
+        Self { source_map, interner }
+    }
+
+    /// Translate a rustc diagnostic into a LOGOS error.
+    pub fn translate(&self, diag: &RustcDiagnostic) -> Option<LogosError> {
+        let code = get_error_code(diag)?;
+        let span = get_primary_span(diag);
+
+        match code {
+            "E0382" => self.translate_use_after_move(diag, span),
+            "E0505" => self.translate_move_while_borrowed(diag, span),
+            "E0597" => self.translate_lifetime_error(diag, span),
+            _ => self.translate_generic(diag, span),
+        }
+    }
+
+    /// E0382: "use of moved value: `x`"
+    /// LOGOS: "You already gave X away - you can't use it anymore"
+    fn translate_use_after_move(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let var_name = extract_var_from_message(&diag.message, "value: `", "`")
+            .or_else(|| extract_var_from_message(&diag.message, "value `", "`"))?;
+
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        // Look up variable origin if available
+        let (logos_name, role) = if let Some(origin) = self.source_map.get_var_origin(&var_name) {
+            (self.interner.resolve(origin.logos_name).to_string(), Some(origin.role))
+        } else {
+            (var_name.clone(), None)
+        };
+
+        let explanation = match role {
+            Some(OwnershipRole::GiveObject) => format!(
+                "You gave '{}' away with a Give statement, so you can't use it anymore.\n\
+                In LOGOS, 'Give X to Y' transfers ownership - X moves to Y and leaves your hands.\n\
+                This is like handing someone a physical object: once given, you no longer have it.",
+                logos_name
+            ),
+            Some(OwnershipRole::LetBinding) | None => format!(
+                "The value '{}' was moved somewhere else and can't be used again.\n\
+                Check if you used 'Give' or passed it to a function that took ownership.",
+                logos_name
+            ),
+            _ => format!(
+                "The value '{}' has been moved and is no longer available.",
+                logos_name
+            ),
+        };
+
+        let suggestion = Some(format!(
+            "If you need to use '{}' after giving it away, either:\n\
+             1. Use 'Show {} to Y' instead (this borrows, keeping ownership)\n\
+             2. Use 'a copy of {}' before the Give",
+            logos_name, logos_name, logos_name
+        ));
+
+        Some(LogosError {
+            title: format!("Cannot use '{}' after giving it away", logos_name),
+            explanation,
+            logos_span,
+            suggestion,
+        })
+    }
+
+    /// E0505: "cannot move out of `x` because it is borrowed"
+    /// LOGOS: "You're trying to give X away while someone is still looking at it"
+    fn translate_move_while_borrowed(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let var_name = extract_var_from_message(&diag.message, "out of `", "`")
+            .or_else(|| extract_var_from_message(&diag.message, "move out of `", "`"))?;
+
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        let logos_name = if let Some(origin) = self.source_map.get_var_origin(&var_name) {
+            self.interner.resolve(origin.logos_name).to_string()
+        } else {
+            var_name.clone()
+        };
+
+        let explanation = format!(
+            "You showed '{}' to someone (creating a temporary view),\n\
+            but then tried to give it away before they finished looking.\n\
+            In LOGOS, 'Show' creates a promise that the data won't change or disappear\n\
+            while being viewed. You can't break that promise by giving it away.",
+            logos_name
+        );
+
+        let suggestion = Some(format!(
+            "Make sure all 'Show' usages of '{}' complete before any 'Give'.\n\
+            Alternatively, give away a copy: 'Give a copy of {} to Y'",
+            logos_name, logos_name
+        ));
+
+        Some(LogosError {
+            title: format!("Cannot give '{}' while it's being shown", logos_name),
+            explanation,
+            logos_span,
+            suggestion,
+        })
+    }
+
+    /// E0597: "borrowed value does not live long enough"
+    /// LOGOS: "You can't take a reference outside its zone" (Hotel California)
+    fn translate_lifetime_error(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        // Check if this is zone-related by looking at the message and children
+        let is_zone_related = diag.message.contains("borrowed")
+            || diag.children.iter().any(|c| c.message.contains("dropped"));
+
+        let explanation = if is_zone_related {
+            "A value created inside a Zone cannot be referenced from outside.\n\
+            Zones are memory arenas - when the Zone ends, everything inside it is released.\n\
+            This is the 'Hotel California' rule: data can check in (be created),\n\
+            but references can't check out (escape the Zone).".to_string()
+        } else {
+            "A borrowed reference is being used after the original value has gone away.\n\
+            References are temporary views - they can't outlive what they're viewing.".to_string()
+        };
+
+        let suggestion = Some(
+            "If you need the data after the Zone ends, either:\n\
+             1. Move the data out with 'Give' before the Zone closes\n\
+             2. Copy the data: 'Let result be a copy of zone_data'\n\
+             3. Restructure so the computation completes inside the Zone".to_string()
+        );
+
+        Some(LogosError {
+            title: "Reference cannot outlive its data".to_string(),
+            explanation,
+            logos_span,
+            suggestion,
+        })
+    }
+
+    /// Fallback for other errors - provide the raw message with context.
+    fn translate_generic(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        // Try to extract any variable name
+        let var_hint = if let Some(start) = diag.message.find('`') {
+            if let Some(end) = diag.message[start + 1..].find('`') {
+                Some(&diag.message[start + 1..start + 1 + end])
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let explanation = if let Some(var) = var_hint {
+            format!(
+                "The Rust compiler reported an error involving '{}':\n{}",
+                var, diag.message
+            )
+        } else {
+            format!("The Rust compiler reported an error:\n{}", diag.message)
+        };
+
+        Some(LogosError {
+            title: "Compilation error".to_string(),
+            explanation,
+            logos_span,
+            suggestion: None,
+        })
+    }
+}
+
+/// Attempt to translate all diagnostics and return the first translated error.
+pub fn translate_diagnostics(
+    diagnostics: &[RustcDiagnostic],
+    source_map: &SourceMap,
+    interner: &Interner,
+) -> Option<LogosError> {
+    let bridge = DiagnosticBridge::new(source_map, interner);
+
+    for diag in diagnostics {
+        if let Some(error) = bridge.translate(diag) {
+            return Some(error);
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_rustc_json_extracts_errors() {
+        let json_output = r#"{"reason":"compiler-message","message":{"message":"use of moved value: `x`","code":{"code":"E0382"},"level":"error","spans":[{"file_name":"src/main.rs","line_start":5,"line_end":5,"column_start":10,"column_end":11,"is_primary":true,"label":null,"text":[]}],"children":[]}}
+{"reason":"build-finished","success":false}"#;
+
+        let diagnostics = parse_rustc_json(json_output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "use of moved value: `x`");
+        assert_eq!(get_error_code(&diagnostics[0]), Some("E0382"));
+    }
+
+    #[test]
+    fn extract_var_from_message_works() {
+        assert_eq!(
+            extract_var_from_message("use of moved value: `data`", "value: `", "`"),
+            Some("data".to_string())
+        );
+        assert_eq!(
+            extract_var_from_message("cannot move out of `x` because", "out of `", "`"),
+            Some("x".to_string())
+        );
+    }
+
+    #[test]
+    fn translate_e0382_creates_friendly_error() {
+        let interner = Interner::new();
+        let source_map = SourceMap::new("Let data be 5.\nGive data to processor.".to_string());
+
+        let diag = RustcDiagnostic {
+            message: "use of moved value: `data`".to_string(),
+            code: Some(RustcCode { code: "E0382".to_string() }),
+            level: "error".to_string(),
+            spans: vec![RustcSpan {
+                file_name: "src/main.rs".to_string(),
+                line_start: 3,
+                line_end: 3,
+                column_start: 10,
+                column_end: 14,
+                is_primary: true,
+                label: None,
+                text: vec![],
+            }],
+            children: vec![],
+        };
+
+        let bridge = DiagnosticBridge::new(&source_map, &interner);
+        let error = bridge.translate(&diag).expect("Should translate");
+
+        assert!(error.title.contains("data"));
+        assert!(error.title.contains("giving it away"));
+        assert!(error.explanation.contains("moved"));
+        assert!(error.suggestion.is_some());
+    }
+
+    #[test]
+    fn translate_e0597_creates_hotel_california_error() {
+        let interner = Interner::new();
+        let source_map = SourceMap::new("Inside a zone:\n    Let x be 5.".to_string());
+
+        let diag = RustcDiagnostic {
+            message: "borrowed value does not live long enough".to_string(),
+            code: Some(RustcCode { code: "E0597".to_string() }),
+            level: "error".to_string(),
+            spans: vec![RustcSpan {
+                file_name: "src/main.rs".to_string(),
+                line_start: 5,
+                line_end: 5,
+                column_start: 1,
+                column_end: 10,
+                is_primary: true,
+                label: None,
+                text: vec![],
+            }],
+            children: vec![],
+        };
+
+        let bridge = DiagnosticBridge::new(&source_map, &interner);
+        let error = bridge.translate(&diag).expect("Should translate");
+
+        assert!(error.title.contains("outlive"));
+        assert!(error.explanation.contains("Zone") || error.explanation.contains("borrowed"));
+    }
+}
+
+```
+
+---
+
+### Source Map
+
+**File:** `src/sourcemap.rs`
+
+Maps generated Rust code back to LOGOS source positions. OwnershipRole enum (GiveObject, GiveRecipient, ShowObject, ShowRecipient, LetBinding, SetTarget, ZoneLocal) tracks semantic context. VarOrigin stores logos_name, span, and role. Enables friendly error messages for ownership/lifetime violations.
+
+```rust
+//! Source Map for Diagnostic Bridge
+//!
+//! Maps generated Rust code back to LOGOS source positions,
+//! enabling friendly error messages for ownership/lifetime errors.
+
+use crate::intern::Symbol;
+use crate::token::Span;
+use std::collections::HashMap;
+
+/// Semantic role of a variable in LOGOS ownership semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnershipRole {
+    /// The object being moved in "Give X to Y"
+    GiveObject,
+    /// The recipient in "Give X to Y"
+    GiveRecipient,
+    /// The object being borrowed in "Show X to Y"
+    ShowObject,
+    /// The recipient in "Show X to Y"
+    ShowRecipient,
+    /// A Let-bound variable
+    LetBinding,
+    /// Target of a Set statement
+    SetTarget,
+    /// Variable allocated inside a Zone
+    ZoneLocal,
+}
+
+/// Variable origin tracking for error translation.
+#[derive(Debug, Clone)]
+pub struct VarOrigin {
+    pub logos_name: Symbol,
+    pub span: Span,
+    pub role: OwnershipRole,
+}
+
+/// Maps generated Rust code back to LOGOS source.
+#[derive(Debug, Clone, Default)]
+pub struct SourceMap {
+    /// Maps line in generated Rust -> Span in LOGOS source
+    line_to_span: HashMap<u32, Span>,
+
+    /// Maps generated Rust variable names -> LOGOS origin info
+    var_origins: HashMap<String, VarOrigin>,
+
+    /// The original LOGOS source code (for error display)
+    logos_source: String,
+}
+
+impl SourceMap {
+    /// Create a new empty source map.
+    pub fn new(logos_source: String) -> Self {
+        Self {
+            line_to_span: HashMap::new(),
+            var_origins: HashMap::new(),
+            logos_source,
+        }
+    }
+
+    /// Get the LOGOS span for a given Rust line number.
+    pub fn get_span_for_line(&self, line: u32) -> Option<Span> {
+        self.line_to_span.get(&line).copied()
+    }
+
+    /// Get the origin info for a Rust variable name.
+    pub fn get_var_origin(&self, rust_var: &str) -> Option<&VarOrigin> {
+        self.var_origins.get(rust_var)
+    }
+
+    /// Get the original LOGOS source.
+    pub fn logos_source(&self) -> &str {
+        &self.logos_source
+    }
+
+    /// Find the closest LOGOS span by searching nearby lines.
+    pub fn find_nearest_span(&self, rust_line: u32) -> Option<Span> {
+        // Try exact match first
+        if let Some(span) = self.line_to_span.get(&rust_line) {
+            return Some(*span);
+        }
+
+        // Search nearby lines (within 5 lines)
+        for offset in 1..=5 {
+            if rust_line > offset {
+                if let Some(span) = self.line_to_span.get(&(rust_line - offset)) {
+                    return Some(*span);
+                }
+            }
+            if let Some(span) = self.line_to_span.get(&(rust_line + offset)) {
+                return Some(*span);
+            }
+        }
+
+        None
+    }
+}
+
+/// Builder for constructing a SourceMap during code generation.
+#[derive(Debug)]
+pub struct SourceMapBuilder {
+    current_line: u32,
+    map: SourceMap,
+}
+
+impl SourceMapBuilder {
+    /// Create a new builder with the LOGOS source.
+    pub fn new(logos_source: &str) -> Self {
+        Self {
+            current_line: 1,
+            map: SourceMap::new(logos_source.to_string()),
+        }
+    }
+
+    /// Record a mapping from current Rust line to LOGOS span.
+    pub fn record_line(&mut self, logos_span: Span) {
+        self.map.line_to_span.insert(self.current_line, logos_span);
+    }
+
+    /// Record a variable origin.
+    pub fn record_var(&mut self, rust_name: &str, logos_name: Symbol, span: Span, role: OwnershipRole) {
+        self.map.var_origins.insert(
+            rust_name.to_string(),
+            VarOrigin {
+                logos_name,
+                span,
+                role,
+            },
+        );
+    }
+
+    /// Advance to the next line.
+    pub fn newline(&mut self) {
+        self.current_line += 1;
+    }
+
+    /// Add multiple newlines.
+    pub fn add_lines(&mut self, count: u32) {
+        self.current_line += count;
+    }
+
+    /// Get current line number.
+    pub fn current_line(&self) -> u32 {
+        self.current_line
+    }
+
+    /// Build the final source map.
+    pub fn build(self) -> SourceMap {
+        self.map
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_map_stores_line_mappings() {
+        let mut map = SourceMap::new("Let x be 5.".to_string());
+        map.line_to_span.insert(1, Span::new(0, 11));
+
+        assert_eq!(map.get_span_for_line(1), Some(Span::new(0, 11)));
+        assert_eq!(map.get_span_for_line(2), None);
+    }
+
+    #[test]
+    fn source_map_builder_tracks_lines() {
+        let mut builder = SourceMapBuilder::new("test source");
+        assert_eq!(builder.current_line(), 1);
+
+        builder.newline();
+        assert_eq!(builder.current_line(), 2);
+
+        builder.add_lines(3);
+        assert_eq!(builder.current_line(), 5);
+    }
+
+    #[test]
+    fn source_map_builder_records_spans() {
+        let mut builder = SourceMapBuilder::new("Let x be 5.\nLet y be 10.");
+        builder.record_line(Span::new(0, 11));
+        builder.newline();
+        builder.record_line(Span::new(12, 24));
+
+        let map = builder.build();
+        assert_eq!(map.get_span_for_line(1), Some(Span::new(0, 11)));
+        assert_eq!(map.get_span_for_line(2), Some(Span::new(12, 24)));
+    }
+
+    #[test]
+    fn find_nearest_span_searches_nearby() {
+        let mut builder = SourceMapBuilder::new("source");
+        builder.record_line(Span::new(0, 10));
+        builder.add_lines(5);
+        // Line 1 has span, lines 2-6 don't
+
+        let map = builder.build();
+        // Line 3 should find line 1's span
+        assert_eq!(map.find_nearest_span(3), Some(Span::new(0, 10)));
     }
 }
 
@@ -44462,6 +46013,7 @@ pub mod file;
 pub mod time;
 pub mod random;
 pub mod env;
+pub mod memory;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -44515,6 +46067,8 @@ pub mod prelude {
     // Phase 43D: Collection indexing helpers
     pub use crate::logos_index;
     pub use crate::logos_index_mut;
+    // Phase 8.5: Zone-based memory management
+    pub use crate::memory::Zone;
 }
 
 #[cfg(test)]
@@ -44810,6 +46364,232 @@ pub fn get(key: String) -> Option<String> {
 /// Get command-line arguments.
 pub fn args() -> Vec<String> {
     std_env::args().collect()
+}
+
+```
+
+---
+
+### Zone Memory Management
+
+**File:** `logos_core/src/memory.rs`
+
+Phase 8.5 & 8.6: Zone-based memory. Zone enum with Heap (bumpalo arena) and Mapped (memmap2 file) variants. new_heap(capacity) for arena allocation, new_mapped(path) for zero-copy file IO. alloc()/alloc_slice() for heap zones, as_slice() for mapped zones. reset() for bulk deallocation. Implements 'Hotel California' rule: values can enter but cannot escape.
+
+```rust
+//! Phase 8.5 & 8.6: Zone-based Memory Management
+//!
+//! Zones provide region-based allocation with O(1) allocation and bulk deallocation.
+//! Two backing strategies are supported:
+//! - Heap: Fast arena allocation via bumpalo
+//! - Mapped: Zero-copy file mapping via memmap2
+
+use std::fs::File;
+use std::io;
+use std::path::Path;
+
+/// A memory region for batch allocation and bulk deallocation.
+///
+/// Zones implement the "Hotel California" rule: values can enter but cannot
+/// escape. This enables safe O(1) deallocation when the zone goes out of scope.
+pub enum Zone {
+    /// Dynamic heap-allocated arena (Scratchpad).
+    /// Use for temporary allocations that can be bulk-freed.
+    Heap(bumpalo::Bump),
+    /// Memory-mapped file (Zero-copy IO).
+    /// Provides read-only access to file contents without loading into memory.
+    Mapped(memmap2::Mmap),
+}
+
+impl Zone {
+    /// Create a new empty zone on the heap with pre-sized capacity.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let zone = Zone::new_heap(1024 * 1024); // 1 MB arena
+    /// let x = zone.alloc(42);
+    /// ```
+    pub fn new_heap(capacity_bytes: usize) -> Self {
+        Zone::Heap(bumpalo::Bump::with_capacity(capacity_bytes))
+    }
+
+    /// Create a new zone backed by a memory-mapped file.
+    ///
+    /// # Safety
+    /// The file should not be modified by other processes while mapped.
+    /// Standard mmap safety caveats apply.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let zone = Zone::new_mapped("data.bin")?;
+    /// let bytes = zone.as_slice();
+    /// ```
+    pub fn new_mapped<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        let file = File::open(path)?;
+        // SAFETY: We assume the file is not concurrently modified by other
+        // processes in a way that causes undefined behavior.
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
+        Ok(Zone::Mapped(mmap))
+    }
+
+    /// Allocate a value inside the zone.
+    ///
+    /// Returns a reference with lifetime tied to the zone.
+    /// Only valid for Heap zones; Mapped zones are read-only.
+    ///
+    /// # Panics
+    /// Panics if called on a Mapped zone.
+    pub fn alloc<T>(&self, val: T) -> &T {
+        match self {
+            Zone::Heap(bump) => bump.alloc(val),
+            Zone::Mapped(_) => panic!(
+                "Cannot allocate into a read-only Mapped Zone. \
+                 Use Zone::new_heap() for allocations."
+            ),
+        }
+    }
+
+    /// Allocate a slice inside the zone.
+    ///
+    /// Only valid for Heap zones.
+    ///
+    /// # Panics
+    /// Panics if called on a Mapped zone.
+    pub fn alloc_slice<T: Copy>(&self, vals: &[T]) -> &[T] {
+        match self {
+            Zone::Heap(bump) => bump.alloc_slice_copy(vals),
+            Zone::Mapped(_) => panic!(
+                "Cannot allocate into a read-only Mapped Zone. \
+                 Use Zone::new_heap() for allocations."
+            ),
+        }
+    }
+
+    /// Get a reference to the mapped memory as a byte slice.
+    ///
+    /// Only valid for Mapped zones.
+    ///
+    /// # Panics
+    /// Panics if called on a Heap zone.
+    pub fn as_slice(&self) -> &[u8] {
+        match self {
+            Zone::Heap(_) => panic!(
+                "Heap zones do not have a flat byte slice representation. \
+                 Use Zone::new_mapped() for file access."
+            ),
+            Zone::Mapped(mmap) => &mmap[..],
+        }
+    }
+
+    /// Reset the zone, deallocating all allocations.
+    ///
+    /// For Heap zones, this resets the bump allocator.
+    /// For Mapped zones, this is a no-op.
+    pub fn reset(&mut self) {
+        if let Zone::Heap(bump) = self {
+            bump.reset();
+        }
+    }
+
+    /// Returns true if this is a Heap zone.
+    pub fn is_heap(&self) -> bool {
+        matches!(self, Zone::Heap(_))
+    }
+
+    /// Returns true if this is a Mapped zone.
+    pub fn is_mapped(&self) -> bool {
+        matches!(self, Zone::Mapped(_))
+    }
+
+    /// Returns the current allocated bytes for Heap zones.
+    /// Returns the file size for Mapped zones.
+    pub fn allocated_bytes(&self) -> usize {
+        match self {
+            Zone::Heap(bump) => bump.allocated_bytes(),
+            Zone::Mapped(mmap) => mmap.len(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn test_heap_zone_alloc() {
+        let zone = Zone::new_heap(1024);
+        let x = zone.alloc(42i64);
+        assert_eq!(*x, 42);
+
+        let y = zone.alloc(String::from("hello"));
+        assert_eq!(y, "hello");
+    }
+
+    #[test]
+    fn test_heap_zone_alloc_slice() {
+        let zone = Zone::new_heap(1024);
+        let data = [1, 2, 3, 4, 5];
+        let slice = zone.alloc_slice(&data);
+        assert_eq!(slice, &[1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn test_heap_zone_reset() {
+        let mut zone = Zone::new_heap(1024);
+        let _ = zone.alloc(42);
+        let before = zone.allocated_bytes();
+        assert!(before > 0);
+
+        zone.reset();
+        // After reset, we can allocate again from the beginning
+        let _ = zone.alloc(42);
+    }
+
+    #[test]
+    fn test_mapped_zone() {
+        // Create a temp file
+        let mut temp = tempfile::NamedTempFile::new().unwrap();
+        temp.write_all(b"Hello, Zone!").unwrap();
+        temp.flush().unwrap();
+
+        let zone = Zone::new_mapped(temp.path()).unwrap();
+        assert!(zone.is_mapped());
+        assert_eq!(zone.as_slice(), b"Hello, Zone!");
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot allocate into a read-only Mapped Zone")]
+    fn test_mapped_zone_alloc_panics() {
+        let mut temp = tempfile::NamedTempFile::new().unwrap();
+        temp.write_all(b"test").unwrap();
+        temp.flush().unwrap();
+
+        let zone = Zone::new_mapped(temp.path()).unwrap();
+        let _ = zone.alloc(42); // Should panic
+    }
+
+    #[test]
+    #[should_panic(expected = "Heap zones do not have a flat byte slice")]
+    fn test_heap_zone_as_slice_panics() {
+        let zone = Zone::new_heap(1024);
+        let _ = zone.as_slice(); // Should panic
+    }
+
+    #[test]
+    fn test_zone_type_checks() {
+        let heap = Zone::new_heap(1024);
+        assert!(heap.is_heap());
+        assert!(!heap.is_mapped());
+
+        let mut temp = tempfile::NamedTempFile::new().unwrap();
+        temp.write_all(b"test").unwrap();
+        temp.flush().unwrap();
+
+        let mapped = Zone::new_mapped(temp.path()).unwrap();
+        assert!(mapped.is_mapped());
+        assert!(!mapped.is_heap());
+    }
 }
 
 ```
@@ -46177,6 +47957,17 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
                 collect_mutable_vars_stmt(s, targets);
             }
         }
+        Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        // Phase 9: Structured Concurrency blocks
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
+                collect_mutable_vars_stmt(s, targets);
+            }
+        }
         _ => {}
     }
 }
@@ -46763,6 +48554,120 @@ pub fn codegen_stmt<'a>(
             // 1-based indexing: item 2 of items → items[1]
             writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
+
+        // Phase 8.5: Zone (memory arena) block
+        Stmt::Zone { name, capacity, source_file, body } => {
+            let zone_name = interner.resolve(*name);
+
+            // Generate zone creation based on type
+            if let Some(path_sym) = source_file {
+                // Memory-mapped file zone
+                let path = interner.resolve(*path_sym);
+                writeln!(
+                    output,
+                    "{}let {} = logos_core::memory::Zone::new_mapped(\"{}\").expect(\"Failed to map file\");",
+                    indent_str, zone_name, path
+                ).unwrap();
+            } else {
+                // Heap arena zone
+                let cap = capacity.unwrap_or(4096); // Default 4KB
+                writeln!(
+                    output,
+                    "{}let {} = logos_core::memory::Zone::new_heap({});",
+                    indent_str, zone_name, cap
+                ).unwrap();
+            }
+
+            // Open block scope
+            writeln!(output, "{}{{", indent_str).unwrap();
+            ctx.push_scope();
+
+            // Generate body statements
+            for stmt in *body {
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+            }
+
+            ctx.pop_scope();
+            writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        // Phase 9: Concurrent execution block (async, I/O-bound)
+        // Generates tokio::join! for concurrent task execution
+        Stmt::Concurrent { tasks } => {
+            // Collect Let statements to generate tuple destructuring
+            let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(interner.resolve(*var).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+
+            if !let_bindings.is_empty() {
+                // Generate tuple destructuring for concurrent Let bindings
+                writeln!(output, "{}let ({}) = tokio::join!(", indent_str, let_bindings.join(", ")).unwrap();
+            } else {
+                writeln!(output, "{}tokio::join!(", indent_str).unwrap();
+            }
+
+            for (i, stmt) in tasks.iter().enumerate() {
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                // Wrap each statement in an async block
+                write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
+                if i < tasks.len() - 1 {
+                    writeln!(output, ",").unwrap();
+                } else {
+                    writeln!(output).unwrap();
+                }
+            }
+
+            writeln!(output, "{});", indent_str).unwrap();
+        }
+
+        // Phase 9: Parallel execution block (CPU-bound)
+        // Generates rayon::join for two tasks, or thread::spawn for 3+ tasks
+        Stmt::Parallel { tasks } => {
+            // Collect Let statements to generate tuple destructuring
+            let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(interner.resolve(*var).to_string())
+                } else {
+                    None
+                }
+            }).collect();
+
+            if tasks.len() == 2 {
+                // Use rayon::join for exactly 2 tasks
+                if !let_bindings.is_empty() {
+                    writeln!(output, "{}let ({}) = rayon::join(", indent_str, let_bindings.join(", ")).unwrap();
+                } else {
+                    writeln!(output, "{}rayon::join(", indent_str).unwrap();
+                }
+
+                for (i, stmt) in tasks.iter().enumerate() {
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                    write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
+                    if i == 0 {
+                        writeln!(output, ",").unwrap();
+                    } else {
+                        writeln!(output).unwrap();
+                    }
+                }
+                writeln!(output, "{});", indent_str).unwrap();
+            } else {
+                // For 3+ tasks, use thread::spawn pattern
+                writeln!(output, "{}{{", indent_str).unwrap();
+                writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
+                for stmt in *tasks {
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx);
+                    writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
+                             indent_str, inner.trim()).unwrap();
+                }
+                writeln!(output, "{}    ];", indent_str).unwrap();
+                writeln!(output, "{}    for h in handles {{ h.join().unwrap(); }}", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+            }
+        }
     }
 
     output
@@ -47001,17 +48906,21 @@ const LOGOS_CORE_FILE: &str = include_str!("../logos_core/src/file.rs");
 const LOGOS_CORE_TIME: &str = include_str!("../logos_core/src/time.rs");
 const LOGOS_CORE_RANDOM: &str = include_str!("../logos_core/src/random.rs");
 const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
+// Phase 8.5: Zone-based memory management
+const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::DiscoveryPass;
+use crate::analysis::{DiscoveryPass, EscapeChecker, EscapeError};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
 use crate::context::DiscourseContext;
+use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
 use crate::error::ParseError;
 use crate::intern::Interner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+use crate::sourcemap::SourceMap;
 
 /// Compile LOGOS source to Rust source code.
 pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
@@ -47055,6 +48964,19 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
+
+    // Pass 3: Escape analysis - check for zone escape violations
+    // This catches obvious cases like returning zone-local variables
+    let mut escape_checker = EscapeChecker::new(&interner);
+    escape_checker.check_program(&stmts).map_err(|e| {
+        // Convert EscapeError to ParseError for now
+        // The error message is already Socratic from EscapeChecker
+        ParseError {
+            kind: crate::error::ParseErrorKind::Custom(e.to_string()),
+            span: e.span,
+        }
+    })?;
+
     let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
 
     Ok(rust_code)
@@ -47123,6 +49045,9 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
         .map_err(|e| CompileError::Io(e.to_string()))?;
     fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
         .map_err(|e| CompileError::Io(e.to_string()))?;
+    // Phase 8.5: Zone-based memory management
+    fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
 
     Ok(())
 }
@@ -47131,15 +49056,32 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
 pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, CompileError> {
     compile_to_dir(source, output_dir)?;
 
-    // Run cargo build
+    // Run cargo build with JSON message format for structured error parsing
     let build_output = Command::new("cargo")
         .arg("build")
+        .arg("--message-format=json")
         .current_dir(output_dir)
         .output()
         .map_err(|e| CompileError::Io(e.to_string()))?;
 
     if !build_output.status.success() {
         let stderr = String::from_utf8_lossy(&build_output.stderr);
+        let stdout = String::from_utf8_lossy(&build_output.stdout);
+
+        // Try to parse JSON diagnostics and translate them
+        let diagnostics = parse_rustc_json(&stdout);
+
+        if !diagnostics.is_empty() {
+            // Create a basic source map with the LOGOS source
+            let source_map = SourceMap::new(source.to_string());
+            let interner = Interner::new();
+
+            if let Some(logos_error) = translate_diagnostics(&diagnostics, &source_map, &interner) {
+                return Err(CompileError::Ownership(logos_error));
+            }
+        }
+
+        // Fallback to raw error if translation fails
         return Err(CompileError::Build(stderr.to_string()));
     }
 
@@ -47226,6 +49168,8 @@ pub enum CompileError {
     Io(String),
     Build(String),
     Runtime(String),
+    /// Translated ownership/borrow checker error with friendly LOGOS message
+    Ownership(LogosError),
 }
 
 impl std::fmt::Display for CompileError {
@@ -47235,6 +49179,7 @@ impl std::fmt::Display for CompileError {
             CompileError::Io(e) => write!(f, "IO error: {}", e),
             CompileError::Build(e) => write!(f, "Build error: {}", e),
             CompileError::Runtime(e) => write!(f, "Runtime error: {}", e),
+            CompileError::Ownership(e) => write!(f, "{}", e),
         }
     }
 }
@@ -47262,6 +49207,431 @@ mod tests {
         assert!(result.is_ok(), "Should compile: {:?}", result);
         let rust = result.unwrap();
         assert!(rust.contains("return 42;"));
+    }
+}
+
+```
+
+---
+
+### Module: diagnostic
+
+**File:** `src/diagnostic.rs`
+
+Additional source module.
+
+```rust
+//! Diagnostic Bridge for LOGOS
+//!
+//! Translates Rust borrow checker errors into friendly LOGOS error messages.
+//! Parses rustc JSON output and maps errors back to LOGOS source.
+
+use crate::intern::Interner;
+use crate::sourcemap::{OwnershipRole, SourceMap};
+use crate::style::Style;
+use crate::token::Span;
+use serde::Deserialize;
+
+/// A translated error message for LOGOS users.
+#[derive(Debug, Clone)]
+pub struct LogosError {
+    pub title: String,
+    pub explanation: String,
+    pub logos_span: Option<Span>,
+    pub suggestion: Option<String>,
+}
+
+impl std::fmt::Display for LogosError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "{}: {}", Style::bold_red("ownership error"), self.title)?;
+        writeln!(f)?;
+        writeln!(f, "{}", self.explanation)?;
+        if let Some(suggestion) = &self.suggestion {
+            writeln!(f)?;
+            writeln!(f, "{}: {}", Style::cyan("suggestion"), suggestion)?;
+        }
+        Ok(())
+    }
+}
+
+// =============================================================================
+// Rustc JSON Diagnostic Types
+// =============================================================================
+
+/// Rustc JSON diagnostic message (subset of fields we need).
+#[derive(Debug, Deserialize)]
+pub struct RustcDiagnostic {
+    pub message: String,
+    pub code: Option<RustcCode>,
+    pub level: String,
+    pub spans: Vec<RustcSpan>,
+    #[serde(default)]
+    pub children: Vec<RustcDiagnostic>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RustcCode {
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RustcSpan {
+    pub file_name: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    pub column_start: u32,
+    pub column_end: u32,
+    pub is_primary: bool,
+    pub label: Option<String>,
+    #[serde(default)]
+    pub text: Vec<RustcSpanText>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RustcSpanText {
+    pub text: String,
+    pub highlight_start: u32,
+    pub highlight_end: u32,
+}
+
+/// Parsed rustc output: either a diagnostic or artifact info.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "reason")]
+#[serde(rename_all = "kebab-case")]
+pub enum RustcMessage {
+    CompilerMessage { message: RustcDiagnostic },
+    #[serde(other)]
+    Other,
+}
+
+// =============================================================================
+// JSON Parsing
+// =============================================================================
+
+/// Parse rustc stderr output from `cargo build --message-format=json`.
+pub fn parse_rustc_json(stderr: &str) -> Vec<RustcDiagnostic> {
+    let mut diagnostics = Vec::new();
+
+    for line in stderr.lines() {
+        // Skip empty lines and non-JSON output
+        if !line.starts_with('{') {
+            continue;
+        }
+
+        match serde_json::from_str::<RustcMessage>(line) {
+            Ok(RustcMessage::CompilerMessage { message }) => {
+                if message.level == "error" {
+                    diagnostics.push(message);
+                }
+            }
+            Ok(RustcMessage::Other) => {} // Ignore artifacts, build-finished, etc.
+            Err(_) => {} // Ignore malformed lines
+        }
+    }
+
+    diagnostics
+}
+
+/// Extract error code from a diagnostic.
+pub fn get_error_code(diag: &RustcDiagnostic) -> Option<&str> {
+    diag.code.as_ref().map(|c| c.code.as_str())
+}
+
+/// Extract the primary span from a diagnostic.
+pub fn get_primary_span(diag: &RustcDiagnostic) -> Option<&RustcSpan> {
+    diag.spans.iter().find(|s| s.is_primary)
+}
+
+/// Extract variable name from rustc error message.
+/// Example: "use of moved value: `data`" -> "data"
+fn extract_var_from_message(message: &str, prefix: &str, suffix: &str) -> Option<String> {
+    let start = message.find(prefix)?;
+    let after_prefix = &message[start + prefix.len()..];
+    let end = after_prefix.find(suffix)?;
+    Some(after_prefix[..end].to_string())
+}
+
+// =============================================================================
+// Diagnostic Bridge
+// =============================================================================
+
+/// Translates rustc diagnostics into LOGOS error messages.
+pub struct DiagnosticBridge<'a> {
+    source_map: &'a SourceMap,
+    interner: &'a Interner,
+}
+
+impl<'a> DiagnosticBridge<'a> {
+    pub fn new(source_map: &'a SourceMap, interner: &'a Interner) -> Self {
+        Self { source_map, interner }
+    }
+
+    /// Translate a rustc diagnostic into a LOGOS error.
+    pub fn translate(&self, diag: &RustcDiagnostic) -> Option<LogosError> {
+        let code = get_error_code(diag)?;
+        let span = get_primary_span(diag);
+
+        match code {
+            "E0382" => self.translate_use_after_move(diag, span),
+            "E0505" => self.translate_move_while_borrowed(diag, span),
+            "E0597" => self.translate_lifetime_error(diag, span),
+            _ => self.translate_generic(diag, span),
+        }
+    }
+
+    /// E0382: "use of moved value: `x`"
+    /// LOGOS: "You already gave X away - you can't use it anymore"
+    fn translate_use_after_move(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let var_name = extract_var_from_message(&diag.message, "value: `", "`")
+            .or_else(|| extract_var_from_message(&diag.message, "value `", "`"))?;
+
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        // Look up variable origin if available
+        let (logos_name, role) = if let Some(origin) = self.source_map.get_var_origin(&var_name) {
+            (self.interner.resolve(origin.logos_name).to_string(), Some(origin.role))
+        } else {
+            (var_name.clone(), None)
+        };
+
+        let explanation = match role {
+            Some(OwnershipRole::GiveObject) => format!(
+                "You gave '{}' away with a Give statement, so you can't use it anymore.\n\
+                In LOGOS, 'Give X to Y' transfers ownership - X moves to Y and leaves your hands.\n\
+                This is like handing someone a physical object: once given, you no longer have it.",
+                logos_name
+            ),
+            Some(OwnershipRole::LetBinding) | None => format!(
+                "The value '{}' was moved somewhere else and can't be used again.\n\
+                Check if you used 'Give' or passed it to a function that took ownership.",
+                logos_name
+            ),
+            _ => format!(
+                "The value '{}' has been moved and is no longer available.",
+                logos_name
+            ),
+        };
+
+        let suggestion = Some(format!(
+            "If you need to use '{}' after giving it away, either:\n\
+             1. Use 'Show {} to Y' instead (this borrows, keeping ownership)\n\
+             2. Use 'a copy of {}' before the Give",
+            logos_name, logos_name, logos_name
+        ));
+
+        Some(LogosError {
+            title: format!("Cannot use '{}' after giving it away", logos_name),
+            explanation,
+            logos_span,
+            suggestion,
+        })
+    }
+
+    /// E0505: "cannot move out of `x` because it is borrowed"
+    /// LOGOS: "You're trying to give X away while someone is still looking at it"
+    fn translate_move_while_borrowed(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let var_name = extract_var_from_message(&diag.message, "out of `", "`")
+            .or_else(|| extract_var_from_message(&diag.message, "move out of `", "`"))?;
+
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        let logos_name = if let Some(origin) = self.source_map.get_var_origin(&var_name) {
+            self.interner.resolve(origin.logos_name).to_string()
+        } else {
+            var_name.clone()
+        };
+
+        let explanation = format!(
+            "You showed '{}' to someone (creating a temporary view),\n\
+            but then tried to give it away before they finished looking.\n\
+            In LOGOS, 'Show' creates a promise that the data won't change or disappear\n\
+            while being viewed. You can't break that promise by giving it away.",
+            logos_name
+        );
+
+        let suggestion = Some(format!(
+            "Make sure all 'Show' usages of '{}' complete before any 'Give'.\n\
+            Alternatively, give away a copy: 'Give a copy of {} to Y'",
+            logos_name, logos_name
+        ));
+
+        Some(LogosError {
+            title: format!("Cannot give '{}' while it's being shown", logos_name),
+            explanation,
+            logos_span,
+            suggestion,
+        })
+    }
+
+    /// E0597: "borrowed value does not live long enough"
+    /// LOGOS: "You can't take a reference outside its zone" (Hotel California)
+    fn translate_lifetime_error(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        // Check if this is zone-related by looking at the message and children
+        let is_zone_related = diag.message.contains("borrowed")
+            || diag.children.iter().any(|c| c.message.contains("dropped"));
+
+        let explanation = if is_zone_related {
+            "A value created inside a Zone cannot be referenced from outside.\n\
+            Zones are memory arenas - when the Zone ends, everything inside it is released.\n\
+            This is the 'Hotel California' rule: data can check in (be created),\n\
+            but references can't check out (escape the Zone).".to_string()
+        } else {
+            "A borrowed reference is being used after the original value has gone away.\n\
+            References are temporary views - they can't outlive what they're viewing.".to_string()
+        };
+
+        let suggestion = Some(
+            "If you need the data after the Zone ends, either:\n\
+             1. Move the data out with 'Give' before the Zone closes\n\
+             2. Copy the data: 'Let result be a copy of zone_data'\n\
+             3. Restructure so the computation completes inside the Zone".to_string()
+        );
+
+        Some(LogosError {
+            title: "Reference cannot outlive its data".to_string(),
+            explanation,
+            logos_span,
+            suggestion,
+        })
+    }
+
+    /// Fallback for other errors - provide the raw message with context.
+    fn translate_generic(&self, diag: &RustcDiagnostic, span: Option<&RustcSpan>) -> Option<LogosError> {
+        let logos_span = span.and_then(|s| self.source_map.find_nearest_span(s.line_start));
+
+        // Try to extract any variable name
+        let var_hint = if let Some(start) = diag.message.find('`') {
+            if let Some(end) = diag.message[start + 1..].find('`') {
+                Some(&diag.message[start + 1..start + 1 + end])
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let explanation = if let Some(var) = var_hint {
+            format!(
+                "The Rust compiler reported an error involving '{}':\n{}",
+                var, diag.message
+            )
+        } else {
+            format!("The Rust compiler reported an error:\n{}", diag.message)
+        };
+
+        Some(LogosError {
+            title: "Compilation error".to_string(),
+            explanation,
+            logos_span,
+            suggestion: None,
+        })
+    }
+}
+
+/// Attempt to translate all diagnostics and return the first translated error.
+pub fn translate_diagnostics(
+    diagnostics: &[RustcDiagnostic],
+    source_map: &SourceMap,
+    interner: &Interner,
+) -> Option<LogosError> {
+    let bridge = DiagnosticBridge::new(source_map, interner);
+
+    for diag in diagnostics {
+        if let Some(error) = bridge.translate(diag) {
+            return Some(error);
+        }
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_rustc_json_extracts_errors() {
+        let json_output = r#"{"reason":"compiler-message","message":{"message":"use of moved value: `x`","code":{"code":"E0382"},"level":"error","spans":[{"file_name":"src/main.rs","line_start":5,"line_end":5,"column_start":10,"column_end":11,"is_primary":true,"label":null,"text":[]}],"children":[]}}
+{"reason":"build-finished","success":false}"#;
+
+        let diagnostics = parse_rustc_json(json_output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].message, "use of moved value: `x`");
+        assert_eq!(get_error_code(&diagnostics[0]), Some("E0382"));
+    }
+
+    #[test]
+    fn extract_var_from_message_works() {
+        assert_eq!(
+            extract_var_from_message("use of moved value: `data`", "value: `", "`"),
+            Some("data".to_string())
+        );
+        assert_eq!(
+            extract_var_from_message("cannot move out of `x` because", "out of `", "`"),
+            Some("x".to_string())
+        );
+    }
+
+    #[test]
+    fn translate_e0382_creates_friendly_error() {
+        let interner = Interner::new();
+        let source_map = SourceMap::new("Let data be 5.\nGive data to processor.".to_string());
+
+        let diag = RustcDiagnostic {
+            message: "use of moved value: `data`".to_string(),
+            code: Some(RustcCode { code: "E0382".to_string() }),
+            level: "error".to_string(),
+            spans: vec![RustcSpan {
+                file_name: "src/main.rs".to_string(),
+                line_start: 3,
+                line_end: 3,
+                column_start: 10,
+                column_end: 14,
+                is_primary: true,
+                label: None,
+                text: vec![],
+            }],
+            children: vec![],
+        };
+
+        let bridge = DiagnosticBridge::new(&source_map, &interner);
+        let error = bridge.translate(&diag).expect("Should translate");
+
+        assert!(error.title.contains("data"));
+        assert!(error.title.contains("giving it away"));
+        assert!(error.explanation.contains("moved"));
+        assert!(error.suggestion.is_some());
+    }
+
+    #[test]
+    fn translate_e0597_creates_hotel_california_error() {
+        let interner = Interner::new();
+        let source_map = SourceMap::new("Inside a zone:\n    Let x be 5.".to_string());
+
+        let diag = RustcDiagnostic {
+            message: "borrowed value does not live long enough".to_string(),
+            code: Some(RustcCode { code: "E0597".to_string() }),
+            level: "error".to_string(),
+            spans: vec![RustcSpan {
+                file_name: "src/main.rs".to_string(),
+                line_start: 5,
+                line_end: 5,
+                column_start: 1,
+                column_end: 10,
+                is_primary: true,
+                label: None,
+                text: vec![],
+            }],
+            children: vec![],
+        };
+
+        let bridge = DiagnosticBridge::new(&source_map, &interner);
+        let error = bridge.translate(&diag).expect("Should translate");
+
+        assert!(error.title.contains("outlive"));
+        assert!(error.explanation.contains("Zone") || error.explanation.contains("borrowed"));
     }
 }
 
@@ -48507,6 +50877,218 @@ impl ScopeStack {
 
 ---
 
+### Module: sourcemap
+
+**File:** `src/sourcemap.rs`
+
+Additional source module.
+
+```rust
+//! Source Map for Diagnostic Bridge
+//!
+//! Maps generated Rust code back to LOGOS source positions,
+//! enabling friendly error messages for ownership/lifetime errors.
+
+use crate::intern::Symbol;
+use crate::token::Span;
+use std::collections::HashMap;
+
+/// Semantic role of a variable in LOGOS ownership semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OwnershipRole {
+    /// The object being moved in "Give X to Y"
+    GiveObject,
+    /// The recipient in "Give X to Y"
+    GiveRecipient,
+    /// The object being borrowed in "Show X to Y"
+    ShowObject,
+    /// The recipient in "Show X to Y"
+    ShowRecipient,
+    /// A Let-bound variable
+    LetBinding,
+    /// Target of a Set statement
+    SetTarget,
+    /// Variable allocated inside a Zone
+    ZoneLocal,
+}
+
+/// Variable origin tracking for error translation.
+#[derive(Debug, Clone)]
+pub struct VarOrigin {
+    pub logos_name: Symbol,
+    pub span: Span,
+    pub role: OwnershipRole,
+}
+
+/// Maps generated Rust code back to LOGOS source.
+#[derive(Debug, Clone, Default)]
+pub struct SourceMap {
+    /// Maps line in generated Rust -> Span in LOGOS source
+    line_to_span: HashMap<u32, Span>,
+
+    /// Maps generated Rust variable names -> LOGOS origin info
+    var_origins: HashMap<String, VarOrigin>,
+
+    /// The original LOGOS source code (for error display)
+    logos_source: String,
+}
+
+impl SourceMap {
+    /// Create a new empty source map.
+    pub fn new(logos_source: String) -> Self {
+        Self {
+            line_to_span: HashMap::new(),
+            var_origins: HashMap::new(),
+            logos_source,
+        }
+    }
+
+    /// Get the LOGOS span for a given Rust line number.
+    pub fn get_span_for_line(&self, line: u32) -> Option<Span> {
+        self.line_to_span.get(&line).copied()
+    }
+
+    /// Get the origin info for a Rust variable name.
+    pub fn get_var_origin(&self, rust_var: &str) -> Option<&VarOrigin> {
+        self.var_origins.get(rust_var)
+    }
+
+    /// Get the original LOGOS source.
+    pub fn logos_source(&self) -> &str {
+        &self.logos_source
+    }
+
+    /// Find the closest LOGOS span by searching nearby lines.
+    pub fn find_nearest_span(&self, rust_line: u32) -> Option<Span> {
+        // Try exact match first
+        if let Some(span) = self.line_to_span.get(&rust_line) {
+            return Some(*span);
+        }
+
+        // Search nearby lines (within 5 lines)
+        for offset in 1..=5 {
+            if rust_line > offset {
+                if let Some(span) = self.line_to_span.get(&(rust_line - offset)) {
+                    return Some(*span);
+                }
+            }
+            if let Some(span) = self.line_to_span.get(&(rust_line + offset)) {
+                return Some(*span);
+            }
+        }
+
+        None
+    }
+}
+
+/// Builder for constructing a SourceMap during code generation.
+#[derive(Debug)]
+pub struct SourceMapBuilder {
+    current_line: u32,
+    map: SourceMap,
+}
+
+impl SourceMapBuilder {
+    /// Create a new builder with the LOGOS source.
+    pub fn new(logos_source: &str) -> Self {
+        Self {
+            current_line: 1,
+            map: SourceMap::new(logos_source.to_string()),
+        }
+    }
+
+    /// Record a mapping from current Rust line to LOGOS span.
+    pub fn record_line(&mut self, logos_span: Span) {
+        self.map.line_to_span.insert(self.current_line, logos_span);
+    }
+
+    /// Record a variable origin.
+    pub fn record_var(&mut self, rust_name: &str, logos_name: Symbol, span: Span, role: OwnershipRole) {
+        self.map.var_origins.insert(
+            rust_name.to_string(),
+            VarOrigin {
+                logos_name,
+                span,
+                role,
+            },
+        );
+    }
+
+    /// Advance to the next line.
+    pub fn newline(&mut self) {
+        self.current_line += 1;
+    }
+
+    /// Add multiple newlines.
+    pub fn add_lines(&mut self, count: u32) {
+        self.current_line += count;
+    }
+
+    /// Get current line number.
+    pub fn current_line(&self) -> u32 {
+        self.current_line
+    }
+
+    /// Build the final source map.
+    pub fn build(self) -> SourceMap {
+        self.map
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_map_stores_line_mappings() {
+        let mut map = SourceMap::new("Let x be 5.".to_string());
+        map.line_to_span.insert(1, Span::new(0, 11));
+
+        assert_eq!(map.get_span_for_line(1), Some(Span::new(0, 11)));
+        assert_eq!(map.get_span_for_line(2), None);
+    }
+
+    #[test]
+    fn source_map_builder_tracks_lines() {
+        let mut builder = SourceMapBuilder::new("test source");
+        assert_eq!(builder.current_line(), 1);
+
+        builder.newline();
+        assert_eq!(builder.current_line(), 2);
+
+        builder.add_lines(3);
+        assert_eq!(builder.current_line(), 5);
+    }
+
+    #[test]
+    fn source_map_builder_records_spans() {
+        let mut builder = SourceMapBuilder::new("Let x be 5.\nLet y be 10.");
+        builder.record_line(Span::new(0, 11));
+        builder.newline();
+        builder.record_line(Span::new(12, 24));
+
+        let map = builder.build();
+        assert_eq!(map.get_span_for_line(1), Some(Span::new(0, 11)));
+        assert_eq!(map.get_span_for_line(2), Some(Span::new(12, 24)));
+    }
+
+    #[test]
+    fn find_nearest_span_searches_nearby() {
+        let mut builder = SourceMapBuilder::new("source");
+        builder.record_line(Span::new(0, 10));
+        builder.add_lines(5);
+        // Line 1 has span, lines 2-6 don't
+
+        let map = builder.build();
+        // Line 3 should find line 1's span
+        assert_eq!(map.find_nearest_span(3), Some(Span::new(0, 10)));
+    }
+}
+
+```
+
+---
+
 ### Module: srs
 
 **File:** `src/srs.rs`
@@ -48788,7 +51370,7 @@ required-features = ["cli"]
 exclude = ["logos_core"]
 
 [dependencies]
-bumpalo = "3.14"
+bumpalo = "3.19.1"
 dioxus = { version = "0.6", features = ["web", "router"] }
 wasm-bindgen = "0.2"
 js-sys = "0.3"
@@ -50315,11 +52897,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 08:56:39 CST 2025
+- **Generated:** Mon Dec 29 11:40:41 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 3013b3f
-- **Documentation Size:** 1.7M
+- **Git Commit:** 50753ee
+- **Documentation Size:** 1.8M
 
 ---
 

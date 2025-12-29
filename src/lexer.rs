@@ -954,6 +954,8 @@ impl<'a> Lexer<'a> {
         match lower.as_str() {
             "call" => return TokenType::Call,
             "in" if self.mode == LexerMode::Imperative => return TokenType::In,
+            // Phase 8.5: Zone keywords (must come before is_preposition check)
+            "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             _ => {}
         }
 
@@ -1011,6 +1013,21 @@ impl<'a> Lexer<'a> {
             "through" if self.mode == LexerMode::Imperative => return TokenType::Through,
             "length" if self.mode == LexerMode::Imperative => return TokenType::Length,
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Phase 8.5: Zone keywords (Imperative mode only)
+            "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
+            "zone" if self.mode == LexerMode::Imperative => return TokenType::Zone,
+            "called" if self.mode == LexerMode::Imperative => return TokenType::Called,
+            "size" if self.mode == LexerMode::Imperative => return TokenType::Size,
+            "mapped" if self.mode == LexerMode::Imperative => return TokenType::Mapped,
+            // Phase 9: Structured Concurrency keywords (Imperative mode only)
+            "attempt" if self.mode == LexerMode::Imperative => return TokenType::Attempt,
+            "following" if self.mode == LexerMode::Imperative => return TokenType::Following,
+            "simultaneously" if self.mode == LexerMode::Imperative => return TokenType::Simultaneously,
+            // Phase 10: IO keywords (Imperative mode only)
+            "read" if self.mode == LexerMode::Imperative => return TokenType::Read,
+            "write" if self.mode == LexerMode::Imperative => return TokenType::Write,
+            "console" if self.mode == LexerMode::Imperative => return TokenType::Console,
+            "file" if self.mode == LexerMode::Imperative => return TokenType::File,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

@@ -6,6 +6,12 @@
 2. **STAY IN logos/** - Work only in this directory, ignore parent friendslop
 3. **USE TDD** - Follow RED/GREEN test-driven development
 4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test.
+5. **RUNNING TESTS**
+  Use `cargo test -- --skip e2e` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests.
+  When asked to run all tests run `cargo test`.
+  When running tests, don't tail or head the outputs, just read the entire thing.
+  During development, we will develop the RED test, then work until that passes, then run all our tests.
+  For large refactors, we can selectively run existing tests to ensure we didn't break things.
 
 ## Specification Guidelines
 
@@ -44,7 +50,11 @@ logos/
 │   ├── lexer.rs          # Tokenization
 │   ├── parser/           # Parser modules
 │   ├── ast.rs            # AST types
-│   └── transpile.rs      # Output generation
+│   ├── transpile.rs      # Output generation
+│   ├── compile.rs        # Compilation pipeline
+│   └── cli.rs            # CLI (largo) commands
+├── logos_core/           # Runtime library for compiled programs
+├── logos_verification/   # Z3 static verification (optional)
 └── tests/                # Phase-organized tests
 ```
 
@@ -57,6 +67,7 @@ Tests are organized by linguistic complexity:
 - Phase 4: Movement & Reciprocals
 - Phase 5: Wh-movement
 - Phase 6-14: Advanced phenomena
+- Phase 42: Z3 Static Verification (requires `verification` feature)
 
 ## Lexicon System
 
@@ -81,6 +92,68 @@ cargo build          # Build
 cargo run            # REPL mode
 ./generate-docs.sh   # Regenerate docs
 ```
+
+## Feature Flags
+
+| Feature | Description |
+|---------|-------------|
+| `cli` | Enables the `largo` CLI tool |
+| `verification` | Enables Z3-based static verification (requires Z3 installed) |
+
+```bash
+# Build with CLI
+cargo build --features cli
+
+# Build with verification (requires Z3)
+cargo build --features verification
+
+# Build with both
+cargo build --features cli,verification
+```
+
+## Z3 Static Verification
+
+The `logos_verification` crate provides Z3-based static verification. It requires Z3 to be installed on the system.
+
+### Setup (macOS)
+
+```bash
+brew install z3
+
+# Set environment variables for building
+export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h
+export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
+export LIBRARY_PATH="/opt/homebrew/lib"
+```
+
+### Running Verification Tests
+
+```bash
+# Tests WITHOUT verification (default, no Z3 needed)
+cargo test -- --skip e2e
+
+# Tests WITH verification (requires Z3)
+cargo test --features verification -- --skip e2e
+
+# Only verification tests
+cargo test --features verification --test phase_verification
+```
+
+### Crate Structure
+
+```
+logos_verification/
+├── Cargo.toml
+└── src/
+    ├── lib.rs        # Public API
+    ├── solver.rs     # Z3 Verifier wrapper
+    ├── license.rs    # Stripe license validation
+    └── error.rs      # Socratic error messages
+```
+
+### License Gating
+
+Verification is gated by license. Valid license keys are Stripe subscription IDs (`sub_*` format) validated against `api.logicaffeine.com/validate`. Only Pro, Premium, Lifetime, and Enterprise plans can use verification.
 
 ## Updating Documentation (generate-docs.sh)
 

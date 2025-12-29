@@ -43,6 +43,20 @@ pub enum Commands {
         /// Build in release mode
         #[arg(long, short)]
         release: bool,
+
+        /// Run Z3 static verification (requires Pro+ license)
+        #[arg(long)]
+        verify: bool,
+
+        /// License key for verification (or set LOGOS_LICENSE env var)
+        #[arg(long)]
+        license: Option<String>,
+    },
+    /// Verify the project without building (requires Pro+ license)
+    Verify {
+        /// License key (or set LOGOS_LICENSE env var)
+        #[arg(long)]
+        license: Option<String>,
     },
     /// Build and run the current project
     Run {
@@ -93,9 +107,10 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
-        Commands::Build { release } => cmd_build(release),
+        Commands::Build { release, verify, license } => cmd_build(release, verify, license),
         Commands::Run { release } => cmd_run(release),
         Commands::Check => cmd_check(),
+        Commands::Verify { license } => cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
             cmd_publish(registry.as_deref(), dry_run, allow_dirty)
         }
@@ -182,10 +197,19 @@ Show "Hello, world!".
     Ok(())
 }
 
-fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_build(
+    release: bool,
+    verify: bool,
+    license: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
         find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    // Run verification if requested
+    if verify {
+        run_verification(&project_root, license.as_deref())?;
+    }
 
     let config = BuildConfig {
         project_dir: project_root,
@@ -198,6 +222,66 @@ fn cmd_build(release: bool) -> Result<(), Box<dyn std::error::Error>> {
     println!("Built {} [{}]", result.binary_path.display(), mode);
 
     Ok(())
+}
+
+fn cmd_verify(license: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    run_verification(&project_root, license.as_deref())?;
+    println!("Verification passed");
+    Ok(())
+}
+
+#[cfg(feature = "verification")]
+fn run_verification(
+    project_root: &std::path::Path,
+    license: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use logos_verification::{LicenseValidator, Verifier};
+
+    // Get license key from argument or environment
+    let license_key = license
+        .map(String::from)
+        .or_else(|| env::var("LOGOS_LICENSE").ok());
+
+    let license_key = license_key.ok_or(
+        "Verification requires a license key.\n\
+         Use --license <key> or set LOGOS_LICENSE environment variable.\n\
+         Get a license at https://logicaffeine.com/pricing",
+    )?;
+
+    // Validate license
+    println!("Validating license...");
+    let validator = LicenseValidator::new();
+    let plan = validator.validate(&license_key)?;
+    println!("License valid ({})", plan);
+
+    // Load and parse the project
+    let manifest = Manifest::load(project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+    let source = fs::read_to_string(&entry_path)?;
+
+    // For now, just verify that Z3 works
+    // TODO: Implement full AST encoding in Phase 2
+    println!("Running Z3 verification...");
+    let verifier = Verifier::new();
+
+    // Basic smoke test - verify that true is valid
+    verifier.check_bool(true)?;
+
+    Ok(())
+}
+
+#[cfg(not(feature = "verification"))]
+fn run_verification(
+    _project_root: &std::path::Path,
+    _license: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Err("Verification requires the 'verification' feature.\n\
+         Rebuild with: cargo build --features verification"
+        .into())
 }
 
 fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {

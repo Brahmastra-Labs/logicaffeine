@@ -6,6 +6,7 @@ pub mod file;
 pub mod time;
 pub mod random;
 pub mod env;
+pub mod memory;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -59,6 +60,8 @@ pub mod prelude {
     // Phase 43D: Collection indexing helpers
     pub use crate::logos_index;
     pub use crate::logos_index_mut;
+    // Phase 8.5: Zone-based memory management
+    pub use crate::memory::Zone;
 }
 
 #[cfg(test)]

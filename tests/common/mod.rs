@@ -3,7 +3,7 @@
 //! Provides utilities for compiling LOGOS source and running the generated Rust.
 
 use std::process::Command;
-use logos::compile::compile_to_rust;
+pub use logos::compile::compile_to_rust;
 
 pub struct E2EResult {
     pub stdout: String,
