@@ -13,3 +13,8 @@ rand = "0.8"
 # Phase 9: Structured Concurrency
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 rayon = "1.10"
+# Phase 47: Serialization
+serde = { version = "1.0", features = ["derive"] }
+# Phase 48: Sipping Protocol
+sha2 = "0.10"
+uuid = { version = "1.0", features = ["v4"] }

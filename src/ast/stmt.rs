@@ -53,6 +53,7 @@ pub enum BinaryOpKind {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Eq,
     NotEq,
     Lt,
@@ -142,6 +143,12 @@ pub enum Stmt<'a> {
         justification: Symbol,
     },
 
+    /// Runtime assertion with imperative condition
+    /// `Assert that condition.` (for imperative mode)
+    RuntimeAssert {
+        condition: &'a Expr<'a>,
+    },
+
     /// Ownership transfer (move): `Give x to processor.`
     /// Semantics: Move ownership of `object` to `recipient`.
     Give {
@@ -164,9 +171,11 @@ pub enum Stmt<'a> {
     },
 
     /// Phase 31: Struct definition for codegen
+    /// Phase 47: Added is_portable for serde derives
     StructDef {
         name: Symbol,
         fields: Vec<(Symbol, Symbol, bool)>, // (name, type_name, is_public)
+        is_portable: bool,                    // Phase 47: Derives Serialize/Deserialize
     },
 
     /// Phase 32/38: Function definition
@@ -251,6 +260,27 @@ pub enum Stmt<'a> {
         content: &'a Expr<'a>,
         path: &'a Expr<'a>,
     },
+
+    /// Phase 46: Spawn an agent
+    /// `Spawn a Worker called "w1".`
+    Spawn {
+        agent_type: Symbol,
+        name: Symbol,
+    },
+
+    /// Phase 46: Send message to agent
+    /// `Send Ping to "agent".`
+    SendMessage {
+        message: &'a Expr<'a>,
+        destination: &'a Expr<'a>,
+    },
+
+    /// Phase 46: Await response from agent
+    /// `Await response from "agent" into result.`
+    AwaitMessage {
+        source: &'a Expr<'a>,
+        into: Symbol,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -299,6 +329,19 @@ pub enum Expr<'a> {
     /// Phase 43D: Length expression: `length of items` → items.len()
     Length {
         collection: &'a Expr<'a>,
+    },
+
+    /// Phase 48: Get manifest of a zone
+    /// `the manifest of Zone` → FileSipper::from_zone(&zone).manifest()
+    ManifestOf {
+        zone: &'a Expr<'a>,
+    },
+
+    /// Phase 48: Get chunk at index from a zone
+    /// `the chunk at N in Zone` → FileSipper::from_zone(&zone).get_chunk(N)
+    ChunkAt {
+        index: &'a Expr<'a>,
+        zone: &'a Expr<'a>,
     },
 
     /// List literal: [1, 2, 3]

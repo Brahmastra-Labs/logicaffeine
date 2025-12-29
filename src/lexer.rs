@@ -579,7 +579,7 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' | '=' => {
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -763,6 +763,7 @@ impl<'a> Lexer<'a> {
                         '-' => TokenType::Minus,
                         '*' => TokenType::Star,
                         '/' => TokenType::Slash,
+                        '%' => TokenType::Percent,
                         '<' => TokenType::Lt,
                         '>' => TokenType::Gt,
                         _ => {
@@ -816,6 +817,7 @@ impl<'a> Lexer<'a> {
                                     '-' => TokenType::Minus,
                                     '*' => TokenType::Star,
                                     '/' => TokenType::Slash,
+                                    '%' => TokenType::Percent,
                                     '<' => TokenType::Lt,
                                     '>' => TokenType::Gt,
                                     _ => {
@@ -851,6 +853,7 @@ impl<'a> Lexer<'a> {
                     '-' => TokenType::Minus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Slash,
+                    '%' => TokenType::Percent,
                     '<' => TokenType::Lt,
                     '>' => TokenType::Gt,
                     _ => {
@@ -1277,6 +1280,8 @@ impl<'a> Lexer<'a> {
             "in" if self.mode == LexerMode::Imperative => return TokenType::In,
             // Phase 8.5: Zone keywords (must come before is_preposition check)
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
+            // Phase 48: "at" for chunk access (must come before is_preposition check)
+            "at" if self.mode == LexerMode::Imperative => return TokenType::At,
             _ => {}
         }
 
@@ -1349,6 +1354,15 @@ impl<'a> Lexer<'a> {
             "write" if self.mode == LexerMode::Imperative => return TokenType::Write,
             "console" if self.mode == LexerMode::Imperative => return TokenType::Console,
             "file" if self.mode == LexerMode::Imperative => return TokenType::File,
+            // Phase 46: Agent System keywords (Imperative mode only)
+            "spawn" if self.mode == LexerMode::Imperative => return TokenType::Spawn,
+            "send" if self.mode == LexerMode::Imperative => return TokenType::Send,
+            "await" if self.mode == LexerMode::Imperative => return TokenType::Await,
+            // Phase 47: Serialization keyword (works in Definition blocks too)
+            "portable" => return TokenType::Portable,
+            // Phase 48: Sipping Protocol keywords (Imperative mode only)
+            "manifest" if self.mode == LexerMode::Imperative => return TokenType::Manifest,
+            "chunk" if self.mode == LexerMode::Imperative => return TokenType::Chunk,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

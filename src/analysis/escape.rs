@@ -235,6 +235,15 @@ impl<'a> EscapeChecker<'a> {
                 }
             }
 
+            Expr::ManifestOf { zone } => {
+                self.check_no_escape(zone, max_depth)?;
+            }
+
+            Expr::ChunkAt { index, zone } => {
+                self.check_no_escape(index, max_depth)?;
+                self.check_no_escape(zone, max_depth)?;
+            }
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }

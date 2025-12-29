@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio};
+use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
@@ -21,6 +21,9 @@ pub enum Route {
 
     #[route("/roadmap")]
     Roadmap {},
+
+    #[route("/guide")]
+    Guide {},
 
     #[route("/success")]
     Success {},

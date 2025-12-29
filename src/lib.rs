@@ -54,6 +54,7 @@ pub mod transpile;
 pub mod ui;
 pub mod view;
 pub mod visitor;
+pub mod interpreter;
 
 pub mod test_utils;
 
@@ -80,6 +81,7 @@ pub use scope::{ScopeStack, ScopeEntry};
 pub use token::{BlockType, Token, TokenType};
 pub use view::{ExprView, NounPhraseView, Resolve, TermView};
 pub use visitor::{Visitor, walk_expr, walk_term, walk_np};
+pub use interpreter::{Interpreter, InterpreterResult, RuntimeValue};
 
 // ═══════════════════════════════════════════════════════════════════
 // Output Format Configuration
@@ -973,6 +975,80 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
                 ast: None,
                 readings: Vec::new(),
                 tokens,
+                error: Some(advice),
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Imperative Interpreter API - For Guide Page Interactive Examples
+// ═══════════════════════════════════════════════════════════════════
+
+use crate::ast::stmt::{Stmt, Expr, TypeExpr};
+
+/// Interpret LOGOS imperative code and return output lines.
+/// This is used by the Guide page for interactive code examples.
+pub fn interpret_for_ui(input: &str) -> InterpreterResult {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Apply MWE collapsing (for consistency with compile pipeline)
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    // Create arenas for AST allocation
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context (imperative mode)
+    let mut discourse = DiscourseContext::new();
+    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+
+    match parser.parse_program() {
+        Ok(stmts) => {
+            let mut interp = interpreter::Interpreter::new(&interner);
+            match interp.run(&stmts) {
+                Ok(()) => InterpreterResult {
+                    lines: interp.output,
+                    error: None,
+                },
+                Err(e) => InterpreterResult {
+                    lines: interp.output,
+                    error: Some(e),
+                },
+            }
+        }
+        Err(e) => {
+            let advice = socratic_explanation(&e, &interner);
+            InterpreterResult {
+                lines: vec![],
                 error: Some(advice),
             }
         }

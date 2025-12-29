@@ -12,3 +12,5 @@ pub mod combo_indicator;
 pub mod streak_display;
 pub mod achievement_toast;
 pub mod mode_selector;
+pub mod guide_code_block;
+pub mod guide_sidebar;

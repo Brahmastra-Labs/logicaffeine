@@ -318,6 +318,13 @@ impl<'a> OwnershipChecker<'a> {
             Expr::Copy { expr } | Expr::Length { collection: expr } => {
                 self.check_not_moved(expr)
             }
+            Expr::ManifestOf { zone } => {
+                self.check_not_moved(zone)
+            }
+            Expr::ChunkAt { index, zone } => {
+                self.check_not_moved(index)?;
+                self.check_not_moved(zone)
+            }
             // Literals are always safe
             Expr::Literal(_) => Ok(()),
         }

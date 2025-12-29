@@ -92,8 +92,26 @@ impl<'a> DiscoveryPass<'a> {
                 vec![]
             };
 
+            // Phase 47: Check for "is Portable and" pattern before "has:"
+            let mut is_portable = false;
+            if self.check_copula() {
+                let copula_pos = self.pos;
+                self.advance(); // consume is/are
+                if self.check_portable() {
+                    self.advance(); // consume "Portable"
+                    is_portable = true;
+                    // Expect "and" after Portable
+                    if self.check_word("and") {
+                        self.advance(); // consume "and"
+                    }
+                } else {
+                    // Not a Portable pattern, restore position for other checks
+                    self.pos = copula_pos;
+                }
+            }
+
             // Phase 31/34: Check for "has:" which indicates struct with fields
-            // Pattern: "A Point has:" or "A Box of [T] has:"
+            // Pattern: "A Point has:" or "A Box of [T] has:" or "A Message is Portable and has:"
             if self.check_word("has") {
                 self.advance(); // consume "has"
                 if self.check_colon() {
@@ -105,7 +123,7 @@ impl<'a> DiscoveryPass<'a> {
                     if self.check_indent() {
                         self.advance(); // consume INDENT
                         let fields = self.parse_struct_fields_with_params(&type_params);
-                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params });
+                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params, is_portable });
                         return;
                     }
                 }
@@ -141,7 +159,7 @@ impl<'a> DiscoveryPass<'a> {
                         if self.check_indent() {
                             self.advance(); // consume INDENT
                             let variants = self.parse_enum_variants_with_params(&type_params);
-                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params });
+                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params, is_portable });
                             return;
                         }
                     }
@@ -155,10 +173,10 @@ impl<'a> DiscoveryPass<'a> {
                         registry.register(name_sym, TypeDef::Generic { param_count: 1 });
                         self.skip_to_period();
                     } else if self.check_word("record") || self.check_word("struct") || self.check_word("structure") {
-                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![] });
+                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false });
                         self.skip_to_period();
                     } else if self.check_word("sum") || self.check_word("enum") || self.check_word("choice") {
-                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![] });
+                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![], is_portable: false });
                         self.skip_to_period();
                     }
                 }
@@ -192,37 +210,37 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse variant: "A VariantName [with fields | (field: Type)]."
+            // Parse variant: "A VariantName [with fields | (field: Type)]." or bare "VariantName."
+            // Optionally consume article (a/an) if present
             if self.check_article() {
                 self.advance(); // consume "A"/"An"
+            }
 
-                if let Some(variant_name) = self.consume_noun_or_proper() {
-                    // Check for payload fields
-                    let fields = if self.check_word("with") {
-                        // Natural syntax: "A Circle with a radius, which is Int."
-                        self.parse_variant_fields_natural_with_params(type_params)
-                    } else if self.check_lparen() {
-                        // Concise syntax: "A Circle (radius: Int)."
-                        self.parse_variant_fields_concise_with_params(type_params)
-                    } else {
-                        // Unit variant: "A Point."
-                        vec![]
-                    };
-
-                    variants.push(VariantDef {
-                        name: variant_name,
-                        fields,
-                    });
-
-                    // Consume period
-                    if self.check_period() {
-                        self.advance();
-                    }
+            // Try to parse variant name (noun or proper name)
+            if let Some(variant_name) = self.consume_noun_or_proper() {
+                // Check for payload fields
+                let fields = if self.check_word("with") {
+                    // Natural syntax: "A Circle with a radius, which is Int."
+                    self.parse_variant_fields_natural_with_params(type_params)
+                } else if self.check_lparen() {
+                    // Concise syntax: "A Circle (radius: Int)."
+                    self.parse_variant_fields_concise_with_params(type_params)
                 } else {
-                    self.advance(); // skip malformed token
+                    // Unit variant: "A Point." or "Point."
+                    vec![]
+                };
+
+                variants.push(VariantDef {
+                    name: variant_name,
+                    fields,
+                });
+
+                // Consume period
+                if self.check_period() {
+                    self.advance();
                 }
             } else {
-                self.advance();
+                self.advance(); // skip malformed token
             }
         }
 
@@ -502,6 +520,12 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Phase 47: Accept Performative as type name (for agent messages like "Command")
+            TokenType::Performative(s) => {
+                let sym = *s;
+                self.advance();
+                Some(sym)
+            }
             // Phase 34: Accept special tokens as identifiers using their lexeme
             TokenType::Items | TokenType::Some => {
                 let sym = t.lexeme;
@@ -565,6 +589,11 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_rparen(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+    }
+
+    /// Phase 47: Check for Portable token
+    fn check_portable(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Portable, .. }))
     }
 
     // Phase 34: Bracket checks for type parameters
@@ -767,7 +796,7 @@ A Point has:
         let point = interner.intern("Point");
         assert!(registry.is_type(point), "Point should be registered");
 
-        if let Some(TypeDef::Struct { fields, generics }) = registry.get(point) {
+        if let Some(TypeDef::Struct { fields, generics, .. }) = registry.get(point) {
             assert_eq!(fields.len(), 2, "Point should have 2 fields, got {:?}", fields);
             assert_eq!(interner.resolve(fields[0].name), "x");
             assert_eq!(interner.resolve(fields[1].name), "y");
@@ -798,5 +827,38 @@ A Point has:
         let registry = discovery.run();
         let point = interner.intern("Point");
         assert!(registry.is_type(point), "Point should be discovered even with # header");
+    }
+
+    #[test]
+    fn discovery_parses_portable_enum() {
+        let source = r#"## Definition
+A Command is Portable and is either:
+    a Start.
+    a Stop.
+    a Pause.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens to see what we're getting
+        eprintln!("Tokens for portable enum:");
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let command = interner.intern("Command");
+        assert!(registry.is_type(command), "Command should be registered as type");
+
+        if let Some(TypeDef::Enum { variants, is_portable, .. }) = registry.get(command) {
+            eprintln!("Command is_portable: {}", is_portable);
+            eprintln!("Variants: {:?}", variants.iter().map(|v| interner.resolve(v.name)).collect::<Vec<_>>());
+            assert!(*is_portable, "Command should be portable");
+            assert_eq!(variants.len(), 3, "Command should have 3 variants");
+        } else {
+            panic!("Command should be an enum, got: {:?}", registry.get(command));
+        }
     }
 }

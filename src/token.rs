@@ -146,6 +146,18 @@ pub enum TokenType {
     Following,      // "the following"
     Simultaneously, // "Simultaneously:" -> parallel (CPU-bound)
 
+    // Phase 46: Agent System (Actor Model)
+    Spawn,    // "Spawn a Worker called 'w1'" -> create agent
+    Send,     // "Send Ping to 'agent'" -> send message to agent
+    Await,    // "Await response from 'agent' into result" -> receive message
+
+    // Phase 47: Serialization
+    Portable, // "A Message is Portable and has:" -> serde derives
+
+    // Phase 48: Sipping Protocol
+    Manifest, // "the manifest of Zone" -> FileSipper manifest
+    Chunk,    // "the chunk at N in Zone" -> FileSipper chunk
+
     // Block Scoping
     Colon,
     Indent,
@@ -260,6 +272,7 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
+    Percent,  // Modulo operator
 
     // Grand Challenge: Comparison Operators
     Lt,        // <

@@ -170,12 +170,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
 
-    // Collect user-defined structs from registry (Phase 34: now with generics)
+    // Collect user-defined structs from registry (Phase 34: now with generics, Phase 47: now with is_portable)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Struct { fields, generics } = def {
+            if let TypeDef::Struct { fields, generics, is_portable } = def {
                 if !fields.is_empty() || !generics.is_empty() {
-                    Some((*name, fields.clone(), generics.clone()))
+                    Some((*name, fields.clone(), generics.clone(), *is_portable))
                 } else {
                     None
                 }
@@ -185,12 +185,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         })
         .collect();
 
-    // Phase 33/34: Collect user-defined enums from registry (now with generics)
+    // Phase 33/34: Collect user-defined enums from registry (now with generics, Phase 47: now with is_portable)
     let enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Enum { variants, generics } = def {
+            if let TypeDef::Enum { variants, generics, is_portable } = def {
                 if !variants.is_empty() || !generics.is_empty() {
-                    Some((*name, variants.clone(), generics.clone()))
+                    Some((*name, variants.clone(), generics.clone(), *is_portable))
                 } else {
                     None
                 }
@@ -205,12 +205,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "pub mod user_types {{").unwrap();
         writeln!(output, "    use super::*;\n").unwrap();
 
-        for (name, fields, generics) in &structs {
-            output.push_str(&codegen_struct_def(*name, fields, generics, interner, 4));
+        for (name, fields, generics, is_portable) in &structs {
+            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, interner, 4));
         }
 
-        for (name, variants, generics) in &enums {
-            output.push_str(&codegen_enum_def(*name, variants, generics, interner, 4));
+        for (name, variants, generics, is_portable) in &enums {
+            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, interner, 4));
         }
 
         writeln!(output, "}}\n").unwrap();
@@ -426,7 +426,8 @@ fn map_type_to_rust(ty: &str) -> String {
 
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
-fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -440,7 +441,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for field in fields {
@@ -454,7 +460,8 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
 }
 
 /// Phase 33/34: Generate enum definition with optional generic parameters.
-fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -468,7 +475,12 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for variant in variants {
@@ -639,6 +651,11 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
             let condition = codegen_assertion(proposition, interner);
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
+        Stmt::RuntimeAssert { condition } => {
+            let cond_str = codegen_expr(condition, interner);
+            writeln!(output, "{}assert!({});", indent_str, cond_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -886,6 +903,40 @@ pub fn codegen_stmt<'a>(
                 indent_str, path_str, content_str
             ).unwrap();
         }
+
+        // Phase 46: Spawn an agent
+        Stmt::Spawn { agent_type, name } => {
+            let type_name = interner.resolve(*agent_type);
+            let agent_name = interner.resolve(*name);
+            // Generate agent spawn with tokio channel
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ /* {} agent loop */ }});",
+                indent_str, agent_name, type_name
+            ).unwrap();
+        }
+
+        // Phase 46: Send message to agent
+        Stmt::SendMessage { message, destination } => {
+            let msg_str = codegen_expr(message, interner);
+            let dest_str = codegen_expr(destination, interner);
+            writeln!(
+                output,
+                "{}{}.send({}).await.expect(\"Failed to send message\");",
+                indent_str, dest_str, msg_str
+            ).unwrap();
+        }
+
+        // Phase 46: Await response from agent
+        Stmt::AwaitMessage { source, into } => {
+            let src_str = codegen_expr(source, interner);
+            let var_name = interner.resolve(*into);
+            writeln!(
+                output,
+                "{}let {} = {}.recv().await.expect(\"Failed to receive message\");",
+                indent_str, var_name, src_str
+            ).unwrap();
+        }
     }
 
     output
@@ -905,6 +956,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
                 BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
                 BinaryOpKind::Lt => "<",
@@ -949,6 +1001,19 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             let coll_str = codegen_expr(collection, interner);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
+        }
+
+        // Phase 48: Sipping Protocol expressions
+        Expr::ManifestOf { zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
+        }
+
+        Expr::ChunkAt { index, zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            let index_str = codegen_expr(index, interner);
+            // LOGOS uses 1-indexed, Rust uses 0-indexed
+            format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {

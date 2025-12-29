@@ -849,6 +849,35 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_write_statement();
         }
 
+        // Phase 46: Agent System statements
+        if self.check(&TokenType::Spawn) {
+            return self.parse_spawn_statement();
+        }
+        if self.check(&TokenType::Send) {
+            return self.parse_send_statement();
+        }
+        if self.check(&TokenType::Await) {
+            return self.parse_await_statement();
+        }
+
+        // Expression-statement: function call without "Call" keyword
+        // e.g., `greet("Alice").` instead of `Call greet with "Alice".`
+        // Check if next token is LParen (indicating a function call)
+        if self.tokens.get(self.current + 1)
+            .map(|t| matches!(t.kind, TokenType::LParen))
+            .unwrap_or(false)
+        {
+            // Get the function name from current token
+            let function = self.peek().lexeme;
+            self.advance(); // consume function name
+
+            // Parse the call expression (starts from LParen)
+            let expr = self.parse_call_expr(function)?;
+            if let Expr::Call { function, args } = expr {
+                return Ok(Stmt::Call { function: *function, args: args.clone() });
+            }
+        }
+
         Err(ParseError {
             kind: ParseErrorKind::ExpectedStatement,
             span: self.current_span(),
@@ -1183,6 +1212,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Grand Challenge: Parse a single comparison expression
     fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
+        // Handle unary "not" operator: "not a" or "not (x > 5)"
+        if self.check(&TokenType::Not) || self.check_word("not") {
+            self.advance(); // consume "not"
+            let operand = self.parse_comparison()?; // recursive to handle "not not x"
+            // Implement as: operand == false (since we don't have UnaryNot)
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Eq,
+                left: operand,
+                right: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(false))),
+            }));
+        }
+
         let left = self.parse_imperative_expr()?;
 
         // Check for comparison operators
@@ -1431,17 +1472,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        // Save current mode and switch to declarative for proposition parsing
-        let saved_mode = self.mode;
-        self.mode = ParserMode::Declarative;
+        // Parse condition using imperative expression parser
+        // This allows syntax like "Assert that b is not 0."
+        let condition = self.parse_condition()?;
 
-        // Parse the proposition using the Logic Kernel
-        let proposition = self.parse()?;
-
-        // Restore mode
-        self.mode = saved_mode;
-
-        Ok(Stmt::Assert { proposition })
+        Ok(Stmt::RuntimeAssert { condition })
     }
 
     /// Phase 35: Parse Trust statement
@@ -1533,8 +1568,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         self.advance(); // consume "Show"
 
-        // Parse the object being shown: "x" or "the data"
-        let object = self.parse_imperative_expr()?;
+        // Parse the object being shown - use parse_condition to support
+        // comparisons (x is less than y) and boolean operators (a and b)
+        let object = self.parse_condition()?;
 
         // Optional "to" preposition - if not present, default to "show" function
         let recipient = if self.check_preposition_is("to") {
@@ -2470,8 +2506,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             params.push((param_name, param_type));
 
-            // Check for "and" between parameters
-            if self.check_word("and") {
+            // Check for "and" or preposition between parameters
+            // Allows: "## To withdraw (amount: Int) from (balance: Int)"
+            if self.check_word("and") || self.check_preposition() {
                 self.advance();
             }
         }
@@ -2622,6 +2659,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 33: Extended for variant constructors "a new Circle with radius 10"
             // Phase 34: Extended for generic instantiation "a new Box of Int"
             TokenType::Article(_) => {
+                // Phase 48: Check if followed by Manifest or Chunk token
+                // Pattern: "the manifest of Zone" or "the chunk at N in Zone"
+                if let Some(next) = self.tokens.get(self.current + 1) {
+                    if matches!(next.kind, TokenType::Manifest) {
+                        self.advance(); // consume "the"
+                        // Delegate to Manifest handling
+                        return self.parse_primary_expr();
+                    }
+                    if matches!(next.kind, TokenType::Chunk) {
+                        self.advance(); // consume "the"
+                        // Delegate to Chunk handling
+                        return self.parse_primary_expr();
+                    }
+                }
                 // Check if followed by New token
                 if let Some(next) = self.tokens.get(self.current + 1) {
                     if matches!(next.kind, TokenType::New) {
@@ -2970,6 +3021,51 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Copy { expr }))
             }
 
+            // Phase 48: Manifest expression: "manifest of Zone"
+            TokenType::Manifest => {
+                self.advance(); // consume "manifest"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let zone = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::ManifestOf { zone }))
+            }
+
+            // Phase 48: Chunk expression: "chunk at N in Zone"
+            TokenType::Chunk => {
+                self.advance(); // consume "chunk"
+
+                // Expect "at"
+                if !self.check(&TokenType::At) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "at"
+
+                let index = self.parse_imperative_expr()?;
+
+                // Expect "in"
+                if !self.check_preposition_is("in") && !self.check(&TokenType::In) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "in".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "in"
+
+                let zone = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::ChunkAt { index, zone }))
+            }
+
             // Handle verbs in expression context:
             // - "empty" is a literal Nothing
             // - Other verbs can be function names (e.g., read, write)
@@ -3039,12 +3135,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
 
-                // Don't verify as variable - might be a function call
+                // Don't verify as variable - might be a function call or enum variant
                 self.advance();
 
                 // Phase 32: Check for function call: identifier(args)
                 if self.check(&TokenType::LParen) {
                     return self.parse_call_expr(sym);
+                }
+
+                // Phase 33: Check if this is a bare enum variant (e.g., "North" for Direction)
+                if let Some(enum_name) = self.find_variant(sym) {
+                    let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                        enum_name,
+                        variant: sym,
+                        fields: vec![],
+                    });
+                    return self.parse_field_access_chain(base);
                 }
 
                 // Centralized verification for undefined/moved checks (only for variables)
@@ -3160,7 +3266,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_primary_expr()
     }
 
-    /// Parse multiplicative expressions (*, /) - left-to-right associative
+    /// Parse multiplicative expressions (*, /, %) - left-to-right associative
     fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_unary_expr()?;
 
@@ -3173,6 +3279,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Slash => {
                     self.advance();
                     BinaryOpKind::Divide
+                }
+                TokenType::Percent => {
+                    self.advance();
+                    BinaryOpKind::Modulo
                 }
                 _ => break,
             };
@@ -6026,6 +6136,138 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return false;
         }
         matches!(self.tokens[self.current + 1].kind, TokenType::Verb { .. })
+    }
+
+    // =========================================================================
+    // Phase 46: Agent System Parsing
+    // =========================================================================
+
+    /// Parse spawn statement: "Spawn a Worker called 'w1'."
+    fn parse_spawn_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Spawn"
+
+        // Expect article (a/an)
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "a/an".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume article
+
+        // Get agent type name (Noun or ProperName)
+        let agent_type = match &self.tokens[self.current].kind {
+            TokenType::Noun(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "agent type".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "called"
+        if !self.check(&TokenType::Called) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "called"
+
+        // Get agent name (string literal)
+        let name = if let TokenType::StringLiteral(sym) = &self.tokens[self.current].kind {
+            let s = *sym;
+            self.advance();
+            s
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "agent name".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        Ok(Stmt::Spawn { agent_type, name })
+    }
+
+    /// Parse send statement: "Send Ping to 'agent'."
+    fn parse_send_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Send"
+
+        // Parse message expression
+        let message = self.parse_imperative_expr()?;
+
+        // Expect "to"
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse destination expression
+        let destination = self.parse_imperative_expr()?;
+
+        Ok(Stmt::SendMessage { message, destination })
+    }
+
+    /// Parse await statement: "Await response from 'agent' into result."
+    fn parse_await_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Await"
+
+        // Skip optional "response" word
+        if self.check_word("response") {
+            self.advance();
+        }
+
+        // Expect "from" (can be keyword or preposition)
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse source expression
+        let source = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check_word("into") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "into"
+
+        // Get variable name (Noun, ProperName, or Adjective - can be any content word)
+        let into = match &self.tokens[self.current].kind {
+            TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            // Also accept lexemes from other token types if they look like identifiers
+            _ if self.check_content_word() => {
+                let sym = self.tokens[self.current].lexeme;
+                self.advance();
+                sym
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        Ok(Stmt::AwaitMessage { source, into })
     }
 
 }

@@ -770,6 +770,7 @@ pub fn Landing() -> Element {
                             a { href: "#product", "Product" }
                             a { href: "#for", "Who it's for" }
                             a { href: "#faq", "FAQ" }
+                            Link { to: Route::Guide {}, "Guide" }
                             Link { to: Route::Roadmap {}, "Roadmap" }
                             Link { to: Route::Pricing {}, "Pricing" }
                         }

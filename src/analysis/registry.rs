@@ -35,15 +35,19 @@ pub enum TypeDef {
     Primitive,
     /// Struct with named fields and visibility
     /// Phase 34: Now includes optional type parameters
+    /// Phase 47: Added is_portable for serde derives
     Struct {
         fields: Vec<FieldDef>,
         generics: Vec<Symbol>,  // [T, U] for "A Pair of [T] and [U] has:"
+        is_portable: bool,       // Phase 47: Derives Serialize/Deserialize
     },
     /// Phase 33: Enum with variants (unit or with payload)
     /// Phase 34: Now includes optional type parameters
+    /// Phase 47: Added is_portable for serde derives
     Enum {
         variants: Vec<VariantDef>,
         generics: Vec<Symbol>,  // [T] for "A Maybe of [T] is either:"
+        is_portable: bool,       // Phase 47: Derives Serialize/Deserialize
     },
     /// Built-in generic type (List, Option, Result)
     Generic { param_count: usize },

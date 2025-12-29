@@ -7,6 +7,8 @@ pub mod time;
 pub mod random;
 pub mod env;
 pub mod memory;
+// Phase 48: Network primitives
+pub mod network;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -62,6 +64,8 @@ pub mod prelude {
     pub use crate::logos_index_mut;
     // Phase 8.5: Zone-based memory management
     pub use crate::memory::Zone;
+    // Phase 48: Sipping protocol
+    pub use crate::network::{FileSipper, FileManifest, FileChunk};
 }
 
 #[cfg(test)]

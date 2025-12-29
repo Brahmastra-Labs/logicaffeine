@@ -41,7 +41,7 @@ Return.
     let box_sym = interner.intern("Box");
     assert!(registry.is_type(box_sym), "Box should be registered as a type");
 
-    if let Some(TypeDef::Struct { fields, generics }) = registry.get(box_sym) {
+    if let Some(TypeDef::Struct { fields, generics, .. }) = registry.get(box_sym) {
         eprintln!("Box generics: {:?}", generics.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>());
         eprintln!("Box fields: {:?}", fields);
         assert_eq!(generics.len(), 1, "Box should have 1 type parameter");
@@ -91,7 +91,7 @@ Return.
     let registry = discovery.run();
 
     let pair_sym = interner.intern("Pair");
-    if let Some(TypeDef::Struct { fields, generics }) = registry.get(pair_sym) {
+    if let Some(TypeDef::Struct { fields, generics, .. }) = registry.get(pair_sym) {
         eprintln!("Pair generics: {:?}", generics.iter().map(|s| (s, interner.resolve(*s))).collect::<Vec<_>>());
         for field in fields {
             eprintln!("Field {}: {:?}", interner.resolve(field.name), field.ty);

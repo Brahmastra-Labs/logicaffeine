@@ -11,6 +11,7 @@ pub mod success;
 pub mod terms;
 pub mod workspace;
 pub mod studio;
+pub mod guide;
 
 pub use home::Home;
 pub use landing::Landing;
@@ -24,3 +25,4 @@ pub use success::Success;
 pub use terms::Terms;
 pub use workspace::Workspace;
 pub use studio::Studio;
+pub use guide::Guide;
