@@ -10,6 +10,6 @@
     "all W is C"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }

@@ -10,6 +10,6 @@
     "$ P\\\\underline{t} $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Who is the AGENT being commanded? Look for the underline \u2014 it marks who must act.",
+  "explanation": "In deontic logic, 'ought' is expressed with O (obligation). The underlined letter shows the AGENT \u2014 who is being obligated. 'Tom ought to pray' becomes OP_t where the underline under t marks Tom as the agent who must pray."
 }

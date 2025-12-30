@@ -10,6 +10,6 @@
     "no D is T"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"T\" refers to a class/property, so use uppercase."
 }

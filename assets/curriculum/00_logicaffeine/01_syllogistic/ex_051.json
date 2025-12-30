@@ -10,6 +10,6 @@
     "F is not C"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }

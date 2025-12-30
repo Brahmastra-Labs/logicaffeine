@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Would an average person understand all the words in this definition?",
   "explanation": "This violates 4."
 }

@@ -10,6 +10,6 @@
     "$ OC\\\\underline{u} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "What is being required, and who must do it? The underline marks the agent.",
+  "explanation": "'Required' expresses obligation (O). The person who must act gets underlined. Watch the difference between 'required that you cry' (you're the agent) vs 'required that Tom cries' (Tom's the agent)."
 }

@@ -10,6 +10,6 @@
     "$ (B \\\\supset \\\\square C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
+  "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
 }

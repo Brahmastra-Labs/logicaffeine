@@ -720,7 +720,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::RuntimeAssert { condition } => {
             let cond_str = codegen_expr(condition, interner);
-            writeln!(output, "{}assert!({});", indent_str, cond_str).unwrap();
+            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {

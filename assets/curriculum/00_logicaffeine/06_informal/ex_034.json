@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
   "explanation": "This violates 3."
 }

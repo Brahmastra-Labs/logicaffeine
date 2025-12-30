@@ -10,6 +10,6 @@
     "$ \\\\lozenge (x)Cx $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Can a command and a description both be true without contradiction?",
+  "explanation": "In deontic logic, we distinguish the commanded action (underlined) from the description. 'You're selling but don't sell' \u2014 the first 'selling' describes what you're doing (Su), the second is a command not to (\u00acS_u). These can be consistent: you CAN be doing what you shouldn't!"
 }

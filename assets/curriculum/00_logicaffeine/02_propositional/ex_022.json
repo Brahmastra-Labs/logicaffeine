@@ -10,6 +10,6 @@
     "$ \\\\sim B \\\\vee \\\\sim C $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "How many negations do you see? Does each thing get its own 'not', or is the whole statement negated?",
+  "explanation": "Count the 'not's carefully. 'Either NOT A or NOT B' gives us (~A \u2228 ~B) \u2014 each part is individually negated. This is very different from ~(A \u2228 B), which negates the entire disjunction."
 }

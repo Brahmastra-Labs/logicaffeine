@@ -10,6 +10,6 @@
     "all T is C"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"T\" refers to a class/property, so use uppercase."
 }

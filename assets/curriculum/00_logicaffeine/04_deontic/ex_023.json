@@ -10,6 +10,6 @@
     "$ (x)B\\\\underline{x} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "When everyone must do something, does each person become an agent?",
+  "explanation": "Universal obligations use quantifiers: 'Everyone ought to X' becomes (\u2200x)OX_x \u2014 for all x, x is obligated to X. Each person is an agent of their own obligation."
 }

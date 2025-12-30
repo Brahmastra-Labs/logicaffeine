@@ -10,6 +10,6 @@
     "$ Sd $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }

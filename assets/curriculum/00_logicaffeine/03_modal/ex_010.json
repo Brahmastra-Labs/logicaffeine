@@ -10,6 +10,6 @@
     "$ (\\\\lozenge F) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'could' or 'might' suggest certainty, or just an open possibility?",
+  "explanation": "Possibility is expressed with \u25c7 (the diamond). '\u25c7P' means: there exists at least one possible world where P is true. It doesn't claim P IS true \u2014 just that the door to P being true is unlocked."
 }

@@ -10,6 +10,6 @@
     "m is B"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"m\" refers to a specific individual, so use lowercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }

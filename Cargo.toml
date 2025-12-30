@@ -27,7 +27,9 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = [
     "Document", "Element", "HtmlElement", "Window", "History",
     "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
-    "Storage", "Navigator", "Clipboard", "UrlSearchParams"
+    "Storage", "Navigator", "Clipboard", "UrlSearchParams",
+    "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
+    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

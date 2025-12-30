@@ -1238,6 +1238,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let op = if self.check(&TokenType::Equals) {
             self.advance();
             Some(BinaryOpKind::Eq)
+        } else if self.check(&TokenType::Identity) {
+            // "is equal to" was tokenized as TokenType::Identity
+            self.advance();
+            Some(BinaryOpKind::Eq)
         } else if self.check_word("is") {
             // Peek ahead to determine which comparison
             let saved_pos = self.current;

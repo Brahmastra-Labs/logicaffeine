@@ -10,6 +10,6 @@
     "$ (\\\\lozenge C \\\\cdot B) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",
+  "explanation": "Consistency means: there exists at least one possible world where both statements are true together. We express this with \u25c7(A \u00b7 B) \u2014 'it's POSSIBLE that A and B'. This doesn't claim they're actually true, just that they don't contradict each other."
 }

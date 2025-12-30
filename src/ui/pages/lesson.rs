@@ -4,7 +4,7 @@ use crate::ui::components::mixed_text::MixedText;
 use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::achievement_toast::AchievementToast;
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -606,7 +606,7 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
     rsx! {
         style { "{LESSON_STYLE}" }
 
-        AppNavbar { title: "Lesson".to_string() }
+        MainNav { active: ActivePage::Learn }
 
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {

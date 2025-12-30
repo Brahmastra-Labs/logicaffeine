@@ -386,6 +386,82 @@ pub fn Guide() -> Element {
         part: s.part.to_string(),
     }).collect();
 
+    // Collect all section IDs for intersection observer
+    #[allow(unused_variables)]
+    let section_ids: Vec<String> = SECTIONS.iter().map(|s| s.id.to_string()).collect();
+
+    // Set up scroll tracking with IntersectionObserver
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+
+        let section_ids_for_effect = section_ids.clone();
+
+        use_effect(move || {
+            let window = match web_sys::window() {
+                Some(w) => w,
+                None => return,
+            };
+            let document = match window.document() {
+                Some(d) => d,
+                None => return,
+            };
+
+            // Use RefCell to allow mutation from within Fn closure
+            use std::cell::RefCell;
+            use std::rc::Rc;
+
+            let active_section_clone = Rc::new(RefCell::new(active_section.clone()));
+            let active_section_for_closure = active_section_clone.clone();
+
+            let callback = Closure::<dyn Fn(js_sys::Array, web_sys::IntersectionObserver)>::new(
+                move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
+                    // Simple approach: when a section crosses the threshold line,
+                    // it becomes active
+                    for i in 0..entries.length() {
+                        if let Ok(entry) = entries.get(i).dyn_into::<web_sys::IntersectionObserverEntry>() {
+                            if entry.is_intersecting() {
+                                let target = entry.target();
+                                let id = target.id();
+                                if !id.is_empty() {
+                                    active_section_for_closure.borrow_mut().set(id);
+                                }
+                            }
+                        }
+                    }
+                },
+            );
+
+            // Create IntersectionObserver options
+            let mut options = web_sys::IntersectionObserverInit::new();
+            // Root margin creates a thin "tripwire" near the top of the screen
+            options.root_margin("-100px 0px -90% 0px");
+            let thresholds = js_sys::Array::new();
+            thresholds.push(&JsValue::from(0.0));
+            options.threshold(&thresholds);
+
+            // Create the observer
+            let observer = match web_sys::IntersectionObserver::new_with_options(
+                callback.as_ref().unchecked_ref(),
+                &options,
+            ) {
+                Ok(obs) => obs,
+                Err(_) => return,
+            };
+
+            // Observe all sections
+            for section_id in &section_ids_for_effect {
+                if let Some(element) = document.get_element_by_id(section_id) {
+                    observer.observe(&element);
+                }
+            }
+
+            // Keep callback alive
+            callback.forget();
+        });
+    }
+
     // Track current part for dividers
     let mut current_part = String::new();
 

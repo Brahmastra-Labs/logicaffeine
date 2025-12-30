@@ -5,7 +5,7 @@ use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::streak_display::StreakDisplay;
 use crate::ui::components::achievement_toast::AchievementToast;
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -339,7 +339,7 @@ pub fn Review() -> Element {
     rsx! {
         style { "{REVIEW_STYLE}" }
 
-        AppNavbar { title: "Daily Review".to_string() }
+        MainNav { active: ActivePage::Learn, subtitle: Some("Daily Review") }
 
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {

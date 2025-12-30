@@ -10,6 +10,6 @@
     "all R is not D"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }

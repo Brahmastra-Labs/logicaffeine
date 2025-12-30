@@ -10,6 +10,6 @@
     "$ \\\\lozenge (Cu\\\\cdot \\\\sim Cu) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }

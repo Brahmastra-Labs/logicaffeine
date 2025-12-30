@@ -10,6 +10,6 @@
     "$ \\\\sim\\\\sim B \\\\supset C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }

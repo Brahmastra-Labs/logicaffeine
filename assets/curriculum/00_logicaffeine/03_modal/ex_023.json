@@ -10,6 +10,6 @@
     "$ \\\\square C \\\\supset M $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'A entails B' mean 'if A then B' is TRUE, or that 'if A then B' is NECESSARY?",
+  "explanation": "Entailment is NECESSARY implication: in EVERY possible world, if A is true then B must also be true. We write \u25a1(A \u2283 B). This is stronger than just 'A \u2283 B', which only claims the implication holds in the actual world."
 }

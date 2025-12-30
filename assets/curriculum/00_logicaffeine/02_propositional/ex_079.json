@@ -10,6 +10,6 @@
     "$ \\\\sim S \\\\cdot C $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }

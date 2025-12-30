@@ -10,6 +10,6 @@
     "C is g"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
 }

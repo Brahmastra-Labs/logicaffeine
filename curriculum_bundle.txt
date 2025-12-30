@@ -27,7 +27,8 @@
   ],
   "correct": 3,
   "hint": "Does the word 'You' refer to a vast group of people, or a specific person standing right here?",
-  "explanation": "\"You\" refers to a specific individual (the listener), so we use lowercase \"u\". The phrase \"the cleanest biologist\" also picks out a specific individual (like saying \"the tallest person\"), so we use lowercase \"b\". In logic, lowercase = specific individual, UPPERCASE = a class or category of things."
+  "explanation": "\"You\" refers to a specific individual (the listener), so we use lowercase \"u\". The phrase \"the cleanest biologist\" also picks out a specific individual (like saying \"the tallest person\"), so we use lowercase \"b\". In logic, lowercase = specific individual, UPPERCASE = a class or category of things.",
+  "visual_concept": "Two sizes: lowercase letters are single people (you can point at them), UPPERCASE letters are groups/crowds inside circles (you point at the whole group)."
 }
 
 {
@@ -42,7 +43,7 @@
     "U is not C"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'you' refer to people in general, or to ONE specific person (the listener)?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -58,7 +59,7 @@
     "d is not c"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"d\" refers to a specific individual, so use lowercase. The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -74,7 +75,7 @@
     "all F is S"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }
 
@@ -90,7 +91,7 @@
     "u is not c"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -106,7 +107,7 @@
     "u is not d"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'you' refer to people in general, or to ONE specific person (the listener)?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"D\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -122,7 +123,7 @@
     "i is p"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The cheapest poet\" stands for a single person, and so translates into a small letter."
 }
 
@@ -154,7 +155,7 @@
     "U is not p"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The wildest plumber\" stands for a single person, and so translates into a small letter."
 }
 
@@ -170,7 +171,7 @@
     "u is not C"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'you' refer to people in general, or to ONE specific person (the listener)?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -186,7 +187,7 @@
     "I is g"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"g\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -202,7 +203,7 @@
     "all j is A"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"J\" refers to a class of things, so use uppercase. The predicate \"A\" refers to a class/property, so use uppercase."
 }
 
@@ -218,7 +219,7 @@
     "U is not D"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -234,7 +235,7 @@
     "some p is not B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -250,7 +251,7 @@
     "i is m"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"m\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -266,7 +267,7 @@
     "u is not P"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The meanest politician\" stands for a single person, and so translates into a small letter."
 }
 
@@ -282,7 +283,7 @@
     "some r is not H"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"R\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -298,7 +299,7 @@
     "all p is H"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
 }
 
@@ -314,7 +315,7 @@
     "u is not B"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The strongest banker\" stands for a single person, and so translates into a small letter."
 }
 
@@ -330,7 +331,7 @@
     "G is not B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"G\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -346,7 +347,7 @@
     "I is B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The cruelest bachelor\" stands for a single person, and so translates into a small letter."
 }
 
@@ -362,7 +363,7 @@
     "C is B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -378,7 +379,7 @@
     "U is not c"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The brightest\" stands for a single person, and so translates into a small letter."
 }
 
@@ -394,7 +395,7 @@
     "C is B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"C\" refers to a class of things, so use uppercase. The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -410,7 +411,7 @@
     "i is D"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The slowest diabetic\" stands for a single person, and so translates into a small letter."
 }
 
@@ -426,7 +427,7 @@
     "U is not c"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -442,7 +443,7 @@
     "some F is d"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"F\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }
 
@@ -458,7 +459,7 @@
     "i is b"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The meanest bandit\" stands for a single person, and so translates into a small letter."
 }
 
@@ -474,7 +475,7 @@
     "t is not c"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"t\" refers to a specific individual, so use lowercase. The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -490,7 +491,7 @@
     "i is B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -506,7 +507,7 @@
     "C is g"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
 }
 
@@ -538,7 +539,7 @@
     "no F is P"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"P\" refers to a class/property, so use uppercase."
 }
 
@@ -554,7 +555,7 @@
     "I is D"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -570,7 +571,7 @@
     "D is s"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }
 
@@ -586,7 +587,7 @@
     "U is not F"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"f\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -602,7 +603,7 @@
     "all C is not G"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
 }
 
@@ -618,7 +619,7 @@
     "m is B"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"m\" refers to a specific individual, so use lowercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -634,7 +635,7 @@
     "some P is C"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -650,7 +651,7 @@
     "C is H"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
 }
 
@@ -666,7 +667,7 @@
     "all C is not G"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
 }
 
@@ -682,7 +683,7 @@
     "i is j"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"j\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -698,7 +699,7 @@
     "P is m"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
 }
 
@@ -714,7 +715,7 @@
     "some m is not H"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"M\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -730,7 +731,7 @@
     "all P is not R"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -746,7 +747,7 @@
     "I is P"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"p\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
 }
 
@@ -762,7 +763,7 @@
     "U is not r"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"r\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -778,7 +779,7 @@
     "some D is not A"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"A\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -810,7 +811,7 @@
     "some D is W"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"W\" refers to a class/property, so use uppercase."
 }
 
@@ -826,7 +827,7 @@
     "F is not C"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -842,7 +843,7 @@
     "some D is C"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -858,7 +859,7 @@
     "some B is not R"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"B\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -874,7 +875,7 @@
     "B is P"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -890,7 +891,7 @@
     "some D is not S"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }
 
@@ -906,7 +907,7 @@
     "B is D"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }
 
@@ -922,7 +923,7 @@
     "some C is not D"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }
 
@@ -938,7 +939,7 @@
     "P is R"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -954,7 +955,7 @@
     "D is not R"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -970,7 +971,7 @@
     "not some N is F"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"N\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }
 
@@ -986,7 +987,7 @@
     "no P is C"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1002,7 +1003,7 @@
     "all R is T"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"T\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -1018,7 +1019,7 @@
     "some S is not W"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"S\" refers to a class of things, so use uppercase. The predicate \"W\" refers to a class/property, so use uppercase."
 }
 
@@ -1034,7 +1035,7 @@
     "B is F"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }
 
@@ -1050,7 +1051,7 @@
     "no D is S"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }
 
@@ -1066,7 +1067,7 @@
     "all C is M"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"M\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1082,7 +1083,7 @@
     "all P is R"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -1098,7 +1099,7 @@
     "all D is R"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"R\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }
 
@@ -1114,7 +1115,7 @@
     "some S is not B"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"S\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -1130,7 +1131,7 @@
     "S is not C"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1146,7 +1147,7 @@
     "no C is S"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }
 
@@ -1162,7 +1163,7 @@
     "no W is F"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }
 
@@ -1178,7 +1179,7 @@
     "some F is not S"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }
 
@@ -1194,7 +1195,7 @@
     "no B is M"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
 }
 
@@ -1210,7 +1211,7 @@
     "no D is T"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"T\" refers to a class/property, so use uppercase."
 }
 
@@ -1226,7 +1227,7 @@
     "all W is N"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"N\" refers to a class/property, so use uppercase."
 }
 
@@ -1242,7 +1243,7 @@
     "S is D"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }
 
@@ -1258,7 +1259,7 @@
     "all T is C"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "'Unless' is tricky in logic \u2014 try rephrasing it as 'if not'. What happens then?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"T\" refers to a class/property, so use uppercase."
 }
 
@@ -1274,7 +1275,7 @@
     "no W is G"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
 }
 
@@ -1290,7 +1291,7 @@
     "some D is M"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
 }
 
@@ -1306,7 +1307,7 @@
     "all P is not D"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }
 
@@ -1322,7 +1323,7 @@
     "all D is not R"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }
 
@@ -1338,7 +1339,7 @@
     "all W is C"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1354,7 +1355,7 @@
     "some P is not C"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1370,7 +1371,7 @@
     "no B is F"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"B\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }
 
@@ -1386,7 +1387,7 @@
     "G is M"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
 }
 
@@ -1402,7 +1403,7 @@
     "C is not H"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
 }
 
@@ -1418,7 +1419,7 @@
     "I is c"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'I' refer to one specific person (the speaker) or a category?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1434,7 +1435,7 @@
     "all R is not D"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -1450,7 +1451,7 @@
     "P is C"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1466,7 +1467,7 @@
     "all B is M"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"M\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -1482,7 +1483,7 @@
     "i is R"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Does 'I' refer to one specific person (the speaker) or a category?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"R\" refers to a class/property, so use uppercase."
 }
 
@@ -1498,7 +1499,7 @@
     "G is not F"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"G\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }
 
@@ -1514,7 +1515,7 @@
     "S is G"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
 }
 
@@ -1530,7 +1531,7 @@
     "C is not P"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"P\" refers to a class/property, so use uppercase."
 }
 
@@ -1546,7 +1547,7 @@
     "I is B"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Does 'I' refer to one specific person (the speaker) or a category?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -1562,7 +1563,7 @@
     "all C is not B"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
 }
 
@@ -1578,7 +1579,7 @@
     "some G is C"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
@@ -1603,7 +1604,8 @@
   ],
   "correct": 0,
   "hint": "Imagine P is 'Pass the exam', L is 'Learn the material', and D is 'Do extra practice'. To pass, you need to (Learn OR Do extra practice). Where do the parentheses go to group your path to success?",
-  "explanation": "Think of it like planning your success: 'I will Pass AND (Learn OR Practice)'. The parentheses show that 'Learn or Practice' is your choice of METHOD, and you ALSO commit to Passing. Without proper grouping, '(Pass AND Learn) OR Practice' means something different — you'd either (pass while learning) or just practice without committing to pass. Precision in logic = precision in planning your life."
+  "explanation": "Think of it like planning your success: 'I will Pass AND (Learn OR Practice)'. The parentheses show that 'Learn or Practice' is your choice of METHOD, and you ALSO commit to Passing. Without proper grouping, '(Pass AND Learn) OR Practice' means something different — you'd either (pass while learning) or just practice without committing to pass. Precision in logic = precision in planning your life.",
+  "visual_concept": "A fork in the road. P is the destination you MUST reach. The fork offers two paths (L or D) - you choose one path, but either leads to P."
 }
 
 {
@@ -1618,8 +1620,8 @@
     "$ \\\\sim(\\\\sim B \\\\vee N) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1634,8 +1636,8 @@
     "$ (\\\\sim S \\\\vee F) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1650,8 +1652,8 @@
     "$ \\\\sim\\\\sim F \\\\cdot C $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -1666,8 +1668,8 @@
     "$ (S \\\\supset L) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1682,8 +1684,8 @@
     "$ \\\\sim(\\\\sim C \\\\vee L) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1698,8 +1700,8 @@
     "$ D \\\\supset L \\\\cdot P $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1730,8 +1732,8 @@
     "$ (\\\\sim B \\\\cdot \\\\sim C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -1746,8 +1748,8 @@
     "$ \\\\sim(C \\\\cdot F) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -1762,8 +1764,8 @@
     "$ (B \\\\supset C) \\\\vee P $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1778,8 +1780,8 @@
     "$ W \\\\cdot C \\\\cdot D $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -1794,8 +1796,8 @@
     "$ (S \\\\supset F) \\\\vee C $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
+  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
 }
 
 {
@@ -1810,8 +1812,8 @@
     "$ \\\\sim C \\\\supset F $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1826,8 +1828,8 @@
     "$ ((S \\\\supset G) \\\\vee H) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1842,8 +1844,8 @@
     "$ (\\\\sim P \\\\vee B) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1858,8 +1860,8 @@
     "$ (\\\\sim B \\\\vee L) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1874,8 +1876,8 @@
     "$ (S \\\\supset H) \\\\cdot L $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1890,8 +1892,8 @@
     "$ (T \\\\cdot (N \\\\vee D)) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1906,8 +1908,8 @@
     "$ W \\\\cdot D \\\\vee S $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1922,8 +1924,8 @@
     "$ \\\\sim M \\\\vee B $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1938,8 +1940,8 @@
     "$ \\\\sim B \\\\vee \\\\sim C $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "How many negations do you see? Does each thing get its own 'not', or is the whole statement negated?",
+  "explanation": "Count the 'not's carefully. 'Either NOT A or NOT B' gives us (~A \u2228 ~B) \u2014 each part is individually negated. This is very different from ~(A \u2228 B), which negates the entire disjunction."
 }
 
 {
@@ -1954,8 +1956,8 @@
     "$ (R \\\\supset P) \\\\cdot C $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -1970,8 +1972,8 @@
     "$ (\\\\sim R \\\\cdot C) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -1986,8 +1988,8 @@
     "$ (\\\\sim C \\\\vee N) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2002,8 +2004,8 @@
     "$ \\\\sim(C \\\\supset H) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2018,8 +2020,8 @@
     "$ \\\\sim(\\\\sim W \\\\vee C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2034,8 +2036,8 @@
     "$ \\\\sim M \\\\cdot L $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2050,8 +2052,8 @@
     "$ \\\\sim(M \\\\cdot \\\\sim C) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2066,8 +2068,8 @@
     "$ ((R \\\\cdot L) \\\\vee N) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2082,8 +2084,8 @@
     "$ (B \\\\supset (P \\\\vee D)) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
+  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
 }
 
 {
@@ -2114,8 +2116,8 @@
     "$ (C \\\\cdot F) \\\\vee G $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2130,8 +2132,8 @@
     "$ ((W \\\\cdot G) \\\\vee C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2146,8 +2148,8 @@
     "$ \\\\sim(D \\\\vee B) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2162,8 +2164,8 @@
     "$ C \\\\cdot N $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2178,8 +2180,8 @@
     "$ (B \\\\supset C) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2194,8 +2196,8 @@
     "$ (B \\\\cdot (F \\\\vee C)) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2210,8 +2212,8 @@
     "$ \\\\sim(W \\\\vee C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2226,8 +2228,8 @@
     "$ T \\\\cdot M \\\\vee C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2242,8 +2244,8 @@
     "$ ((D \\\\supset M) \\\\cdot L) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2258,8 +2260,8 @@
     "$ (\\\\sim L \\\\cdot N) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2274,8 +2276,8 @@
     "$ (\\\\sim B \\\\vee \\\\sim P) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2290,8 +2292,8 @@
     "$ \\\\sim S \\\\cdot \\\\sim B $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2306,8 +2308,8 @@
     "$ ((C \\\\supset S) \\\\cdot B) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2322,8 +2324,8 @@
     "$ ((S \\\\supset T) \\\\vee C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2338,8 +2340,8 @@
     "$ (\\\\sim T \\\\supset F) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2354,8 +2356,8 @@
     "$ (\\\\sim P \\\\cdot B) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2370,8 +2372,8 @@
     "$ (P \\\\supset C) \\\\vee D $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
+  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
 }
 
 {
@@ -2386,8 +2388,8 @@
     "$ (\\\\sim C \\\\cdot F) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2402,8 +2404,8 @@
     "$ \\\\sim(T \\\\supset G) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2418,8 +2420,8 @@
     "$ (W \\\\cdot H) \\\\supset C $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2434,8 +2436,8 @@
     "$ \\\\sim\\\\sim F \\\\cdot L $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2450,8 +2452,8 @@
     "$ (C \\\\cdot (L \\\\vee H)) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2466,8 +2468,8 @@
     "$ (P \\\\supset (D \\\\cdot N)) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2482,8 +2484,8 @@
     "$ (\\\\sim R \\\\supset C) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2498,8 +2500,8 @@
     "$ \\\\sim\\\\sim B \\\\supset C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2514,8 +2516,8 @@
     "$ ((T \\\\cdot C) \\\\vee F) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2530,8 +2532,8 @@
     "$ ((W \\\\cdot C) \\\\vee P) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2546,8 +2548,8 @@
     "$ ((T \\\\supset R) \\\\cdot B) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2562,8 +2564,8 @@
     "$ (C \\\\supset (P \\\\vee L)) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2578,8 +2580,8 @@
     "$ ((S \\\\cdot C) \\\\vee D) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2594,8 +2596,8 @@
     "$ S \\\\supset B $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A only if B' \u2014 which way does the arrow point? Is B the cause or the requirement?",
+  "explanation": "'Only if' is tricky! 'A only if B' means A \u2283 B. Think: A can only happen IF B is satisfied. B is a NECESSARY condition for A. Compare to 'A if B' which would be B \u2283 A."
 }
 
 {
@@ -2610,8 +2612,8 @@
     "$ (S \\\\supset B) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Necessary AND sufficient' \u2014 is this just an 'if' or something stronger?",
+  "explanation": "'A is necessary and sufficient for B' means they're equivalent: A \u2261 B (biconditional). A guarantees B (A \u2283 B) AND B guarantees A (B \u2283 A). They rise and fall together."
 }
 
 {
@@ -2626,8 +2628,8 @@
     "$ S \\\\supset G $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -2642,8 +2644,8 @@
     "$ (B \\\\supset G) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -2658,8 +2660,8 @@
     "$ (\\\\sim C \\\\cdot P) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2674,8 +2676,8 @@
     "$ D \\\\equiv C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Necessary AND sufficient' \u2014 is this just an 'if' or something stronger?",
+  "explanation": "'A is necessary and sufficient for B' means they're equivalent: A \u2261 B (biconditional). A guarantees B (A \u2283 B) AND B guarantees A (B \u2283 A). They rise and fall together."
 }
 
 {
@@ -2690,8 +2692,8 @@
     "$ (\\\\sim W \\\\supset \\\\, \\\\sim C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -2706,8 +2708,8 @@
     "$ (B \\\\supset S) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -2722,8 +2724,8 @@
     "$ (\\\\sim H \\\\cdot F) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2738,8 +2740,8 @@
     "$ (\\\\sim C \\\\cdot B) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2754,8 +2756,8 @@
     "$ (\\\\sim S \\\\supset \\\\, \\\\sim F) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -2770,8 +2772,8 @@
     "$ (S \\\\supset M) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -2786,8 +2788,8 @@
     "$ (\\\\sim L \\\\cdot D) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2802,8 +2804,8 @@
     "$ \\\\sim (N \\\\cdot P) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2818,8 +2820,8 @@
     "$ W \\\\supset D $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -2834,8 +2836,8 @@
     "$ (C \\\\equiv M) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2850,8 +2852,8 @@
     "$ \\\\sim S \\\\cdot C $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -2866,8 +2868,8 @@
     "$ (R \\\\supset S) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2882,8 +2884,8 @@
     "$ (\\\\sim B \\\\supset \\\\, \\\\sim G) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -2898,8 +2900,8 @@
     "$ (F \\\\vee S) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2914,8 +2916,8 @@
     "$ (C \\\\supset T) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A only if B' \u2014 which way does the arrow point? Is B the cause or the requirement?",
+  "explanation": "'Only if' is tricky! 'A only if B' means A \u2283 B. Think: A can only happen IF B is satisfied. B is a NECESSARY condition for A. Compare to 'A if B' which would be B \u2283 A."
 }
 
 {
@@ -2930,8 +2932,8 @@
     "$ (C \\\\supset D) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -2946,8 +2948,8 @@
     "$ (\\\\sim M \\\\supset \\\\, \\\\sim F) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -2962,8 +2964,8 @@
     "$ (G \\\\equiv F) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -2978,8 +2980,8 @@
     "$ (S \\\\supset R) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A only if B' \u2014 which way does the arrow point? Is B the cause or the requirement?",
+  "explanation": "'Only if' is tricky! 'A only if B' means A \u2283 B. Think: A can only happen IF B is satisfied. B is a NECESSARY condition for A. Compare to 'A if B' which would be B \u2283 A."
 }
 
 {
@@ -2994,8 +2996,8 @@
     "$ B \\\\supset M $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3010,8 +3012,8 @@
     "$ (\\\\sim T \\\\supset \\\\, \\\\sim C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'necessary' for B, can B happen without A?",
+  "explanation": "'A is necessary for B' means: you can't have B without A. Equivalently, B \u2283 A \u2014 if B happens, A must have happened. A is required for B."
 }
 
 {
@@ -3026,8 +3028,8 @@
     "$ (N \\\\supset P) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -3042,8 +3044,8 @@
     "$ (C \\\\equiv D) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A only if B' \u2014 which way does the arrow point? Is B the cause or the requirement?",
+  "explanation": "'Only if' is tricky! 'A only if B' means A \u2283 B. Think: A can only happen IF B is satisfied. B is a NECESSARY condition for A. Compare to 'A if B' which would be B \u2283 A."
 }
 
 {
@@ -3058,8 +3060,8 @@
     "$ (C \\\\supset T) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3074,8 +3076,8 @@
     "$ \\\\sim M \\\\supset \\\\, \\\\sim C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3090,8 +3092,8 @@
     "$ (C \\\\supset F) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -3106,8 +3108,8 @@
     "$ (T \\\\supset G) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A only if B' \u2014 which way does the arrow point? Is B the cause or the requirement?",
+  "explanation": "'Only if' is tricky! 'A only if B' means A \u2283 B. Think: A can only happen IF B is satisfied. B is a NECESSARY condition for A. Compare to 'A if B' which would be B \u2283 A."
 }
 
 {
@@ -3122,8 +3124,8 @@
     "$ C \\\\supset R \\\\cdot B $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3138,8 +3140,8 @@
     "$ (\\\\sim W \\\\vee P) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "How many negations do you see? Does each thing get its own 'not', or is the whole statement negated?",
+  "explanation": "Count the 'not's carefully. 'Either NOT A or NOT B' gives us (~A \u2228 ~B) \u2014 each part is individually negated. This is very different from ~(A \u2228 B), which negates the entire disjunction."
 }
 
 {
@@ -3154,8 +3156,8 @@
     "$ (F \\\\equiv N) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -3170,8 +3172,8 @@
     "$ (C \\\\equiv R) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Necessary AND sufficient' \u2014 is this just an 'if' or something stronger?",
+  "explanation": "'A is necessary and sufficient for B' means they're equivalent: A \u2261 B (biconditional). A guarantees B (A \u2283 B) AND B guarantees A (B \u2283 A). They rise and fall together."
 }
 
 {
@@ -3186,8 +3188,8 @@
     "$ (B \\\\vee C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3202,8 +3204,8 @@
     "$ \\\\sim (T \\\\supset L) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3218,8 +3220,8 @@
     "$ H \\\\supset M $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3234,8 +3236,8 @@
     "$ ((S \\\\supset N) \\\\vee P) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
+  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
 }
 
 {
@@ -3250,8 +3252,8 @@
     "$ (C \\\\supset D) \\\\vee T $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3266,8 +3268,8 @@
     "$ (S \\\\supset T) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3282,8 +3284,8 @@
     "$ M \\\\cdot C \\\\vee F $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3298,8 +3300,8 @@
     "$ F \\\\equiv R $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3314,8 +3316,8 @@
     "$ \\\\sim S \\\\vee R $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3330,8 +3332,8 @@
     "$ (\\\\sim R \\\\cdot D) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -3346,8 +3348,8 @@
     "$ T \\\\supset F $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }
 
 {
@@ -3362,8 +3364,8 @@
     "$ (D \\\\cdot (F \\\\vee C)) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What exactly is 'both' connecting? Are both parts the full consequence, or just the second one?",
+  "explanation": "In 'both A and B', we conjoin A and B: (A \u00b7 B). Watch for scope: 'If X, then both A and B' means X \u2283 (A \u00b7 B). But '(If X then A), and B' means (X \u2283 A) \u00b7 B \u2014 the B stands alone!"
 }
 
 {
@@ -3378,8 +3380,8 @@
     "$ (B \\\\vee S) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). Pay attention to the scope of operators - parentheses matter!"
 }
 
 {
@@ -3394,8 +3396,8 @@
     "$ (H \\\\supset R) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }
 
 {
@@ -3410,8 +3412,8 @@
     "$ ((B \\\\supset C) \\\\cdot S) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
 --- MODULE: 03_modal ---
@@ -3435,7 +3437,8 @@
   ],
   "correct": 2,
   "hint": "Think of possibility like doorways to other worlds. Is this sentence saying 'There is NO doorway to a world where you are careful' or 'There IS a doorway to a world where you are NOT careful'?",
-  "explanation": "When we say 'It isn't possible that X', we're closing ALL doors to worlds where X happens. The negation (∼) comes BEFORE the possibility diamond (◊), giving us ∼◊C. Compare this to ◊∼C which means 'It IS possible that you're NOT careful' — that's saying a door exists to a world of carelessness, not that all doors to carefulness are closed!"
+  "explanation": "When we say 'It isn't possible that X', we're closing ALL doors to worlds where X happens. The negation (∼) comes BEFORE the possibility diamond (◊), giving us ∼◊C. Compare this to ◊∼C which means 'It IS possible that you're NOT careful' — that's saying a door exists to a world of carelessness, not that all doors to carefulness are closed!",
+  "visual_concept": "A hallway with multiple doors. For ~◊C, ALL doors labeled 'Careful' are locked/barred. For ◊~C, ONE door labeled 'Not Careful' is open."
 }
 
 {
@@ -3450,8 +3453,8 @@
     "$ \\\\square (B \\\\supset C) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessity claims?",
+  "explanation": "This connects two necessity statements with a regular conditional: 'IF (\u25a1A) THEN (\u25a1B)'. Each \u25a1 wraps its own proposition. Compare to \u25a1(A \u2283 B) which would make the implication itself necessary."
 }
 
 {
@@ -3466,7 +3469,7 @@
     "$ \\\\square(\\\\lozenge S) $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3482,8 +3485,8 @@
     "$ \\\\sim \\\\lozenge (P) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
+  "explanation": "'Couldn't be X' means 'it's NOT POSSIBLE to be X' \u2014 the door to that possibility is locked shut. We write this as ~\u25c7P (not-possible P). This is different from '\u25c7~P' (possibly not P), which only says there's SOME world where P is false."
 }
 
 {
@@ -3498,7 +3501,7 @@
     "$ (\\\\square (D)) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3514,8 +3517,8 @@
     "$ \\\\sim \\\\square N $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "If something 'isn't necessary', does that mean it's false, or just that it doesn't HAVE to be true?",
+  "explanation": "'Not necessary' means: there's at least one possible world where this is false. We write ~\u25a1P. This is weaker than saying 'P is false' \u2014 it just means P isn't guaranteed. In fact, P might still be true in the actual world!"
 }
 
 {
@@ -3530,8 +3533,8 @@
     "$ \\\\sim \\\\lozenge (F) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "If something 'isn't possible', are we saying it fails in SOME worlds or in ALL worlds?",
+  "explanation": "'Not possible' means there's NO world where this is true \u2014 every door is locked. We write ~\u25c7P. This is equivalent to saying 'necessarily NOT P' (\u25a1~P) \u2014 it must be false everywhere."
 }
 
 {
@@ -3562,7 +3565,7 @@
     "$ \\\\square (P \\\\supset \\\\sim S) $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3578,8 +3581,8 @@
     "$ (\\\\lozenge F) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'could' or 'might' suggest certainty, or just an open possibility?",
+  "explanation": "Possibility is expressed with \u25c7 (the diamond). '\u25c7P' means: there exists at least one possible world where P is true. It doesn't claim P IS true \u2014 just that the door to P being true is unlocked."
 }
 
 {
@@ -3594,8 +3597,8 @@
     "$ (\\\\lozenge C \\\\cdot B) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",
+  "explanation": "Consistency means: there exists at least one possible world where both statements are true together. We express this with \u25c7(A \u00b7 B) \u2014 'it's POSSIBLE that A and B'. This doesn't claim they're actually true, just that they don't contradict each other."
 }
 
 {
@@ -3610,8 +3613,8 @@
     "Ambiguous between 1 & 2"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
+  "explanation": "'Couldn't be X' means 'it's NOT POSSIBLE to be X' \u2014 the door to that possibility is locked shut. We write this as ~\u25c7P (not-possible P). This is different from '\u25c7~P' (possibly not P), which only says there's SOME world where P is false."
 }
 
 {
@@ -3626,8 +3629,8 @@
     "$ \\\\sim (\\\\lozenge F) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "If something 'contradicts itself', can it be true in ANY possible world?",
+  "explanation": "A self-contradictory statement is impossible \u2014 there's no world where it's true. We express this as ~\u25c7P (not possible). Equivalently, its negation is necessary: \u25a1~P."
 }
 
 {
@@ -3642,8 +3645,8 @@
     "$ (\\\\lozenge S \\\\cdot G) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",
+  "explanation": "Consistency means: there exists at least one possible world where both statements are true together. We express this with \u25c7(A \u00b7 B) \u2014 'it's POSSIBLE that A and B'. This doesn't claim they're actually true, just that they don't contradict each other."
 }
 
 {
@@ -3658,8 +3661,8 @@
     "$ (B \\\\supset \\\\square C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
+  "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
 }
 
 {
@@ -3674,8 +3677,8 @@
     "$ \\\\lozenge (M \\\\cdot D) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "When two things are 'consistent', does that mean they ARE both true, or they COULD be true together?",
+  "explanation": "Consistency means: there exists at least one possible world where both statements are true together. We express this with \u25c7(A \u00b7 B) \u2014 'it's POSSIBLE that A and B'. This doesn't claim they're actually true, just that they don't contradict each other."
 }
 
 {
@@ -3690,8 +3693,8 @@
     "$ \\\\square C \\\\supset B $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does the necessity attach to the consequence only, or to the whole statement?",
+  "explanation": "Here the 'if...then' is a regular conditional, but its CONSEQUENCE involves necessity: A \u2283 \u25a1B. This says: 'If A happens, then B becomes necessary.' The implication itself might be contingent."
 }
 
 {
@@ -3706,8 +3709,8 @@
     "$ (D \\\\supset \\\\square \\\\sim S) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
+  "explanation": "'Couldn't be X' means 'it's NOT POSSIBLE to be X' \u2014 the door to that possibility is locked shut. We write this as ~\u25c7P (not-possible P). This is different from '\u25c7~P' (possibly not P), which only says there's SOME world where P is false."
 }
 
 {
@@ -3722,8 +3725,8 @@
     "$ \\\\square (D \\\\supset T) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
+  "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
 }
 
 {
@@ -3738,8 +3741,8 @@
     "$ (\\\\square C \\\\supset \\\\square S) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessity claims?",
+  "explanation": "This connects two necessity statements with a regular conditional: 'IF (\u25a1A) THEN (\u25a1B)'. Each \u25a1 wraps its own proposition. Compare to \u25a1(A \u2283 B) which would make the implication itself necessary."
 }
 
 {
@@ -3754,8 +3757,8 @@
     "$ \\\\square (F \\\\supset C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
+  "explanation": "'Must be' expresses necessity \u2014 \u25a1 (the box). What follows 'must' is what's necessarily true. Pay attention to negations: 'must not be X' is \u25a1~X (necessarily not X), which is different from ~\u25a1X (not necessarily X)."
 }
 
 {
@@ -3770,8 +3773,8 @@
     "$ \\\\square D \\\\supset \\\\sim C $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
+  "explanation": "'Couldn't be X' means 'it's NOT POSSIBLE to be X' \u2014 the door to that possibility is locked shut. We write this as ~\u25c7P (not-possible P). This is different from '\u25c7~P' (possibly not P), which only says there's SOME world where P is false."
 }
 
 {
@@ -3786,8 +3789,8 @@
     "$ \\\\square C \\\\supset M $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'A entails B' mean 'if A then B' is TRUE, or that 'if A then B' is NECESSARY?",
+  "explanation": "Entailment is NECESSARY implication: in EVERY possible world, if A is true then B must also be true. We write \u25a1(A \u2283 B). This is stronger than just 'A \u2283 B', which only claims the implication holds in the actual world."
 }
 
 {
@@ -3818,8 +3821,8 @@
     "$ \\\\sim \\\\square C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
+  "explanation": "'Must be' expresses necessity \u2014 \u25a1 (the box). What follows 'must' is what's necessarily true. Pay attention to negations: 'must not be X' is \u25a1~X (necessarily not X), which is different from ~\u25a1X (not necessarily X)."
 }
 
 {
@@ -3834,8 +3837,8 @@
     "$ (C \\\\supset \\\\square S) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
+  "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
 }
 
 {
@@ -3850,7 +3853,7 @@
     "$ \\\\square (P \\\\vee C) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3866,8 +3869,8 @@
     "$ \\\\sim \\\\square (F) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
+  "explanation": "'Must be' expresses necessity \u2014 \u25a1 (the box). What follows 'must' is what's necessarily true. Pay attention to negations: 'must not be X' is \u25a1~X (necessarily not X), which is different from ~\u25a1X (not necessarily X)."
 }
 
 {
@@ -3882,7 +3885,7 @@
     "$ (\\\\square (P)) $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3898,7 +3901,7 @@
     "$ \\\\sim \\\\square H $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3914,7 +3917,7 @@
     "$ (\\\\exists x)\\\\square Bx $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3930,8 +3933,8 @@
     "$ \\\\lozenge ((\\\\exists x)Dx) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the possibility about a SPECIFIC person, or about the existence of such a person?",
+  "explanation": "When possibility mixes with quantifiers, scope matters! '\u25c7\u2203x(Px)' means 'possibly, someone is P' \u2014 there's a world where at least one P-person exists. '\u2203x(\u25c7Px)' would mean 'there's an actual person who could be P' \u2014 subtly different!"
 }
 
 {
@@ -3946,7 +3949,7 @@
     "$ (\\\\exists x)(\\\\square Sx) $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3962,7 +3965,7 @@
     "$ \\\\sim M \\\\square s $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
@@ -3987,7 +3990,8 @@
   ],
   "correct": 2,
   "hint": "Who is doing the defeating here? The underline marks the AGENT — the one performing the action. Look for who is commanded to act.",
-  "explanation": "In deontic logic, the underlined term marks the AGENT — the person who must perform the action. 'Defeat Tom' is a command to YOU (the listener, represented by 'u'). So we write D with 'u' underlined as the agent, and 't' (Tom) as the one being defeated. The underline is like pointing a finger: 'YOU do this!'"
+  "explanation": "In deontic logic, the underlined term marks the AGENT — the person who must perform the action. 'Defeat Tom' is a command to YOU (the listener, represented by 'u'). So we write D with 'u' underlined as the agent, and 't' (Tom) as the one being defeated. The underline is like pointing a finger: 'YOU do this!'",
+  "visual_concept": "A pointing finger aimed at the underlined person. The finger says 'YOU must act!' The underline is like a spotlight on who bears the responsibility."
 }
 
 {
@@ -4002,7 +4006,7 @@
     "$ S\\\\underline{u}t $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4018,8 +4022,8 @@
     "$ (Pu\\\\cdot \\\\sim P\\\\underline{u} ) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }
 
 {
@@ -4034,8 +4038,8 @@
     "$ O\\\\sim D\\\\underline{u} t $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }
 
 {
@@ -4050,7 +4054,7 @@
     "$ I\\\\underline{d} $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4066,7 +4070,7 @@
     "$ H\\\\underline{d} $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4082,7 +4086,7 @@
     "$ (Fu\\\\supset Lu) $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
 }
 
@@ -4098,8 +4102,8 @@
     "$ O\\\\sim A\\\\underline{u} d $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }
 
 {
@@ -4114,7 +4118,7 @@
     "$ \\\\sim (exists x)Cx $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4130,7 +4134,7 @@
     "$ (I\\\\underline{u} \\\\supset L\\\\underline{u} ) $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4146,8 +4150,8 @@
     "$ O\\\\sim I\\\\underline{u} d $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }
 
 {
@@ -4162,8 +4166,8 @@
     "$ (\\\\exists x)(I\\\\underline{x} \\\\cdot Cx) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Permission means something is ALLOWED, not required. Who has this permission?",
+  "explanation": "Permission uses R (sometimes P for 'permitted'). 'It's permissible for you to sell' means you're ALLOWED to sell \u2014 not that you must. The agent (you, underlined) has the permission."
 }
 
 {
@@ -4178,7 +4182,7 @@
     "$ (Su\\\\cdot Du) $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4194,7 +4198,7 @@
     "$ (L\\\\underline{u}\\\\cdot Cu  ) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4210,7 +4214,7 @@
     "$ (Cu\\\\supset Su) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4226,7 +4230,7 @@
     "$ (\\\\exists x)Sx $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4242,7 +4246,7 @@
     "$ (S\\\\underline{u}\\\\supset Pu ) $"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4258,8 +4262,8 @@
     "$ \\\\lozenge (x)Cx $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Can a command and a description both be true without contradiction?",
+  "explanation": "In deontic logic, we distinguish the commanded action (underlined) from the description. 'You're selling but don't sell' \u2014 the first 'selling' describes what you're doing (Su), the second is a command not to (\u00acS_u). These can be consistent: you CAN be doing what you shouldn't!"
 }
 
 {
@@ -4274,8 +4278,8 @@
     "$ \\\\sim (\\\\exists x)B\\\\underline{x} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this about a specific person, or about EVERYONE being prohibited?",
+  "explanation": "Universal prohibitions use quantifiers with deontic operators. 'Let no one talk' means: there should not exist anyone who talks. We negate the existential quantifier over underlined agents."
 }
 
 {
@@ -4290,7 +4294,7 @@
     "$ (\\\\exists \\\\underline{x} )Fx $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
 }
 
@@ -4306,7 +4310,7 @@
     "$ (Bu\\\\supset Cu) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4322,7 +4326,7 @@
     "$ (F\\\\underline{u}\\\\cdot Su ) $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
 }
 
@@ -4338,8 +4342,8 @@
     "$ (x)B\\\\underline{x} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "When everyone must do something, does each person become an agent?",
+  "explanation": "Universal obligations use quantifiers: 'Everyone ought to X' becomes (\u2200x)OX_x \u2014 for all x, x is obligated to X. Each person is an agent of their own obligation."
 }
 
 {
@@ -4354,7 +4358,7 @@
     "$ Sd $"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4370,7 +4374,7 @@
     "$ \\\\sim (\\\\exists x)S\\\\underline{x} $"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4386,7 +4390,7 @@
     "$ (Su\\\\supset C\\\\underline{u} ) $"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4402,7 +4406,7 @@
     "$ (\\\\exists \\\\underline{x} )Dx $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4418,7 +4422,7 @@
     "$ (Su\\\\supset Lu) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4434,7 +4438,7 @@
     "$ H\\\\underline{u} d $"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4450,7 +4454,7 @@
     "$ (B\\\\underline{u}\\\\cdot Su ) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4466,7 +4470,7 @@
     "$ O\\\\sim Hu\\\\underline{m} $"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4482,8 +4486,8 @@
     "$ \\\\lozenge (Cu\\\\cdot \\\\sim Cu) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }
 
 {
@@ -4498,7 +4502,7 @@
     "$ (\\\\exists x)S\\\\underline{x} $"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do.",
   "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
 }
 
@@ -4514,8 +4518,8 @@
     "$ P\\\\underline{t} $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Who is the AGENT being commanded? Look for the underline \u2014 it marks who must act.",
+  "explanation": "In deontic logic, 'ought' is expressed with O (obligation). The underlined letter shows the AGENT \u2014 who is being obligated. 'Tom ought to pray' becomes OP_t where the underline under t marks Tom as the agent who must pray."
 }
 
 {
@@ -4530,8 +4534,8 @@
     "$ (\\\\lozenge Su\\\\cdot \\\\sim S\\\\underline{u} ) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+  "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb \u2014 so the underline goes under u, not t."
 }
 
 {
@@ -4546,8 +4550,8 @@
     "$ \\\\sim (\\\\exists x)Tx $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this about a specific person, or about EVERYONE being prohibited?",
+  "explanation": "Universal prohibitions use quantifiers with deontic operators. 'Let no one talk' means: there should not exist anyone who talks. We negate the existential quantifier over underlined agents."
 }
 
 {
@@ -4562,8 +4566,8 @@
     "$ OC\\\\underline{u} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "What is being required, and who must do it? The underline marks the agent.",
+  "explanation": "'Required' expresses obligation (O). The person who must act gets underlined. Watch the difference between 'required that you cry' (you're the agent) vs 'required that Tom cries' (Tom's the agent)."
 }
 
 {
@@ -4578,8 +4582,8 @@
     "$ RS\\\\underline{u} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Permission means something is ALLOWED, not required. Who has this permission?",
+  "explanation": "Permission uses R (sometimes P for 'permitted'). 'It's permissible for you to sell' means you're ALLOWED to sell \u2014 not that you must. The agent (you, underlined) has the permission."
 }
 
 --- MODULE: 05_belief ---
@@ -4603,7 +4607,8 @@
   ],
   "correct": 0,
   "hint": "Who is the one holding the belief? Where do we mark the believer in the formula? The part before the colon (:) tells us WHO believes.",
-  "explanation": "In belief logic, we write 'believer : belief-content'. Here, 'you' (u) believe that 'you are frivolous' (Fu). The 'u' before the colon identifies the BELIEVER, and 'Fu' after the colon is WHAT they believe. It's like saying 'According to you: you are frivolous.' The believer comes first!"
+  "explanation": "In belief logic, we write 'believer : belief-content'. Here, 'you' (u) believe that 'you are frivolous' (Fu). The 'u' before the colon identifies the BELIEVER, and 'Fu' after the colon is WHAT they believe. It's like saying 'According to you: you are frivolous.' The believer comes first!",
+  "visual_concept": "A thought bubble. The person OUTSIDE the bubble (before the colon) is the thinker. What's INSIDE the bubble (after the colon) is the thought."
 }
 
 {
@@ -4618,8 +4623,8 @@
     "$ u:\\\\sim P $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who holds this belief? Look for the underline \u2014 it marks the believer. How do we symbolize believing something FALSE?",
+  "explanation": "In belief logic, 'believe that P is false' becomes u:~P \u2014 the agent (underlined u) believes NOT-P. The underline marks who holds the belief, the colon connects believer to belief content."
 }
 
 {
@@ -4634,8 +4639,8 @@
     "$ \\\\underline{u} :\\\\underline{C} $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the believer (underlined)? What do they believe?",
+  "explanation": "In belief logic, 'believe that P is true' becomes u:P \u2014 the agent (underlined u) believes P. The underline marks the believer, the colon connects them to what they believe."
 }
 
 {
@@ -4650,8 +4655,8 @@
     "$ \\\\sim \\\\underline{u} :\\\\sim \\\\underline{C} $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who holds this belief? Look for the underline \u2014 it marks the believer. How do we symbolize believing something FALSE?",
+  "explanation": "In belief logic, 'believe that P is false' becomes u:~P \u2014 the agent (underlined u) believes NOT-P. The underline marks who holds the belief, the colon connects believer to belief content."
 }
 
 {
@@ -4666,8 +4671,8 @@
     "$ \\\\underline{u} :C $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the believer (underlined)? What do they believe?",
+  "explanation": "In belief logic, 'believe that P is true' becomes u:P \u2014 the agent (underlined u) believes P. The underline marks the believer, the colon connects them to what they believe."
 }
 
 {
@@ -4682,8 +4687,8 @@
     "$ \\\\sim u:\\\\sim F $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who holds this belief? Look for the underline \u2014 it marks the believer. How do we symbolize believing something FALSE?",
+  "explanation": "In belief logic, 'believe that P is false' becomes u:~P \u2014 the agent (underlined u) believes NOT-P. The underline marks who holds the belief, the colon connects believer to belief content."
 }
 
 {
@@ -4698,8 +4703,8 @@
     "$ (\\\\underline{u}:F\\\\supset u:C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Is this about the RELATIONSHIP between two beliefs, or a single complex belief?",
+  "explanation": "This is a CONDITIONAL connecting two belief statements: (u:X \u2283 u:Y). The 'if...then' is outside the beliefs \u2014 it says: IF the agent believes X, THEN they also believe Y."
 }
 
 {
@@ -4714,8 +4719,8 @@
     "$ \\\\sim \\\\underline{u}:Cu $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the agent with this desire/belief? Where does the negation go \u2014 before the agent or after?",
+  "explanation": "The negation attaches to the whole attitude: ~u:P means 'you DON'T want/believe P'. The underlined agent still marks WHO would have the attitude (if they had it)."
 }
 
 {
@@ -4730,8 +4735,8 @@
     "$ \\\\underline{u}:H\\\\underline{c} u $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "In belief/desire logic, who is the AGENT having the desire? What do they desire?",
+  "explanation": "Desires work like beliefs: u:P means 'you (agent u) want P'. The underlined letter marks who has the desire. The content after the colon is what they want."
 }
 
 {
@@ -4746,8 +4751,8 @@
     "$ (x)x:D\\\\underline{u} $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
+  "explanation": "When 'everyone' is inside the desire, we write u:(\u2200x)Px \u2014 you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
 }
 
 {
@@ -4762,8 +4767,8 @@
     "$ u:(x)L\\\\underline{x} $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
+  "explanation": "When 'everyone' is inside the desire, we write u:(\u2200x)Px \u2014 you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
 }
 
 {
@@ -4778,8 +4783,8 @@
     "$ \\\\sim u:D\\\\underline{k} u $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the agent with this desire/belief? Where does the negation go \u2014 before the agent or after?",
+  "explanation": "The negation attaches to the whole attitude: ~u:P means 'you DON'T want/believe P'. The underlined agent still marks WHO would have the attitude (if they had it)."
 }
 
 {
@@ -4794,8 +4799,8 @@
     "$ \\\\underline{u} :(x)B\\\\underline{x} $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: B represents belief - 'believes that'. The subscript indicates who holds the belief or knowledge."
+  "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
+  "explanation": "When 'everyone' is inside the desire, we write u:(\u2200x)Px \u2014 you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
 }
 
 {
@@ -4810,8 +4815,8 @@
     "$ O\\\\underline{u}:(L\\\\cdot E) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Evidentiality (O) is like belief but stronger. What is or isn't evident, and to whom?",
+  "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P \u2014 the evidence operator is negated, not the content."
 }
 
 {
@@ -4826,8 +4831,8 @@
     "$ \\\\sim OCu $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Evidentiality (O) is like belief but stronger. What is or isn't evident, and to whom?",
+  "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P \u2014 the evidence operator is negated, not the content."
 }
 
 --- MODULE: 06_informal ---
@@ -4854,7 +4859,8 @@
   ],
   "correct": 5,
   "hint": "Does this definition describe Science neutrally, or does it judge Science? Would a scientist agree this captures what they do?",
-  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!"
+  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!",
+  "visual_concept": "A balance scale: the neutral word 'Science' on one side, the definition dripping with negative words (cold, empty) on the other. The scale tips because the emotional weights don't match."
 }
 
 {
@@ -4872,7 +4878,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine tent that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (tents might be made of nylon)"
 }
 
@@ -4891,7 +4897,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Philosophy?",
   "explanation": "This violates 1."
 }
 
@@ -4910,7 +4916,7 @@
     "Has non-essential properties"
   ],
   "correct": 5,
-  "hint": null,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
   "explanation": "This violates 6."
 }
 
@@ -4929,7 +4935,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 
@@ -4948,7 +4954,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine game that this definition would wrongly EXCLUDE?",
   "explanation": "A definition is TOO NARROW when it excludes things that should be included."
 }
 
@@ -4967,7 +4973,7 @@
     "Has non-essential properties"
   ],
   "correct": 5,
-  "hint": null,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
   "explanation": "This violates 6."
 }
 
@@ -5005,7 +5011,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine male that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 3 (and 2, if we consider castration)."
 }
 
@@ -5024,7 +5030,7 @@
     "Has non-essential properties"
   ],
   "correct": 5,
-  "hint": null,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
   "explanation": "This violates 6."
 }
 
@@ -5043,7 +5049,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine Uncle that this definition would wrongly EXCLUDE?",
   "explanation": "A definition is TOO NARROW when it excludes things that should be included."
 }
 
@@ -5062,7 +5068,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine Knowledge that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (most knowledge is not absolutely certain)."
 }
 
@@ -5081,7 +5087,7 @@
     "Has non-essential properties"
   ],
   "correct": 6,
-  "hint": null,
+  "hint": "Does this definition include features that are common but not ESSENTIAL to being a bachelor?",
   "explanation": "This violates 7."
 }
 
@@ -5100,7 +5106,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Triangles?",
   "explanation": "This violates 1 (you study other things too)."
 }
 
@@ -5119,7 +5125,7 @@
     "Has non-essential properties"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Would an average person understand all the words in this definition?",
   "explanation": "This violates 4."
 }
 
@@ -5138,7 +5144,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a apple?",
   "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
 }
 
@@ -5157,7 +5163,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 
@@ -5176,7 +5182,7 @@
     "Has non-essential properties"
   ],
   "correct": 5,
-  "hint": null,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
   "explanation": "This violates 6."
 }
 
@@ -5195,7 +5201,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine True that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 and especially 3."
 }
 
@@ -5214,7 +5220,7 @@
     "Has non-essential properties"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
   "explanation": "This violates 3."
 }
 
@@ -5233,7 +5239,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine teacher that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2."
 }
 
@@ -5252,7 +5258,7 @@
     "Has non-essential properties"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Would an average person understand all the words in this definition?",
   "explanation": "This violates 4."
 }
 
@@ -5271,7 +5277,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Cars?",
   "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
 }
 
@@ -5309,7 +5315,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a man?",
   "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
 }
 
@@ -5328,7 +5334,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Punishment?",
   "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
 }
 
@@ -5347,7 +5353,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a king?",
   "explanation": "This violates 1 (consider presidents and dictators)."
 }
 
@@ -5366,7 +5372,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Knowledge?",
   "explanation": "This violates 1 (a true belief might be a lucky guess)."
 }
 
@@ -5385,7 +5391,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine politician that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (some are honest) and 6."
 }
 
@@ -5404,7 +5410,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine doctor that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (many doctors are women)."
 }
 
@@ -5423,7 +5429,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a lie?",
   "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
 }
 
@@ -5442,7 +5448,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 
@@ -5461,7 +5467,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 
@@ -5480,7 +5486,7 @@
     "Has non-essential properties"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
   "explanation": "This violates 3."
 }
 
@@ -5499,7 +5505,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 
@@ -5518,7 +5524,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine this that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (consider liars who don"
 }
 
@@ -5537,7 +5543,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Murder?",
   "explanation": "This violates 1 (consider accidental killing)."
 }
 
@@ -5556,7 +5562,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a liberal?",
   "explanation": "This violates 1, 2 and especially 6."
 }
 
@@ -5575,7 +5581,7 @@
     "Has non-essential properties"
   ],
   "correct": 5,
-  "hint": null,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
   "explanation": "This violates 6."
 }
 
@@ -5594,7 +5600,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Chair?",
   "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
 }
 
@@ -5613,7 +5619,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a conservative?",
   "explanation": "This violates 1, 2 and especially 6."
 }
 
@@ -5632,7 +5638,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a this?",
   "explanation": "This violates 1 and 2."
 }
 
@@ -5651,7 +5657,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 
@@ -5670,7 +5676,7 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine kitten that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (kittens can be male)."
 }
 
@@ -5689,7 +5695,7 @@
     "Has non-essential properties"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Would an average person understand all the words in this definition?",
   "explanation": "This violates 4."
 }
 
@@ -5708,7 +5714,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a bird?",
   "explanation": "This violates 1 (consider ostriches) and 2 (consider bats)."
 }
 
@@ -5727,7 +5733,7 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Metaphysics?",
   "explanation": "This violates 1, 2 and 6."
 }
 
@@ -5746,7 +5752,7 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }
 

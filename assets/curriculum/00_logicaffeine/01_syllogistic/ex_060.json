@@ -10,6 +10,6 @@
     "not some N is F"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"N\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }

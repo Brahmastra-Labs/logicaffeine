@@ -10,6 +10,6 @@
     "$ (\\\\sim T \\\\supset \\\\, \\\\sim C) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'necessary' for B, can B happen without A?",
+  "explanation": "'A is necessary for B' means: you can't have B without A. Equivalently, B \u2283 A \u2014 if B happens, A must have happened. A is required for B."
 }

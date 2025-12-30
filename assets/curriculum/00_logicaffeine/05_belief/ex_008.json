@@ -10,6 +10,6 @@
     "$ \\\\sim \\\\underline{u}:Cu $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the agent with this desire/belief? Where does the negation go \u2014 before the agent or after?",
+  "explanation": "The negation attaches to the whole attitude: ~u:P means 'you DON'T want/believe P'. The underlined agent still marks WHO would have the attitude (if they had it)."
 }

@@ -10,6 +10,6 @@
     "$ (\\\\underline{u}:F\\\\supset u:C) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Is this about the RELATIONSHIP between two beliefs, or a single complex belief?",
+  "explanation": "This is a CONDITIONAL connecting two belief statements: (u:X \u2283 u:Y). The 'if...then' is outside the beliefs \u2014 it says: IF the agent believes X, THEN they also believe Y."
 }

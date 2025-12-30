@@ -10,6 +10,6 @@
     "$ \\\\underline{u}:H\\\\underline{c} u $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "In belief/desire logic, who is the AGENT having the desire? What do they desire?",
+  "explanation": "Desires work like beliefs: u:P means 'you (agent u) want P'. The underlined letter marks who has the desire. The content after the colon is what they want."
 }

@@ -11,5 +11,6 @@
   ],
   "correct": 0,
   "hint": "Who is the one holding the belief? Where do we mark the believer in the formula? The part before the colon (:) tells us WHO believes.",
-  "explanation": "In belief logic, we write 'believer : belief-content'. Here, 'you' (u) believe that 'you are frivolous' (Fu). The 'u' before the colon identifies the BELIEVER, and 'Fu' after the colon is WHAT they believe. It's like saying 'According to you: you are frivolous.' The believer comes first!"
+  "explanation": "In belief logic, we write 'believer : belief-content'. Here, 'you' (u) believe that 'you are frivolous' (Fu). The 'u' before the colon identifies the BELIEVER, and 'Fu' after the colon is WHAT they believe. It's like saying 'According to you: you are frivolous.' The believer comes first!",
+  "visual_concept": "A thought bubble. The person OUTSIDE the bubble (before the colon) is the thinker. What's INSIDE the bubble (after the colon) is the thought."
 }

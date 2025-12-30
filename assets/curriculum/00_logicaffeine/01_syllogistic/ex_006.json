@@ -10,6 +10,6 @@
     "u is not d"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Does 'you' refer to people in general, or to ONE specific person (the listener)?",
   "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"D\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
 }

@@ -10,6 +10,6 @@
     "U is not c"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'the X-est' pick out a category of people, or exactly ONE specific person?",
   "explanation": "\"The brightest\" stands for a single person, and so translates into a small letter."
 }

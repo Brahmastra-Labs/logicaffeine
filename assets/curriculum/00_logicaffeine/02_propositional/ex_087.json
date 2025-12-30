@@ -10,6 +10,6 @@
     "$ (S \\\\supset R) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'A only if B' \u2014 which way does the arrow point? Is B the cause or the requirement?",
+  "explanation": "'Only if' is tricky! 'A only if B' means A \u2283 B. Think: A can only happen IF B is satisfied. B is a NECESSARY condition for A. Compare to 'A if B' which would be B \u2283 A."
 }

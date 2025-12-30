@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a king?",
   "explanation": "This violates 1 (consider presidents and dictators)."
 }

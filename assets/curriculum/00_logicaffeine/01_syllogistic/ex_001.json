@@ -11,5 +11,6 @@
   ],
   "correct": 3,
   "hint": "Does the word 'You' refer to a vast group of people, or a specific person standing right here?",
-  "explanation": "\"You\" refers to a specific individual (the listener), so we use lowercase \"u\". The phrase \"the cleanest biologist\" also picks out a specific individual (like saying \"the tallest person\"), so we use lowercase \"b\". In logic, lowercase = specific individual, UPPERCASE = a class or category of things."
+  "explanation": "\"You\" refers to a specific individual (the listener), so we use lowercase \"u\". The phrase \"the cleanest biologist\" also picks out a specific individual (like saying \"the tallest person\"), so we use lowercase \"b\". In logic, lowercase = specific individual, UPPERCASE = a class or category of things.",
+  "visual_concept": "Two sizes: lowercase letters are single people (you can point at them), UPPERCASE letters are groups/crowds inside circles (you point at the whole group)."
 }

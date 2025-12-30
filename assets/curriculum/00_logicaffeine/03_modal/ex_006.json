@@ -10,6 +10,6 @@
     "$ \\\\sim \\\\square N $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "If something 'isn't necessary', does that mean it's false, or just that it doesn't HAVE to be true?",
+  "explanation": "'Not necessary' means: there's at least one possible world where this is false. We write ~\u25a1P. This is weaker than saying 'P is false' \u2014 it just means P isn't guaranteed. In fact, P might still be true in the actual world!"
 }

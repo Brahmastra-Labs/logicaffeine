@@ -10,6 +10,6 @@
     "$ \\\\sim \\\\square C $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'must' attach to the whole statement, or to part of it? What exactly is being required?",
+  "explanation": "'Must be' expresses necessity \u2014 \u25a1 (the box). What follows 'must' is what's necessarily true. Pay attention to negations: 'must not be X' is \u25a1~X (necessarily not X), which is different from ~\u25a1X (not necessarily X)."
 }

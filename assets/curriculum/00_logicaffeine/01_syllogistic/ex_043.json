@@ -10,6 +10,6 @@
     "P is m"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
 }

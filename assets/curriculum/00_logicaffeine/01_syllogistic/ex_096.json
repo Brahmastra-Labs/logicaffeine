@@ -10,6 +10,6 @@
     "I is B"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Does 'I' refer to one specific person (the speaker) or a category?",
   "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"B\" refers to a class/property, so use uppercase."
 }
