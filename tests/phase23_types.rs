@@ -70,7 +70,7 @@ fn type_registry_is_generic() {
     let user = interner.intern("User");
 
     registry.register(stack, TypeDef::Generic { param_count: 1 });
-    registry.register(user, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false });
+    registry.register(user, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false, is_shared: false });
 
     assert!(registry.is_generic(stack), "Stack should be generic");
     assert!(!registry.is_generic(user), "User should not be generic");

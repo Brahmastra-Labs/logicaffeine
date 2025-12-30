@@ -170,12 +170,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
 
-    // Collect user-defined structs from registry (Phase 34: now with generics, Phase 47: now with is_portable)
+    // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Struct { fields, generics, is_portable } = def {
+            if let TypeDef::Struct { fields, generics, is_portable, is_shared } = def {
                 if !fields.is_empty() || !generics.is_empty() {
-                    Some((*name, fields.clone(), generics.clone(), *is_portable))
+                    Some((*name, fields.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -185,12 +185,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         })
         .collect();
 
-    // Phase 33/34: Collect user-defined enums from registry (now with generics, Phase 47: now with is_portable)
+    // Phase 33/34: Collect user-defined enums from registry (generics, Phase 47: is_portable, Phase 49: is_shared)
     let enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Enum { variants, generics, is_portable } = def {
+            if let TypeDef::Enum { variants, generics, is_portable, is_shared } = def {
                 if !variants.is_empty() || !generics.is_empty() {
-                    Some((*name, variants.clone(), generics.clone(), *is_portable))
+                    Some((*name, variants.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -205,12 +205,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "pub mod user_types {{").unwrap();
         writeln!(output, "    use super::*;\n").unwrap();
 
-        for (name, fields, generics, is_portable) in &structs {
-            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, interner, 4));
+        for (name, fields, generics, is_portable, is_shared) in &structs {
+            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, *is_shared, interner, 4));
         }
 
-        for (name, variants, generics, is_portable) in &enums {
-            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, interner, 4));
+        for (name, variants, generics, is_portable, is_shared) in &enums {
+            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, *is_shared, interner, 4));
         }
 
         writeln!(output, "}}\n").unwrap();
@@ -427,7 +427,8 @@ fn map_type_to_rust(ty: &str) -> String {
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
 /// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
-fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, interner: &Interner, indent: usize) -> String {
+/// Phase 49: Now supports is_shared for CRDT Merge impl.
+fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -456,12 +457,67 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is
     }
 
     writeln!(output, "{}}}\n", ind).unwrap();
+
+    // Phase 49: Generate Merge impl for Shared structs
+    if is_shared {
+        output.push_str(&codegen_merge_impl(name, fields, generics, interner, indent));
+    }
+
     output
+}
+
+/// Phase 49: Generate impl Merge for a Shared struct.
+fn codegen_merge_impl(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+    let ind = " ".repeat(indent);
+    let name_str = interner.resolve(name);
+    let mut output = String::new();
+
+    // Build generic parameter string: <T, U> or empty
+    let generic_str = if generics.is_empty() {
+        String::new()
+    } else {
+        let params: Vec<&str> = generics.iter()
+            .map(|g| interner.resolve(*g))
+            .collect();
+        format!("<{}>", params.join(", "))
+    };
+
+    writeln!(output, "{}impl{} logos_core::crdt::Merge for {}{} {{", ind, generic_str, name_str, generic_str).unwrap();
+    writeln!(output, "{}    fn merge(&mut self, other: &Self) {{", ind).unwrap();
+
+    for field in fields {
+        let field_name = interner.resolve(field.name);
+        // Only merge fields that implement Merge (CRDT types)
+        if is_crdt_field_type(&field.ty, interner) {
+            writeln!(output, "{}        self.{}.merge(&other.{});", ind, field_name, field_name).unwrap();
+        }
+    }
+
+    writeln!(output, "{}    }}", ind).unwrap();
+    writeln!(output, "{}}}\n", ind).unwrap();
+
+    output
+}
+
+/// Phase 49: Check if a field type is a CRDT type that implements Merge.
+fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "ConvergentCount" | "GCounter")
+        }
+        FieldType::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "LastWriteWins" | "LWWRegister")
+        }
+        _ => false,
+    }
 }
 
 /// Phase 33/34: Generate enum definition with optional generic parameters.
 /// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
-fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, interner: &Interner, indent: usize) -> String {
+/// Phase 49: Now accepts is_shared parameter (enums don't generate Merge impl yet).
+fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, _is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -518,12 +574,21 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 other => other.to_string(),
             }
         }
-        FieldType::Named(sym) => interner.resolve(*sym).to_string(),
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                // Phase 49: CRDT type mapping
+                "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                _ => name.to_string(),
+            }
+        }
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
                 "Option" => "Option",
                 "Result" => "Result",
+                // Phase 49: CRDT generic type
+                "LastWriteWins" => "logos_core::crdt::LWWRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -935,6 +1000,29 @@ pub fn codegen_stmt<'a>(
                 output,
                 "{}let {} = {}.recv().await.expect(\"Failed to receive message\");",
                 indent_str, var_name, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Merge CRDT state
+        Stmt::MergeCrdt { source, target } => {
+            let src_str = codegen_expr(source, interner);
+            let tgt_str = codegen_expr(target, interner);
+            writeln!(
+                output,
+                "{}{}.merge(&{});",
+                indent_str, tgt_str, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Increment GCounter
+        Stmt::IncreaseCrdt { object, field, amount } => {
+            let obj_str = codegen_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner);
+            writeln!(
+                output,
+                "{}{}.{}.increment({} as u64);",
+                indent_str, obj_str, field_name, amount_str
             ).unwrap();
         }
     }

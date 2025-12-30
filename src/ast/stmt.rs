@@ -281,6 +281,21 @@ pub enum Stmt<'a> {
         source: &'a Expr<'a>,
         into: Symbol,
     },
+
+    /// Phase 49: Merge CRDT state
+    /// `Merge remote into local.` or `Merge remote's field into local's field.`
+    MergeCrdt {
+        source: &'a Expr<'a>,
+        target: &'a Expr<'a>,
+    },
+
+    /// Phase 49: Increment GCounter
+    /// `Increase local's points by 10.`
+    IncreaseCrdt {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        amount: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).

@@ -1363,6 +1363,10 @@ impl<'a> Lexer<'a> {
             // Phase 48: Sipping Protocol keywords (Imperative mode only)
             "manifest" if self.mode == LexerMode::Imperative => return TokenType::Manifest,
             "chunk" if self.mode == LexerMode::Imperative => return TokenType::Chunk,
+            // Phase 49: CRDT keywords
+            "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
+            "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
+            "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

@@ -92,20 +92,34 @@ impl<'a> DiscoveryPass<'a> {
                 vec![]
             };
 
-            // Phase 47: Check for "is Portable and" pattern before "has:"
+            // Phase 47/49: Check for "is Portable/Shared and" pattern before "has:"
             let mut is_portable = false;
+            let mut is_shared = false;
             if self.check_copula() {
                 let copula_pos = self.pos;
                 self.advance(); // consume is/are
-                if self.check_portable() {
-                    self.advance(); // consume "Portable"
-                    is_portable = true;
-                    // Expect "and" after Portable
-                    if self.check_word("and") {
-                        self.advance(); // consume "and"
+
+                // Check for modifiers in any order (e.g., "is Shared and Portable and")
+                loop {
+                    if self.check_portable() {
+                        self.advance(); // consume "Portable"
+                        is_portable = true;
+                        if self.check_word("and") {
+                            self.advance(); // consume "and"
+                        }
+                    } else if self.check_shared() {
+                        self.advance(); // consume "Shared"
+                        is_shared = true;
+                        if self.check_word("and") {
+                            self.advance(); // consume "and"
+                        }
+                    } else {
+                        break;
                     }
-                } else {
-                    // Not a Portable pattern, restore position for other checks
+                }
+
+                // If no modifiers were found, restore position
+                if !is_portable && !is_shared {
                     self.pos = copula_pos;
                 }
             }
@@ -123,7 +137,7 @@ impl<'a> DiscoveryPass<'a> {
                     if self.check_indent() {
                         self.advance(); // consume INDENT
                         let fields = self.parse_struct_fields_with_params(&type_params);
-                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params, is_portable });
+                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params, is_portable, is_shared });
                         return;
                     }
                 }
@@ -159,7 +173,7 @@ impl<'a> DiscoveryPass<'a> {
                         if self.check_indent() {
                             self.advance(); // consume INDENT
                             let variants = self.parse_enum_variants_with_params(&type_params);
-                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params, is_portable });
+                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params, is_portable, is_shared });
                             return;
                         }
                     }
@@ -173,10 +187,10 @@ impl<'a> DiscoveryPass<'a> {
                         registry.register(name_sym, TypeDef::Generic { param_count: 1 });
                         self.skip_to_period();
                     } else if self.check_word("record") || self.check_word("struct") || self.check_word("structure") {
-                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false });
+                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false, is_shared: false });
                         self.skip_to_period();
                     } else if self.check_word("sum") || self.check_word("enum") || self.check_word("choice") {
-                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![], is_portable: false });
+                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![], is_portable: false, is_shared: false });
                         self.skip_to_period();
                     }
                 }
@@ -532,6 +546,18 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Phase 49: Accept Verb tokens that look like type names (uppercase, e.g., "Setting")
+            // These are -ing words that get classified as verbs but could be type names
+            TokenType::Verb { .. } => {
+                let lexeme_str = self.interner.resolve(t.lexeme);
+                if lexeme_str.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    let sym = t.lexeme;
+                    self.advance();
+                    Some(sym)
+                } else {
+                    None
+                }
+            }
             _ => None
         }
     }
@@ -594,6 +620,11 @@ impl<'a> DiscoveryPass<'a> {
     /// Phase 47: Check for Portable token
     fn check_portable(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::Portable, .. }))
+    }
+
+    /// Phase 49: Check for Shared token
+    fn check_shared(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Shared, .. }))
     }
 
     // Phase 34: Bracket checks for type parameters
@@ -859,6 +890,40 @@ A Command is Portable and is either:
             assert_eq!(variants.len(), 3, "Command should have 3 variants");
         } else {
             panic!("Command should be an enum, got: {:?}", registry.get(command));
+        }
+    }
+
+    #[test]
+    fn discovery_parses_lww_int_field() {
+        let source = r#"## Definition
+A Setting is Shared and has:
+    a volume, which is LastWriteWins of Int.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens
+        eprintln!("Tokens for LWW of Int:");
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("{:3}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let setting = interner.intern("Setting");
+        assert!(registry.is_type(setting), "Setting should be registered");
+
+        if let Some(TypeDef::Struct { fields, is_shared, .. }) = registry.get(setting) {
+            eprintln!("is_shared: {}", is_shared);
+            eprintln!("Fields: {:?}", fields.len());
+            for f in fields {
+                eprintln!("  field: {} = {:?}", interner.resolve(f.name), f.ty);
+            }
+            assert!(*is_shared, "Setting should be shared");
+            assert_eq!(fields.len(), 1, "Setting should have 1 field");
+        } else {
+            panic!("Setting should be a struct, got: {:?}", registry.get(setting));
         }
     }
 }

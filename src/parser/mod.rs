@@ -860,6 +860,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_await_statement();
         }
 
+        // Phase 49: CRDT statements
+        if self.check(&TokenType::Merge) {
+            return self.parse_merge_statement();
+        }
+        if self.check(&TokenType::Increase) {
+            return self.parse_increase_statement();
+        }
+
         // Expression-statement: function call without "Call" keyword
         // e.g., `greet("Alice").` instead of `Call greet with "Alice".`
         // Check if next token is LParen (indicating a function call)
@@ -2506,9 +2514,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             params.push((param_name, param_type));
 
-            // Check for "and" or preposition between parameters
+            // Check for "and", preposition, or "from" between parameters
             // Allows: "## To withdraw (amount: Int) from (balance: Int)"
-            if self.check_word("and") || self.check_preposition() {
+            if self.check_word("and") || self.check_preposition() || self.check(&TokenType::From) {
                 self.advance();
             }
         }
@@ -2987,11 +2995,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
             }
 
-            // Phase 43D: Length expression: "length of items"
+            // Phase 43D: Length expression: "length of items" or "length(items)"
             TokenType::Length => {
+                let func_name = self.peek().lexeme;
+
+                // Check for function call syntax: length(x)
+                if self.tokens.get(self.current + 1)
+                    .map(|t| matches!(t.kind, TokenType::LParen))
+                    .unwrap_or(false)
+                {
+                    self.advance(); // consume "length"
+                    return self.parse_call_expr(func_name);
+                }
+
                 self.advance(); // consume "length"
 
-                // Expect "of"
+                // Expect "of" for natural syntax
                 if !self.check_preposition_is("of") {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
@@ -3004,11 +3023,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection }))
             }
 
-            // Phase 43D: Copy expression: "copy of slice"
+            // Phase 43D: Copy expression: "copy of slice" or "copy(slice)"
             TokenType::Copy => {
+                let func_name = self.peek().lexeme;
+
+                // Check for function call syntax: copy(x)
+                if self.tokens.get(self.current + 1)
+                    .map(|t| matches!(t.kind, TokenType::LParen))
+                    .unwrap_or(false)
+                {
+                    self.advance(); // consume "copy"
+                    return self.parse_call_expr(func_name);
+                }
+
                 self.advance(); // consume "copy"
 
-                // Expect "of"
+                // Expect "of" for natural syntax
                 if !self.check_preposition_is("of") {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
@@ -3166,6 +3196,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 // Phase 31: Check for field access via possessive
+                self.parse_field_access_chain(base)
+            }
+
+            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            TokenType::Merge | TokenType::Increase => {
+                let sym = token.lexeme;
+                self.advance();
+
+                // Check for function call: Merge(args)
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
 
@@ -3348,21 +3392,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
     }
 
-    /// Phase 31: Parse field access chain via possessive ('s)
-    /// Handles patterns like: p's x, p's x's y
+    /// Phase 31: Parse field access chain via possessive ('s) and bracket indexing
+    /// Handles patterns like: p's x, p's x's y, items[1], items[i]'s field
     fn parse_field_access_chain(&mut self, base: &'a Expr<'a>) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Expr;
 
         let mut result = base;
 
-        // Keep parsing field accesses while we see possessive tokens
-        while self.check(&TokenType::Possessive) {
-            self.advance(); // consume "'s"
-            let field = self.expect_identifier()?;
-            result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
-                object: result,
-                field,
-            });
+        // Keep parsing field accesses and bracket indexing
+        loop {
+            if self.check(&TokenType::Possessive) {
+                // Field access: p's x
+                self.advance(); // consume "'s"
+                let field = self.expect_identifier()?;
+                result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
+                    object: result,
+                    field,
+                });
+            } else if self.check(&TokenType::LBracket) {
+                // Bracket indexing: items[1], items[i]
+                self.advance(); // consume "["
+                let index = self.parse_imperative_expr()?;
+
+                if !self.check(&TokenType::RBracket) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "]".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "]"
+
+                result = self.ctx.alloc_imperative_expr(Expr::Index {
+                    collection: result,
+                    index,
+                });
+            } else {
+                break;
+            }
         }
 
         Ok(result)
@@ -3426,7 +3492,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Read |
             TokenType::Write |
             TokenType::File |
-            TokenType::Console => {
+            TokenType::Console |
+            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            TokenType::Merge |
+            TokenType::Increase => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -6268,6 +6337,64 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::AwaitMessage { source, into })
+    }
+
+    // =========================================================================
+    // Phase 49: CRDT Statement Parsing
+    // =========================================================================
+
+    /// Parse merge statement: "Merge remote into local." or "Merge remote's field into local's field."
+    fn parse_merge_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Merge"
+
+        // Parse source expression
+        let source = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check_word("into") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "into"
+
+        // Parse target expression
+        let target = self.parse_imperative_expr()?;
+
+        Ok(Stmt::MergeCrdt { source, target })
+    }
+
+    /// Parse increase statement: "Increase local's points by 10."
+    fn parse_increase_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Increase"
+
+        // Parse object with field access (e.g., "local's points")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "by"
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        // Parse amount
+        let amount = self.parse_imperative_expr()?;
+
+        Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
     }
 
 }

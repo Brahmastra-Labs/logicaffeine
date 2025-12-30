@@ -2252,6 +2252,8 @@ Let data be Json's parse(text).
 
 ## 17. Standard Library
 
+> **Note:** The standard library is not yet fully implemented. The examples below show the planned API, but most of these modules are not yet available. This section documents the intended design.
+
 LOGOS includes a standard library with common functionality.
 
 ### File Operations

@@ -956,31 +956,29 @@ Show "- largo test"."#,
         title: "Standard Library",
         part: "Part II: Project Structure",
         content: r#"
-LOGOS includes a standard library with common functionality.
+LOGOS provides built-in functions for common operations.
 
-### File Operations
+### Currently Available
 
-`Use File.` for `read`, `write`, and `exists`.
+These built-ins work in both the playground and compiled programs:
 
-### Time Operations
+- `Show x.` — Output values to the console
+- `length of x` — Get the length of a list or text
+- `format(x)` — Convert any value to text
+- `abs(n)` — Absolute value of a number
+- `min(a, b)` — Minimum of two integers
+- `max(a, b)` — Maximum of two integers
 
-`Use Time.` for `now`, `sleep`, and duration measurement.
+### Coming Soon
 
-### Random Numbers
+Additional modules are planned for future releases:
 
-`Use Random.` for `randomInt`, `randomFloat`, and `choice`.
+- **File** — `read`, `write`, `exists` for file operations
+- **Time** — `now`, `sleep` for timing and delays
+- **Random** — `randomInt`, `randomFloat`, `choice`
+- **Env** — Environment variables and command-line arguments
 
-### Environment
-
-`Use Env.` for environment variables and command-line arguments.
-
-### Console I/O
-
-`Show` for output, `read_line` for input.
-
-### Native Functions
-
-Define bindings to external code with `## To native`.
+These will be available in compiled programs. Some features may have limited support in the browser playground due to WASM constraints.
 "#,
         examples: &[
             CodeExample {
@@ -988,11 +986,15 @@ Define bindings to external code with `## To native`.
                 label: "Standard Library",
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
-Show "Standard Library modules:".
-Show "- File: read, write, exists".
-Show "- Time: now, sleep".
-Show "- Random: randomInt, randomFloat".
-Show "- Env: get, args"."#,
+Let nums be [5, -3, 8, -1, 4].
+Let text be "Hello".
+
+Show "Built-in functions:".
+Show "length of nums = " + format(length of nums).
+Show "length of text = " + format(length of text).
+Show "abs(-42) = " + format(abs(-42)).
+Show "min(10, 3) = " + format(min(10, 3)).
+Show "max(10, 3) = " + format(max(10, 3))."#,
             },
         ],
     },

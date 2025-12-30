@@ -158,6 +158,11 @@ pub enum TokenType {
     Manifest, // "the manifest of Zone" -> FileSipper manifest
     Chunk,    // "the chunk at N in Zone" -> FileSipper chunk
 
+    // Phase 49: CRDT Keywords
+    Shared,   // "A Counter is Shared and has:" -> CRDT struct
+    Merge,    // "Merge remote into local" -> CRDT merge
+    Increase, // "Increase x's count by 10" -> GCounter increment
+
     // Block Scoping
     Colon,
     Indent,

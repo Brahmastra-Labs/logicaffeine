@@ -9,6 +9,8 @@ pub mod env;
 pub mod memory;
 // Phase 48: Network primitives
 pub mod network;
+// Phase 49: CRDT primitives
+pub mod crdt;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -66,6 +68,8 @@ pub mod prelude {
     pub use crate::memory::Zone;
     // Phase 48: Sipping protocol
     pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 49: CRDT primitives
+    pub use crate::crdt::{GCounter, LWWRegister, Merge};
 }
 
 #[cfg(test)]

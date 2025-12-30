@@ -385,6 +385,15 @@ impl<'a> Interpreter<'a> {
                 self.define(*into, RuntimeValue::Nothing);
                 Ok(ControlFlow::Continue)
             }
+
+            // Phase 49: CRDT operations - not supported in interpreter (compile-only)
+            Stmt::MergeCrdt { .. } => {
+                Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::IncreaseCrdt { .. } => {
+                Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 
@@ -763,6 +772,13 @@ impl<'a> Interpreter<'a> {
                     (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
                     _ => Err("max() requires integers".to_string()),
                 };
+            }
+            "copy" => {
+                if args.len() != 1 {
+                    return Err("copy() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(val.clone());
             }
             _ => {}
         }
