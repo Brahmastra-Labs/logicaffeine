@@ -10,6 +10,6 @@
     "all D is R"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"R\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }

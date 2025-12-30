@@ -10,6 +10,6 @@
     "G is not F"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"G\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }

@@ -10,6 +10,6 @@
     "$ \\\\underline{u} :C $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the believer (underlined)? What do they believe?",
+  "explanation": "In belief logic, 'believe that P is true' becomes u:P \u2014 the agent (underlined u) believes P. The underline marks the believer, the colon connects them to what they believe."
 }

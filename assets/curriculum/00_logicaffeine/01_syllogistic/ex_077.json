@@ -10,6 +10,6 @@
     "S is D"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Is this about a specific person, or about EVERYONE who fits a description?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
 }

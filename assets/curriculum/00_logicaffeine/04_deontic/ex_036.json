@@ -10,6 +10,6 @@
     "$ \\\\sim (\\\\exists x)Tx $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Is this about a specific person, or about EVERYONE being prohibited?",
+  "explanation": "Universal prohibitions use quantifiers with deontic operators. 'Let no one talk' means: there should not exist anyone who talks. We negate the existential quantifier over underlined agents."
 }

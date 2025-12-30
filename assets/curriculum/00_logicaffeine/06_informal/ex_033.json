@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 4,
-  "hint": null,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
   "explanation": "This violates 5."
 }

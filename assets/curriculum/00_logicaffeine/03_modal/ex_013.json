@@ -10,6 +10,6 @@
     "$ \\\\sim (\\\\lozenge F) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "If something 'contradicts itself', can it be true in ANY possible world?",
+  "explanation": "A self-contradictory statement is impossible \u2014 there's no world where it's true. We express this as ~\u25c7P (not possible). Equivalently, its negation is necessary: \u25a1~P."
 }

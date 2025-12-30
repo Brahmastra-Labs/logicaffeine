@@ -10,6 +10,6 @@
     "$ (\\\\sim M \\\\supset \\\\, \\\\sim F) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "If A is 'sufficient' for B, does that mean A guarantees B, or B guarantees A?",
+  "explanation": "'A is sufficient for B' means: having A is enough to guarantee B. So A \u2283 B. A causes B, A leads to B, A is all you need for B."
 }

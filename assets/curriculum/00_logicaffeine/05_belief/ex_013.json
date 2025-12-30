@@ -10,6 +10,6 @@
     "$ \\\\underline{u} :(x)B\\\\underline{x} $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: B represents belief - 'believes that'. The subscript indicates who holds the belief or knowledge."
+  "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
+  "explanation": "When 'everyone' is inside the desire, we write u:(\u2200x)Px \u2014 you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
 }

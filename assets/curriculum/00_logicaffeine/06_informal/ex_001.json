@@ -14,5 +14,6 @@
   ],
   "correct": 5,
   "hint": "Does this definition describe Science neutrally, or does it judge Science? Would a scientist agree this captures what they do?",
-  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!"
+  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!",
+  "visual_concept": "A balance scale: the neutral word 'Science' on one side, the definition dripping with negative words (cold, empty) on the other. The scale tips because the emotional weights don't match."
 }

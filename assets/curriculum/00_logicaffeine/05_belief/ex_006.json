@@ -10,6 +10,6 @@
     "$ \\\\sim u:\\\\sim F $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who holds this belief? Look for the underline \u2014 it marks the believer. How do we symbolize believing something FALSE?",
+  "explanation": "In belief logic, 'believe that P is false' becomes u:~P \u2014 the agent (underlined u) believes NOT-P. The underline marks who holds the belief, the colon connects believer to belief content."
 }

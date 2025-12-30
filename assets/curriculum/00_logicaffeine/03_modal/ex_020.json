@@ -10,6 +10,6 @@
     "$ (\\\\square C \\\\supset \\\\square S) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessity claims?",
+  "explanation": "This connects two necessity statements with a regular conditional: 'IF (\u25a1A) THEN (\u25a1B)'. Each \u25a1 wraps its own proposition. Compare to \u25a1(A \u2283 B) which would make the implication itself necessary."
 }

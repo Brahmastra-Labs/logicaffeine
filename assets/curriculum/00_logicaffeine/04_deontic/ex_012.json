@@ -10,6 +10,6 @@
     "$ (\\\\exists x)(I\\\\underline{x} \\\\cdot Cx) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Permission means something is ALLOWED, not required. Who has this permission?",
+  "explanation": "Permission uses R (sometimes P for 'permitted'). 'It's permissible for you to sell' means you're ALLOWED to sell \u2014 not that you must. The agent (you, underlined) has the permission."
 }

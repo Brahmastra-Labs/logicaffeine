@@ -10,6 +10,6 @@
     "$ \\\\lozenge ((\\\\exists x)Dx) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the possibility about a SPECIFIC person, or about the existence of such a person?",
+  "explanation": "When possibility mixes with quantifiers, scope matters! '\u25c7\u2203x(Px)' means 'possibly, someone is P' \u2014 there's a world where at least one P-person exists. '\u2203x(\u25c7Px)' would mean 'there's an actual person who could be P' \u2014 subtly different!"
 }

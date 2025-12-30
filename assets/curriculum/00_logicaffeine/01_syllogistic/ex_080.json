@@ -10,6 +10,6 @@
     "some D is M"
   ],
   "correct": 3,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
 }

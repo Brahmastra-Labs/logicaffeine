@@ -10,6 +10,6 @@
     "$ \\\\sim OCu $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Evidentiality (O) is like belief but stronger. What is or isn't evident, and to whom?",
+  "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P \u2014 the evidence operator is negated, not the content."
 }

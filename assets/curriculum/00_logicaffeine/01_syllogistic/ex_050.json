@@ -10,6 +10,6 @@
     "some D is W"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Identify the subject and predicate. Are they individuals (lowercase) or classes (uppercase)?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"W\" refers to a class/property, so use uppercase."
 }

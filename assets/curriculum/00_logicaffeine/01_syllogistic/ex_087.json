@@ -10,6 +10,6 @@
     "C is not H"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
 }

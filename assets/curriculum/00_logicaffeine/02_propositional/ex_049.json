@@ -10,6 +10,6 @@
     "$ (P \\\\supset C) \\\\vee D $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Is the 'or' part of what follows from the 'if', or a separate alternative?",
+  "explanation": "In 'If X, then Y or Z', the disjunction is the consequence: X \u2283 (Y \u2228 Z). Being X leads to the choice between Y and Z. Compare to '(If X then Y) or Z' which would be (X \u2283 Y) \u2228 Z."
 }

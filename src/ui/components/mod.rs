@@ -14,4 +14,5 @@ pub mod achievement_toast;
 pub mod mode_selector;
 pub mod guide_code_block;
 pub mod guide_sidebar;
+pub mod learn_sidebar;
 pub mod main_nav;

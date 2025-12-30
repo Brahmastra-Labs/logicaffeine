@@ -10,6 +10,6 @@
     "all P is not R"
   ],
   "correct": 0,
-  "hint": null,
+  "hint": "Is this saying 'not all' or 'not any at all'?",
   "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
 }

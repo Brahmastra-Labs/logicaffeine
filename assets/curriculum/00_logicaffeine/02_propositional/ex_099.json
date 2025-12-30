@@ -10,6 +10,6 @@
     "$ (C \\\\equiv R) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Necessary AND sufficient' \u2014 is this just an 'if' or something stronger?",
+  "explanation": "'A is necessary and sufficient for B' means they're equivalent: A \u2261 B (biconditional). A guarantees B (A \u2283 B) AND B guarantees A (B \u2283 A). They rise and fall together."
 }

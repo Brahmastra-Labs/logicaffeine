@@ -10,6 +10,6 @@
     "$ (\\\\sim B \\\\vee L) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Identify the main connective first. What's the primary structure of this sentence?",
+  "explanation": "In propositional logic: 'or' is represented by \u2228 (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
 }

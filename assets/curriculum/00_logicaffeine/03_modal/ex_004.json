@@ -10,6 +10,6 @@
     "$ \\\\sim \\\\lozenge (P) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does 'couldn't' mean 'not possible' or 'not necessary'? Think about what's being ruled out.",
+  "explanation": "'Couldn't be X' means 'it's NOT POSSIBLE to be X' \u2014 the door to that possibility is locked shut. We write this as ~\u25c7P (not-possible P). This is different from '\u25c7~P' (possibly not P), which only says there's SOME world where P is false."
 }

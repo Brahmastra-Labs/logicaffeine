@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine game that this definition would wrongly EXCLUDE?",
   "explanation": "A definition is TOO NARROW when it excludes things that should be included."
 }

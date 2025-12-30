@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 6,
-  "hint": null,
+  "hint": "Does this definition include features that are common but not ESSENTIAL to being a bachelor?",
   "explanation": "This violates 7."
 }

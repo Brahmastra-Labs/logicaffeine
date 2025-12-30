@@ -10,6 +10,6 @@
     "some G is C"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "What is being negated here? The whole statement, or just part of it?",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }

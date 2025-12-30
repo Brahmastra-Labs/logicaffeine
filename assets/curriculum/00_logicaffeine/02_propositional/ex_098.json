@@ -10,6 +10,6 @@
     "$ (F \\\\equiv N) $"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "'Just if' means the same as 'if and only if' \u2014 what kind of conditional is that?",
+  "explanation": "'A just if B' expresses the biconditional: A \u2261 B. It means A and B are equivalent \u2014 each implies the other. Whenever one is true, so is the other."
 }

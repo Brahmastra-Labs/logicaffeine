@@ -10,6 +10,6 @@
     "$ \\\\square C \\\\supset B $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Does the necessity attach to the consequence only, or to the whole statement?",
+  "explanation": "Here the 'if...then' is a regular conditional, but its CONSEQUENCE involves necessity: A \u2283 \u25a1B. This says: 'If A happens, then B becomes necessary.' The implication itself might be contingent."
 }

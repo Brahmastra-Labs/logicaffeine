@@ -10,6 +10,6 @@
     "$ \\\\sim \\\\lozenge (F) $"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "If something 'isn't possible', are we saying it fails in SOME worlds or in ALL worlds?",
+  "explanation": "'Not possible' means there's NO world where this is true \u2014 every door is locked. We write ~\u25c7P. This is equivalent to saying 'necessarily NOT P' (\u25a1~P) \u2014 it must be false everywhere."
 }

@@ -10,6 +10,6 @@
     "all F is S"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Who or what is this statement ABOUT? In 'All X is Y', X is the subject being described.",
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
 }

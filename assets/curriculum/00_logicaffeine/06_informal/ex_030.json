@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Can you think of a genuine doctor that this definition would wrongly EXCLUDE?",
   "explanation": "This violates 2 (many doctors are women)."
 }

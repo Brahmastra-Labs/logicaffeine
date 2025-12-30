@@ -10,6 +10,6 @@
     "some F is d"
   ],
   "correct": 2,
-  "hint": null,
+  "hint": "Does 'some' mean 'at least one' or 'all of them'?",
   "explanation": "\"Some\" indicates an existential statement about at least one member. \"F\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
 }

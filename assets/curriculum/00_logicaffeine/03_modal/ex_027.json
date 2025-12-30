@@ -10,6 +10,6 @@
     "$ \\\\square (P \\\\vee C) $"
   ],
   "correct": 1,
-  "hint": null,
+  "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }

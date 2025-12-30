@@ -212,6 +212,84 @@ DEFINITIONS_TRANSFORMS = {
     }
 }
 
+# Belief/Epistemic Logic Hint Templates
+BELIEF_TRANSFORMS = {
+    # Pattern: "Believe that X is false"
+    r"Believe that .+ is false": {
+        "hint": "Who holds this belief? Look for the underline — it marks the believer. How do we symbolize believing something FALSE?",
+        "explanation": "In belief logic, 'believe that P is false' becomes u:~P — the agent (underlined u) believes NOT-P. The underline marks who holds the belief, the colon connects believer to belief content."
+    },
+    # Pattern: "Believe that X is true"
+    r"Believe that .+ is true": {
+        "hint": "Who is the believer (underlined)? What do they believe?",
+        "explanation": "In belief logic, 'believe that P is true' becomes u:P — the agent (underlined u) believes P. The underline marks the believer, the colon connects them to what they believe."
+    },
+    # Pattern: "If you believe X, then you believe Y"
+    r"If you believe .+, then you believe": {
+        "hint": "Is this about the RELATIONSHIP between two beliefs, or a single complex belief?",
+        "explanation": "This is a CONDITIONAL connecting two belief statements: (u:X ⊃ u:Y). The 'if...then' is outside the beliefs — it says: IF the agent believes X, THEN they also believe Y."
+    },
+    # Pattern: "Don't want" / "Don't believe"
+    r"Don't want|Don't believe": {
+        "hint": "Who is the agent with this desire/belief? Where does the negation go — before the agent or after?",
+        "explanation": "The negation attaches to the whole attitude: ~u:P means 'you DON'T want/believe P'. The underlined agent still marks WHO would have the attitude (if they had it)."
+    },
+    # Pattern: "You want everyone" / "want everyone"
+    r"[Yy]ou want everyone|want all|want everybody": {
+        "hint": "Is the 'everyone' INSIDE what you want (you want: everyone does X), or OUTSIDE?",
+        "explanation": "When 'everyone' is inside the desire, we write u:(∀x)Px — you want it to be the case that everyone does P. The universal quantifier is inside the scope of your desire."
+    },
+    # Pattern: "evident to you" / "It isn't evident"
+    r"evident|isn't evident|not evident": {
+        "hint": "Evidentiality (O) is like belief but stronger. What is or isn't evident, and to whom?",
+        "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P — the evidence operator is negated, not the content."
+    },
+    # Pattern: General "want" statements
+    r"[Yy]ou want|want to|wants to": {
+        "hint": "In belief/desire logic, who is the AGENT having the desire? What do they desire?",
+        "explanation": "Desires work like beliefs: u:P means 'you (agent u) want P'. The underlined letter marks who has the desire. The content after the colon is what they want."
+    }
+}
+
+# Deontic Logic Hint Templates
+DEONTIC_TRANSFORMS = {
+    # Pattern: "ought to" / "should"
+    r"ought to|should": {
+        "hint": "Who is the AGENT being commanded? Look for the underline — it marks who must act.",
+        "explanation": "In deontic logic, 'ought' is expressed with O (obligation). The underlined letter shows the AGENT — who is being obligated. 'Tom ought to pray' becomes OP_t where the underline under t marks Tom as the agent who must pray."
+    },
+    # Pattern: "Don't" / "Do not"
+    r"^Don't|^Do not|don't|do not": {
+        "hint": "Is this a COMMAND not to do something? Who is being commanded (the agent)?",
+        "explanation": "A prohibition is a command NOT to do something. The agent (who must refrain) gets underlined. 'Don't disturb Tom' means YOU (u) are commanded not to disturb — so the underline goes under u, not t."
+    },
+    # Pattern: "Let no one" / "No one should"
+    r"[Ll]et no one|[Nn]o one should|[Nn]obody may": {
+        "hint": "Is this about a specific person, or about EVERYONE being prohibited?",
+        "explanation": "Universal prohibitions use quantifiers with deontic operators. 'Let no one talk' means: there should not exist anyone who talks. We negate the existential quantifier over underlined agents."
+    },
+    # Pattern: "It's required" / "required that"
+    r"required|must|it is obligatory": {
+        "hint": "What is being required, and who must do it? The underline marks the agent.",
+        "explanation": "'Required' expresses obligation (O). The person who must act gets underlined. Watch the difference between 'required that you cry' (you're the agent) vs 'required that Tom cries' (Tom's the agent)."
+    },
+    # Pattern: "permissible" / "allowed" / "may"
+    r"permissible|allowed|may|permitted": {
+        "hint": "Permission means something is ALLOWED, not required. Who has this permission?",
+        "explanation": "Permission uses R (sometimes P for 'permitted'). 'It's permissible for you to sell' means you're ALLOWED to sell — not that you must. The agent (you, underlined) has the permission."
+    },
+    # Pattern: "consistent" in deontic context
+    r"consistent": {
+        "hint": "Can a command and a description both be true without contradiction?",
+        "explanation": "In deontic logic, we distinguish the commanded action (underlined) from the description. 'You're selling but don't sell' — the first 'selling' describes what you're doing (Su), the second is a command not to (¬S_u). These can be consistent: you CAN be doing what you shouldn't!"
+    },
+    # Pattern: involving "everyone" / "all"
+    r"everyone|all people|everybody": {
+        "hint": "When everyone must do something, does each person become an agent?",
+        "explanation": "Universal obligations use quantifiers: 'Everyone ought to X' becomes (∀x)OX_x — for all x, x is obligated to X. Each person is an agent of their own obligation."
+    }
+}
+
 
 def get_transform_for_prompt(prompt: str, module_type: str) -> dict:
     """Find the best transformation based on prompt patterns."""
@@ -222,6 +300,10 @@ def get_transform_for_prompt(prompt: str, module_type: str) -> dict:
         transforms = PROPOSITIONAL_TRANSFORMS
     elif module_type == "syllogistic":
         transforms = SYLLOGISTIC_TRANSFORMS
+    elif module_type == "deontic":
+        transforms = DEONTIC_TRANSFORMS
+    elif module_type == "belief":
+        transforms = BELIEF_TRANSFORMS
     else:
         return None
 
@@ -230,6 +312,68 @@ def get_transform_for_prompt(prompt: str, module_type: str) -> dict:
             return transform
 
     return None
+
+
+def transform_belief_exercise(exercise: dict) -> dict:
+    """Transform a belief/epistemic logic exercise."""
+
+    prompt = exercise.get("prompt", "")
+    transform = get_transform_for_prompt(prompt, "belief")
+
+    if transform:
+        if exercise.get("hint") is None:
+            exercise["hint"] = transform["hint"]
+        if "subscript indicates who holds" in exercise.get("explanation", ""):
+            exercise["explanation"] = transform["explanation"]
+    else:
+        if exercise.get("hint") is None:
+            exercise["hint"] = "Who is the AGENT (marked with underline)? What is the content of their belief/desire/knowledge?"
+
+    return exercise
+
+
+def transform_deontic_exercise(exercise: dict) -> dict:
+    """Transform a deontic logic exercise."""
+
+    prompt = exercise.get("prompt", "")
+    transform = get_transform_for_prompt(prompt, "deontic")
+
+    if transform:
+        if exercise.get("hint") is None:
+            exercise["hint"] = transform["hint"]
+        if "Deontic operators express moral" in exercise.get("explanation", ""):
+            exercise["explanation"] = transform["explanation"]
+    else:
+        if exercise.get("hint") is None:
+            exercise["hint"] = "Identify WHO is being commanded or permitted (the agent, marked with underline) and WHAT action they must/may do."
+
+    return exercise
+
+
+def transform_informal_exercise(exercise: dict) -> dict:
+    """Transform a definitions/informal logic exercise."""
+
+    # For definitions, we need to identify the type of error
+    options = exercise.get("options", [])
+    correct_idx = exercise.get("correct", 0)
+
+    if correct_idx < len(options):
+        error_type = options[correct_idx]
+
+        if error_type in DEFINITIONS_TRANSFORMS:
+            transform = DEFINITIONS_TRANSFORMS[error_type]
+            if exercise.get("hint") is None:
+                # Try to extract the term being defined from the prompt
+                prompt = exercise.get("prompt", "")
+                # Pattern: "A X is..." or "\"X\" means..."
+                match = re.search(r'^(?:A |An |The |")?(\w+)"?\s+(?:is|means|are)', prompt)
+                term = match.group(1) if match else "this"
+                exercise["hint"] = transform["hint"].replace("{term}", term)
+    else:
+        if exercise.get("hint") is None:
+            exercise["hint"] = "What's wrong with this definition? Is it too inclusive, too exclusive, or flawed in some other way?"
+
+    return exercise
 
 
 def transform_modal_exercise(exercise: dict) -> dict:
@@ -305,6 +449,12 @@ def transform_file(filepath: Path, module_type: str, dry_run: bool = True) -> bo
         exercise = transform_propositional_exercise(exercise)
     elif module_type == "syllogistic":
         exercise = transform_syllogistic_exercise(exercise)
+    elif module_type == "deontic":
+        exercise = transform_deontic_exercise(exercise)
+    elif module_type == "informal":
+        exercise = transform_informal_exercise(exercise)
+    elif module_type == "belief":
+        exercise = transform_belief_exercise(exercise)
 
     transformed = json.dumps(exercise, indent=2)
 
@@ -326,7 +476,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Transform curriculum exercises')
     parser.add_argument('--apply', action='store_true', help='Actually apply changes (default: dry run)')
-    parser.add_argument('--module', choices=['modal', 'propositional', 'syllogistic', 'all'],
+    parser.add_argument('--module', choices=['modal', 'propositional', 'syllogistic', 'deontic', 'informal', 'belief', 'all'],
                         default='all', help='Which module to transform')
     args = parser.parse_args()
 
@@ -335,7 +485,10 @@ def main():
     modules = {
         'modal': '03_modal',
         'propositional': '02_propositional',
-        'syllogistic': '01_syllogistic'
+        'syllogistic': '01_syllogistic',
+        'deontic': '04_deontic',
+        'belief': '05_belief',
+        'informal': '06_informal'
     }
 
     if args.module == 'all':

@@ -1,1999 +1,608 @@
-# Proposal: Logicaffeine User Platform
+# Logicaffeine User Platform Proposal
 ## Cloudflare-Native Architecture with Rust Workers
 
-**Prepared for:** CEO
-**Date:** December 29, 2025
-**Author:** Engineering Team
-**Version:** 3.0 (Cloudflare Edition)
+**Version:** 3.0 | **Date:** December 30, 2025
 
 ---
 
 ## Table of Contents
 
-- [Executive Summary](#executive-summary)
-- [Part 0: Curriculum Navigation](#part-0-curriculum-navigation-step-0)
-- [Part 1: Gamification Council Session](#part-1-gamification-council-session)
-- [Part 2: Curriculum Gemini Review](#part-2-curriculum-gemini-review)
-- [Part 3: Cloudflare Infrastructure Analysis](#part-3-cloudflare-infrastructure-analysis)
-- [Part 4: Crate Separation Strategy](#part-4-crate-separation-strategy)
-- [Part 5: D1 Database Schema](#part-5-d1-database-schema)
-- [Part 6: Rust Workers Implementation](#part-6-rust-workers-implementation)
-- [Part 7: Authentication System](#part-7-authentication-system)
-- [Part 8: Payment & License System](#part-8-payment--license-system)
-- [Part 9: Multiplayer Battle System](#part-9-multiplayer-battle-system)
-- [Part 10: Implementation Roadmap](#part-10-implementation-roadmap)
-- [Part 11: Cost Analysis](#part-11-cost-analysis)
-- [Part 12: Summary](#part-12-summary)
-- [Glossary](#glossary)
+1. [Executive Summary](#1-executive-summary)
+2. [User Experience: Integrated Learn Textbook](#2-user-experience-integrated-learn-textbook)
+3. [Progress & Gamification](#3-progress--gamification)
+4. [Curriculum Review Process](#4-curriculum-review-process)
+5. [Technical: Infrastructure & Schema](#5-technical-infrastructure--schema)
+6. [Technical: API & Authentication](#6-technical-api--authentication)
+7. [Multiplayer Battles & Tournaments](#7-multiplayer-battles--tournaments)
+8. [AAA Quality Requirements](#8-aaa-quality-requirements)
+9. [Implementation Checklist](#9-implementation-checklist)
+10. [Glossary](#10-glossary)
+11. [Appendix A: Curriculum Mapping (Gensler)](#appendix-a-curriculum-mapping-genslers-introduction-to-logic)
 
 ---
 
-## Executive Summary
+## 1. Executive Summary
 
-This proposal outlines a **Cloudflare-native** platform upgrade that transforms Logicaffeine into a connected, competitive learning platform. The architecture is designed to:
+Logicaffeine is a gamified platform for learning First-Order Logic through translation exercises. This proposal defines the complete architecture for transforming it into a connected, competitive learning platform.
 
-- **Stay 100% on Cloudflare** - Workers, D1, R2 (object storage only), Pages
-- **Port JavaScript Workers to Rust** - Using `workers-rs` for type safety and performance
-- **Separate platform crates from core** - Keep the compiler/language clean
-- **Enable multiplayer battles and tournaments** - Competitive learning with time battles and lives
-- **Fix the payment flow** - Proper license key generation and email delivery
+### Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    LOGICAFFEINE CLOUDFLARE ARCHITECTURE                     │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐    │
-│  │  Cloudflare │   │  Cloudflare │   │  Cloudflare │   │  Cloudflare │    │
-│  │    Pages    │   │   Workers   │   │     D1      │   │     R2      │    │
-│  │  (Frontend) │   │   (Rust)    │   │  (SQLite)   │   │  (Storage)  │    │
-│  └─────────────┘   └─────────────┘   └─────────────┘   └─────────────┘    │
-│        │                 │                 │                 │             │
-│        │                 ▼                 ▼                 ▼             │
-│        │         ┌─────────────────────────────────────────────────┐      │
-│        │         │                  API Layer                       │      │
-│        │         │  • Auth (GitHub, Google OAuth)                  │      │
-│        │         │  • Progress Sync                                 │      │
-│        │         │  • Leaderboards                                  │      │
-│        │         │  • Multiplayer Battles & Tournaments            │      │
-│        │         │  • License/Payment                               │      │
-│        └────────▶│                                                  │      │
-│                  └─────────────────────────────────────────────────┘      │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                 LOGICAFFEINE CLOUDFLARE ARCHITECTURE                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌───────────┐   ┌───────────┐   ┌───────────┐   ┌───────────┐    │
+│  │ Cloudflare│   │ Cloudflare│   │ Cloudflare│   │ Cloudflare│    │
+│  │   Pages   │   │  Workers  │   │    D1     │   │    R2     │    │
+│  │ (Frontend)│   │  (Rust)   │   │ (SQLite)  │   │ (Storage) │    │
+│  └─────┬─────┘   └─────┬─────┘   └─────┬─────┘   └─────┬─────┘    │
+│        │               │               │               │           │
+│        └───────────────┴───────────────┴───────────────┘           │
+│                              │                                      │
+│                    ┌─────────┴─────────┐                           │
+│                    │     API Layer     │                           │
+│                    │  • Auth (OAuth)   │                           │
+│                    │  • Progress Sync  │                           │
+│                    │  • Leaderboards   │                           │
+│                    │  • Battles        │                           │
+│                    │  • Payments       │                           │
+│                    └───────────────────┘                           │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### Implementation Priority Order
+### What We're Building
 
-**Parts are numbered in implementation order (Part 0 = first to implement). The document is structured with foundational content first (Parts 0-4), followed by technical implementation details (Parts 5-9), then planning and summary (Parts 10-12).**
-
-| Part | Title | Why This Order |
-|------|-------|----------------|
-| **Part 0** | Curriculum Navigation | CEO priority: UX before features |
-| **Part 1** | Gamification Council | Design philosophy before code |
-| **Part 2** | Curriculum Gemini Review | Content quality before features |
-| **Part 3** | Infrastructure Analysis | Understand the platform |
-| **Part 4** | Crate Separation | Clean architecture first |
-| **Part 5** | D1 Database Schema | Define data models |
-| **Part 6** | Rust Workers | API implementation |
-| **Part 7** | Authentication | OAuth before protected features |
-| **Part 8** | Payment & License | Monetization |
-| **Part 9** | Multiplayer & Tournaments | Advanced features last |
-| **Part 10** | Roadmap | Implementation timeline |
-| **Part 11** | Cost Analysis | Budget planning |
-| **Part 12** | Summary | Final review |
-
-**Key Dependencies:**
-- Curriculum Navigation (0) → enables user testing of Gamification (1) changes
-- Gamification (1) → informs Curriculum Review (2) priorities
-- Infrastructure (3) + Crate Separation (4) → enables all backend work
-- D1 Schema (5) → required before Workers (6), Auth (7), Payments (8), Battles (9)
-- Auth (7) → required before Tournaments (9) and Progress Sync
+1. **Integrated Learn textbook** — Single scrollable page with lessons, examples, infinite practice, and 17-question tests per module
+2. **Symbol dictionary + auto-hints** — Every logic output shows symbol meanings and Socratic hints automatically
+3. **Duolingo-style progress tracking** — XP, streaks, achievements, module mastery, visual progress
+4. **Multiplayer competition** — Time-based battles and tournaments with lives system
+5. **Cloud sync** — Progress saved to D1, accessible from any device
 
 ---
 
-## Part 0: Curriculum Navigation (Step 0)
+## 2. User Experience: Integrated Learn Textbook
 
-**Status: ✅ IMPLEMENTED** — Unified navigation with active tab underline
+### 2.1 Simplified Navigation
 
-### 0.1 Implementation Summary
+Everything happens in the Learn page — no separate routes for practice, read, or test modes.
 
-Created `MainNav` component (`src/ui/components/main_nav.rs`) providing:
-
-| Feature | Implementation |
-|---------|----------------|
-| **Unified header** | Same nav across Landing, Guide, Pricing, Roadmap, Registry |
-| **Active tab underline** | Gradient underline (`#60a5fa` → `#a78bfa`) on current page |
-| **Consistent brand** | Logo + "LOGICAFFEINE" + optional subtitle |
-| **GitHub + CTA buttons** | Right-aligned actions |
-| **Responsive** | Links hidden on mobile, brand text collapses |
-
-### 0.2 Pages Updated
-
-```rust
-// Usage pattern across all pages:
-MainNav { active: ActivePage::Guide, subtitle: Some("Programmer's Guide") }
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ROUTES (SIMPLIFIED)                          │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  /              → Landing page                                      │
+│  /learn         → Textbook with all modules (scrollable)           │
+│  /learn#atomic  → Jump to specific module section                   │
+│  /profile       → Stats, achievements, activity                     │
+│  /battle        → Multiplayer battles                               │
+│                                                                     │
+│  NO LONGER NEEDED:                                                  │
+│  ✗ /learn/:era/:module  (now just anchor links)                    │
+│  ✗ /lesson/:era/:module/:mode  (practice/test built into Learn)   │
+│  ✗ /review  (SRS integrated into Practice component)               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-| Page | File | ActivePage |
-|------|------|------------|
-| Landing | `landing.rs` | `Home` |
-| Guide | `guide/mod.rs` | `Guide` |
-| Pricing | `pricing.rs` | `Pricing` |
-| Roadmap | `roadmap.rs` | `Roadmap` |
-| Registry | `registry/browse.rs` | `Registry` |
+### 2.2 Learn Page Structure
 
-### 0.3 Navigation Links
+The Learn page is a scrollable textbook. Each module section contains:
+1. **Lesson** — Reading content with symbol dictionary
+2. **Interactive Examples** — Run logic, see output with auto-hints
+3. **Practice** — Infinite flashcard mode for XP
+4. **Test** — 17-question scored assessment
 
-All pages now show consistent nav: **Guide → Learn → Studio → Roadmap → Pricing**
+**Focus Mode:** When a student clicks into a module, other eras collapse/recede to minimize cognitive clutter. The environment shrinks to fit the task.
 
-### 0.4 Remaining Work
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ LEARN                                          🔥 14  ⚡ 2,450 XP   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  [Era 0: Practice] [Era 1: Basics ▼] [Era 2: Quantifiers] ...      │
+│                                                                     │
+│  ════════════════════════════════════════════════════════════════  │
+│  ERA 1: BASICS (expanded, others collapsed)                        │
+│  ════════════════════════════════════════════════════════════════  │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ § 1.1 THE ATOMIC WORLD                      ⭐⭐░ 67% complete│   │
+│  ├─────────────────────────────────────────────────────────────┤   │
+│  │                                                              │   │
+│  │ [LESSON] [EXAMPLES] [PRACTICE ∞] [TEST 📝]                  │   │
+│  │                                                              │   │
+│  │ ─────────────────────────────────────────────────────────── │   │
+│  │                                                              │   │
+│  │ In logic, we start with the simplest building blocks:       │   │
+│  │ INDIVIDUALS and PROPERTIES.                                  │   │
+│  │ ...                                                          │   │
+│  │                                                              │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ § 1.2 RELATIONS                             ░░░ not started │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ § 1.3 NEGATION                              🔒 locked       │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-| Task | Status | Notes |
-|------|--------|-------|
-| Visual progress map on Learn page | Pending | Part 1 prerequisite |
-| Breadcrumbs in Exercise view | Pending | |
-| Mobile bottom nav | Pending | |
+### 2.3 Module Section Tabs
 
----
+Each module section has 4 tabs that switch content in-place:
 
-## Part 1: Gamification Council Session
+| Tab | Description |
+|-----|-------------|
+| **LESSON** | Reading content from `lesson.md` |
+| **EXAMPLES** | Interactive code blocks with symbol dictionary |
+| **PRACTICE ∞** | Infinite flashcard mode, earn XP per correct answer |
+| **TEST 📝** | 17-question assessment with final score |
 
-### 1.1 The Pedagogical Council
+### 2.4 Symbol Dictionary (Auto-Generated)
 
-Convene a council of master teachers to review and optimize the gamification system. The council focuses on **making learning joyful** - not just engaging, but genuinely fun.
+When logic code runs, the output includes a **Symbol Dictionary** that explains every symbol used:
 
-#### Council Composition
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ EXAMPLES                                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Try it: "All cats are mammals"                                    │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │ > All cats are mammals                                        │ │
+│  │                                                                │ │
+│  │ OUTPUT:                                                        │ │
+│  │ ∀x(Cat(x) → Mammal(x))                                        │ │
+│  │                                                                │ │
+│  │ ┌─────────────────────────────────────────────────────────┐   │ │
+│  │ │ 📖 SYMBOL DICTIONARY                                     │   │ │
+│  │ ├─────────────────────────────────────────────────────────┤   │ │
+│  │ │ ∀    "for all" — universal quantifier                   │   │ │
+│  │ │ x    variable representing any individual               │   │ │
+│  │ │ →    "implies" / "if...then"                            │   │ │
+│  │ │ Cat  predicate: "is a cat"                              │   │ │
+│  │ │ Mammal  predicate: "is a mammal"                        │   │ │
+│  │ └─────────────────────────────────────────────────────────┘   │ │
+│  │                                                                │ │
+│  │ 💡 HINT: "All X are Y" always becomes ∀x(X(x) → Y(x)).       │ │
+│  │    The arrow (→) captures the "if...then" relationship.      │ │
+│  │    If something is a cat, THEN it is a mammal.               │ │
+│  │                                                                │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
-| Council Member | Expertise | Focus Area |
-|----------------|-----------|------------|
-| **Jesus Christ** (Leader) | Master teacher, engagement through parables and stories | Overall vision, keeping learning joyful, connecting to meaning |
-| **Maria Montessori** | Self-directed learning, prepared environment | Intrinsic motivation, removing artificial barriers |
-| **Socrates** | Questioning method, dialectic | Challenge without frustration, discovery |
-| **John Dewey** | Learning by doing, pragmatism | Practical application, real-world connection |
-| **Lev Vygotsky** | Zone of proximal development, scaffolding | Difficulty scaling, just-right challenge |
+**Symbol Dictionary Generation:**
+- Automatically extract all symbols from the FOL output
+- Look up each symbol in a master dictionary
+- Display only the symbols used in this specific output
+- Include predicates/constants with their English meanings
 
-### 1.2 Council Deliberation Note
+### 2.5 Socratic Hints (Struggle-Triggered)
 
-**On Competition:** The Council considered whether competitive features (battles, tournaments, leaderboards) might undermine intrinsic motivation. After deliberation, the majority **rejected this concern**, noting that:
-- Competition drives extraordinary achievement in business, athletics, and academics
-- Battles and tournaments are **opt-in** - learners who prefer solo exploration can use Studio mode
-- The Co-op mode provides collaborative alternatives for those who thrive in team settings
-- Healthy competition and intrinsic motivation are not mutually exclusive
+Hints appear **when the user struggles** — not automatically after showing the answer (which kills discovery).
 
-The proposal proceeds with full competitive features intact.
+**Trigger conditions:**
+- After 5 seconds of inactivity on a problem
+- After a wrong attempt
+- Before the final answer is revealed (not after)
 
-### 1.3 Council Mandate: Fun While Learning
+In Test mode, hints are completely disabled. In the Review screen, hints become **Socratic questions** that force reflection:
+- Instead of: "The answer is ∀x(Bird(x) → Fly(x))"
+- Ask: "You used ∧ (and). But does being a bird GUARANTEE flying, or just coincide with it?"
 
-#### Core Principles
-
-1. **Joy over metrics** - Learning should feel like play, not work
-2. **Curiosity over compliance** - Encourage exploration, not just completion
-3. **Mastery over points** - Understanding matters more than XP numbers
-4. **Variety over repetition** - Different reward styles, surprise elements
-5. **Connection over isolation** - Learning feels better in community
-
-#### Anti-Repetition Strategies
-
-The current system can feel repetitive. Here are concrete fixes:
-
-**1. Rotate Feedback Messages**
 ```rust
-const PRAISE_MESSAGES: &[&str] = &[
-    "Sharp thinking!",
-    "You're getting it!",
-    "Excellent logic!",
-    "That's the way!",
-    "Nicely reasoned!",
-    "Clear as crystal!",
-    "You've got this!",
-    "Brilliant deduction!",
-];
+struct LogicOutput {
+    fol: String,                    // "∀x(Cat(x) → Mammal(x))"
+    symbol_dictionary: Vec<SymbolEntry>,
+    socratic_hint: Option<String>,  // Shown on struggle, not automatically
+}
 
-// Track last shown message, never repeat consecutively
-fn get_praise(last_index: &mut usize) -> &'static str {
-    let mut idx = rand::random::<usize>() % PRAISE_MESSAGES.len();
-    while idx == *last_index {
-        idx = rand::random::<usize>() % PRAISE_MESSAGES.len();
-    }
-    *last_index = idx;
-    PRAISE_MESSAGES[idx]
+struct SymbolEntry {
+    symbol: String,     // "∀"
+    name: String,       // "for all"
+    meaning: String,    // "applies to EVERYTHING in the universe"
 }
 ```
 
-**2. Contextual Feedback**
-Tie feedback to the specific logic concept:
-- "You've mastered universal quantification!" (not just "Correct!")
-- "Negation is no match for you!"
-- "Scope ambiguity resolved perfectly!"
+### 2.6 Practice Mode (Infinite Flashcards)
 
-**3. Visual Variety**
-- Different particle effects per achievement type (stars, confetti, sparkles)
-- Color themes that rotate by day of week
-- Occasional "golden" exercises worth 3x XP (10% chance)
+Click **PRACTICE ∞** to enter infinite flashcard mode within the module section:
 
-**4. Surprise Elements**
-- Hidden bonus exercises that appear randomly
-- "Mystery box" rewards after streaks
-- Easter eggs for specific answer patterns
-
-### 1.4 Session-Based Variety
-
-Track what exercises the user has done recently to avoid monotony:
-
-```rust
-struct SessionTracker {
-    recent_exercise_types: VecDeque<ExerciseType>,
-    recent_difficulties: VecDeque<u8>,
-    recent_modules: VecDeque<String>,
-}
-
-impl SessionTracker {
-    fn suggest_next(&self, available: &[Exercise]) -> &Exercise {
-        // Prefer exercise types NOT in recent history
-        // Alternate difficulty to maintain flow
-        // Rotate between modules when possible
-    }
-}
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ § 1.1 THE ATOMIC WORLD                              [✕ Exit Practice]│
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌───────────────────────────────────────────────────────────────┐ │
+│  │                                                                │ │
+│  │  🔥 COMBO: 7                              +15 XP this card    │ │
+│  │                                                                │ │
+│  │  ─────────────────────────────────────────────────────────── │ │
+│  │                                                                │ │
+│  │  Translate: "Socrates is mortal"                              │ │
+│  │                                                                │ │
+│  │  ┌─────────────────────────────────────────────────────────┐  │ │
+│  │  │ A) Mortal(s)                                            │  │ │
+│  │  │ B) s(Mortal)                                            │  │ │
+│  │  │ C) Socrates → Mortal                                    │  │ │
+│  │  │ D) ∀x(Socrates(x))                                      │  │ │
+│  │  └─────────────────────────────────────────────────────────┘  │ │
+│  │                                                                │ │
+│  │  Session: 23 correct | 2 wrong | 89% accuracy                 │ │
+│  │                                                                │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                                                                     │
+│  [Keep Going]                              [End Session → +345 XP] │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Guidelines:**
-- Never show same exercise twice in one session
-- Alternate between exercise types (MC → translation → MC)
-- Insert "breather" exercises after 2+ hard ones
-- Offer "Daily Challenge" with unique constraints
+**Practice Mode Features:**
+- Infinite questions drawn from module's exercise pool
+- **Priority queue**: Wrong answers re-inserted at position `current + 3` for immediate correction
+- Combo multiplier for consecutive correct answers
+- Session stats shown (correct/wrong/accuracy)
+- Exit anytime, XP banked immediately
+- SRS-due exercises prioritized
 
-### 1.5 Flow State Targeting
+**Diminishing Returns (Anti-Grind):**
+After a module reaches "Mastered" (100% complete), XP from that module decays:
+- First week after mastery: 50% XP
+- After first week: 25% XP
+- This forces players to tackle harder modules for full rewards
 
-Based on Vygotsky's Zone of Proximal Development:
+### 2.7 Test Mode (17 Questions)
 
-```rust
-fn adjust_difficulty(state: &mut UserState, correct: bool) {
-    if correct {
-        state.consecutive_correct += 1;
-        state.consecutive_wrong = 0;
+Click **TEST 📝** to start a scored assessment:
 
-        // After 5+ correct, bump up difficulty
-        if state.consecutive_correct >= 5 {
-            state.suggested_difficulty = (state.suggested_difficulty + 1).min(5);
-            state.consecutive_correct = 0;
-            // Scaffolding: first exercise at new difficulty gets support
-            state.rank_up_bonus = true;
-        }
-    } else {
-        state.consecutive_wrong += 1;
-        state.consecutive_correct = 0;
-
-        // After 2 wrong, offer help
-        if state.consecutive_wrong >= 2 {
-            state.show_hint = true;
-            state.suggested_difficulty = (state.suggested_difficulty - 1).max(1);
-        }
-    }
-}
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ § 1.1 THE ATOMIC WORLD — TEST                      Question 8 / 17 │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ████████░░░░░░░░░                                                 │
+│                                                                     │
+│  ─────────────────────────────────────────────────────────────────│
+│                                                                     │
+│  Translate: "Paris is beautiful and ancient"                       │
+│                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ A) Beautiful(p) ∧ Ancient(p)                                │   │
+│  │ B) Beautiful ∧ Ancient(Paris)                               │   │
+│  │ C) p(Beautiful, Ancient)                                    │   │
+│  │ D) Beautiful(Paris) → Ancient(Paris)                        │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ⚠️ No hints in Test mode. Answers revealed at the end.           │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Rank Up Scaffolding:** When a learner ranks up to a new difficulty level, the first exercise includes:
-- A free hint (no penalty for using it)
-- +5 bonus seconds on timed exercises
-- Encouraging "Rank Up!" celebration animation
+**Test Complete Screen:**
 
-This eases the transition and prevents discouragement at the difficulty spike.
-
-### 1.6 Milestone Celebrations
-
-Instead of constant small rewards, create memorable milestone moments:
-
-| Milestone | Celebration | Reward |
-|-----------|-------------|--------|
-| Level 10 | Special "Scholar" ceremony animation | Title unlock |
-| First perfect module | Confetti + achievement showcase | Badge |
-| 7-day streak | Heartfelt message + freeze reward | +1 freeze, XP bonus |
-| 100 correct answers | "Century" achievement with fanfare | Title unlock |
-| Complete Era | Full-screen celebration, badge | Era badge |
-
-**Implementation:**
-```rust
-fn check_milestones(progress: &UserProgress) -> Option<Milestone> {
-    // Check for milestone conditions
-    // Return milestone data for special celebration UI
-    // Milestones are one-time events (stored in achievements)
-}
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ § 1.1 THE ATOMIC WORLD — TEST COMPLETE                             │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│                         🎉 SCORE: 15 / 17                          │
+│                            88% — GREAT!                            │
+│                                                                     │
+│                          +170 XP earned                            │
+│                                                                     │
+│  ─────────────────────────────────────────────────────────────────│
+│                                                                     │
+│  REVIEW MISTAKES:                                                  │
+│                                                                     │
+│  Q3: "The cat is sleeping"                                         │
+│      Your answer: Sleep(cat)                                       │
+│      Correct: Sleeping(c)  ← use lowercase for individuals        │
+│                                                                     │
+│  Q12: "All birds can fly"                                          │
+│       Your answer: ∀x(Bird(x) ∧ Fly(x))                            │
+│       Correct: ∀x(Bird(x) → Fly(x))  ← use → not ∧ for "all...are"│
+│                                                                     │
+│  ─────────────────────────────────────────────────────────────────│
+│                                                                     │
+│  [Retake Test]                              [Continue to § 1.2 →] │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.7 Removing "Chore" Elements
+**Test Mode Features:**
+- Fixed 17 questions per test
+- No hints, no immediate feedback
+- Full XP multiplier (1.0x)
+- Review all mistakes at the end with explanations
+- Retake available anytime
+- Score saved to progress (best score tracked)
 
-Per council review, remove anything that feels like a chore:
+### 2.8 Lesson File Structure
 
-**Remove or Rethink:**
-- Daily login rewards (feels like obligation)
-- Streak pressure (anxiety-inducing)
-- XP decay (punitive)
+```
+assets/curriculum/01_trivium/01_atomic/
+├── meta.json       # Module metadata
+├── lesson.md       # Lesson content (AI-generated, committed)
+├── symbols.json    # Symbol dictionary for this module
+└── exercises/
+    ├── ex_01.json
+    ├── ex_02.json
+    └── ...
+```
 
-**Replace with:**
-- Discovery rewards (find something new = XP)
-- Exploration bonuses (try a new module = XP)
-- Comeback celebrations (haven't played in a while? Welcome back bonus!)
-
----
-
-## Part 2: Curriculum Gemini Review
-
-**Status: ✅ PHASE 1 COMPLETE** — Council feedback applied to sample exercises
-
-### 2.1 Pedagogical Council Review
-
-The Pedagogical Council (Part 1) reviewed 8 sample exercises and provided structured feedback. All recommendations implemented.
-
-#### Exercises Updated
-
-| ID | Module | Key Changes |
-|----|--------|-------------|
-| A_1.1 | Syllogistic | Socratic hint: "Is 'you' a specific person or a general class?" |
-| C_6.1 | Propositional | Agency analogy: "Pass exam → Learn OR Practice" (goal planning) |
-| J_4.1 | Modal | "Doorways to possible worlds" metaphor |
-| L_12.3 | Deontic | Agent legend explaining `s:` and `u:` notation |
-| N_14.1 | Belief | Fixed LaTeX, added "believer : belief-content" scaffold |
-| Q_3.1 | Informal | Fixed `correct` index (3→5), neutral definition hint |
-| ex_03 | Universal | Debug-style hint: "Would a Cat exist in this world?" |
-| ex_01 | Scope | Mother vs President scope analogy |
-
-#### Pedagogical Principles Applied
-
-1. **Socratic Method** — Hints ask discovery questions, not answers
-2. **Agency-Focused Analogies** — Examples connect to real decisions (no trivial food examples)
-3. **Scaffolded Explanations** — Build understanding step-by-step
-4. **Debug Thinking** — Encourage "testing" logic like debugging code
-
-#### Sample Transformation
-
-**Before:**
+**symbols.json example:**
 ```json
-"hint": "Think about grouping"
-```
-
-**After:**
-```json
-"hint": "Imagine P is 'Pass the exam', L is 'Learn the material', D is 'Do extra practice'. To pass, you need to (Learn OR Practice). Where do the parentheses go?",
-"explanation": "Think of it like planning success: 'I will Pass AND (Learn OR Practice)'. The parentheses show 'Learn or Practice' is your choice of METHOD..."
-```
-
-### 2.2 Transformation Patterns (Council-Approved)
-
-After Phase 1 & 2, we've established these reusable patterns:
-
-| Pattern | Before | After |
-|---------|--------|-------|
-| **Socratic Hint** | `"hint": null` | Question that prompts discovery, not answer |
-| **Debug Thinking** | "Use uppercase" | "Would a Cat exist in this world?" |
-| **Function Analogy** | Technical jargon | "Like a function call in programming" |
-| **Contrast Pairs** | Single explanation | "Compare to X which would mean..." |
-| **Real-world Stakes** | Abstract symbols | "Like planning your success" |
-
-**Hint Templates by Module:**
-
-| Module | Hint Pattern |
-|--------|-------------|
-| Syllogistic | "Does X refer to a specific person, or a category of people?" |
-| Propositional | "How many [operator]s do you see? Does each X get its own?" |
-| Modal | "Is the sentence saying X IS true, or that X COULD BE true?" |
-| Definitions | "Can you think of something that fits this definition but ISN'T a [term]?" |
-| Quantifiers | "If this logic were true, would [counterexample] exist?" |
-
-### 2.3 Full Curriculum Review (Remaining ~370 exercises)
-
-**Location:** `/assets/curriculum/`
-**Statistics:** ~382 JSON files, 12 updated in Phase 1 + Phase 2
-
-### 2.4 Review Script
-
-```bash
-#!/bin/bash
-# curriculum-review.sh
-# Concatenate curriculum for Gemini review
-
-OUTPUT="curriculum_bundle.txt"
-> "$OUTPUT"
-
-for era in 00_logicaffeine 01_trivium 02_quadrivium 03_metaphysics; do
-    echo "=== ERA: $era ===" >> "$OUTPUT"
-    cat "assets/curriculum/$era/meta.json" >> "$OUTPUT"
-    echo "" >> "$OUTPUT"
-
-    for module in assets/curriculum/$era/*/; do
-        if [ -d "$module" ]; then
-            echo "--- MODULE: $(basename $module) ---" >> "$OUTPUT"
-            cat "$module/meta.json" >> "$OUTPUT"
-            echo "" >> "$OUTPUT"
-
-            for exercise in "$module"/*.json; do
-                if [ -f "$exercise" ] && [ "$(basename $exercise)" != "meta.json" ]; then
-                    cat "$exercise" >> "$OUTPUT"
-                    echo "" >> "$OUTPUT"
-                fi
-            done
-        fi
-    done
-done
-
-echo "Bundle created: $OUTPUT ($(wc -l < $OUTPUT) lines)"
-```
-
-### 2.5 Gemini Review Prompt
-
-```
-You are reviewing a curriculum for Logicaffeine, an educational app that teaches
-First-Order Logic through English-to-logic translation exercises.
-
-The app has two interactive modes available on the Guide page:
-1. LOGIC MODE: User writes English, system outputs First-Order Logic (FOL)
-2. IMPERATIVE MODE: User writes LOGOS code, system executes it
-
-For EACH exercise in the curriculum, provide a structured assessment:
-
-## ACCESSIBILITY (1-5 scale)
-- Is the prompt clear to someone unfamiliar with formal logic?
-- Are the options/expected answers unambiguous?
-- Is the difficulty appropriate for its position in the curriculum?
-- Are there sufficient hints?
-
-## INTERACTIVITY POTENTIAL (Low/Medium/High)
-- Could this be converted to a code-writing exercise using Logic or Imperative mode?
-- Would interactivity enhance understanding of this concept?
-- What type of interactive exercise would work best?
-
-## MAIEUTICS (Socratic Method)
-- Does the hint guide through questioning rather than telling?
-- Could the hint be rephrased as a question that leads to discovery?
-- Does it prompt the learner to examine their reasoning?
-- Example: Instead of "Use 'All'" → "Is there any instance where this is NOT true?"
-
-## SPECIFIC FEEDBACK
-- Any confusing wording that should be clarified?
-- Missing hints that would help struggling learners?
-- Opportunities for real-world examples or analogies?
-- Is there unnecessary jargon that could be simplified?
-
-## RECOMMENDED CHANGES
-- Concrete suggestions for improvement
-- Priority: High (confusing), Medium (could be better), Low (minor polish)
-
-Output as structured JSON for easy processing:
 {
-  "exercise_id": "ex_01",
-  "accessibility_score": 4,
-  "interactivity_potential": "Medium",
-  "issues": ["hint could be more specific"],
-  "recommendations": [
-    {"change": "Add example using 'All cats are mammals'", "priority": "Medium"}
+  "symbols": [
+    { "symbol": "∀", "name": "for all", "meaning": "universal quantifier" },
+    { "symbol": "∃", "name": "there exists", "meaning": "existential quantifier" },
+    { "symbol": "→", "name": "implies", "meaning": "if...then" },
+    { "symbol": "∧", "name": "and", "meaning": "conjunction" },
+    { "symbol": "∨", "name": "or", "meaning": "disjunction" },
+    { "symbol": "¬", "name": "not", "meaning": "negation" }
+  ],
+  "predicates": [
+    { "symbol": "Cat", "meaning": "is a cat" },
+    { "symbol": "Mammal", "meaning": "is a mammal" }
   ]
 }
 ```
 
-### 2.4 Interactive Exercise Types (Hybrid Approach)
+### 2.9 Lesson Generation Prompt
 
-Keep existing exercise types, ADD new interactive types:
-
-| Type | Description | Validation | Where Used |
-|------|-------------|------------|------------|
-| `multiple_choice` | Select correct answer | Match index | Keep everywhere |
-| `translation` | Template-based translation | Pattern match | Keep everywhere |
-| `code_logic` | Write English → target FOL | Compare output | Advanced modules |
-| `code_imperative` | Write LOGOS code | Compare stdout | Future |
-| `debug` | Fix buggy code | Output matches | Future |
-
-### 2.5 Example Interactive Exercise
-
-```json
-{
-  "id": "ex_interactive_001",
-  "type": "code_logic",
-  "difficulty": 2,
-  "prompt": "Write an English sentence that produces the following First-Order Logic:",
-  "target_fol": "∀x(Cat(x) → Mammal(x))",
-  "hints": [
-    "Think about a universal statement - something true for ALL of a category",
-    "Use words like 'all', 'every', or 'each'",
-    "The arrow (→) means 'implies' or 'if...then'"
-  ],
-  "starter_code": "Every cat ___",
-  "validation": "exact_match",
-  "acceptable_outputs": [
-    "∀x(Cat(x) → Mammal(x))",
-    "∀x(Cat(x) ⊃ Mammal(x))"
-  ],
-  "explanation": "Universal statements translate to 'for all x, if x is a Cat, then x is a Mammal'. The English phrasing 'Every cat is a mammal' captures this perfectly."
-}
 ```
+You are writing a textbook lesson for "{module_title}" in Logicaffeine.
 
-### 2.6 Curriculum Review Timeline
+Learning objective: {pedagogy from meta.json}
 
-| Phase | Task | Effort |
-|-------|------|--------|
-| 1 | Export curriculum bundle | 0.5d |
-| 2 | Run Gemini batch review | 1d |
-| 3 | Analyze and prioritize feedback | 1d |
-| 4 | Fix high-priority accessibility issues | 2d |
-| 5 | Design interactive exercise schema | 1d |
-| 6 | Implement `code_logic` exercise type in UI | 2d |
-| 7 | Convert 10% of exercises to interactive | 3d |
-| 8 | User testing + iteration | Ongoing |
+Write a lesson (300-500 words) with these sections:
 
-### 2.7 Success Metrics
+## Concept
+Plain English explanation of the core idea.
 
-After curriculum improvements:
-- **Accessibility:** Average score ≥ 4.0 across all exercises
-- **Completion rate:** Increase module completion by 20%
-- **User feedback:** Reduce "confusing" complaints by 50%
-- **Engagement:** Users try interactive exercises when available
+## Notation
+The logical symbols used and what they mean. Include a reference table.
+
+## Pattern
+The translation pattern from English to logic. Show the template.
+
+## Examples
+2-3 worked examples with step-by-step explanations.
+For each example, show:
+- The English sentence
+- The logic translation
+- Why each symbol is used
+
+## Common Mistakes
+List 2-3 pitfalls students often encounter.
+
+Requirements:
+- Use simple language, assume no prior logic knowledge
+- Use concrete, memorable examples
+- Connect to real-world reasoning
+```
 
 ---
 
-## Part 3: Cloudflare Infrastructure Analysis
+## 3. Progress & Gamification
 
-### 3.1 Current State
+### 3.1 Module States & Unlocking
 
-| Service | Platform | URL | Status |
-|---------|----------|-----|--------|
-| Frontend | Cloudflare Pages | logicaffeine.com | Production |
-| License API | Cloudflare Worker (JS) | api.logicaffeine.com | Production |
-| Registry | Cloudflare Worker (JS) | registry.logicaffeine.com | Production |
-| Registry DB | Cloudflare D1 | logos-registry | Production |
-| Package Storage | Cloudflare R2 | logos-packages | Production |
+**Unlock Rule:** The last 2 modules in each era are locked until you complete 100% of ANY one unlocked module.
 
-**Current Workers are JavaScript** - we'll port to Rust using `workers-rs`.
-
-### 3.2 D1 vs R2 SQL Comparison
-
-| Feature | D1 | R2 SQL |
-|---------|-----|--------|
-| **Purpose** | Transactional database | Analytics on Iceberg tables |
-| **Query Type** | SQLite (full SQL) | Distributed analytics |
-| **Best For** | User data, auth, progress | Large-scale data analysis |
-| **Latency** | Low (< 1ms reads) | Higher (analytics workloads) |
-| **Write Speed** | Fast (sequential) | N/A (read-only on Iceberg) |
-| **Max DB Size** | 10 GB (paid) | Unlimited (object storage) |
-| **Free Tier** | 500 MB, 5M reads/day | Beta (no charge currently) |
-| **Status** | GA | Open Beta |
-| **Primary Use** | All transactional data | Package storage, game snapshots only |
-
-**Decision: D1 is the primary database. R2 is NOT a database alternative.**
-
-D1 handles all transactional data (users, progress, leaderboards, tournaments, sessions). R2 is used exclusively for:
-- Package storage (registry)
-- Game state snapshots (for client polling during battles)
-- Large file storage
-
-R2 SQL is designed for analytics workloads on Apache Iceberg tables, not real-time application data.
-
-### 3.3 R2 Constraints for Multiplayer
-
-From [Cloudflare R2 Limits](https://developers.cloudflare.com/r2/platform/limits/):
-
-| Limit | Value | Impact |
-|-------|-------|--------|
-| **Writes per object key** | 1/second | Critical for game state |
-| **Object size** | Up to 5 TiB | No issue |
-| **Buckets per account** | 1,000,000 | Can use per-user buckets |
-| **Bucket management ops** | 50/second | Can't create buckets per game |
-
-**Key Insight:** R2's 1 write/sec limit means multiplayer battles must be designed with **delayed synchronization** (not real-time). R2 is used ONLY for game state snapshot distribution to clients, NOT for transactional game data (which lives in D1).
-
-### 3.4 workers-rs Capabilities
-
-From [workers-rs GitHub](https://github.com/cloudflare/workers-rs):
-
-```rust
-use worker::*;
-
-#[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    // D1 access
-    let db = env.d1("DB")?;
-    let stmt = db.prepare("SELECT * FROM users WHERE id = ?1");
-    let user: Option<User> = stmt.bind(&[id])?.first().await?;
-
-    // R2 access
-    let bucket = env.bucket("PACKAGES")?;
-    let object = bucket.get("key").execute().await?;
-
-    // KV access
-    let kv = env.kv("CACHE")?;
-    let value = kv.get("key").text().await?;
-
-    Response::ok("Hello from Rust!")
-}
+```
+ERA 0: PRACTICE (6 modules)
+┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐
+│Syllog.  │ │Propos.  │ │ Modal   │ │Deontic  │ │ Belief  │ │Informal │
+│ ⭐⭐░    │ │ ░░░     │ │ ░░░     │ │ ░░░     │ │ 🔒      │ │ 🔒      │
+│ 67/98   │ │ 0/114   │ │ 0/34    │ │ 0/38    │ │ locked  │ │ locked  │
+└─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘
+                                                     ▲           ▲
+                                        Unlock by completing 100% of
+                                        ANY module above (e.g., Syllogistic)
 ```
 
-**D1 bindings require the `d1` feature flag.** The crate is marked "work-in-progress" but actively maintained.
+**Module States:**
+
+| State | Icon | Meaning |
+|-------|------|---------|
+| Locked | 🔒 | Complete one module to unlock |
+| Available | ░░░ | Can start anytime |
+| Started | ⭐░░ | 1-49% complete |
+| Progressing | ⭐⭐░ | 50-99% complete |
+| Mastered | ⭐⭐⭐ | 100% complete |
+| Perfected | 👑 | 100% complete + 90%+ accuracy |
+
+### 3.2 XP System
+
+**Base XP Calculation:**
+```
+base = 10 + (difficulty - 1) × 5
+```
+
+**Bonuses:**
+| Bonus | Calculation | Max |
+|-------|-------------|-----|
+| Combo | base × (1 + combo × 0.1) | 2x at 10-combo |
+| Streak | streak_days × 2 | +14 at 7-day streak |
+| First Try | +5 flat | +5 |
+| Critical | 10% chance for +base | +base |
+
+**Level Formula:**
+```
+level = floor(√xp / 10) + 1
+```
+
+### 3.3 Streaks & Combos
+
+**Streak:**
+- Increments daily when you answer at least one exercise correctly
+- Lost after 2 days of inactivity (unless frozen)
+- Earn "freeze" tokens from achievements to skip a day
+
+**Combo:**
+- Increments on each correct answer
+- Resets to 0 on wrong answer
+- Multiplies XP up to 2x at 10-combo
+
+### 3.4 Achievements
+
+| Achievement | Trigger | Reward |
+|-------------|---------|--------|
+| First Blood | 1 correct answer | 50 XP |
+| On Fire | 5-combo | 100 XP |
+| Unstoppable | 10-combo | 250 XP, "Logic Machine" title |
+| Week Warrior | 7-day streak | 200 XP, +1 freeze |
+| Monthly Master | 30-day streak | 1000 XP, +1 freeze |
+| Century | 100 correct | 500 XP, "Scholar" title |
+| Millennium | 1000 correct | 2000 XP, "Sage" title |
+| Perfectionist | 100% accuracy on module | 300 XP, "Precise" title |
+
+### 3.5 Profile Dashboard
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ [Avatar]  Username                           Level 12 Scholar      │
+│           ████████████░░░░░░░░                2,450 / 3,000 XP     │
+├────────────────────────────────────────────────────────────────────┤
+│ 🔥 14-day streak     ⚡ Best: 25-combo     🎯 847 XP today         │
+│ 🛡️ 2 freezes         📚 12/18 modules      ✓ 89% accuracy         │
+├────────────────────────────────────────────────────────────────────┤
+│ MODULE PROGRESS                                                    │
+│ ┌────────────┬────────────┬────────────┬────────────┬───────────┐ │
+│ │ Syllogistic│ Propos.    │ Modal      │ Deontic    │ Belief    │ │
+│ │ ⭐⭐⭐ 100%  │ ⭐⭐░ 67%   │ ⭐░░ 23%   │ ░░░ 0%     │ 🔒        │ │
+│ └────────────┴────────────┴────────────┴────────────┴───────────┘ │
+├────────────────────────────────────────────────────────────────────┤
+│ ACTIVITY (last 30 days)                                            │
+│ ░░█░█████░░░██████░░░█████████░░                                   │
+│        ▲                                                           │
+│   practiced                                                        │
+├────────────────────────────────────────────────────────────────────┤
+│ RECENT ACHIEVEMENTS                                                │
+│ 🏆 Week Warrior (7-day streak) — 2 days ago                        │
+│ 🎖️ Century (100 correct) — 5 days ago                             │
+└────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Part 4: Crate Separation Strategy
+## 4. Curriculum Review Process
 
-### 4.1 Current Structure
+### 4.1 Exercise Audit with AI
+
+Run each exercise through an AI with this prompt to identify confusing content:
+
+```
+Pretend you are a student seeing this exercise for the first time.
+You have just read the lesson but are NOT an expert in logic.
+
+Exercise: {exercise JSON}
+
+Answer:
+1. Is the prompt clear? What might confuse you?
+2. Are the answer options unambiguous?
+3. Is the hint helpful or too vague?
+4. What would make this clearer?
+
+Flag as: CLEAR / NEEDS WORK / CONFUSING
+```
+
+Store audit results in `assets/curriculum/.audit/{exercise_id}.json`.
+
+### 4.2 Pedagogical Transformation Patterns
+
+When improving exercises, apply these patterns:
+
+| Pattern | Before | After |
+|---------|--------|-------|
+| **Socratic Hint** | "Use uppercase" | "Does 'cat' refer to one specific cat, or cats in general?" |
+| **Debug Thinking** | "Check your syntax" | "If this were true, would a talking cat exist?" |
+| **Real Stakes** | "P implies Q" | "If you study (S), you'll pass (P). S → P" |
+| **Contrast Pairs** | Single explanation | "Compare: 'Some cat' (∃) vs 'All cats' (∀)" |
+
+### 4.3 Hint Templates by Module Type
+
+| Module | Hint Pattern |
+|--------|-------------|
+| Syllogistic | "Does X refer to a specific person, or a category?" |
+| Propositional | "How many connectives do you see? Does each part get its own?" |
+| Modal | "Is the sentence saying X IS true, or X COULD BE true?" |
+| Quantifiers | "If this logic were true, would [counterexample] exist?" |
+| Definitions | "Can you think of something that fits but ISN'T a [term]?" |
+
+---
+
+## 5. Technical: Infrastructure & Schema
+
+### 5.1 Cloudflare Services
+
+| Service | Purpose | Key Limits |
+|---------|---------|------------|
+| **Pages** | Static frontend (Dioxus WASM) | — |
+| **Workers** | Rust API (`workers-rs`) | 10ms CPU (free), 30s (paid) |
+| **D1** | SQLite database | 10GB, 5M reads/day (free) |
+| **R2** | Object storage | 1 write/sec per key |
+
+### 5.2 Crate Structure
 
 ```
 logicaffeine/
-├── Cargo.toml              # Main crate (logos) - compiler + UI
-├── logos_core/             # Runtime library
-│   └── Cargo.toml          # tokio, rayon, serde, sha2, uuid
-└── logos_verification/     # Z3-based verification (Pro+ license)
-    └── Cargo.toml          # z3, ureq, dirs
+├── logos/                 # Core compiler (no UI deps)
+├── logos_core/            # Runtime library
+├── logos_verification/    # Z3 verification (Pro+)
+├── logos_web/             # Dioxus frontend
+├── logos_cli/             # CLI tool
+└── workers/
+    ├── api/               # api.logicaffeine.com
+    └── registry/          # registry.logicaffeine.com
 ```
 
-**Problem:** The main `logos` crate includes Dioxus UI, which brings in web dependencies that shouldn't be in the core compiler/language.
-
-### 4.2 Proposed Structure
-
-```
-logicaffeine/
-├── Cargo.toml                    # Workspace root
-│
-├── logos/                        # Core compiler (CLEAN - no UI deps)
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs               # Lexer, parser, codegen, transpile
-│       ├── lexer.rs
-│       ├── parser/
-│       ├── codegen.rs
-│       └── ...
-│
-├── logos_core/                   # Runtime library (unchanged)
-│   └── Cargo.toml
-│
-├── logos_verification/           # Z3 verification (unchanged)
-│   └── Cargo.toml
-│
-├── logos_web/                    # Dioxus frontend (NEW)
-│   ├── Cargo.toml               # dioxus, gloo-net, web-sys
-│   └── src/
-│       ├── main.rs
-│       ├── ui/
-│       │   ├── pages/
-│       │   ├── components/
-│       │   └── state.rs
-│       ├── progress.rs
-│       ├── game.rs
-│       └── achievements.rs
-│
-├── logos_cli/                    # CLI tool (NEW)
-│   ├── Cargo.toml               # clap, ureq, etc.
-│   └── src/main.rs
-│
-└── workers/                      # Cloudflare Workers (Rust)
-    ├── api/                      # api.logicaffeine.com
-    │   ├── Cargo.toml           # worker, serde
-    │   ├── wrangler.toml
-    │   └── src/lib.rs
-    │
-    └── registry/                 # registry.logicaffeine.com
-        ├── Cargo.toml
-        ├── wrangler.toml
-        └── src/lib.rs
-```
-
-### 4.3 Dependency Isolation
-
-| Crate | Dependencies | Purpose |
-|-------|--------------|---------|
-| `logos` | serde, bumpalo | Core compiler - zero UI deps |
-| `logos_core` | tokio, rayon, serde | Runtime for compiled programs |
-| `logos_verification` | z3, ureq | SMT verification (optional) |
-| `logos_web` | dioxus, gloo-net, logos | Web frontend |
-| `logos_cli` | clap, logos | Command-line tool |
-| `workers/api` | worker, serde | Cloudflare Worker |
-| `workers/registry` | worker, serde | Cloudflare Worker |
-
-**Result:** `cargo build -p logos` produces a clean compiler with no web dependencies.
-
----
-
-## Part 6: Rust Workers Implementation
-
-### 6.1 Porting Strategy
-
-**Current:** JavaScript Workers in `/worker/` and `/registry/`
-**Target:** Rust Workers using `workers-rs`
-
-```toml
-# workers/api/Cargo.toml
-[package]
-name = "logicaffeine-api"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-worker = { version = "0.4", features = ["d1", "http"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-getrandom = { version = "0.2", features = ["js"] }
-
-[profile.release]
-lto = true
-opt-level = "s"
-codegen-units = 1
-strip = true
-```
-
-```toml
-# workers/api/wrangler.toml
-name = "logicaffeine-api"
-main = "build/worker/shim.mjs"
-compatibility_date = "2024-01-01"
-
-[build]
-command = "cargo install -q worker-build && worker-build --release"
-
-[[d1_databases]]
-binding = "DB"
-database_name = "logicaffeine-users"
-database_id = "..."
-
-[[r2_buckets]]
-binding = "GAME_STATES"
-bucket_name = "logicaffeine-games"
-
-[vars]
-ALLOWED_ORIGIN = "https://logicaffeine.com"
-```
-
-### 6.2 Unified API Worker (Rust)
-
-```rust
-// workers/api/src/lib.rs
-use worker::*;
-use serde::{Deserialize, Serialize};
-
-mod auth;
-mod progress;
-mod leaderboard;
-mod battles;
-mod payments;
-
-#[event(fetch)]
-async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
-    let router = Router::new();
-
-    router
-        // Health
-        .get("/health", |_, _| Response::ok("ok"))
-
-        // Auth routes (OAuth only - no email/password)
-        .get("/auth/github", auth::github_redirect)
-        .get("/auth/github/callback", auth::github_callback)
-        .get("/auth/google", auth::google_redirect)
-        .get("/auth/google/callback", auth::google_callback)
-        .post("/auth/refresh", auth::refresh)
-        .get("/auth/me", auth::me)
-
-        // MFA stubs (future implementation for registry protection)
-        .post("/auth/mfa/setup", auth::mfa_setup_stub)
-        .post("/auth/mfa/verify", auth::mfa_verify_stub)
-
-        // Progress routes
-        .get("/progress", progress::get_progress)
-        .post("/progress/sync", progress::sync)
-        .post("/progress/xp", progress::record_xp)
-
-        // Leaderboard routes
-        .get("/leaderboard", leaderboard::global)
-        .get("/leaderboard/weekly", leaderboard::weekly)
-        .get("/leaderboard/:era", leaderboard::by_era)
-
-        // Battle routes (multiplayer)
-        .post("/battles/create", battles::create)
-        .get("/battles/:id", battles::get_state)
-        .post("/battles/:id/action", battles::submit_action)
-
-        // Tournament routes
-        .get("/tournaments", tournaments::list)
-        .post("/tournaments/create", tournaments::create)
-        .post("/tournaments/:id/join", tournaments::join)
-        .get("/tournaments/:id", tournaments::get_state)
-        .post("/tournaments/:id/submit", tournaments::submit_answer)
-        .get("/tournaments/queue", tournaments::get_queue)
-        .post("/tournaments/queue/join", tournaments::join_queue)
-        .delete("/tournaments/queue/leave", tournaments::leave_queue)
-
-        // Payment routes
-        .post("/session", payments::handle_session)
-        .post("/validate", payments::validate_license)
-        .post("/webhook/stripe", payments::stripe_webhook)
-
-        .run(req, env)
-        .await
-}
-```
-
-### 6.3 D1 Database Access in Rust
-
-```rust
-// workers/api/src/auth.rs
-use worker::*;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct User {
-    id: String,
-    email: Option<String>,
-    display_name: String,
-    github_id: Option<String>,
-    google_id: Option<String>,
-    password_hash: Option<String>,
-    created_at: String,
-}
-
-pub async fn me(req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let user = authenticate(&req, &ctx.env).await?;
-
-    let db = ctx.env.d1("DB")?;
-
-    // Get user's progress
-    let progress = db
-        .prepare("SELECT xp, level, current_streak FROM user_progress WHERE user_id = ?1")
-        .bind(&[user.id.clone().into()])?
-        .first::<UserProgress>(None)
-        .await?;
-
-    // Get achievements
-    let achievements = db
-        .prepare("SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id = ?1")
-        .bind(&[user.id.clone().into()])?
-        .all()
-        .await?;
-
-    Response::from_json(&UserProfile {
-        user,
-        progress,
-        achievements: achievements.results()?,
-    })
-}
-
-async fn authenticate(req: &Request, env: &Env) -> Result<User> {
-    let auth_header = req.headers().get("Authorization")?
-        .ok_or_else(|| Error::from("Missing Authorization header"))?;
-
-    if !auth_header.starts_with("Bearer ") {
-        return Err(Error::from("Invalid Authorization header"));
-    }
-
-    let token = &auth_header[7..];
-
-    // Verify JWT and get user
-    let claims = verify_jwt(token, env)?;
-
-    let db = env.d1("DB")?;
-    db.prepare("SELECT * FROM users WHERE id = ?1")
-        .bind(&[claims.sub.into()])?
-        .first::<User>(None)
-        .await?
-        .ok_or_else(|| Error::from("User not found"))
-}
-```
-
----
-
-## Part 9: Multiplayer Battle System
-
-### 9.1 Design Constraints
-
-**R2 Limitation:** 1 write per second per object key
-
-**Implications:**
-- No real-time synchronization possible
-- All actions are delayed by at least 1 second
-- Need game design that embraces latency
-
-### 9.2 Battle Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     MULTIPLAYER BATTLE SYSTEM                            │
-├──────────────────────────────────────────────────────────────────────────┤
-│                                                                          │
-│  DESIGN: Turn-based battles with 1-second tick resolution               │
-│                                                                          │
-│  ┌─────────────┐         ┌─────────────┐         ┌─────────────┐        │
-│  │  Player A   │         │   Worker    │         │  Player B   │        │
-│  └──────┬──────┘         └──────┬──────┘         └──────┬──────┘        │
-│         │                       │                       │               │
-│         │  Submit answer        │                       │               │
-│         │──────────────────────▶│                       │               │
-│         │                       │  Store in D1          │               │
-│         │                       │  (action queue)       │               │
-│         │                       │                       │               │
-│         │                       │◀──────────────────────│               │
-│         │                       │  Submit answer        │               │
-│         │                       │                       │               │
-│         │        ───────────────│───────────────        │               │
-│         │        │  TICK (1s)   │              │        │               │
-│         │        ───────────────│───────────────        │               │
-│         │                       │                       │               │
-│         │                       │  Process actions      │               │
-│         │                       │  Update game state    │               │
-│         │                       │  Write to R2          │               │
-│         │                       │                       │               │
-│         │◀──────────────────────│──────────────────────▶│               │
-│         │  Poll game state      │  Poll game state      │               │
-│         │  (from R2 directly)   │  (from R2 directly)   │               │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
-```
-
-### 9.3 Game State Storage Strategy
-
-| Data | Storage | Reason |
-|------|---------|--------|
-| Active games | D1 | Transactional, querying |
-| Action queue | D1 | Needs ordering |
-| Game snapshots | R2 | Large state, client reads directly |
-| Final results | D1 | Leaderboard integration |
+### 5.3 D1 Database Schema
 
 ```sql
--- D1 Schema for battles
-CREATE TABLE battles (
-    id TEXT PRIMARY KEY,
-    player_a_id TEXT NOT NULL,
-    player_b_id TEXT NOT NULL,
-    exercise_set TEXT NOT NULL,      -- JSON array of exercise IDs
-    current_index INTEGER DEFAULT 0,
-    player_a_score INTEGER DEFAULT 0,
-    player_b_score INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'waiting',   -- waiting, active, finished
-    created_at TEXT DEFAULT (datetime('now')),
-    started_at TEXT,
-    finished_at TEXT,
-    winner_id TEXT
-);
-
-CREATE TABLE battle_actions (
-    id TEXT PRIMARY KEY,
-    battle_id TEXT NOT NULL,
-    player_id TEXT NOT NULL,
-    exercise_index INTEGER NOT NULL,
-    answer TEXT NOT NULL,
-    is_correct INTEGER,
-    submitted_at TEXT DEFAULT (datetime('now')),
-    processed INTEGER DEFAULT 0
-);
-
-CREATE INDEX idx_actions_unprocessed ON battle_actions(battle_id, processed);
-```
-
-### 9.4 Battle Flow
-
-```rust
-// workers/api/src/battles.rs
-
-/// Create a new battle (matchmaking or challenge)
-pub async fn create(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let user = authenticate(&req, &ctx.env).await?;
-    let body: CreateBattleRequest = req.json().await?;
-
-    let db = ctx.env.d1("DB")?;
-
-    // Generate random exercise set
-    let exercises = generate_exercise_set(10)?;
-    let battle_id = generate_id();
-
-    db.prepare(r#"
-        INSERT INTO battles (id, player_a_id, player_b_id, exercise_set, status)
-        VALUES (?1, ?2, ?3, ?4, 'waiting')
-    "#)
-    .bind(&[
-        battle_id.clone().into(),
-        user.id.into(),
-        body.opponent_id.unwrap_or_default().into(),
-        serde_json::to_string(&exercises)?.into(),
-    ])?
-    .run()
-    .await?;
-
-    Response::from_json(&CreateBattleResponse { battle_id })
-}
-
-/// Submit an action (answer)
-pub async fn submit_action(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let user = authenticate(&req, &ctx.env).await?;
-    let battle_id = ctx.param("id").unwrap();
-    let body: SubmitActionRequest = req.json().await?;
-
-    let db = ctx.env.d1("DB")?;
-
-    // Verify user is in this battle
-    let battle = db
-        .prepare("SELECT * FROM battles WHERE id = ?1")
-        .bind(&[battle_id.into()])?
-        .first::<Battle>(None)
-        .await?
-        .ok_or_else(|| Error::from("Battle not found"))?;
-
-    if battle.player_a_id != user.id && battle.player_b_id != user.id {
-        return Err(Error::from("Not in this battle"));
-    }
-
-    // Queue the action (processed by tick worker)
-    db.prepare(r#"
-        INSERT INTO battle_actions (id, battle_id, player_id, exercise_index, answer)
-        VALUES (?1, ?2, ?3, ?4, ?5)
-    "#)
-    .bind(&[
-        generate_id().into(),
-        battle_id.into(),
-        user.id.into(),
-        body.exercise_index.into(),
-        body.answer.into(),
-    ])?
-    .run()
-    .await?;
-
-    Response::ok("Action queued")
-}
-
-/// Get current game state (clients poll this from R2)
-pub async fn get_state(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let battle_id = ctx.param("id").unwrap();
-
-    let bucket = ctx.env.bucket("GAME_STATES")?;
-    let key = format!("battles/{}/state.json", battle_id);
-
-    match bucket.get(&key).execute().await? {
-        Some(obj) => {
-            let body = obj.body().ok_or_else(|| Error::from("Empty object"))?;
-            Response::from_body(ResponseBody::Stream(body))
-        }
-        None => {
-            // Fall back to D1 for initial state
-            let db = ctx.env.d1("DB")?;
-            let battle = db
-                .prepare("SELECT * FROM battles WHERE id = ?1")
-                .bind(&[battle_id.into()])?
-                .first::<Battle>(None)
-                .await?
-                .ok_or_else(|| Error::from("Battle not found"))?;
-
-            Response::from_json(&battle)
-        }
-    }
-}
-```
-
-### 9.5 Tick Worker (Scheduled)
-
-```rust
-// Runs every second via Cron Trigger
-#[event(scheduled)]
-async fn scheduled(_event: ScheduledEvent, env: Env, _ctx: ScheduleContext) {
-    let db = env.d1("DB").unwrap();
-    let bucket = env.bucket("GAME_STATES").unwrap();
-
-    // Get active battles with pending actions
-    let battles: Vec<Battle> = db
-        .prepare(r#"
-            SELECT DISTINCT b.* FROM battles b
-            JOIN battle_actions a ON b.id = a.battle_id
-            WHERE b.status = 'active' AND a.processed = 0
-        "#)
-        .all()
-        .await
-        .unwrap()
-        .results()
-        .unwrap();
-
-    for battle in battles {
-        process_battle_tick(&db, &bucket, &battle).await;
-    }
-}
-
-async fn process_battle_tick(db: &D1Database, bucket: &Bucket, battle: &Battle) {
-    // Get unprocessed actions for this battle
-    let actions: Vec<BattleAction> = db
-        .prepare(r#"
-            SELECT * FROM battle_actions
-            WHERE battle_id = ?1 AND processed = 0
-            ORDER BY submitted_at ASC
-        "#)
-        .bind(&[battle.id.clone().into()])
-        .unwrap()
-        .all()
-        .await
-        .unwrap()
-        .results()
-        .unwrap();
-
-    // Process each action
-    for action in &actions {
-        let is_correct = grade_answer(&battle.exercise_set, action.exercise_index, &action.answer);
-
-        // Update action
-        db.prepare("UPDATE battle_actions SET is_correct = ?1, processed = 1 WHERE id = ?2")
-            .bind(&[is_correct.into(), action.id.clone().into()])
-            .unwrap()
-            .run()
-            .await
-            .unwrap();
-
-        // Update scores
-        if is_correct {
-            let score_col = if action.player_id == battle.player_a_id {
-                "player_a_score"
-            } else {
-                "player_b_score"
-            };
-            db.prepare(&format!("UPDATE battles SET {} = {} + 1 WHERE id = ?1", score_col, score_col))
-                .bind(&[battle.id.clone().into()])
-                .unwrap()
-                .run()
-                .await
-                .unwrap();
-        }
-    }
-
-    // Write updated state to R2 (1 write per tick is fine)
-    let updated_battle = db
-        .prepare("SELECT * FROM battles WHERE id = ?1")
-        .bind(&[battle.id.clone().into()])
-        .unwrap()
-        .first::<Battle>(None)
-        .await
-        .unwrap()
-        .unwrap();
-
-    let state_json = serde_json::to_string(&BattleState::from(updated_battle)).unwrap();
-    bucket
-        .put(&format!("battles/{}/state.json", battle.id), state_json)
-        .execute()
-        .await
-        .unwrap();
-}
-```
-
-### 9.6 Tournament System Architecture
-
-Tournaments extend the battle system with competitive multi-player modes, time pressure, and a lives system.
-
-#### 9.6.1 Tournament Modes
-
-| Mode | Timer Style | Lives | Description |
-|------|-------------|-------|-------------|
-| **Blitz** | Per-move (10-30s) | 3 | Fast-paced, first mistake costs a life |
-| **Classic** | Chess-clock (5 min total) | 3 | Strategic, time bank depletes while thinking |
-| **Marathon** | 30 min overall | 5 | Endurance, survive the longest |
-| **Sprint** | 1 min rounds | 1 | Race format, 1 life per round |
-| **Co-op** | Shared chess-clock (8 min) | 5 | Two players solve together against the clock |
-
-**Co-op Mode Details:**
-- Two players share a timer and lives pool
-- Either player can submit an answer
-- Chat/ping system for coordination ("I got this one" / "Help?")
-- Designed for friends learning together or mentor-student pairing
-- Unranked only (does not affect individual ranking)
-
-#### 9.6.2 Lives System
-
-```rust
-pub struct PlayerTournamentState {
-    pub lives_remaining: u8,      // Starts at 3 (configurable)
-    pub score: u32,               // Points earned
-    pub time_remaining_ms: u64,   // For chess-clock mode
-    pub status: PlayerStatus,     // Active, Eliminated, Winner
-}
-
-pub enum PlayerStatus {
-    Active,
-    Eliminated { at_round: u32 },
-    Winner,
-}
-
-// Game logic
-impl PlayerTournamentState {
-    pub fn record_answer(&mut self, correct: bool) -> AnswerResult {
-        if correct {
-            self.score += 1;
-            AnswerResult::Correct
-        } else {
-            self.lives_remaining = self.lives_remaining.saturating_sub(1);
-            if self.lives_remaining == 0 {
-                self.status = PlayerStatus::Eliminated { at_round: current_round };
-                AnswerResult::Eliminated
-            } else {
-                AnswerResult::Wrong { lives_left: self.lives_remaining }
-            }
-        }
-    }
-}
-```
-
-#### 9.6.3 Tournament Structure
-
-- **Queue Size:** 8, 16, 32, or 64 players
-- **Bracket Type:** Single elimination or round-robin
-- **Round Duration:** 1-minute rounds within 30-minute overall timer
-- **Auto-start:** Tournament begins when queue is full
-- **Exercise Selection:** Random from difficulty-matched pool
-
-#### 9.6.4 Tournament Rewards
-
-Winners receive BOTH XP bonuses AND exclusive titles:
-
-| Placement | XP Multiplier | Title Unlock |
-|-----------|---------------|--------------|
-| 1st Place | 5x base XP | "Tournament Champion" |
-| 2nd Place | 3x base XP | "Silver Logician" |
-| 3rd Place | 2x base XP | "Bronze Reasoner" |
-| Top 8 | 1.5x base XP | - |
-
-Mode-specific titles:
-- **Blitz Master** - Win 10 Blitz tournaments
-- **Marathon Runner** - Survive 5 Marathon tournaments
-- **Speed Demon** - Win a Sprint tournament with 0 time remaining
-
-Community titles:
-- **Mentor** - Play 25 unranked matches against players 300+ ranks below you
-- **Guide** - Help 10 unique new players complete their first tournament
-- **Sage** - Earn both "Tournament Champion" and "Mentor" titles
-
-### 9.7 Time Battle Modes
-
-#### Per-Move Timer Mode
-```rust
-pub struct PerMoveTimer {
-    pub time_per_move_ms: u64,    // e.g., 15000 (15 seconds)
-    pub current_move_start: u64,   // Unix timestamp when move started
-}
-
-impl PerMoveTimer {
-    pub fn check_timeout(&self, now_ms: u64) -> bool {
-        now_ms - self.current_move_start > self.time_per_move_ms
-    }
-
-    pub fn reset(&mut self, now_ms: u64) {
-        self.current_move_start = now_ms;
-    }
-}
-```
-
-- Each move has a fixed time limit (e.g., 15 seconds)
-- Timer resets after each submission
-- Timeout = automatic wrong answer (lose a life)
-
-#### Chess-Clock Mode
-```rust
-pub struct ChessClock {
-    pub total_time_ms: u64,       // e.g., 300000 (5 minutes)
-    pub time_remaining_ms: u64,
-    pub last_tick_at: u64,
-    pub is_active: bool,
-}
-
-impl ChessClock {
-    pub fn tick(&mut self, now_ms: u64) {
-        if self.is_active {
-            let elapsed = now_ms - self.last_tick_at;
-            self.time_remaining_ms = self.time_remaining_ms.saturating_sub(elapsed);
-            self.last_tick_at = now_ms;
-        }
-    }
-
-    pub fn is_out_of_time(&self) -> bool {
-        self.time_remaining_ms == 0
-    }
-
-    pub fn pause(&mut self) {
-        self.is_active = false;
-    }
-
-    pub fn resume(&mut self, now_ms: u64) {
-        self.is_active = true;
-        self.last_tick_at = now_ms;
-    }
-}
-```
-
-- Total time bank per player (e.g., 5 minutes)
-- Depletes while thinking
-- Running out of time = elimination
-
-### 9.8 Matchmaking System
-
-#### Global Queue
-
-Skill-based matching using ELO-style ranking:
-
-```rust
-pub async fn find_match(db: &D1Database, user_id: &str, ranking: i32) -> Option<String> {
-    // Find players within 200 ranking points, queued in last 60 seconds
-    let candidates = db
-        .prepare(r#"
-            SELECT user_id FROM matchmaking_queue
-            WHERE user_id != ?1
-            AND skill_ranking BETWEEN ?2 AND ?3
-            AND queued_at > datetime('now', '-60 seconds')
-            ORDER BY ABS(skill_ranking - ?4)
-            LIMIT 7
-        "#)
-        .bind(&[
-            user_id.into(),
-            (ranking - 200).into(),
-            (ranking + 200).into(),
-            ranking.into(),
-        ])?
-        .all()
-        .await?
-        .results()?;
-
-    if candidates.len() >= 7 {
-        // Create tournament with these 8 players (including current user)
-        Some(create_tournament(db, user_id, candidates).await?)
-    } else {
-        None
-    }
-}
-```
-
-**Ranking Visibility:** Optional - players can choose to show or hide their ranking on their profile.
-
-#### Private Lobbies
-
-```rust
-pub async fn create_private_lobby(
-    db: &D1Database,
-    creator_id: &str,
-    config: TournamentConfig,
-) -> Result<PrivateLobby> {
-    let invite_code = generate_invite_code(); // e.g., "LOGIC-ABCD"
-    let tournament_id = generate_id();
-
-    db.prepare(r#"
-        INSERT INTO tournaments (id, name, mode, max_players, is_private, invite_code, created_by)
-        VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)
-    "#)
-    .bind(&[
-        tournament_id.clone().into(),
-        config.name.into(),
-        config.mode.into(),
-        config.max_players.into(),
-        invite_code.clone().into(),
-        creator_id.into(),
-    ])?
-    .run()
-    .await?;
-
-    Ok(PrivateLobby { tournament_id, invite_code })
-}
-```
-
-- Creator gets unique invite code (e.g., "LOGIC-ABCD")
-- Share code with friends
-- Start manually when ready OR auto-start when full
-
-### 9.9 D1 Schema for Tournaments
-
-```sql
-CREATE TABLE tournaments (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    mode TEXT NOT NULL,                -- blitz, classic, marathon, sprint
-    max_players INTEGER DEFAULT 8,
-    current_players INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'waiting',     -- waiting, active, finished
-    timer_per_move INTEGER,            -- seconds, NULL for chess-clock
-    timer_total INTEGER,               -- seconds for chess-clock mode
-    lives_per_player INTEGER DEFAULT 3,
-    overall_timer INTEGER DEFAULT 1800, -- 30 minutes
-    exercise_difficulty INTEGER DEFAULT 2,
-    is_private INTEGER DEFAULT 0,
-    invite_code TEXT UNIQUE,           -- for private lobbies
-    created_by TEXT NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    started_at TEXT,
-    finished_at TEXT
-);
-
-CREATE TABLE tournament_players (
-    tournament_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    lives_remaining INTEGER DEFAULT 3,
-    score INTEGER DEFAULT 0,
-    time_remaining INTEGER,            -- for chess-clock mode (ms)
-    current_round INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'active',      -- active, eliminated, winner
-    joined_at TEXT DEFAULT (datetime('now')),
-    eliminated_at TEXT,
-    final_placement INTEGER,
-    PRIMARY KEY (tournament_id, user_id)
-);
-
-CREATE TABLE tournament_rounds (
-    id TEXT PRIMARY KEY,
-    tournament_id TEXT NOT NULL,
-    round_number INTEGER NOT NULL,
-    exercise_id TEXT NOT NULL,
-    started_at TEXT DEFAULT (datetime('now')),
-    ended_at TEXT
-);
-
-CREATE TABLE tournament_answers (
-    id TEXT PRIMARY KEY,
-    tournament_id TEXT NOT NULL,
-    round_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    answer TEXT NOT NULL,
-    is_correct INTEGER,
-    time_taken INTEGER,                -- milliseconds
-    submitted_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE TABLE matchmaking_queue (
-    user_id TEXT PRIMARY KEY,
-    skill_ranking INTEGER DEFAULT 1000,
-    queued_at TEXT DEFAULT (datetime('now')),
-    preferred_mode TEXT
-);
-
-CREATE TABLE player_rankings (
-    user_id TEXT PRIMARY KEY,
-    ranking INTEGER DEFAULT 1000,
-    games_played INTEGER DEFAULT 0,
-    wins INTEGER DEFAULT 0,
-    ranking_visible INTEGER DEFAULT 1,  -- optional visibility
-    updated_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX idx_tournaments_status ON tournaments(status);
-CREATE INDEX idx_tournament_players ON tournament_players(tournament_id, status);
-CREATE INDEX idx_tournament_answers ON tournament_answers(tournament_id, round_id);
-CREATE INDEX idx_queue_skill ON matchmaking_queue(skill_ranking, queued_at);
-```
-
----
-
-## Part 8: Payment & License System
-
-### 8.1 Current Issues
-
-From analyzing `/worker/src/index.js`:
-
-1. **No license key generation** - Returns Stripe subscription ID directly
-2. **No persistent storage** - Licenses not stored in D1
-3. **No email delivery** - Users don't receive license keys
-4. **Validation depends on Stripe API** - Every validation hits Stripe
-
-### 8.2 Improved Payment Flow
-
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                         PAYMENT FLOW (FIXED)                               │
-├────────────────────────────────────────────────────────────────────────────┤
-│                                                                            │
-│  1. User clicks "Buy" on pricing page                                     │
-│     └──▶ Redirect to Stripe Checkout                                      │
-│                                                                            │
-│  2. After payment, Stripe redirects to /success?session_id=cs_xxx         │
-│     └──▶ Frontend calls POST /session { sessionId: "cs_xxx" }             │
-│                                                                            │
-│  3. Worker receives session ID                                             │
-│     ├──▶ Verify with Stripe API                                           │
-│     ├──▶ Generate license key: LGC-XXXX-XXXX-XXXX-XXXX                    │
-│     ├──▶ Store in D1: licenses(key, customer_email, plan, stripe_sub_id)  │
-│     ├──▶ Send email via Cloudflare Email Workers (or Resend API)         │
-│     └──▶ Return { licenseKey, plan, email }                               │
-│                                                                            │
-│  4. Frontend stores license key locally                                    │
-│     └──▶ Validates via POST /validate { licenseKey: "LGC-..." }           │
-│                                                                            │
-│  5. Validation (fast path)                                                 │
-│     ├──▶ Check D1 cache first                                             │
-│     ├──▶ If not cached or expired, verify with Stripe                     │
-│     └──▶ Cache result in D1 for 24 hours                                  │
-│                                                                            │
-│  6. Stripe Webhook (/webhook/stripe)                                       │
-│     ├──▶ subscription.deleted → Mark license as revoked                   │
-│     ├──▶ subscription.updated → Update plan tier                          │
-│     └──▶ invoice.payment_failed → Send warning email                      │
-│                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 8.3 D1 Schema for Licenses
-
-```sql
-CREATE TABLE licenses (
-    id TEXT PRIMARY KEY,
-    license_key TEXT UNIQUE NOT NULL,        -- LGC-XXXX-XXXX-XXXX-XXXX
-    customer_email TEXT NOT NULL,
-    plan TEXT NOT NULL,                       -- free, supporter, pro, premium, lifetime
-    stripe_subscription_id TEXT,
-    stripe_customer_id TEXT,
-    status TEXT DEFAULT 'active',             -- active, revoked, expired
-    created_at TEXT DEFAULT (datetime('now')),
-    validated_at TEXT,
-    expires_at TEXT                           -- NULL for lifetime
-);
-
-CREATE INDEX idx_licenses_key ON licenses(license_key);
-CREATE INDEX idx_licenses_stripe ON licenses(stripe_subscription_id);
-```
-
-### 8.4 License Key Generation
-
-```rust
-// workers/api/src/payments.rs
-
-/// Generate a license key in format: LGC-XXXX-XXXX-XXXX-XXXX
-fn generate_license_key() -> String {
-    let mut bytes = [0u8; 16];
-    getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes");
-
-    let chars: String = bytes
-        .iter()
-        .map(|b| {
-            let idx = (*b as usize) % 36;
-            if idx < 10 {
-                (b'0' + idx as u8) as char
-            } else {
-                (b'A' + (idx - 10) as u8) as char
-            }
-        })
-        .collect();
-
-    format!(
-        "LGC-{}-{}-{}-{}",
-        &chars[0..4],
-        &chars[4..8],
-        &chars[8..12],
-        &chars[12..16]
-    )
-}
-
-pub async fn handle_session(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let body: SessionRequest = req.json().await?;
-
-    // Verify with Stripe
-    let stripe_key = ctx.env.secret("STRIPE_SECRET_KEY")?.to_string();
-    let session = fetch_stripe_session(&body.session_id, &stripe_key).await?;
-
-    if session.payment_status != "paid" {
-        return Response::error("Payment not completed", 400);
-    }
-
-    let db = ctx.env.d1("DB")?;
-
-    // Check if license already exists for this session
-    let existing = db
-        .prepare("SELECT license_key FROM licenses WHERE stripe_subscription_id = ?1")
-        .bind(&[session.subscription.as_ref().unwrap().into()])?
-        .first::<LicenseRow>(None)
-        .await?;
-
-    if let Some(lic) = existing {
-        return Response::from_json(&SessionResponse {
-            license_key: lic.license_key,
-            plan: session.plan.clone(),
-            email: session.customer_email.clone(),
-        });
-    }
-
-    // Generate new license
-    let license_key = generate_license_key();
-    let license_id = generate_id();
-
-    db.prepare(r#"
-        INSERT INTO licenses (id, license_key, customer_email, plan, stripe_subscription_id, stripe_customer_id)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-    "#)
-    .bind(&[
-        license_id.into(),
-        license_key.clone().into(),
-        session.customer_email.clone().into(),
-        session.plan.clone().into(),
-        session.subscription.clone().unwrap_or_default().into(),
-        session.customer.clone().unwrap_or_default().into(),
-    ])?
-    .run()
-    .await?;
-
-    // Send email (fire and forget)
-    send_license_email(&ctx.env, &session.customer_email, &license_key, &session.plan).await.ok();
-
-    Response::from_json(&SessionResponse {
-        license_key,
-        plan: session.plan,
-        email: session.customer_email,
-    })
-}
-
-pub async fn validate_license(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let body: ValidateRequest = req.json().await?;
-
-    let db = ctx.env.d1("DB")?;
-
-    // Check D1 first
-    let license = db
-        .prepare("SELECT * FROM licenses WHERE license_key = ?1")
-        .bind(&[body.license_key.clone().into()])?
-        .first::<License>(None)
-        .await?;
-
-    match license {
-        Some(lic) if lic.status == "active" => {
-            // Update validated_at
-            db.prepare("UPDATE licenses SET validated_at = datetime('now') WHERE id = ?1")
-                .bind(&[lic.id.into()])?
-                .run()
-                .await?;
-
-            Response::from_json(&ValidateResponse {
-                valid: true,
-                plan: lic.plan,
-                email: lic.customer_email,
-            })
-        }
-        Some(lic) => {
-            Response::from_json(&ValidateResponse {
-                valid: false,
-                plan: lic.plan,
-                email: lic.customer_email,
-            })
-        }
-        None => {
-            // Check if it's a legacy Stripe subscription ID
-            if body.license_key.starts_with("sub_") {
-                return validate_legacy_stripe(&ctx.env, &body.license_key).await;
-            }
-            Response::from_json(&ValidateResponse {
-                valid: false,
-                plan: "none".to_string(),
-                email: String::new(),
-            })
-        }
-    }
-}
-```
-
----
-
-## Part 7: Authentication System
-
-### 7.1 OAuth Implementation (Rust)
-
-Extending the existing GitHub OAuth pattern:
-
-```rust
-// workers/api/src/auth/github.rs
-
-const GITHUB_AUTHORIZE_URL: &str = "https://github.com/login/oauth/authorize";
-const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
-const GITHUB_USER_URL: &str = "https://api.github.com/user";
-
-pub async fn github_redirect(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let client_id = ctx.env.secret("GITHUB_CLIENT_ID")?.to_string();
-    let redirect_uri = format!("{}/auth/github/callback", ctx.env.var("API_URL")?.to_string());
-    let state = generate_csrf_token();
-
-    let auth_url = format!(
-        "{}?client_id={}&redirect_uri={}&scope=read:user%20user:email&state={}",
-        GITHUB_AUTHORIZE_URL,
-        client_id,
-        urlencoding::encode(&redirect_uri),
-        state
-    );
-
-    Response::redirect_with_status(Url::parse(&auth_url)?, 302)
-}
-
-pub async fn github_callback(req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let url = req.url()?;
-    let code = url.query_pairs()
-        .find(|(k, _)| k == "code")
-        .map(|(_, v)| v.to_string())
-        .ok_or_else(|| Error::from("Missing code"))?;
-
-    // Exchange code for token
-    let client_id = ctx.env.secret("GITHUB_CLIENT_ID")?.to_string();
-    let client_secret = ctx.env.secret("GITHUB_CLIENT_SECRET")?.to_string();
-
-    let token_response = fetch_github_token(&code, &client_id, &client_secret).await?;
-
-    // Fetch user info
-    let github_user = fetch_github_user(&token_response.access_token).await?;
-
-    // Upsert user in D1
-    let db = ctx.env.d1("DB")?;
-    let user_id = format!("gh_{}", github_user.id);
-
-    db.prepare(r#"
-        INSERT INTO users (id, display_name, github_id, avatar_url, created_at)
-        VALUES (?1, ?2, ?3, ?4, datetime('now'))
-        ON CONFLICT(id) DO UPDATE SET
-            display_name = excluded.display_name,
-            avatar_url = excluded.avatar_url,
-            updated_at = datetime('now')
-    "#)
-    .bind(&[
-        user_id.clone().into(),
-        github_user.login.clone().into(),
-        github_user.id.to_string().into(),
-        github_user.avatar_url.clone().into(),
-    ])?
-    .run()
-    .await?;
-
-    // Create JWT
-    let jwt_secret = ctx.env.secret("JWT_SECRET")?.to_string();
-    let tokens = create_tokens(&user_id, &github_user.login, &jwt_secret)?;
-
-    // Redirect to frontend with token
-    let frontend_url = ctx.env.var("ALLOWED_ORIGIN")?.to_string();
-    let redirect_url = format!(
-        "{}/?token={}&login={}",
-        frontend_url,
-        tokens.access_token,
-        github_user.login
-    );
-
-    Response::redirect_with_status(Url::parse(&redirect_url)?, 302)
-}
-```
-
-### 7.2 Google OAuth
-
-```rust
-// workers/api/src/auth/google.rs
-
-const GOOGLE_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
-const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-const GOOGLE_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v2/userinfo";
-
-pub async fn google_redirect(_req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let client_id = ctx.env.secret("GOOGLE_CLIENT_ID")?.to_string();
-    let redirect_uri = format!("{}/auth/google/callback", ctx.env.var("API_URL")?.to_string());
-    let state = generate_csrf_token();
-
-    let auth_url = format!(
-        "{}?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20profile&state={}",
-        GOOGLE_AUTHORIZE_URL,
-        client_id,
-        urlencoding::encode(&redirect_uri),
-        state
-    );
-
-    Response::redirect_with_status(Url::parse(&auth_url)?, 302)
-}
-
-// Similar callback implementation...
-```
-
-### 7.3 Session Management
-
-Session management uses localStorage on the client with D1 on the server for persistence and security.
-
-#### Client-Side (localStorage)
-
-```typescript
-// Client-side session storage
-interface SessionData {
-    accessToken: string;
-    refreshToken: string;
-    user: {
-        id: string;
-        displayName: string;
-        avatarUrl: string;
-        provider: 'github' | 'google';
-    };
-    expiresAt: number;
-}
-
-const SESSION_KEY = 'logos_session';
-
-function saveSession(session: SessionData) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
-
-function loadSession(): SessionData | null {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const session = JSON.parse(raw);
-    if (Date.now() > session.expiresAt) {
-        clearSession();
-        return null;
-    }
-    return session;
-}
-
-function clearSession() {
-    localStorage.removeItem(SESSION_KEY);
-}
-```
-
-#### Server-Side (D1)
-
-```sql
-CREATE TABLE sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    refresh_token_hash TEXT NOT NULL,
-    ip_address TEXT,
-    user_agent TEXT,
-    created_at TEXT DEFAULT (datetime('now')),
-    last_used_at TEXT DEFAULT (datetime('now')),
-    expires_at TEXT NOT NULL,
-    revoked_at TEXT
-);
-
-CREATE INDEX idx_sessions_user ON sessions(user_id);
-CREATE INDEX idx_sessions_refresh ON sessions(refresh_token_hash);
-```
-
-#### Progress Linking Flow
-
-When a user signs in for the first time, their anonymous (localStorage) progress is linked to their account:
-
-```rust
-pub async fn link_anonymous_progress(
-    db: &D1Database,
-    user_id: &str,
-    anonymous_progress: &UserProgress,
-) -> Result<()> {
-    // Check if user already has server-side progress
-    let existing = db
-        .prepare("SELECT * FROM user_progress WHERE user_id = ?1")
-        .bind(&[user_id.into()])?
-        .first::<UserProgress>(None)
-        .await?;
-
-    match existing {
-        Some(server) => {
-            // Merge: take higher values for XP, streaks, etc.
-            let merged = UserProgress {
-                xp: server.xp.max(anonymous_progress.xp),
-                level: server.level.max(anonymous_progress.level),
-                current_streak: server.current_streak.max(anonymous_progress.current_streak),
-                best_streak: server.best_streak.max(anonymous_progress.best_streak),
-                best_combo: server.best_combo.max(anonymous_progress.best_combo),
-                total_correct: server.total_correct + anonymous_progress.total_correct,
-                ..server
-            };
-            update_progress(db, user_id, &merged).await?;
-        }
-        None => {
-            // First sign-in: import anonymous progress directly
-            create_progress(db, user_id, anonymous_progress).await?;
-        }
-    }
-
-    Ok(())
-}
-```
-
-### 7.4 MFA Stubs for Registry Access
-
-MFA is **not implemented in v1** but the architecture supports future addition. The registry (package publishing) is a security-sensitive operation that will require MFA when implemented.
-
-#### Stub Implementation
-
-```rust
-// workers/api/src/auth/mfa.rs
-
-pub async fn mfa_setup_stub(_req: Request, _ctx: RouteContext<()>) -> Result<Response> {
-    Response::from_json(&serde_json::json!({
-        "status": "not_implemented",
-        "message": "MFA will be available in a future update",
-        "planned_methods": ["totp", "sms"]
-    }))
-}
-
-pub async fn mfa_verify_stub(_req: Request, _ctx: RouteContext<()>) -> Result<Response> {
-    Response::from_json(&serde_json::json!({
-        "status": "not_implemented",
-        "message": "MFA verification not yet available"
-    }))
-}
-
-/// Check if MFA is required for registry operations
-/// Currently returns false; will return true when MFA is implemented
-pub fn require_mfa_for_registry() -> bool {
-    false
-}
-```
-
-#### Registry Protection (Future)
-
-When MFA is implemented, the registry publish endpoint will require:
-1. Valid session token
-2. MFA verification within last 15 minutes
-3. Rate limiting per user
-
-```rust
-// Future implementation pattern
-pub async fn publish_package(req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    let user = authenticate(&req, &ctx.env).await?;
-
-    // MFA check (currently a no-op stub)
-    if require_mfa_for_registry() {
-        verify_mfa_session(&req, &ctx.env, &user.id).await?;
-    }
-
-    // ... proceed with package publishing
-}
-```
-
----
-
-## Part 5: D1 Database Schema
-
-### 5.1 Complete Schema
-
-```sql
--- ============================================
 -- USERS & AUTH
--- ============================================
-
 CREATE TABLE users (
     id TEXT PRIMARY KEY,
-    email TEXT,                          -- Optional, from OAuth provider
+    email TEXT,
     display_name TEXT NOT NULL,
     avatar_url TEXT,
-
-    -- OAuth providers (at least one required)
     github_id TEXT UNIQUE,
     google_id TEXT UNIQUE,
-
-    -- MFA (future implementation - stubs only)
-    mfa_enabled INTEGER DEFAULT 0,
-    mfa_secret TEXT,
-    mfa_phone TEXT,
-
-    -- Status
-    is_banned INTEGER DEFAULT 0,
-    ban_reason TEXT,
-
-    -- Timestamps
     created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
     last_login_at TEXT
 );
 
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    refresh_token_family TEXT NOT NULL,
-    ip_address TEXT,
-    user_agent TEXT,
+    refresh_token_hash TEXT NOT NULL,
     created_at TEXT DEFAULT (datetime('now')),
-    last_used_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL,
     revoked_at TEXT
 );
 
--- ============================================
 -- PROGRESS & GAMIFICATION
--- ============================================
-
 CREATE TABLE user_progress (
     user_id TEXT PRIMARY KEY,
     xp INTEGER DEFAULT 0,
     level INTEGER DEFAULT 1,
-
-    -- Streaks
     current_streak INTEGER DEFAULT 0,
     best_streak INTEGER DEFAULT 0,
     streak_freezes INTEGER DEFAULT 0,
     last_activity_date TEXT,
-
-    -- Combos
     current_combo INTEGER DEFAULT 0,
     best_combo INTEGER DEFAULT 0,
-
-    -- Totals
     total_correct INTEGER DEFAULT 0,
     total_attempts INTEGER DEFAULT 0,
-
-    -- Active cosmetics
     active_title TEXT,
-
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -2004,11 +613,19 @@ CREATE TABLE exercise_progress (
     correct_count INTEGER DEFAULT 0,
     srs_interval INTEGER DEFAULT 1,
     srs_ease REAL DEFAULT 2.5,
-    srs_repetitions INTEGER DEFAULT 0,
     next_review TEXT,
-    first_attempt_at TEXT,
     last_attempt_at TEXT,
     PRIMARY KEY (user_id, exercise_id)
+);
+
+CREATE TABLE module_progress (
+    user_id TEXT NOT NULL,
+    module_id TEXT NOT NULL,
+    exercises_completed INTEGER DEFAULT 0,
+    exercises_total INTEGER NOT NULL,
+    accuracy REAL DEFAULT 0,
+    completed_at TEXT,
+    PRIMARY KEY (user_id, module_id)
 );
 
 CREATE TABLE user_achievements (
@@ -2018,154 +635,670 @@ CREATE TABLE user_achievements (
     PRIMARY KEY (user_id, achievement_id)
 );
 
-CREATE TABLE xp_events (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    xp_amount INTEGER NOT NULL,
-    exercise_id TEXT,
-    source TEXT,
-    client_timestamp TEXT,
-    server_timestamp TEXT DEFAULT (datetime('now')),
-    session_id TEXT
-);
-
--- ============================================
--- MULTIPLAYER BATTLES
--- ============================================
-
-CREATE TABLE battles (
-    id TEXT PRIMARY KEY,
-    player_a_id TEXT NOT NULL,
-    player_b_id TEXT,
-    exercise_set TEXT NOT NULL,
-    current_index INTEGER DEFAULT 0,
-    player_a_score INTEGER DEFAULT 0,
-    player_b_score INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'waiting',
-    created_at TEXT DEFAULT (datetime('now')),
-    started_at TEXT,
-    finished_at TEXT,
-    winner_id TEXT
-);
-
-CREATE TABLE battle_actions (
-    id TEXT PRIMARY KEY,
-    battle_id TEXT NOT NULL,
-    player_id TEXT NOT NULL,
-    exercise_index INTEGER NOT NULL,
-    answer TEXT NOT NULL,
-    is_correct INTEGER,
-    submitted_at TEXT DEFAULT (datetime('now')),
-    processed INTEGER DEFAULT 0
-);
-
--- ============================================
 -- LICENSES & PAYMENTS
--- ============================================
-
 CREATE TABLE licenses (
     id TEXT PRIMARY KEY,
     license_key TEXT UNIQUE NOT NULL,
     customer_email TEXT NOT NULL,
     plan TEXT NOT NULL,
     stripe_subscription_id TEXT,
-    stripe_customer_id TEXT,
     status TEXT DEFAULT 'active',
     created_at TEXT DEFAULT (datetime('now')),
-    validated_at TEXT,
     expires_at TEXT
 );
 
--- ============================================
--- TOURNAMENTS (see Section 9.9 for full schema)
--- ============================================
+-- BATTLES & TOURNAMENTS
+CREATE TABLE battles (
+    id TEXT PRIMARY KEY,
+    player_a_id TEXT NOT NULL,
+    player_b_id TEXT,
+    exercise_set TEXT NOT NULL,
+    player_a_score INTEGER DEFAULT 0,
+    player_b_score INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'waiting',
+    created_at TEXT DEFAULT (datetime('now')),
+    finished_at TEXT,
+    winner_id TEXT
+);
 
--- Tournament tables defined in Section 9.9:
--- - tournaments
--- - tournament_players
--- - tournament_rounds
--- - tournament_answers
--- - matchmaking_queue
--- - player_ratings
+CREATE TABLE tournaments (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    max_players INTEGER DEFAULT 8,
+    current_players INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'waiting',
+    timer_per_move INTEGER,
+    timer_total INTEGER,
+    lives_per_player INTEGER DEFAULT 3,
+    is_private INTEGER DEFAULT 0,
+    invite_code TEXT UNIQUE,
+    created_at TEXT DEFAULT (datetime('now')),
+    started_at TEXT,
+    finished_at TEXT
+);
 
--- ============================================
+CREATE TABLE tournament_players (
+    tournament_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    lives_remaining INTEGER DEFAULT 3,
+    score INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'active',
+    final_placement INTEGER,
+    PRIMARY KEY (tournament_id, user_id)
+);
+
+CREATE TABLE matchmaking_queue (
+    user_id TEXT PRIMARY KEY,
+    skill_ranking INTEGER DEFAULT 1000,
+    queued_at TEXT DEFAULT (datetime('now')),
+    preferred_mode TEXT
+);
+
+-- ANALYTICS (for AI audit and data science)
+CREATE TABLE analytics_events (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,           -- 'answer', 'hint_shown', 'module_start', etc.
+    exercise_id TEXT,
+    user_input TEXT,                    -- What they typed/selected
+    correct_answer TEXT,                -- Expected answer
+    is_correct INTEGER,
+    time_to_answer_ms INTEGER,          -- Latency tracking
+    hint_was_shown INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- INDEXES
--- ============================================
-
-CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_github ON users(github_id);
 CREATE INDEX idx_users_google ON users(google_id);
-CREATE INDEX idx_sessions_user ON sessions(user_id);
 CREATE INDEX idx_progress_xp ON user_progress(xp DESC);
-CREATE INDEX idx_xp_events_user ON xp_events(user_id, server_timestamp DESC);
-CREATE INDEX idx_battles_players ON battles(player_a_id, player_b_id);
 CREATE INDEX idx_battles_status ON battles(status);
-CREATE INDEX idx_actions_unprocessed ON battle_actions(battle_id, processed);
-CREATE INDEX idx_licenses_key ON licenses(license_key);
--- Tournament indexes defined in Section 9.9
+CREATE INDEX idx_tournaments_status ON tournaments(status);
+CREATE INDEX idx_queue_skill ON matchmaking_queue(skill_ranking);
 ```
 
 ---
 
-## Part 12: Summary
+## 6. Technical: API & Authentication
 
-### Key Changes from v2.0
+### 6.1 API Routes
 
-| Aspect | v2.0 (Previous) | v3.0 (Cloudflare) |
-|--------|-----------------|-------------------|
-| Backend | Axum on Fly.io | Cloudflare Workers (Rust) |
-| Database | PostgreSQL (Supabase) | D1 (SQLite) |
-| Storage | Supabase Storage | R2 |
-| Email | Resend/Sendgrid | Cloudflare Email Workers |
-| Auth deps | argon2, jsonwebtoken | Web Crypto API, manual JWT |
-| Cost | $50-180/mo | $10-135/mo |
-| Infra complexity | Multiple providers | Single provider |
+```rust
+// Health
+GET  /health
 
-### Deferred Features
+// Auth (OAuth only)
+GET  /auth/github              → Redirect to GitHub OAuth
+GET  /auth/github/callback     → Handle callback, create session
+GET  /auth/google              → Redirect to Google OAuth
+GET  /auth/google/callback     → Handle callback, create session
+POST /auth/refresh             → Refresh access token
+GET  /auth/me                  → Get current user
 
-- **MFA** - Stubs in place for future TOTP/SMS implementation (registry protection)
-- **Apple OAuth** - Low priority
-- **Email/Password Auth** - Removed per CEO direction (OAuth only)
+// Progress
+GET  /progress                 → Get user progress
+POST /progress/sync            → Sync progress from client
+POST /progress/xp              → Record XP event
+
+// Leaderboard
+GET  /leaderboard              → Global leaderboard
+GET  /leaderboard/weekly       → Weekly leaderboard
+GET  /leaderboard/:era         → Era-specific leaderboard
+
+// Battles
+POST /battles/create           → Create battle
+GET  /battles/:id              → Get battle state
+POST /battles/:id/action       → Submit answer
+
+// Tournaments
+GET  /tournaments              → List active tournaments
+POST /tournaments/create       → Create tournament
+POST /tournaments/:id/join     → Join tournament
+GET  /tournaments/:id          → Get tournament state
+POST /tournaments/:id/submit   → Submit answer
+POST /tournaments/queue/join   → Join matchmaking queue
+
+// Payments
+POST /session                  → Handle Stripe session
+POST /validate                 → Validate license key
+POST /webhook/stripe           → Stripe webhook
+```
+
+### 6.2 OAuth Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         OAUTH FLOW                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. User clicks "Sign in with GitHub"                              │
+│     └─▶ Frontend redirects to /auth/github                         │
+│                                                                     │
+│  2. Worker redirects to GitHub OAuth                               │
+│     └─▶ github.com/login/oauth/authorize?client_id=...             │
+│                                                                     │
+│  3. User authorizes, GitHub redirects back                         │
+│     └─▶ /auth/github/callback?code=...                             │
+│                                                                     │
+│  4. Worker exchanges code for token                                │
+│     ├─▶ Fetch GitHub access token                                  │
+│     ├─▶ Fetch user profile from GitHub API                         │
+│     ├─▶ Upsert user in D1                                          │
+│     └─▶ Create JWT tokens (access + refresh)                       │
+│                                                                     │
+│  5. Redirect to frontend with token                                │
+│     └─▶ logicaffeine.com/?token=...                                │
+│                                                                     │
+│  6. Frontend stores tokens in localStorage                         │
+│     └─▶ Includes tokens in Authorization header for API calls      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.3 Payment Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        PAYMENT FLOW                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  1. User clicks "Buy" → Redirect to Stripe Checkout                │
+│                                                                     │
+│  2. After payment, Stripe redirects to /success?session_id=...     │
+│                                                                     │
+│  3. Frontend calls POST /session { sessionId }                     │
+│     Worker:                                                        │
+│     ├─▶ Verify session with Stripe API                             │
+│     ├─▶ Generate license key: LGC-XXXX-XXXX-XXXX-XXXX             │
+│     ├─▶ Store in D1 licenses table                                 │
+│     ├─▶ Send email with license key                                │
+│     └─▶ Return { licenseKey, plan, email }                         │
+│                                                                     │
+│  4. Frontend stores license key locally                            │
+│                                                                     │
+│  5. License validation: POST /validate { licenseKey }              │
+│     └─▶ Check D1, return { valid, plan }                           │
+│                                                                     │
+│  6. Stripe webhooks update license status on cancel/renewal        │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Glossary
+## 7. Multiplayer Battles & Tournaments
+
+### 7.1 Architecture: Durable Objects (Not R2 Polling)
+
+**Critical:** R2's 1-write-per-second limit creates unacceptable latency (~1000ms) for Blitz mode. AAA standard is <100ms feedback.
+
+**Solution:** Use **Cloudflare Durable Objects** for real-time game state:
+- Strong consistency with low-latency WebSockets
+- Each battle/tournament gets its own Durable Object instance
+- State persists in-memory with automatic persistence to storage
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                 BATTLE SYSTEM (DURABLE OBJECTS)                     │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌─────────┐                                     ┌─────────┐       │
+│  │Player A │                                     │Player B │       │
+│  └────┬────┘                                     └────┬────┘       │
+│       │                                               │            │
+│       │  WebSocket connect                            │            │
+│       │───────────────────┐         ┌────────────────│            │
+│       │                   ▼         ▼                │            │
+│       │            ┌─────────────────────┐           │            │
+│       │            │   DURABLE OBJECT    │           │            │
+│       │            │   (Battle State)    │           │            │
+│       │            │                     │           │            │
+│       │            │ • scores            │           │            │
+│       │            │ • current_question  │           │            │
+│       │            │ • timer             │           │            │
+│       │            │ • lives             │           │            │
+│       │            └──────────┬──────────┘           │            │
+│       │                       │                      │            │
+│       │◀──────────────────────┴─────────────────────▶│            │
+│       │        Real-time broadcasts (<50ms)          │            │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Flow:**
+1. Player connects via WebSocket to `/battle/:id/ws`
+2. Worker routes to the battle's Durable Object
+3. Durable Object maintains authoritative state
+4. Actions processed immediately, broadcast to all connected clients
+5. Results stored to D1 after match ends (for history/analytics)
+
+### 7.3 Tournament Modes
+
+| Mode | Timer | Lives | Description |
+|------|-------|-------|-------------|
+| **Blitz** | 10-30s per move | 3 | Fast-paced, timer resets each answer |
+| **Classic** | 5 min total | 3 | Chess-clock style, time bank depletes |
+| **Marathon** | 30 min total | 5 | Endurance, survive the longest |
+| **Sprint** | 1 min rounds | 1 | Race format, 1 life per round |
+| **Co-op** | 8 min shared | 5 | Two players solve together |
+
+### 7.4 Lives System with Ghost Mode
+
+When a player loses all lives, they enter **Ghost Mode** instead of being fully eliminated:
+- Can continue solving problems
+- Earn partial XP (25% rate)
+- Can earn "Redemption Tokens" (3 correct = 1 token)
+- Spend 2 tokens to revive with 1 life
+- Keeps eliminated players engaged instead of idle
+
+```rust
+pub fn record_answer(&mut self, correct: bool) -> AnswerResult {
+    if correct {
+        self.score += 1;
+        if self.status == PlayerStatus::Ghost {
+            self.redemption_progress += 1;
+            if self.redemption_progress >= 3 {
+                self.redemption_tokens += 1;
+                self.redemption_progress = 0;
+            }
+        }
+        AnswerResult::Correct
+    } else {
+        if self.status == PlayerStatus::Active {
+            self.lives_remaining = self.lives_remaining.saturating_sub(1);
+            if self.lives_remaining == 0 {
+                self.status = PlayerStatus::Ghost;  // Not eliminated!
+                AnswerResult::EnteredGhostMode
+            } else {
+                AnswerResult::Wrong { lives_left: self.lives_remaining }
+            }
+        } else {
+            AnswerResult::GhostWrong  // No penalty in ghost mode
+        }
+    }
+}
+```
+
+### 7.5 Tournament Rewards
+
+| Placement | XP Multiplier | Title |
+|-----------|---------------|-------|
+| 1st | 5x | "Tournament Champion" |
+| 2nd | 3x | "Silver Logician" |
+| 3rd | 2x | "Bronze Reasoner" |
+| Top 8 | 1.5x | — |
+
+### 7.6 Matchmaking
+
+- Skill-based using ELO ranking (default 1000)
+- Match players within 200 ranking points
+- Queue fills to 8 players, then tournament auto-starts
+- Private lobbies via invite code (e.g., "LOGIC-ABCD")
+
+---
+
+## 8. AAA Quality Requirements
+
+### 8.1 The "Flow State" Requirement
+
+**No interaction shall take longer than 100ms to provide visual feedback.**
+
+- Clicking a tab, submitting an answer, or any button press must show immediate visual response
+- Network requests happen in the background with optimistic UI updates
+- Use loading skeletons, not spinners
+
+### 8.2 The "Juice" (UX Feel)
+
+| Element | Requirement |
+|---------|-------------|
+| **Optimistic UI** | When user clicks "Check," UI reacts immediately (sound + visual) before server response |
+| **Micro-animations** | Progress bars fill with glow, combo counter shakes on high numbers |
+| **Sound design** | Correct/wrong sounds, combo milestone sounds, achievement unlocks |
+| **Keyboard shortcuts** | `Enter` to submit, `1-4` for multiple choice, `Tab` to navigate |
+
+### 8.3 Mobile Requirements
+
+- **Symbol Dictionary**: Bottom-sheet modal on mobile, not inline (clutters reading)
+- **Touch targets**: Minimum 44x44px for all interactive elements
+- **Swipe gestures**: Swipe between tabs, swipe to dismiss modals
+
+### 8.4 Anti-Cheat (Server-Side)
+
+Simple validation to prevent cheating:
+- Reject submissions faster than 500ms (humanly impossible)
+- Validate answer server-side, never trust client "correct" signals
+- Rate limit: Max 60 submissions per minute
+
+---
+
+## 9. Implementation Checklist
+
+### 9.1 TDD Workflow
+
+For each feature, follow RED/GREEN/REFACTOR:
+
+```bash
+# 1. RED: Write failing tests
+cargo test --test feature_name  # Should FAIL
+
+# 2. GREEN: Implement minimum code
+cargo test --test feature_name  # Should PASS
+
+# 3. REFACTOR: Clean up, then verify ALL tests
+cargo test                       # ALL must pass
+```
+
+### 9.2 Pre-Commit Requirements
+
+Before ANY commit:
+```bash
+cargo test                  # Unit + integration tests
+cargo test --test e2e       # End-to-end tests (if applicable)
+```
+
+**Zero regressions allowed.** If tests fail, fix before committing.
+
+### 9.3 Implementation Phases
+
+**Phase 1: Integrated Learn Page**
+- [ ] Consolidate routes: remove /lesson/:era/:module/:mode, /review
+- [ ] Build tabbed module sections (LESSON / EXAMPLES / PRACTICE / TEST)
+- [ ] Implement Focus Mode (collapse other eras when one is expanded)
+- [ ] Implement Symbol Dictionary component (auto-generated from FOL output)
+- [ ] Add struggle-triggered Socratic hints (5s inactivity or wrong attempt)
+- [ ] Implement module unlocking logic (last 2 locked until 1 complete)
+
+**Phase 2: Practice & Test Components**
+- [ ] Build infinite Practice flashcard with priority queue (wrong answers at +3)
+- [ ] Implement combo system in Practice mode
+- [ ] Implement diminishing XP returns after module mastery
+- [ ] Build 17-question Test mode with score screen
+- [ ] Add Socratic-style mistake review (questions, not just answers)
+- [ ] Track best test scores per module
+
+**Phase 3: AAA Polish**
+- [ ] Implement optimistic UI (immediate visual feedback before server)
+- [ ] Add micro-animations (progress bar glow, combo shake)
+- [ ] Implement keyboard shortcuts (Enter, 1-4, Tab)
+- [ ] Build mobile bottom-sheet for Symbol Dictionary
+- [ ] Add sound effects (correct/wrong/combo/achievement)
+
+**Phase 4: Curriculum Content**
+- [ ] Generate `lesson.md` for each module using AI
+- [ ] Create `symbols.json` for each module
+- [ ] Run AI audit on all ~380 exercises
+- [ ] Fix CONFUSING exercises, improve NEEDS WORK exercises
+
+**Phase 5: Progress & Profile**
+- [ ] Create /profile page with stats display
+- [ ] Add activity calendar (30-day heatmap)
+- [ ] Show module progress grid with stars
+- [ ] Display achievements list
+
+**Phase 6: Backend Infrastructure**
+- [ ] Set up D1 database with schema (including analytics_events)
+- [ ] Port Workers from JavaScript to Rust
+- [ ] Implement OAuth (GitHub, Google)
+- [ ] Implement progress sync API
+- [ ] Add anti-cheat validation (500ms min, rate limiting)
+
+**Phase 7: Payments**
+- [ ] Implement license key generation
+- [ ] Add Stripe webhook handling
+- [ ] Email delivery for license keys
+
+**Phase 8: Multiplayer**
+- [ ] Set up Durable Objects for battle state
+- [ ] Implement WebSocket connections for real-time updates
+- [ ] Implement Ghost Mode for eliminated players
+- [ ] Create tournament system with matchmaking
+- [ ] Store match results to D1 after completion
+
+### 9.4 Curriculum Audit Process
+
+1. Run audit prompt on all ~380 exercises
+2. Triage by flag: CONFUSING (fix now) → NEEDS WORK (fix soon) → CLEAR (ok)
+3. Apply transformation patterns to flagged exercises
+4. Re-run audit to verify improvements
+
+---
+
+## 10. Glossary
 
 | Term | Definition |
 |------|------------|
-| **Blitz Mode** | Tournament format with per-move timers (10-30s) and 3 lives |
-| **Chess-Clock** | Timer mode where each player has a total time bank that depletes while thinking |
-| **Cloudflare D1** | Cloudflare's serverless SQLite database for transactional data |
-| **Cloudflare Pages** | Cloudflare's static site hosting for the frontend |
-| **Cloudflare R2** | Cloudflare's S3-compatible object storage for files and game state snapshots |
-| **Cloudflare Workers** | Serverless functions running at the edge; this proposal uses Rust via `workers-rs` |
-| **Crate** | A Rust package/library unit; the proposal separates code into multiple crates for clean architecture |
-| **CSRF** | Cross-Site Request Forgery; a security vulnerability prevented via state tokens in OAuth |
-| **Dioxus** | A Rust framework for building user interfaces (used for the frontend) |
-| **ELO Rating** | A skill rating system (originally for chess) used for matchmaking |
-| **Era** | A major curriculum division (e.g., Era 0: logicaffeine, Era 1: trivium) |
-| **FOL** | First-Order Logic; the formal logic system taught by Logicaffeine |
-| **JWT** | JSON Web Token; used for authentication and session management |
-| **License Key** | A unique identifier (format: `LGC-XXXX-XXXX-XXXX-XXXX`) that grants access to paid features |
-| **Lives System** | Tournament mechanic where wrong answers cost lives; elimination occurs at 0 lives |
-| **LOGOS** | The programming language/compiler at the core of Logicaffeine |
-| **localStorage** | Browser storage used for client-side session and progress data |
-| **Marathon Mode** | Tournament format with 30-minute overall timer and 5 lives |
-| **MFA** | Multi-Factor Authentication; planned for registry protection (stubs only in v1) |
-| **Module** | A subdivision within an Era containing related exercises |
-| **OAuth** | Open Authorization; the protocol used for GitHub and Google sign-in |
-| **Per-Move Timer** | Timer mode where each answer has a fixed time limit that resets after submission |
-| **SRS** | Spaced Repetition System; algorithm for optimal review scheduling |
-| **Sprint Mode** | Tournament format with 1-minute rounds and 1 life per round |
-| **Stripe** | Payment processing service for subscriptions and purchases |
-| **Tick Worker** | Scheduled Cloudflare Worker that processes battle/tournament actions every second |
-| **TOTP** | Time-based One-Time Password; a planned MFA method |
-| **Tournament** | Competitive multiplayer event with brackets, lives, and time pressure |
-| **workers-rs** | Rust crate for building Cloudflare Workers |
-| **wrangler** | Cloudflare's CLI tool for deploying and managing Workers |
-| **XP** | Experience Points; earned for completing exercises and achievements |
-| **Zone of Proximal Development** | Vygotsky's educational theory; the optimal difficulty range for learning |
+| **Blitz Mode** | Tournament with per-move timers (10-30s) and 3 lives |
+| **Chess-Clock** | Timer mode where total time bank depletes while thinking |
+| **Combo** | Consecutive correct answers; multiplies XP up to 2x |
+| **D1** | Cloudflare's serverless SQLite database |
+| **Diminishing Returns** | XP decay after module mastery to prevent grinding easy content |
+| **Dioxus** | Rust framework for building the web UI |
+| **Durable Objects** | Cloudflare's stateful edge compute; used for real-time battles |
+| **Era** | Major curriculum division (e.g., Era 0: Practice, Era 1: Basics) |
+| **Focus Mode** | UI state where non-active eras collapse to reduce cognitive clutter |
+| **FOL** | First-Order Logic; the formal logic system taught |
+| **Ghost Mode** | Tournament state after elimination; can earn redemption tokens |
+| **Lives** | Tournament mechanic; wrong answers cost lives, 0 = ghost mode |
+| **Module** | Section within an Era containing related exercises |
+| **OAuth** | Authentication protocol for GitHub/Google sign-in |
+| **Optimistic UI** | Immediate visual feedback before server confirmation |
+| **Practice Mode** | Infinite flashcard mode with priority queue for wrong answers |
+| **Priority Queue** | Practice ordering where wrong answers reappear at position +3 |
+| **R2** | Cloudflare's object storage (used for static assets) |
+| **Socratic Hint** | Struggle-triggered hint that guides discovery through questioning |
+| **SRS** | Spaced Repetition System; algorithm for optimal review timing |
+| **Streak** | Consecutive days practiced; grants XP bonus |
+| **Symbol Dictionary** | Auto-generated legend explaining all symbols in a logic output |
+| **Test Mode** | 17-question scored assessment per module; full XP, no hints |
+| **Workers** | Cloudflare's serverless functions (Rust via `workers-rs`) |
+| **XP** | Experience Points; earned for completing exercises |
 
 ---
 
-*Questions? Contact the engineering team.*
+## Appendix A: Curriculum Mapping (Gensler's "Introduction to Logic")
+
+The curriculum is structured around Harry Gensler's textbook "Introduction to Logic" with symbol notation conversions.
+
+### A.1 Symbol Notation Mapping
+
+Gensler uses different symbols than our standard. The platform auto-converts:
+
+| Gensler | Platform | Meaning |
+|---------|----------|---------|
+| `~` | `¬` | negation (not) |
+| `•` | `∧` | conjunction (and) |
+| `⊃` | `→` | implication (if...then) |
+| `≡` | `↔` | biconditional (if and only if) |
+| `∨` | `∨` | disjunction (or) — same |
+
+**Lesson files use platform symbols** but reference Gensler's notation for students using the textbook.
+
+### A.2 Era 0: Syllogistic Practice (Gensler Chapter 2)
+
+**Focus:** Categorical syllogisms and traditional logic forms.
+
+| Module | Topic | Gensler Section | Key Patterns |
+|--------|-------|-----------------|--------------|
+| 0.1 | Categorical Propositions | §2.1-2.2 | A/E/I/O forms |
+| 0.2 | Syllogism Forms | §2.3-2.4 | Barbara, Celarent, etc. |
+| 0.3 | Venn Diagrams | §2.5 | Visual validity testing |
+| 0.4 | Immediate Inferences | §2.6 | Conversion, obversion |
+| 0.5 | Sorites | §2.7 | Chained syllogisms |
+| 0.6 | Informal Fallacies | §2.8 | Common reasoning errors |
+
+**Example Lesson Content (0.1 Categorical Propositions):**
+
+```markdown
+## Concept
+Categorical propositions make claims about categories (groups). There are
+exactly four types, remembered as A, E, I, O:
+
+| Form | Pattern | Example |
+|------|---------|---------|
+| A | All S are P | All dogs are mammals |
+| E | No S are P | No cats are reptiles |
+| I | Some S are P | Some birds fly |
+| O | Some S are not P | Some animals are not pets |
+
+## Notation
+- Uppercase letters (A, B, C) = categories/classes
+- "All A are B" = every member of A is also in B
+- "Some A are B" = at least one A is also a B
+
+## Pattern
+"All [SUBJECT] are [PREDICATE]" → A-form
+"No [SUBJECT] are [PREDICATE]" → E-form
+"Some [SUBJECT] are [PREDICATE]" → I-form
+"Some [SUBJECT] are not [PREDICATE]" → O-form
+```
+
+### A.3 Era 1: Propositional Logic (Gensler Chapter 6)
+
+**Focus:** Truth-functional connectives and symbolic translation.
+
+| Module | Topic | Gensler Section | Key Patterns |
+|--------|-------|-----------------|--------------|
+| 1.1 | Atomic Sentences | §6.1 | Constants and predicates |
+| 1.2 | Negation | §6.2 | `¬P`, double negation |
+| 1.3 | Conjunction | §6.3 | `P ∧ Q` (and) |
+| 1.4 | Disjunction | §6.4 | `P ∨ Q` (or) |
+| 1.5 | Conditional | §6.5 | `P → Q` (if...then) |
+| 1.6 | Biconditional | §6.6 | `P ↔ Q` (iff) |
+
+**Example Lesson Content (1.3 Conjunction):**
+
+```markdown
+## Concept
+A conjunction joins two statements with "and." Both parts must be true
+for the whole to be true.
+
+## Notation
+- ∧ = "and" / conjunction
+- P ∧ Q is true only when BOTH P is true AND Q is true
+
+## Pattern
+"[Statement 1] and [Statement 2]" → S₁ ∧ S₂
+
+Watch for synonyms:
+- "but" → ∧ (same as "and")
+- "although" → ∧
+- "yet" → ∧
+- "while" (simultaneously) → ∧
+
+## Examples
+1. "It is raining and cold"
+   - Let R = "It is raining", C = "It is cold"
+   - Translation: R ∧ C
+
+2. "Paris is beautiful but expensive"
+   - Let B = "Paris is beautiful", E = "Paris is expensive"
+   - Translation: B ∧ E
+   - Note: "but" emphasizes contrast but logically = "and"
+
+## Common Mistakes
+- Using ∧ for "If...then" statements (should be →)
+- Forgetting that "but" still means ∧ in logic
+```
+
+### A.4 Era 2: Basic Quantifiers (Gensler Chapter 8)
+
+**Focus:** Universal and existential quantification in First-Order Logic.
+
+| Module | Topic | Gensler Section | Key Patterns |
+|--------|-------|-----------------|--------------|
+| 2.1 | Predicates & Individuals | §8.1 | F(x), constants a, b, c |
+| 2.2 | Universal Quantifier | §8.2 | ∀x (for all) |
+| 2.3 | Existential Quantifier | §8.3 | ∃x (there exists) |
+| 2.4 | Mixed Quantifiers | §8.4 | ∀x∃y, ∃x∀y scope |
+| 2.5 | Quantifier Negation | §8.5 | ¬∀x ≡ ∃x¬, etc. |
+| 2.6 | Relations | §8.6 | R(x,y), Loves(j,m) |
+
+**Example Lesson Content (2.2 Universal Quantifier):**
+
+```markdown
+## Concept
+The universal quantifier (∀) means "for all" or "every." It makes a claim
+about EVERYTHING in the universe of discourse.
+
+## Notation
+- ∀x = "for all x" / "for every x"
+- ∀x(P(x)) = "everything has property P"
+- ∀x(P(x) → Q(x)) = "all P are Q"
+
+## Pattern
+"All [THINGS] are [PROPERTY]" → ∀x(Thing(x) → Property(x))
+
+Why use → and not ∧?
+- ∀x(Cat(x) ∧ Mammal(x)) means "everything is both a cat and a mammal"
+- ∀x(Cat(x) → Mammal(x)) means "IF something is a cat, THEN it's a mammal"
+- The second is what "All cats are mammals" actually means!
+
+## Examples
+1. "All cats are mammals"
+   → ∀x(Cat(x) → Mammal(x))
+
+2. "Every student passed"
+   → ∀x(Student(x) → Passed(x))
+
+3. "All that glitters is not gold"
+   → ¬∀x(Glitters(x) → Gold(x))
+   OR: ∃x(Glitters(x) ∧ ¬Gold(x))
+
+## Common Mistakes
+- Using ∧ instead of → in universal statements
+- Forgetting the variable: writing ∀(Cat → Mammal) instead of ∀x(Cat(x) → Mammal(x))
+```
+
+### A.5 File Structure with Gensler References
+
+```
+assets/curriculum/00_syllogistic/
+├── 01_categorical_props/
+│   ├── meta.json           # Includes gensler_ref: "§2.1-2.2"
+│   ├── lesson.md           # Platform symbols with Gensler notes
+│   ├── symbols.json        # Includes notation_map for conversions
+│   └── exercises/
+│       ├── ex_01.json
+│       └── ...
+├── 02_syllogism_forms/
+│   ├── meta.json           # gensler_ref: "§2.3-2.4"
+│   └── ...
+```
+
+**meta.json with Gensler reference:**
+```json
+{
+  "id": "categorical_props",
+  "era": 0,
+  "title": "Categorical Propositions",
+  "pedagogy": "Introduce A/E/I/O proposition forms for categorical reasoning",
+  "gensler_ref": "§2.1-2.2",
+  "textbook": "Introduction to Logic, 3rd ed.",
+  "exercises_count": 24
+}
+```
+
+**symbols.json with notation mapping:**
+```json
+{
+  "notation_map": {
+    "gensler_to_platform": {
+      "~": "¬",
+      "•": "∧",
+      "⊃": "→",
+      "≡": "↔"
+    }
+  },
+  "symbols": [
+    { "symbol": "A", "name": "A-form", "meaning": "All S are P" },
+    { "symbol": "E", "name": "E-form", "meaning": "No S are P" },
+    { "symbol": "I", "name": "I-form", "meaning": "Some S are P" },
+    { "symbol": "O", "name": "O-form", "meaning": "Some S are not P" }
+  ]
+}
+```
+
+---
+
+*Document maintained by Engineering Team. Last updated: December 30, 2025.*
