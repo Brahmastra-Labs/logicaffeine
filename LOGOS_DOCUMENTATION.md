@@ -79,12 +79,16 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
+<<<<<<< Updated upstream
     - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
     - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
     - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
     - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
     - [End-to-End Tests](#end-to-end-tests)
+=======
+    - [Phase 42: Discourse Representation Structure](#phase-42-discourse-representation-structure)
+>>>>>>> Stashed changes
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1853,16 +1857,25 @@ Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O
 
 ---
 
+<<<<<<< Updated upstream
 #### Phase 42: Discourse Representation Structures
 
 **File:** `tests/phase42_drs.rs`
 
 Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries.
+=======
+#### Phase 42: Discourse Representation Structure
+
+**File:** `tests/phase42_drs.rs`
+
+Kamp's DRT for donkey anaphora and accessibility. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL force (not existential). DrsBox tracks referent sources (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). Accessibility rules determine pronoun binding across clause boundaries.
+>>>>>>> Stashed changes
 
 **Example:** Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))
 
 ---
 
+<<<<<<< Updated upstream
 #### Phase 42b: Z3 Static Verification
 
 **File:** `tests/phase_verification.rs`
@@ -2053,6 +2066,8 @@ Runtime verification of variable operations: Let bindings, Set mutation, scoping
 
 ---
 
+=======
+>>>>>>> Stashed changes
 #### Aktionsart/Vendler Classes
 
 **File:** `tests/aktionsart_tests.rs`
@@ -2107,6 +2122,7 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
+<<<<<<< Updated upstream
 Lexer (token.rs, lexer.rs):           2227 lines
 Parser (ast/, parser/):               12251 lines
 Transpilation:                        1341 lines
@@ -2115,20 +2131,41 @@ Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            1918 lines
 Support Infrastructure:               4242 lines
 Desktop UI:                              10122 lines
+=======
+Lexer (token.rs, lexer.rs):           1729 lines
+Parser (ast/, parser/):               10996 lines
+Transpilation:                        1030 lines
+Code Generation:                      1117 lines
+Semantics (lambda, context, view):    2880 lines
+Type Analysis (analysis/):            1195 lines
+Support Infrastructure:               4210 lines
+Desktop UI:                               9983 lines
+>>>>>>> Stashed changes
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
+<<<<<<< Updated upstream
 Source lines:        43607
 Test lines:          15105
 Total Rust lines: 58712
+=======
+Source lines:        38670
+Test lines:          10150
+Total Rust lines: 48820
+>>>>>>> Stashed changes
 ```
 
 ### File Counts
 ```
+<<<<<<< Updated upstream
 Source files: 103
 Test files:   99
+=======
+Source files: 97
+Test files:   70
+>>>>>>> Stashed changes
 ```
 ## Lexicon Data
 
@@ -23736,11 +23773,19 @@ A Point has:
 
 ---
 
+<<<<<<< Updated upstream
 ### Module Dependency Scanner
 
 **File:** `src/analysis/dependencies.rs`
 
 Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##).
+=======
+### Dependency Scanner
+
+**File:** `src/analysis/dependencies.rs`
+
+Phase 36 dependency scanner for the Hyperlink Module System. Scans the Abstract (first paragraph) for [Alias](URI) links, interpreted as module dependencies. Supports file:, logos:, and https: URI schemes.
+>>>>>>> Stashed changes
 
 ```rust
 //! Phase 36: Dependency Scanner for the Hyperlink Module System
@@ -24017,6 +24062,7 @@ Uses [A](file:a.md), [B](file:b.md), and [C](file:c.md).
 
 ---
 
+<<<<<<< Updated upstream
 ### Escape Analysis
 
 **File:** `src/analysis/escape.rs`
@@ -24325,6 +24371,8 @@ mod tests {
 
 ---
 
+=======
+>>>>>>> Stashed changes
 ## Code Generation
 
 Rust code emission from imperative AST.
@@ -26480,6 +26528,285 @@ fn cmd_logout(registry: Option<&str>) -> Result<(), Box<dyn std::error::Error>> 
 
 ---
 
+### Project Module
+
+**File:** `src/project/mod.rs`
+
+Infrastructure for multi-file LOGOS projects (Phase 36/37/39). Provides module loading from URI schemes (file:, logos:, https:), caching, standard library embedding, manifests, build orchestration, and package registry client.
+
+```rust
+//! Phase 36/37/39: Project Module System
+//!
+//! Provides infrastructure for multi-file LOGOS projects, including:
+//! - Module loading from various URI schemes (file:, logos:, https:)
+//! - Caching of loaded modules
+//! - Standard library embedding
+//! - Project manifests and build orchestration (Phase 37)
+//! - Package registry client and credentials (Phase 39)
+
+pub mod loader;
+#[cfg(feature = "cli")]
+pub mod manifest;
+#[cfg(feature = "cli")]
+pub mod build;
+#[cfg(feature = "cli")]
+pub mod credentials;
+#[cfg(feature = "cli")]
+pub mod registry;
+
+pub use loader::{Loader, ModuleSource};
+#[cfg(feature = "cli")]
+pub use manifest::{Manifest, ManifestError};
+#[cfg(feature = "cli")]
+pub use build::{build, find_project_root, run, BuildConfig, BuildError, BuildResult};
+#[cfg(feature = "cli")]
+pub use credentials::{Credentials, get_token as get_registry_token};
+#[cfg(feature = "cli")]
+pub use registry::{RegistryClient, create_tarball, is_git_dirty};
+
+```
+
+---
+
+### Module Loader
+
+**File:** `src/project/loader.rs`
+
+Phase 36 module loader. Handles resolution from URI schemes: file: (local filesystem), logos: (built-in stdlib), https: (remote registry). Caches loaded modules with cycle detection. ModuleSource stores content and resolved path.
+
+```rust
+//! Phase 36: Module Loader
+//!
+//! Handles resolution and loading of module sources from various URI schemes:
+//! - `file:./path.md` - Local filesystem relative to current file
+//! - `logos:std` - Built-in standard library (embedded at compile time)
+//! - `https://logicaffeine.dev/...` - Remote registry (Phase 37)
+
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// A loaded module's source content and metadata.
+#[derive(Debug, Clone)]
+pub struct ModuleSource {
+    /// The source content of the module
+    pub content: String,
+    /// The resolved path (for error reporting and relative resolution)
+    pub path: PathBuf,
+}
+
+/// Module loader that handles multiple URI schemes.
+///
+/// Caches loaded modules to prevent duplicate loading and supports
+/// cycle detection through the cache.
+pub struct Loader {
+    /// Cache of loaded modules (URI -> ModuleSource)
+    cache: HashMap<String, ModuleSource>,
+    /// Root directory of the project (for relative path resolution)
+    root_path: PathBuf,
+}
+
+impl Loader {
+    /// Creates a new Loader with the given root path.
+    pub fn new(root_path: PathBuf) -> Self {
+        Loader {
+            cache: HashMap::new(),
+            root_path,
+        }
+    }
+
+    /// Resolves a URI to a module source.
+    ///
+    /// Supports:
+    /// - `file:./path.md` - Local filesystem (relative to base_path)
+    /// - `logos:std` - Built-in standard library
+    /// - `logos:core` - Built-in core types
+    /// - `https://logicaffeine.dev/...` - Remote registry (returns error for now)
+    pub fn resolve(&mut self, base_path: &Path, uri: &str) -> Result<&ModuleSource, String> {
+        // Normalize the URI for caching
+        let cache_key = self.normalize_uri(base_path, uri)?;
+
+        // Check cache first
+        if self.cache.contains_key(&cache_key) {
+            return Ok(&self.cache[&cache_key]);
+        }
+
+        // Load based on scheme
+        let source = if uri.starts_with("file:") {
+            self.load_file(base_path, uri)?
+        } else if uri.starts_with("logos:") {
+            self.load_intrinsic(uri)?
+        } else if uri.starts_with("https://") || uri.starts_with("http://") {
+            self.load_remote(uri)?
+        } else {
+            // Default to file: scheme if no scheme provided
+            self.load_file(base_path, &format!("file:{}", uri))?
+        };
+
+        // Cache and return
+        self.cache.insert(cache_key.clone(), source);
+        Ok(&self.cache[&cache_key])
+    }
+
+    /// Normalizes a URI for consistent caching.
+    fn normalize_uri(&self, base_path: &Path, uri: &str) -> Result<String, String> {
+        if uri.starts_with("file:") {
+            let path_str = uri.trim_start_matches("file:");
+            let base_dir = base_path.parent().unwrap_or(&self.root_path);
+            let resolved = base_dir.join(path_str);
+            Ok(format!("file:{}", resolved.display()))
+        } else {
+            Ok(uri.to_string())
+        }
+    }
+
+    /// Loads a module from the local filesystem.
+    fn load_file(&self, base_path: &Path, uri: &str) -> Result<ModuleSource, String> {
+        let path_str = uri.trim_start_matches("file:");
+
+        // Resolve relative to the base file's directory
+        let base_dir = base_path.parent().unwrap_or(&self.root_path);
+        let resolved_path = base_dir.join(path_str);
+
+        // Security: Check that we're not escaping the root path
+        // (Basic check - a real implementation would canonicalize paths)
+        let canonical_root = self.root_path.canonicalize()
+            .unwrap_or_else(|_| self.root_path.clone());
+
+        // Read the file
+        let content = fs::read_to_string(&resolved_path)
+            .map_err(|e| format!("Failed to read '{}': {}", resolved_path.display(), e))?;
+
+        // Check if escaping root (after we know the file exists)
+        if let Ok(canonical_path) = resolved_path.canonicalize() {
+            if !canonical_path.starts_with(&canonical_root) {
+                return Err(format!(
+                    "Security: Cannot load '{}' - path escapes project root",
+                    uri
+                ));
+            }
+        }
+
+        Ok(ModuleSource {
+            content,
+            path: resolved_path,
+        })
+    }
+
+    /// Loads a built-in module (embedded at compile time).
+    fn load_intrinsic(&self, uri: &str) -> Result<ModuleSource, String> {
+        let name = uri.trim_start_matches("logos:");
+
+        match name {
+            "std" => Ok(ModuleSource {
+                content: include_str!("../../assets/std/std.md").to_string(),
+                path: PathBuf::from("logos:std"),
+            }),
+            "core" => Ok(ModuleSource {
+                content: include_str!("../../assets/std/core.md").to_string(),
+                path: PathBuf::from("logos:core"),
+            }),
+            _ => Err(format!("Unknown intrinsic module: '{}'", uri)),
+        }
+    }
+
+    /// Loads a module from a remote URL (Phase 37).
+    fn load_remote(&self, uri: &str) -> Result<ModuleSource, String> {
+        // Phase 37: Implement actual HTTP fetching with caching and lockfile
+        // For now, return an error directing users to use local imports
+        Err(format!(
+            "Remote module loading not yet implemented for '{}'. \
+             Use 'logos fetch' to download dependencies locally first. \
+             (Full remote support coming in Phase 37)",
+            uri
+        ))
+    }
+
+    /// Checks if a module has already been loaded (for cycle detection).
+    pub fn is_loaded(&self, uri: &str) -> bool {
+        self.cache.contains_key(uri)
+    }
+
+    /// Returns all loaded module URIs (for debugging).
+    pub fn loaded_modules(&self) -> Vec<&str> {
+        self.cache.keys().map(|s| s.as_str()).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_file_scheme_resolution() {
+        let temp_dir = tempdir().unwrap();
+        let geo_path = temp_dir.path().join("geo.md");
+        fs::write(&geo_path, "## Definition\nA Point has:\n    an x, which is Int.\n").unwrap();
+
+        let mut loader = Loader::new(temp_dir.path().to_path_buf());
+        let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
+
+        assert!(result.is_ok(), "Should resolve file: scheme: {:?}", result);
+        assert!(result.unwrap().content.contains("Point"));
+    }
+
+    #[test]
+    fn test_logos_std_scheme() {
+        let mut loader = Loader::new(PathBuf::from("."));
+        let result = loader.resolve(&PathBuf::from("main.md"), "logos:std");
+
+        assert!(result.is_ok(), "Should resolve logos:std: {:?}", result);
+    }
+
+    #[test]
+    fn test_logos_core_scheme() {
+        let mut loader = Loader::new(PathBuf::from("."));
+        let result = loader.resolve(&PathBuf::from("main.md"), "logos:core");
+
+        assert!(result.is_ok(), "Should resolve logos:core: {:?}", result);
+    }
+
+    #[test]
+    fn test_unknown_intrinsic() {
+        let mut loader = Loader::new(PathBuf::from("."));
+        let result = loader.resolve(&PathBuf::from("main.md"), "logos:unknown");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown intrinsic"));
+    }
+
+    #[test]
+    fn test_caching() {
+        let temp_dir = tempdir().unwrap();
+        let geo_path = temp_dir.path().join("geo.md");
+        fs::write(&geo_path, "content").unwrap();
+
+        let mut loader = Loader::new(temp_dir.path().to_path_buf());
+
+        // First load
+        let _ = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
+
+        // Should be cached now
+        assert!(loader.loaded_modules().len() == 1);
+    }
+
+    #[test]
+    fn test_missing_file() {
+        let temp_dir = tempdir().unwrap();
+        let mut loader = Loader::new(temp_dir.path().to_path_buf());
+
+        let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./nonexistent.md");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read"));
+    }
+}
+
+```
+
+---
+
 ### Project Manifest
 
 **File:** `src/project/manifest.rs`
@@ -26913,6 +27240,7 @@ mod tests {
 
 ---
 
+<<<<<<< Updated upstream
 ### Project Module
 
 **File:** `src/project/mod.rs`
@@ -27192,11 +27520,17 @@ mod tests {
 
 ---
 
+=======
+>>>>>>> Stashed changes
 ### Credential Management
 
 **File:** `src/project/credentials.rs`
 
+<<<<<<< Updated upstream
 Phase 39 API token storage. Credentials struct persists to ~/.config/logos/credentials.toml with 0600 permissions. Supports LOGOS_TOKEN env var override. TOML format with registry→token map.
+=======
+Phase 39 credential storage. Stores and retrieves API tokens for the package registry. Credentials struct with registries HashMap. Loads from ~/.largo/credentials.toml.
+>>>>>>> Stashed changes
 
 ```rust
 //! Phase 39: Credential Management
@@ -27330,7 +27664,11 @@ impl std::error::Error for CredentialsError {}
 
 **File:** `src/project/registry.rs`
 
+<<<<<<< Updated upstream
 Phase 39 package registry HTTP client. RegistryClient handles auth, publish (multipart tarball upload), token validation. create_tarball() packages src/, Largo.toml, README.md, LICENSE. is_git_dirty() for safety checks.
+=======
+Phase 39 HTTP client for the LOGOS package registry. RegistryClient for API communication. create_tarball() for packaging, is_git_dirty() for publish guards.
+>>>>>>> Stashed changes
 
 ```rust
 //! Phase 39: Registry Client
@@ -52645,6 +52983,7 @@ mod tests {
 
 ---
 
+<<<<<<< Updated upstream
 ### Module: diagnostic
 
 **File:** `src/diagnostic.rs`
@@ -53070,6 +53409,8 @@ mod tests {
 
 ---
 
+=======
+>>>>>>> Stashed changes
 ### Module: drs
 
 **File:** `src/drs.rs`
@@ -57119,11 +57460,19 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
+<<<<<<< Updated upstream
 - **Generated:** Mon Dec 29 15:08:15 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
 - **Git Commit:** 0ff47d6
 - **Documentation Size:** 1.9M
+=======
+- **Generated:** Sun Dec 28 15:36:22 CST 2025
+- **Repository:** /Users/collinpounds/dev/logicaffeine
+- **Git Branch:** main
+- **Git Commit:** 216ddc7
+- **Documentation Size:** 2.0M
+>>>>>>> Stashed changes
 
 ---
 

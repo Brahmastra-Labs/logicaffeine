@@ -10,5 +10,6 @@
     "Barks should come before Dog"
   ],
   "correct": 0,
-  "hint": "Think about what ∀x(P(x) ∧ Q(x)) actually says about every object in the domain."
+  "hint": "If this logic were true, would a Cat exist in this world? Would a Table? Or would everything — cats, tables, numbers — ALL have to be barking dogs?",
+  "explanation": "The bug is using ∧ (AND) instead of → (IMPLIES). ∀x(Dog(x) ∧ Barks(x)) says 'For ALL things x: x is a Dog AND x Barks.' This forces EVERYTHING to be a barking dog — cats, tables, even you! The fix: ∀x(Dog(x) → Barks(x)) says 'For all x: IF x is a Dog, THEN x Barks.' Now cats can exist peacefully."
 }

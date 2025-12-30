@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::mode_selector::{ModeSelector, ModeInfo};
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const LEARN_STYLE: &str = r#"
 .learn-container {
@@ -197,7 +197,7 @@ pub fn Learn() -> Element {
     rsx! {
         style { "{LEARN_STYLE}" }
 
-        AppNavbar { title: "Curriculum".to_string() }
+        MainNav { active: ActivePage::Learn }
 
         div { class: "learn-container",
             div { class: "learn-header",

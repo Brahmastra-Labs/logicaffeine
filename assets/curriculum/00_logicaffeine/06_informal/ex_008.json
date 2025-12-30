@@ -13,6 +13,6 @@
     "Has non-essential properties"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "This violates 1 (whales are not fish)."
+  "hint": "Can you think of any water-dwelling animals that AREN'T fish? Would this definition accidentally include them?",
+  "explanation": "This definition captures TOO MUCH. Whales, dolphins, and otters all 'live mainly in water' but aren't fish. The definition fails to exclude things that shouldn't be included. A better definition would specify what MAKES something a fish (cold-blooded, gills, scales) rather than just where it lives."
 }

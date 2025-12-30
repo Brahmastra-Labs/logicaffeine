@@ -10,6 +10,6 @@
     "$ S \\\\supset B \\\\cdot C $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "What FOLLOWS from being smart? Is it just bashfulness, or is it the combination of bashfulness AND carefulness?",
+  "explanation": "Think of it as a promise: 'IF you're smart, THEN you get BOTH bashful AND careful.' The consequence of being smart is the whole package (B · C), not just B alone. Compare option 2: '(S ⊃ B) · C' would mean 'Smart implies bashful, AND ALSO you're careful regardless' — that's a different claim! The parentheses show what belongs together."
 }

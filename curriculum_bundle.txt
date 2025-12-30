@@ -1,0 +1,6055 @@
+=== ERA: 00_logicaffeine ===
+{
+  "id": "logicaffeine",
+  "title": "Practice",
+  "description": "Classic logic exercises from Gensler's Introduction to Logic.",
+  "order": 0
+}
+
+--- MODULE: 01_syllogistic ---
+{
+  "id": "syllogistic",
+  "title": "The Syllogism",
+  "pedagogy": "Translate English sentences into syllogistic notation. Lowercase letters denote individuals; capitals denote classes. Master the forms: all/some/no X is Y.",
+  "order": 1
+}
+
+{
+  "id": "A_1.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the cleanest biologist.",
+  "options": [
+    "u is not B",
+    "U is not b",
+    "U is not B",
+    "u is not b"
+  ],
+  "correct": 3,
+  "hint": "Does the word 'You' refer to a vast group of people, or a specific person standing right here?",
+  "explanation": "\"You\" refers to a specific individual (the listener), so we use lowercase \"u\". The phrase \"the cleanest biologist\" also picks out a specific individual (like saying \"the tallest person\"), so we use lowercase \"b\". In logic, lowercase = specific individual, UPPERCASE = a class or category of things."
+}
+
+{
+  "id": "A_1.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't a short convict.",
+  "options": [
+    "u is not c",
+    "U is not c",
+    "u is not C",
+    "U is not C"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "The dancer isn't the most cheerful person.",
+  "options": [
+    "D is not C",
+    "D is not c",
+    "d is not C",
+    "d is not c"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"d\" refers to a specific individual, so use lowercase. The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All soldiers in Berlin forgive people who are remarkable.",
+  "options": [
+    "S is F",
+    "all S is F",
+    "all s is F",
+    "all F is S"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the smartest criminal.",
+  "options": [
+    "u is not C",
+    "U is not C",
+    "U is not c",
+    "u is not c"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't a slow druggist.",
+  "options": [
+    "U is not d",
+    "u is not D",
+    "U is not D",
+    "u is not d"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"D\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cheapest poet in Paris.",
+  "options": [
+    "I is P",
+    "i is P",
+    "I is p",
+    "i is p"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"The cheapest poet\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All detectives in London hate people who are frantic.",
+  "options": [
+    "all H is D",
+    "all D is H",
+    "all d is H",
+    "D is H"
+  ],
+  "correct": 1,
+  "hint": "Who is doing the hating here? The detectives or the frantic people? In 'all X is Y', X is the subject doing/being something.",
+  "explanation": "Think of it as a claim about EVERY detective: 'Take any detective — that detective hates frantic people.' The subject (D for Detectives) comes first, the predicate (H for Haters-of-frantic-people) comes second. We use uppercase because we're talking about classes of people, not specific individuals like 'Sherlock'."
+}
+
+{
+  "id": "A_1.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the wildest plumber.",
+  "options": [
+    "u is not P",
+    "u is not p",
+    "U is not P",
+    "U is not p"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"The wildest plumber\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't a short customer.",
+  "options": [
+    "U is not c",
+    "U is not C",
+    "u is not c",
+    "u is not C"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the boldest guitarist in New York.",
+  "options": [
+    "I is G",
+    "i is g",
+    "i is G",
+    "I is g"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"g\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All judges in Madrid appreciate people who are tactful.",
+  "options": [
+    "J is A",
+    "all J is A",
+    "all A is J",
+    "all j is A"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"J\" refers to a class of things, so use uppercase. The predicate \"A\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the slowest dentist.",
+  "options": [
+    "U is not d",
+    "u is not d",
+    "u is not D",
+    "U is not D"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some prisoners don't blame any frivolous people.",
+  "options": [
+    "P is not B",
+    "some P is B",
+    "some P is not B",
+    "some p is not B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cleanest musician in Moscow.",
+  "options": [
+    "I is M",
+    "i is M",
+    "I is m",
+    "i is m"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"m\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the meanest politician.",
+  "options": [
+    "U is not P",
+    "U is not p",
+    "u is not p",
+    "u is not P"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The meanest politician\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some republicans don't hate any filthy people.",
+  "options": [
+    "some R is H",
+    "some R is not H",
+    "R is not H",
+    "some r is not H"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"R\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All pickpockets in Rome hurt people who are fortunate.",
+  "options": [
+    "all H is P",
+    "All P is H",
+    "P is H",
+    "all p is H"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the strongest banker.",
+  "options": [
+    "U is not b",
+    "u is not b",
+    "U is not B",
+    "u is not B"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"The strongest banker\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some Germans don't blame any miserable people.",
+  "options": [
+    "some G is B",
+    "some g is not B",
+    "some G is not B",
+    "G is not B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"G\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cruelest bachelor in Santa Monica.",
+  "options": [
+    "I is b",
+    "i is B",
+    "i is b",
+    "I is B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The cruelest bachelor\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All carpenters in Virginia bother people who are dangerous.",
+  "options": [
+    "all c is B",
+    "all B is C",
+    "all C is B",
+    "C is B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the brightest convict.",
+  "options": [
+    "u is not C",
+    "u is not c",
+    "U is not C",
+    "U is not c"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The brightest\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some vicious criminals are boring.",
+  "options": [
+    "C is b",
+    "some C is B",
+    "some C is b",
+    "C is B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"C\" refers to a class of things, so use uppercase. The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the slowest diabetic in Boston.",
+  "options": [
+    "I is d",
+    "I is D",
+    "i is d",
+    "i is D"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"The slowest diabetic\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.28",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the tallest cannibal.",
+  "options": [
+    "u is not C",
+    "u is not c",
+    "U is not C",
+    "U is not c"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some notorious fugitives are dishonest.",
+  "options": [
+    "F is D",
+    "F is d",
+    "some F is D",
+    "some F is d"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"F\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the meanest bandit in Bratislava.",
+  "options": [
+    "i is B",
+    "I is B",
+    "I is b",
+    "i is b"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"The meanest bandit\" stands for a single person, and so translates into a small letter."
+}
+
+{
+  "id": "A_1.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "This terrorist isn't a candid person.",
+  "options": [
+    "t is not C",
+    "T is not c",
+    "T is not C",
+    "t is not c"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"t\" refers to a specific individual, so use lowercase. The predicate \"C\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the smartest biologist in Kiev.",
+  "options": [
+    "I is b",
+    "I is B",
+    "i is b",
+    "i is B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some miserable convicts are gloomy.",
+  "options": [
+    "C is G",
+    "some C is G",
+    "some C is g",
+    "C is g"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the wildest criminal.",
+  "options": [
+    "u is not c",
+    "u is not C",
+    "U is not C",
+    "u is not c"
+  ],
+  "correct": 3,
+  "hint": "Could there be multiple 'wildest criminals' in the world? Or does 'THE wildest' pick out exactly one person?",
+  "explanation": "Both 'you' and 'the wildest criminal' refer to specific individuals, not categories. 'You' is the person being addressed (lowercase u). 'The wildest criminal' picks out ONE specific person — whoever holds that title — so it's also lowercase (c). Compare: 'You are A criminal' would use uppercase C because 'a criminal' means 'a member of the criminal class.'"
+}
+
+{
+  "id": "A_1.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No dangerous foreigner is poetic",
+  "options": [
+    "all F is not P",
+    "f is not P",
+    "F is not P",
+    "no F is P"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"P\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.36",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the shortest diabetic in Berlin.",
+  "options": [
+    "i is d",
+    "I is d",
+    "i is D",
+    "I is D"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"d\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some boring druggists are sociable.",
+  "options": [
+    "D is S",
+    "some D is s",
+    "some D is S",
+    "D is s"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the brightest farmer.",
+  "options": [
+    "u is not f",
+    "u is not F",
+    "U is not f",
+    "U is not F"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"f\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No prosperous cannibal is gentle.",
+  "options": [
+    "c is not G",
+    "no C is G",
+    "C is not G",
+    "all C is not G"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Adriano is a boastful person in Barcelona.",
+  "options": [
+    "M is B",
+    "m is b",
+    "M is b",
+    "m is B"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"m\" refers to a specific individual, so use lowercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some dishonest plumbers are cowardly.",
+  "options": [
+    "some P is c",
+    "P is C",
+    "P is c",
+    "some P is C"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.42",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "All customers in Milan hate people who are famous.",
+  "options": [
+    "all H is C",
+    "all C is H",
+    "all c is H",
+    "C is H"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No brilliant clown is greedy.",
+  "options": [
+    "no C is G",
+    "c is not G",
+    "C is not G",
+    "all C is not G"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the richest judge in Hamburg",
+  "options": [
+    "I is j",
+    "i is J",
+    "I is J",
+    "i is j"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"j\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some disgusting prisioners are miserable.",
+  "options": [
+    "some P is m",
+    "P is M",
+    "some P is M",
+    "P is m"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some musicians don't hurt any naive people",
+  "options": [
+    "some M is not H",
+    "some M is H",
+    "M is not H",
+    "some m is not H"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"M\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No demented pessimist is romantic",
+  "options": [
+    "no P is R",
+    "P is not R",
+    "p is not R",
+    "all P is not R"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm the cleanest pharmacist in Dallas",
+  "options": [
+    "i is p",
+    "i is P",
+    "I is p",
+    "I is P"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"p\" refers to a specific individual (like \"the X-est Y\"), so use lowercase."
+}
+
+{
+  "id": "A_1.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't the shortest republican",
+  "options": [
+    "U is not R",
+    "u is not r",
+    "u is not R",
+    "U is not r"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"r\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Some doctors don't appreciate any frivolous people",
+  "options": [
+    "some d is not A",
+    "D is not A",
+    "some D is A",
+    "some D is not A"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"A\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who aren't biologists aren't clean.",
+  "options": [
+    "all B is not C",
+    "B is not C",
+    "some B is not C",
+    "no B is C"
+  ],
+  "correct": 3,
+  "hint": "Reread the sentence carefully: WHO is being talked about? Is it biologists, or non-biologists? What is being said about them?",
+  "explanation": "This is tricky! The sentence says 'People who AREN'T biologists aren't clean.' It's making a claim about NON-biologists (let's call them B for short — the class of non-biologists). The claim: none of them are clean. So: 'no B is C'. Watch out for double negatives in English — they can flip meaning!"
+}
+
+{
+  "id": "A_1.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are dancers are wild.",
+  "options": [
+    "W is D",
+    "all D is W",
+    "D is W",
+    "some D is W"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"W\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that somre foreigners are cruel.",
+  "options": [
+    "no F is C",
+    "all F is C",
+    "some F is not C",
+    "F is not C"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some druggists aren't confused.",
+  "options": [
+    "not some D is C",
+    "D is C",
+    "all D is C",
+    "some D is C"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who aren't backpackers aren't rich",
+  "options": [
+    "all B is not R",
+    "B is not R",
+    "no B is R",
+    "some B is not R"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"B\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are poets are bright",
+  "options": [
+    "all P is B",
+    "some P is B",
+    "P is B",
+    "B is P"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some detectives are slow",
+  "options": [
+    "D is not S",
+    "not D is S",
+    "all D is S",
+    "some D is not S"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some bandits aren't disgusting",
+  "options": [
+    "all B is D",
+    "some B is D",
+    "not some B is D",
+    "B is D"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are customers aren't dull",
+  "options": [
+    "no C is D",
+    "all C is not D",
+    "C is not D",
+    "some C is not D"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are pilots are rich",
+  "options": [
+    "all P is R",
+    "R is P",
+    "some P is R",
+    "P is R"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some dentists are rough",
+  "options": [
+    "all D is R",
+    "some D is not R",
+    "no D is R",
+    "D is not R"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some novelists aren't frivolous",
+  "options": [
+    "all N is F",
+    "N is F",
+    "some N is F",
+    "not some N is F"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"N\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are pharmacists aren't cheap",
+  "options": [
+    "some P is not C",
+    "all P is not C",
+    "P is not C",
+    "no P is C"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A person isn't tall unless he or she is remarkable",
+  "options": [
+    "all T is R",
+    "no T is R",
+    "T is not R",
+    "all R is T"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"T\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some senators are wild",
+  "options": [
+    "S is not W",
+    "all S is W",
+    "no S is W",
+    "some S is not W"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"S\" refers to a class of things, so use uppercase. The predicate \"W\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some bankers aren't fanatical",
+  "options": [
+    "some B is F",
+    "all B is F",
+    "not some B is F",
+    "B is F"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who aren't backpackers aren't rich",
+  "options": [
+    "all D is not S",
+    "D is not S",
+    "some D is not S",
+    "no D is S"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A person isn't mean unless he or she is comical",
+  "options": [
+    "M is not C",
+    "no M is C",
+    "all M is C",
+    "all C is M"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"M\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some professors are rich",
+  "options": [
+    "P is not R",
+    "some P is not R",
+    "no P is R",
+    "all P is R"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is rough unless he or she is demented",
+  "options": [
+    "R is not D",
+    "all R is D",
+    "no R is D",
+    "all D is R"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"R\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who soldiers aren't bright",
+  "options": [
+    "all S is not B",
+    "no S is B",
+    "S is not B",
+    "some S is not B"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"S\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A person isn't slow unless he or she is charitable",
+  "options": [
+    "all C is S",
+    "all S is C",
+    "no S is C",
+    "S is not C"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some criminals are strong",
+  "options": [
+    "all C is S",
+    "some C is not S",
+    "C is not S",
+    "no C is S"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is wild unless he or she is faithful",
+  "options": [
+    "W is not F",
+    "all W is F",
+    "all F is W",
+    "no W is F"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "People who are farmers aren't short",
+  "options": [
+    "no F is S",
+    "F is not S",
+    "all F is not S",
+    "some F is not S"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"F\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A person isn't bold unless he or she is mediocre",
+  "options": [
+    "B is not M",
+    "all M is B",
+    "all B is M",
+    "no B is M"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"B\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't true that some detectives are tough",
+  "options": [
+    "D is not T",
+    "some D is not T",
+    "all D is T",
+    "no D is T"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"T\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.28",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is weak unless he or she is naive",
+  "options": [
+    "no W is N",
+    "all N is W",
+    "W is not N",
+    "all W is N"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"N\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is dangerous is sarcastic",
+  "options": [
+    "D is S",
+    "all S is D",
+    "all D is S",
+    "S is D"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"S\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A person isn't cruel unless he or she is talented",
+  "options": [
+    "no C is T",
+    "all C is T",
+    "C is not T",
+    "all T is C"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"T\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is wild unless he or she is gentle",
+  "options": [
+    "all G is W",
+    "all W is G",
+    "W is not G",
+    "no W is G"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "One or more dentists are mean",
+  "options": [
+    "M is D",
+    "D is M",
+    "some D is not M",
+    "some D is M"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is powerful isn't dishonest",
+  "options": [
+    "P is not D",
+    "all D is not P",
+    "no P is D",
+    "all P is not D"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"P\" refers to a class of things, so use uppercase. The predicate \"D\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not all druggists are rough",
+  "options": [
+    "some D is not R",
+    "some D is R",
+    "D is not R",
+    "all D is not R"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+}
+
+{
+  "id": "A_1.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is weak unless he or she is confused",
+  "options": [
+    "W is not C",
+    "all C is W",
+    "no W is C",
+    "all W is C"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"W\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.36",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "One or more poets are cheap",
+  "options": [
+    "some P is C",
+    "C is P",
+    "P is C",
+    "some P is not C"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"Some\" indicates an existential statement about at least one member. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is beautiful isn't frantic",
+  "options": [
+    "B is not F",
+    "all F is not B",
+    "all B is not F",
+    "no B is F"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"B\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some grocers aren't mediocre",
+  "options": [
+    "all G is M",
+    "not some G is M",
+    "some G is M",
+    "G is M"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"M\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is clean unless he or she is humorous",
+  "options": [
+    "all H is C",
+    "no C is H",
+    "all C is H",
+    "C is not H"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm a wild clown in Berlin",
+  "options": [
+    "i is c",
+    "i is C",
+    "I is C",
+    "I is c"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is dangerous isn't romantic",
+  "options": [
+    "no D is R",
+    "all D is not R",
+    "D is not R",
+    "all R is not D"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"D\" refers to a class of things, so use uppercase. The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.42",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some prisioners aren't curious",
+  "options": [
+    "some P is C",
+    "all P is C",
+    "not some P is C",
+    "P is C"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"P\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is mean unless he or she is boring",
+  "options": [
+    "M is not B",
+    "all M is B",
+    "no M is B",
+    "all B is M"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"M\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm a bright reporter in Lisbon",
+  "options": [
+    "I is r",
+    "i is r",
+    "I is R",
+    "i is R"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"R\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is generous isn't frighened",
+  "options": [
+    "all G is not F",
+    "no G is F",
+    "all F is not G",
+    "G is not F"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"G\" refers to a class of things, so use uppercase. The predicate \"F\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some senators aren't gentle",
+  "options": [
+    "all S is G",
+    "some S is G",
+    "not some S is G",
+    "S is G"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"S\" refers to a class of things, so use uppercase. The predicate \"G\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "No one is cruel unless he or she is powerful",
+  "options": [
+    "no C is P",
+    "all C is P",
+    "all P is C",
+    "C is not P"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"C\" refers to a class of things, so use uppercase. The predicate \"P\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I'm a short banker in Paris",
+  "options": [
+    "i is B",
+    "I is b",
+    "i is b",
+    "I is B"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "\"I\" refers to a specific individual (the speaker), so use lowercase \"i\". The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Whoever is childish isn't bitter",
+  "options": [
+    "C is not B",
+    "all B is not C",
+    "no C is B",
+    "all C is not B"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"No\" indicates a universal negative - no members of the class have the property. \"C\" refers to a class of things, so use uppercase. The predicate \"B\" refers to a class/property, so use uppercase."
+}
+
+{
+  "id": "A_1.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that some Germans aren't confused",
+  "options": [
+    "not some G is C",
+    "G is C",
+    "all G is C",
+    "some G is C"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
+}
+
+--- MODULE: 02_propositional ---
+{
+  "id": "propositional",
+  "title": "Propositional Logic",
+  "pedagogy": "Learn to translate English into propositional logic using connectives like AND, OR, NOT, and IF-THEN.",
+  "order": 2
+}
+
+{
+  "id": "C_6.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both P and either L or D",
+  "options": [
+    "$ (P \\\\cdot (L \\\\vee D)) $",
+    "$ (P \\\\cdot L) \\\\vee D $",
+    "$ P \\\\cdot L \\\\vee D $",
+    "$ ((P \\\\cdot L) \\\\vee D) $"
+  ],
+  "correct": 0,
+  "hint": "Imagine P is 'Pass the exam', L is 'Learn the material', and D is 'Do extra practice'. To pass, you need to (Learn OR Do extra practice). Where do the parentheses go to group your path to success?",
+  "explanation": "Think of it like planning your success: 'I will Pass AND (Learn OR Practice)'. The parentheses show that 'Learn or Practice' is your choice of METHOD, and you ALSO commit to Passing. Without proper grouping, '(Pass AND Learn) OR Practice' means something different — you'd either (pass while learning) or just practice without committing to pass. Precision in logic = precision in planning your life."
+}
+
+{
+  "id": "C_6.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not either not B or N",
+  "options": [
+    "$ (B \\\\vee N) $",
+    "$ B \\\\vee N $",
+    "$ \\\\sim\\\\sim B \\\\vee N $",
+    "$ \\\\sim(\\\\sim B \\\\vee N) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't either smart or filthy",
+  "options": [
+    "$ \\\\sim(S \\\\vee F) $",
+    "$ \\\\sim S \\\\vee F $",
+    "$ (\\\\sim S \\\\vee \\\\sim F) $",
+    "$ (\\\\sim S \\\\vee F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't both not forgetful and confident",
+  "options": [
+    "$ (F \\\\cdot C) $",
+    "$ F \\\\cdot C $",
+    "$ \\\\sim(\\\\sim F \\\\cdot C) $",
+    "$ \\\\sim\\\\sim F \\\\cdot C $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not if not S then L",
+  "options": [
+    "$ \\\\sim(\\\\sim S \\\\supset L) $",
+    "$ \\\\sim\\\\sim S \\\\supset L $",
+    "$ S \\\\supset L $",
+    "$ (S \\\\supset L) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not either not C or L",
+  "options": [
+    "$ \\\\sim\\\\sim C \\\\vee L $",
+    "$ (C \\\\vee L) $",
+    "$ C \\\\vee L $",
+    "$ \\\\sim(\\\\sim C \\\\vee L) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're dull then you're logical, and you're persistent",
+  "options": [
+    "$ (D \\\\supset L) \\\\cdot P $",
+    "$ (D \\\\supset (L \\\\cdot P)) $",
+    "$ ((D \\\\supset L) \\\\cdot P) $",
+    "$ D \\\\supset L \\\\cdot P $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're either not mean or not curious",
+  "options": [
+    "$ (\\\\sim M \\\\vee C) $",
+    "$ \\\\sim M \\\\vee \\\\sim C $",
+    "$ (\\\\sim M \\\\vee \\\\sim C) $",
+    "$ \\\\sim(M \\\\vee \\\\sim C) $"
+  ],
+  "correct": 2,
+  "hint": "How many 'not's do you see in the sentence? Does each property get its own negation, or is the whole statement negated?",
+  "explanation": "Count the negations: 'NOT mean' and 'NOT curious' — each property is individually negated. The 'either...or' connects these two negated properties. So we get (~M ∨ ~C): 'not-mean OR not-curious'. This is different from ~(M ∨ C) which would mean 'it's false that you're mean or curious' — a much stronger claim!"
+}
+
+{
+  "id": "C_6.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both not bashful and not careful",
+  "options": [
+    "$ (\\\\sim B \\\\cdot C) $",
+    "$ \\\\sim(B \\\\cdot \\\\sim C) $",
+    "$ \\\\sim B \\\\cdot \\\\sim C $",
+    "$ (\\\\sim B \\\\cdot \\\\sim C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't both charitable and frightened",
+  "options": [
+    "$ (\\\\sim C \\\\cdot F) $",
+    "$ \\\\sim C \\\\cdot F $",
+    "$ (\\\\sim C \\\\cdot \\\\sim F) $",
+    "$ \\\\sim(C \\\\cdot F) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're bright then you're cheerful, or you're powerful",
+  "options": [
+    "$ (B \\\\supset (C \\\\vee P)) $",
+    "$ ((B \\\\supset C) \\\\vee P) $",
+    "$ B \\\\supset C \\\\vee P $",
+    "$ (B \\\\supset C) \\\\vee P $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either both W and C or D",
+  "options": [
+    "$ ((W \\\\cdot C) \\\\vee D) $",
+    "$ (W \\\\cdot (C \\\\vee D)) $",
+    "$ (W \\\\cdot C) \\\\vee D $",
+    "$ W \\\\cdot C \\\\cdot D $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're strong, then you're famous or courageous",
+  "options": [
+    "$ S \\\\supset F \\\\vee C $",
+    "$ ((S \\\\supset F) \\\\vee C) $",
+    "$ (S \\\\supset (F \\\\vee C)) $",
+    "$ (S \\\\supset F) \\\\vee C $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not if C then F",
+  "options": [
+    "$ (\\\\sim C \\\\supset F) $",
+    "$ (\\\\sim C \\\\supset \\\\sim F) $",
+    "$ \\\\sim(C \\\\supset F) $",
+    "$ \\\\sim C \\\\supset F $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're short then you're greedy, or you're hideous",
+  "options": [
+    "$ S \\\\supset G \\\\vee H $",
+    "$ (S \\\\supset G) \\\\vee H $",
+    "$ (S \\\\supset (G \\\\vee H)) $",
+    "$ ((S \\\\supset G) \\\\vee H) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't poor then you aren't beautiful",
+  "options": [
+    "$ \\\\sim(P \\\\supset \\\\sim B) $",
+    "$ \\\\sim P \\\\supset \\\\sim B $",
+    "$ (\\\\sim P \\\\supset \\\\sim B) $",
+    "$ (\\\\sim P \\\\vee B) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not B or L",
+  "options": [
+    "$ (\\\\sim B \\\\vee \\\\sim L) $",
+    "$ \\\\sim B \\\\vee L $",
+    "$ \\\\sim(B \\\\vee L) $",
+    "$ (\\\\sim B \\\\vee L) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If S, then H and L",
+  "options": [
+    "$ (S \\\\supset (H \\\\cdot L)) $",
+    "$ S \\\\supset H \\\\cdot L $",
+    "$ ((S \\\\supset H) \\\\cdot L) $",
+    "$ (S \\\\supset H) \\\\cdot L $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're tall and naive, or else dangerous",
+  "options": [
+    "$ ((T \\\\vee N) \\\\vee D) $",
+    "$ T \\\\cdot N \\\\vee D $",
+    "$ (T \\\\cdot N) \\\\vee D $",
+    "$ (T \\\\cdot (N \\\\vee D)) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "W, and D or S",
+  "options": [
+    "$ ((W \\\\cdot D) \\\\vee S) $",
+    "$ (W \\\\cdot (D \\\\vee S)) $",
+    "$ (W \\\\cdot D) \\\\vee S $",
+    "$ W \\\\cdot D \\\\vee S $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not M or B",
+  "options": [
+    "$ (\\\\sim M \\\\vee \\\\sim B) $",
+    "$ (\\\\sim M \\\\vee B) $",
+    "$ \\\\sim(M \\\\vee B) $",
+    "$ \\\\sim M \\\\vee B $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not B or not C",
+  "options": [
+    "$ (\\\\sim B \\\\vee C) $",
+    "$ \\\\sim(B \\\\vee \\\\sim C) $",
+    "$ (\\\\sim B \\\\vee \\\\sim C) $",
+    "$ \\\\sim B \\\\vee \\\\sim C $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If R then P, and C",
+  "options": [
+    "$ ((R \\\\supset P) \\\\cdot C) $",
+    "$ R \\\\supset P \\\\cdot C $",
+    "$ (R \\\\supset (P \\\\cdot C)) $",
+    "$ (R \\\\supset P) \\\\cdot C $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both R and C",
+  "options": [
+    "$ \\\\sim R \\\\cdot C $",
+    "$ (\\\\sim R \\\\cdot \\\\sim C) $",
+    "$ \\\\sim(R \\\\cdot C) $",
+    "$ (\\\\sim R \\\\cdot C) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not C or N",
+  "options": [
+    "$ \\\\sim C \\\\vee N $",
+    "$ \\\\sim(C \\\\vee N) $",
+    "$ (\\\\sim C \\\\vee \\\\sim N) $",
+    "$ (\\\\sim C \\\\vee N) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If not C then H",
+  "options": [
+    "$ \\\\sim C \\\\supset H $",
+    "$ (\\\\sim C \\\\supset H) $",
+    "$ (\\\\sim C \\\\supset \\\\sim H) $",
+    "$ \\\\sim(C \\\\supset H) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not either not W or C",
+  "options": [
+    "$ \\\\sim\\\\sim W \\\\vee C $",
+    "$ W \\\\vee C $",
+    "$ (W \\\\vee C) $",
+    "$ \\\\sim(\\\\sim W \\\\vee C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.28",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both not M and L",
+  "options": [
+    "$ (\\\\sim M \\\\cdot L) $",
+    "$ (\\\\sim M \\\\cdot \\\\sim L) $",
+    "$ \\\\sim(M \\\\cdot L) $",
+    "$ \\\\sim M \\\\cdot L $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both not miserable and not comical",
+  "options": [
+    "$ (\\\\sim M \\\\cdot C) $",
+    "$ \\\\sim M \\\\cdot \\\\sim C $",
+    "$ (\\\\sim M \\\\cdot \\\\sim C) $",
+    "$ \\\\sim(M \\\\cdot \\\\sim C) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either both R and L or N",
+  "options": [
+    "$ (R \\\\cdot (L \\\\vee N)) $",
+    "$ (R \\\\cdot L) \\\\vee N $",
+    "$ R \\\\cdot L \\\\vee N $",
+    "$ ((R \\\\cdot L) \\\\vee N) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're bright, then you're polite or demented",
+  "options": [
+    "$ (B \\\\supset P) \\\\vee D $",
+    "$ B \\\\supset P \\\\vee D $",
+    "$ ((B \\\\supset P) \\\\vee D) $",
+    "$ (B \\\\supset (P \\\\vee D)) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're smart, then you're bashful and careful",
+  "options": [
+    "$ (S \\\\supset (B \\\\cdot C)) $",
+    "$ ((S \\\\supset B) \\\\cdot C) $",
+    "$ (S \\\\supset B) \\\\cdot C $",
+    "$ S \\\\supset B \\\\cdot C $"
+  ],
+  "correct": 0,
+  "hint": "What FOLLOWS from being smart? Is it just bashfulness, or is it the combination of bashfulness AND carefulness?",
+  "explanation": "Think of it as a promise: 'IF you're smart, THEN you get BOTH bashful AND careful.' The consequence of being smart is the whole package (B · C), not just B alone. Compare option 2: '(S ⊃ B) · C' would mean 'Smart implies bashful, AND ALSO you're careful regardless' — that's a different claim! The parentheses show what belongs together."
+}
+
+{
+  "id": "C_6.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're cheap and frivolous, or else generous",
+  "options": [
+    "$ ((C \\\\cdot F) \\\\vee G) $",
+    "$ C \\\\cdot F \\\\vee G $",
+    "$ (C \\\\cdot (F \\\\vee G)) $",
+    "$ (C \\\\cdot F) \\\\vee G $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're either both wild and gentle or else cheerful",
+  "options": [
+    "$ W \\\\cdot G \\\\vee C $",
+    "$ (W \\\\cdot (G \\\\vee C)) $",
+    "$ (W \\\\cdot G) \\\\vee C $",
+    "$ ((W \\\\cdot G) \\\\vee C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't either dull or boastful",
+  "options": [
+    "$ (\\\\sim D \\\\vee \\\\sim B) $",
+    "$ (\\\\sim D \\\\vee B) $",
+    "$ \\\\sim D \\\\vee B $",
+    "$ \\\\sim(D \\\\vee B) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.36",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't both not creative and notorious",
+  "options": [
+    "$ \\\\sim(\\\\sim C \\\\cdot N) $",
+    "$ (C \\\\cdot N) $",
+    "$ \\\\sim\\\\sim C \\\\cdot N $",
+    "$ C \\\\cdot N $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not if not B then C",
+  "options": [
+    "$ \\\\sim\\\\sim B \\\\supset C $",
+    "$ B \\\\supset C $",
+    "$ \\\\sim(\\\\sim B \\\\supset C) $",
+    "$ (B \\\\supset C) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both bright and either forgetful or confident",
+  "options": [
+    "$ ((B \\\\cdot F) \\\\vee C) $",
+    "$ (B \\\\cdot F) \\\\vee C $",
+    "$ B \\\\cdot F \\\\vee C $",
+    "$ (B \\\\cdot (F \\\\vee C)) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not either W or C",
+  "options": [
+    "$ (\\\\sim W \\\\vee \\\\sim C) $",
+    "$ \\\\sim W \\\\vee C $",
+    "$ (\\\\sim W \\\\vee C) $",
+    "$ \\\\sim(W \\\\vee C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're tall, and mediocre or colorful",
+  "options": [
+    "$ (T \\\\cdot M) \\\\vee C $",
+    "$ (T \\\\cdot (M \\\\vee C)) $",
+    "$ ((T \\\\cdot M) \\\\vee C) $",
+    "$ T \\\\cdot M \\\\vee C $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If D then M, and L",
+  "options": [
+    "$ D \\\\supset M \\\\cdot L $",
+    "$ (D \\\\supset M) \\\\cdot L $",
+    "$ (D \\\\supset (M \\\\cdot L)) $",
+    "$ ((D \\\\supset M) \\\\cdot L) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.42",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both L and N",
+  "options": [
+    "$ (\\\\sim L \\\\cdot \\\\sim N) $",
+    "$ \\\\sim L \\\\cdot N $",
+    "$ \\\\sim(L \\\\cdot N) $",
+    "$ (\\\\sim L \\\\cdot N) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not B or P",
+  "options": [
+    "$ \\\\sim(B\\\\, \\\\vee P) $",
+    "$ \\\\sim B \\\\vee P $",
+    "$ (\\\\sim B \\\\vee P) $",
+    "$ (\\\\sim B \\\\vee \\\\sim P) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both not sarcastic and not bashful",
+  "options": [
+    "$ (\\\\sim S \\\\cdot B) $",
+    "$ (\\\\sim S \\\\cdot \\\\sim B) $",
+    "$ \\\\sim(S \\\\cdot \\\\sim B) $",
+    "$ \\\\sim S \\\\cdot \\\\sim B $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If C then S, and B",
+  "options": [
+    "$ (C \\\\supset S) \\\\cdot B $",
+    "$ (C \\\\supset (S \\\\cdot B)) $",
+    "$ C \\\\supset S \\\\cdot B $",
+    "$ ((C \\\\supset S) \\\\cdot B) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're strong then you're talented, or you're cautious",
+  "options": [
+    "$ (S \\\\supset T) \\\\vee C $",
+    "$ (S \\\\supset (T \\\\vee C)) $",
+    "$ S \\\\supset T \\\\vee C $",
+    "$ ((S \\\\supset T) \\\\vee C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't tall then you aren't frightened",
+  "options": [
+    "$ (\\\\sim T \\\\supset \\\\sim F) $",
+    "$ \\\\sim(T \\\\supset \\\\sim F) $",
+    "$ \\\\sim T \\\\supset \\\\sim F $",
+    "$ (\\\\sim T \\\\supset F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both not P and not B",
+  "options": [
+    "$ \\\\sim P \\\\cdot \\\\sim B $",
+    "$ \\\\sim(P \\\\cdot \\\\sim B) $",
+    "$ (\\\\sim P \\\\cdot \\\\sim B) $",
+    "$ (\\\\sim P \\\\cdot B) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If P, then C or D",
+  "options": [
+    "$ (P \\\\supset (C \\\\vee D)) $",
+    "$ ((P \\\\supset C) \\\\vee D) $",
+    "$ P \\\\supset C \\\\vee D $",
+    "$ (P \\\\supset C) \\\\vee D $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both not C and F",
+  "options": [
+    "$ \\\\sim C \\\\cdot F $",
+    "$ (\\\\sim C \\\\cdot \\\\sim F) $",
+    "$ \\\\sim(C \\\\cdot F) $",
+    "$ (\\\\sim C \\\\cdot F) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.51",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't tough then you're greedy",
+  "options": [
+    "$ (\\\\sim T \\\\supset G) $",
+    "$ \\\\sim T \\\\supset G $",
+    "$ (\\\\sim T \\\\supset \\\\sim G) $",
+    "$ \\\\sim(T \\\\supset G) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.52",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're weak and hideous, then you're candid",
+  "options": [
+    "$ W \\\\cdot H \\\\supset C $",
+    "$ (W \\\\cdot (H \\\\supset C)) $",
+    "$ ((W \\\\cdot H) \\\\supset C) $",
+    "$ (W \\\\cdot H) \\\\supset C $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.53",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't both not fortunate and loveable",
+  "options": [
+    "$ F \\\\cdot L $",
+    "$ (F \\\\cdot L) $",
+    "$ \\\\sim(\\\\sim F \\\\cdot L) $",
+    "$ \\\\sim\\\\sim F \\\\cdot L $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.54",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're cruel and lonely, or else humorous",
+  "options": [
+    "$ ((C \\\\cdot L) \\\\vee H) $",
+    "$ (C \\\\cdot L) \\\\vee H $",
+    "$ C \\\\cdot L \\\\vee H $",
+    "$ (C \\\\cdot (L \\\\vee H)) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.55",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If P, then D and N",
+  "options": [
+    "$ P \\\\supset D \\\\cdot N $",
+    "$ ((P \\\\supset D) \\\\cdot N) $",
+    "$ (P \\\\supset D) \\\\cdot N $",
+    "$ (P \\\\supset (D \\\\cdot N)) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.56",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not if R then C",
+  "options": [
+    "$ (\\\\sim R \\\\supset \\\\sim C) $",
+    "$ \\\\sim R \\\\supset C $",
+    "$ \\\\sim(R \\\\supset C) $",
+    "$ (\\\\sim R \\\\supset C) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.57",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It is false that if you aren't bright then you're careful",
+  "options": [
+    "$ B \\\\supset C $",
+    "$ \\\\sim(\\\\sim B \\\\supset C) $",
+    "$ (B \\\\supset C) $",
+    "$ \\\\sim\\\\sim B \\\\supset C $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.58",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're either tough and cautious or else frivolous",
+  "options": [
+    "$ (T \\\\cdot C) \\\\vee F $",
+    "$ (T \\\\cdot (C \\\\vee F)) $",
+    "$ T \\\\cdot C \\\\vee F $",
+    "$ ((T \\\\cdot C) \\\\vee F) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.59",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're both weak and either charming or prosperous",
+  "options": [
+    "$ (W \\\\cdot (C \\\\vee P)) $",
+    "$ (W \\\\cdot C) \\\\vee P $",
+    "$ W \\\\cdot C \\\\vee P $",
+    "$ ((W \\\\cdot C) \\\\vee P) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.60",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're tall then you're realistic, and you're boastful",
+  "options": [
+    "$ T \\\\supset R \\\\cdot B $",
+    "$ (T \\\\supset (R \\\\cdot B)) $",
+    "$ (T \\\\supset R) \\\\cdot B $",
+    "$ ((T \\\\supset R) \\\\cdot B) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.61",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're clean then you're powerful, or you're lively",
+  "options": [
+    "$ ((C \\\\supset P) \\\\vee L) $",
+    "$ C \\\\supset P \\\\vee L $",
+    "$ (C \\\\supset P) \\\\vee L $",
+    "$ (C \\\\supset (P \\\\vee L)) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.62",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're short, and creative or dishonest",
+  "options": [
+    "$ (S \\\\cdot C) \\\\vee D $",
+    "$ (S \\\\cdot (C \\\\vee D)) $",
+    "$ S \\\\cdot C \\\\vee D $",
+    "$ ((S \\\\cdot C) \\\\vee D) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Only if S, B",
+  "options": [
+    "$ (B \\\\supset S) $",
+    "$ (S \\\\equiv B) $",
+    "$ (S \\\\supset B) $",
+    "$ S \\\\supset B $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "S is necessary and sufficient for C",
+  "options": [
+    "$ S \\\\equiv C $",
+    "$ (C \\\\supset S) $",
+    "$ (S \\\\equiv C) $",
+    "$ (S \\\\supset B) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "S is sufficient for G",
+  "options": [
+    "$ (\\\\sim S \\\\supset \\\\, \\\\sim G) $",
+    "$ (S \\\\equiv G) $",
+    "$ (S \\\\supset G) $",
+    "$ S \\\\supset G $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "B just if G",
+  "options": [
+    "$ (G \\\\supset B) $",
+    "$ (B \\\\equiv G) $",
+    "$ B \\\\equiv G $",
+    "$ (B \\\\supset G) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both C and P",
+  "options": [
+    "$ (\\\\sim C \\\\cdot \\\\sim P) $",
+    "$ \\\\sim C \\\\cdot P $",
+    "$ \\\\sim(C \\\\cdot P) $",
+    "$ (\\\\sim C \\\\cdot P) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "D is necessary and sufficient for C",
+  "options": [
+    "$ (C \\\\supset D) $",
+    "$ (D \\\\equiv C) $",
+    "$ (D \\\\supset C) $",
+    "$ D \\\\equiv C $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being wild is sufficient for you to be childish",
+  "options": [
+    "$ (W \\\\supset C) $",
+    "$ W \\\\supset C $",
+    "$ (W \\\\equiv C) $",
+    "$ (\\\\sim W \\\\supset \\\\, \\\\sim C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're short just if you're bitter",
+  "options": [
+    "$ S \\\\equiv B $",
+    "$ (S \\\\supset B) $",
+    "$ (S \\\\equiv B) $",
+    "$ (B \\\\supset S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both H and F",
+  "options": [
+    "$ \\\\sim H \\\\cdot F $",
+    "$ (\\\\sim H \\\\cdot \\\\, \\\\sim F) $",
+    "$ \\\\sim(H \\\\cdot F) $",
+    "$ (\\\\sim H \\\\cdot F) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both not C and B",
+  "options": [
+    "$ \\\\sim(C \\\\cdot B) $",
+    "$ (\\\\sim C \\\\cdot \\\\, \\\\sim B) $",
+    "$ \\\\sim C \\\\cdot B $",
+    "$ (\\\\sim C \\\\cdot B) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being slow is sufficient for you to be frantic",
+  "options": [
+    "$ S \\\\supset F $",
+    "$ (S \\\\equiv F) $",
+    "$ (S \\\\supset F) $",
+    "$ (\\\\sim S \\\\supset \\\\, \\\\sim F) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "S just if M",
+  "options": [
+    "$ (S \\\\equiv M) $",
+    "$ S \\\\equiv M $",
+    "$ (M \\\\supset S) $",
+    "$ (S \\\\supset M) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both L and D",
+  "options": [
+    "$ \\\\sim (L \\\\cdot D) $",
+    "$ \\\\sim L \\\\cdot D $",
+    "$ (\\\\sim L \\\\cdot \\\\, \\\\sim D) $",
+    "$ (\\\\sim L \\\\cdot D) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both not N and P",
+  "options": [
+    "$ (\\\\sim N \\\\cdot P) $",
+    "$ \\\\sim N \\\\cdot P $",
+    "$ (\\\\sim N \\\\cdot \\\\, \\\\sim P) $",
+    "$ \\\\sim (N \\\\cdot P) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Being wild is sufficient for you to be dangerous",
+  "options": [
+    "$ (W \\\\equiv D) $",
+    "$ (\\\\sim W \\\\supset \\\\, \\\\sim D) $",
+    "$ (W \\\\supset D) $",
+    "$ W \\\\supset D $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're curious unless you're mean",
+  "options": [
+    "$ (C \\\\supset \\\\, \\\\sim M) $",
+    "$ (C \\\\vee M) $",
+    "$ C \\\\equiv M $",
+    "$ (C \\\\equiv M) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not both S and C",
+  "options": [
+    "$ \\\\sim (S \\\\cdot C) $",
+    "$ (\\\\sim S \\\\cdot C) $",
+    "$ (\\\\sim S \\\\cdot \\\\, \\\\sim C) $",
+    "$ \\\\sim S \\\\cdot C $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're rough if you're scholarly",
+  "options": [
+    "$ (R \\\\equiv S) $",
+    "$ (S \\\\supset R) $",
+    "$ R \\\\supset S $",
+    "$ (R \\\\supset S) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "B is sufficient for G",
+  "options": [
+    "$ B \\\\supset G $",
+    "$ (B \\\\equiv G) $",
+    "$ (B \\\\supset G) $",
+    "$ (\\\\sim B \\\\supset \\\\, \\\\sim G) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're frightened unless you're slow",
+  "options": [
+    "$ (F \\\\equiv S) $",
+    "$ (F \\\\supset \\\\, \\\\sim S) $",
+    "$ F \\\\equiv S $",
+    "$ (F \\\\vee S) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "T only if C",
+  "options": [
+    "$ (T \\\\equiv C) $",
+    "$ (T \\\\supset C) $",
+    "$ T \\\\supset C $",
+    "$ (C \\\\supset T) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "D if C",
+  "options": [
+    "$ (D \\\\supset C) $",
+    "$ D \\\\supset C $",
+    "$ (D \\\\equiv C) $",
+    "$ (C \\\\supset D) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "M is sufficient for F",
+  "options": [
+    "$ M \\\\supset F $",
+    "$ (M \\\\supset F) $",
+    "$ (M \\\\equiv F) $",
+    "$ (\\\\sim M \\\\supset \\\\, \\\\sim F) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "G iff F",
+  "options": [
+    "$ (F \\\\supset G) $",
+    "$ (G \\\\supset F) $",
+    "$ G \\\\equiv F $",
+    "$ (G \\\\equiv F) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're rough only if you're selfish",
+  "options": [
+    "$ (R \\\\equiv S) $",
+    "$ R \\\\supset S $",
+    "$ (R \\\\supset S) $",
+    "$ (S \\\\supset R) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're bright if you're mediocre",
+  "options": [
+    "$ (M \\\\supset B) $",
+    "$ (B \\\\equiv M) $",
+    "$ (B \\\\supset M) $",
+    "$ B \\\\supset M $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "T is necessary for C",
+  "options": [
+    "$ (T \\\\equiv C) $",
+    "$ (T \\\\supset C) $",
+    "$ T \\\\supset C $",
+    "$ (\\\\sim T \\\\supset \\\\, \\\\sim C) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.28",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're polite iff you're nervous",
+  "options": [
+    "$ P \\\\equiv N $",
+    "$ (P \\\\equiv N) $",
+    "$ (P \\\\supset N ) $",
+    "$ (N \\\\supset P) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "C only if D",
+  "options": [
+    "$ C \\\\supset D $",
+    "$ (D \\\\supset C) $",
+    "$ (C \\\\supset D) $",
+    "$ (C \\\\equiv D) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're cruel if you're terrified",
+  "options": [
+    "$ (T \\\\supset C) $",
+    "$ (C \\\\equiv T) $",
+    "$ C \\\\supset T $",
+    "$ (C \\\\supset T) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't mean then you aren't careful",
+  "options": [
+    "$ (\\\\sim M \\\\supset C) $",
+    "$ (\\\\sim M \\\\supset \\\\, \\\\sim C) $",
+    "$ \\\\sim(M \\\\supset \\\\, \\\\sim C) $",
+    "$ \\\\sim M \\\\supset \\\\, \\\\sim C $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "F iff C",
+  "options": [
+    "$ F \\\\equiv C $",
+    "$ (F \\\\supset C) $",
+    "$ (F \\\\equiv C) $",
+    "$ (C \\\\supset F) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "T only if G",
+  "options": [
+    "$ (G \\\\supset T) $",
+    "$ T \\\\supset G $",
+    "$ (T \\\\equiv G) $",
+    "$ (T \\\\supset G) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If C then R, and B",
+  "options": [
+    "$ (C \\\\supset (R \\\\cdot B)) $",
+    "$ (C \\\\supset R) \\\\cdot B $",
+    "$ ((C \\\\supset R) \\\\cdot B) $",
+    "$ C \\\\supset R \\\\cdot B $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either not W or not P",
+  "options": [
+    "$ \\\\sim(W \\\\vee \\\\, \\\\sim P) $",
+    "$ (\\\\sim W \\\\vee \\\\, \\\\sim P) $",
+    "$ \\\\sim W \\\\vee \\\\, \\\\sim P $",
+    "$ (\\\\sim W \\\\vee P) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.36",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "F iff N",
+  "options": [
+    "$ (N \\\\supset F) $",
+    "$ F \\\\equiv N $",
+    "$ (F \\\\supset N) $",
+    "$ (F \\\\equiv N) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "C is necessary and sufficient for R",
+  "options": [
+    "$ C \\\\equiv R $",
+    "$ (R \\\\supset C) $",
+    "$ (C \\\\supset R) $",
+    "$ (C \\\\equiv R) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not either not B or C",
+  "options": [
+    "$ \\\\sim(\\\\sim B \\\\vee C) $",
+    "$ B \\\\vee C $",
+    "$ \\\\sim \\\\sim B \\\\vee C $",
+    "$ (B \\\\vee C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you aren't tough then you aren't lonely",
+  "options": [
+    "$ (\\\\sim T \\\\supset \\\\, \\\\sim L) $",
+    "$ (\\\\sim T \\\\supset L) $",
+    "$ \\\\sim T \\\\supset L $",
+    "$ \\\\sim (T \\\\supset L) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're humorous provided that you're miserable",
+  "options": [
+    "$ (H \\\\equiv M) $",
+    "$ (H \\\\supset M) $",
+    "$ (M \\\\supset H) $",
+    "$ H \\\\supset M $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're strong, then you're naive or persistent",
+  "options": [
+    "$ (S \\\\supset (N \\\\vee P)) $",
+    "$ S \\\\supset N \\\\vee P $",
+    "$ (S \\\\supset N) \\\\vee P $",
+    "$ ((S \\\\supset N) \\\\vee P) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.42",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're clean then you're demented, or you're terrified",
+  "options": [
+    "$ ((C \\\\supset D) \\\\vee T) $",
+    "$ (C \\\\supset (D \\\\vee T)) $",
+    "$ C \\\\supset D \\\\vee T $",
+    "$ (C \\\\supset D) \\\\vee T $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Provided that T, S",
+  "options": [
+    "$ T \\\\supset S $",
+    "$ (T \\\\equiv S) $",
+    "$ (T \\\\supset S) $",
+    "$ (S \\\\supset T) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're mean and cautious, or else frivolous",
+  "options": [
+    "$ (M \\\\cdot C) \\\\vee F $",
+    "$ ((M \\\\cdot C) \\\\vee F) $",
+    "$ (M \\\\cdot (C \\\\vee F)) $",
+    "$ M \\\\cdot C \\\\vee F $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Unless you're frightened, you're rough",
+  "options": [
+    "$ (F \\\\supset \\\\, \\\\sim R) $",
+    "$ (F \\\\equiv R) $",
+    "$ (F \\\\vee R) $",
+    "$ F \\\\equiv R $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You aren't either smart or realistic",
+  "options": [
+    "$ (\\\\sim S \\\\vee \\\\, \\\\sim R) $",
+    "$ (\\\\sim S \\\\vee R) $",
+    "$ \\\\sim (S \\\\vee R) $",
+    "$ \\\\sim S \\\\vee R $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Both not R and D",
+  "options": [
+    "$ \\\\sim(R \\\\cdot D) $",
+    "$ (\\\\sim R \\\\cdot \\\\, \\\\sim D) $",
+    "$ \\\\sim R \\\\cdot D $",
+    "$ (\\\\sim R \\\\cdot D) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'not' is represented by ~ (negation). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "T is sufficient for F",
+  "options": [
+    "$ (\\\\sim T \\\\supset \\\\, \\\\sim F) $",
+    "$ (T \\\\supset F) $",
+    "$ (T \\\\equiv F) $",
+    "$ T \\\\supset F $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're either both dull and famous or else courageous",
+  "options": [
+    "$ ((D \\\\cdot F) \\\\vee C) $",
+    "$ (D \\\\cdot F) \\\\vee C $",
+    "$ D \\\\cdot F \\\\vee C $",
+    "$ (D \\\\cdot (F \\\\vee C)) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're bitter unless you're short",
+  "options": [
+    "$ (B \\\\equiv S) $",
+    "$ B \\\\equiv S $",
+    "$ (B \\\\supset \\\\, \\\\sim S) $",
+    "$ (B \\\\vee S) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In propositional logic: 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.51",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're rich just if you're hideous",
+  "options": [
+    "$ R \\\\equiv H $",
+    "$ (R \\\\equiv H) $",
+    "$ (R \\\\supset H) $",
+    "$ (H \\\\supset R) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'if and only if' is represented by ≡ (biconditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+{
+  "id": "C_6.52",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're bold, then you're candid and selfish",
+  "options": [
+    "$ (B \\\\supset C) \\\\cdot S $",
+    "$ (B \\\\supset (C \\\\cdot S)) $",
+    "$ B \\\\supset C \\\\cdot S $",
+    "$ ((B \\\\supset C) \\\\cdot S) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'if...then' is represented by ⊃ (conditional). Pay attention to the scope of operators - parentheses matter!"
+}
+
+--- MODULE: 03_modal ---
+{
+  "id": "modal",
+  "title": "Modal Logic",
+  "pedagogy": "Learn to translate statements about possibility and necessity using modal operators.",
+  "order": 3
+}
+
+{
+  "id": "J_4.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't possible that you're careful",
+  "options": [
+    "$ \\\\sim \\\\lozenge (C) $",
+    "$ \\\\sim (\\\\lozenge C) $",
+    "$ \\\\sim \\\\lozenge C $",
+    "$ \\\\lozenge \\\\sim C $"
+  ],
+  "correct": 2,
+  "hint": "Think of possibility like doorways to other worlds. Is this sentence saying 'There is NO doorway to a world where you are careful' or 'There IS a doorway to a world where you are NOT careful'?",
+  "explanation": "When we say 'It isn't possible that X', we're closing ALL doors to worlds where X happens. The negation (∼) comes BEFORE the possibility diamond (◊), giving us ∼◊C. Compare this to ◊∼C which means 'It IS possible that you're NOT careful' — that's saying a door exists to a world of carelessness, not that all doors to carefulness are closed!"
+}
+
+{
+  "id": "J_4.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If B is necessary then C is necessary",
+  "options": [
+    "$ \\\\square (B \\\\supset \\\\square C) $",
+    "$ (\\\\square B \\\\supset \\\\square C) $",
+    "$ \\\\square B \\\\supset \\\\square C $",
+    "$ \\\\square (B \\\\supset C) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's necessary that S is possible",
+  "options": [
+    "$ \\\\square S $",
+    "$ (\\\\square \\\\lozenge S) $",
+    "$ \\\\square \\\\lozenge S $",
+    "$ \\\\square(\\\\lozenge S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Madonna couldn't be powerful",
+  "options": [
+    "$ \\\\lozenge \\\\sim P $",
+    "$ \\\\sim \\\\lozenge P $",
+    "$ \\\\sim (\\\\lozenge P) $",
+    "$ \\\\sim \\\\lozenge (P) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "D is true",
+  "options": [
+    "$ \\\\square D $",
+    "$ D $",
+    "$ \\\\square (D) $",
+    "$ (\\\\square (D)) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't necessary that N is true",
+  "options": [
+    "$ \\\\sim \\\\square (N) $",
+    "$ \\\\sim (\\\\square N) $",
+    "$ \\\\square \\\\sim N $",
+    "$ \\\\sim \\\\square N $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It isn't possible that F",
+  "options": [
+    "$ \\\\lozenge \\\\sim F $",
+    "$ \\\\sim \\\\lozenge F $",
+    "$ \\\\sim (\\\\lozenge F) $",
+    "$ \\\\sim \\\\lozenge (F) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're mean' is consistent with 'You're bitter'",
+  "options": [
+    "$ (M \\\\cdot B) $",
+    "$ (\\\\lozenge M \\\\cdot B) $",
+    "$ \\\\lozenge (M \\\\cdot B) $",
+    "$ (\\\\lozenge M \\\\cdot B) $"
+  ],
+  "correct": 2,
+  "hint": "What does 'consistent' mean in logic? Is it saying both ARE true, or that both COULD BE true together?",
+  "explanation": "Two statements are 'consistent' if there's a possible world where BOTH are true simultaneously. The diamond (◇) means 'possibly'. So ◇(M · B) says: 'It's POSSIBLE that (you're mean AND you're bitter).' This is weaker than just (M · B), which would claim they ARE both true. Consistency is about possibility, not actuality."
+}
+
+{
+  "id": "J_4.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "P doesn't entail S",
+  "options": [
+    "Ambiguous between 2 & 4",
+    "$ (P \\\\supset \\\\square \\\\sim S) $",
+    "$ \\\\sim \\\\square (P \\\\supset S) $",
+    "$ \\\\square (P \\\\supset \\\\sim S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Peter could be forgetful",
+  "options": [
+    "$ (\\\\lozenge (F)) $",
+    "$ \\\\lozenge F $",
+    "$ \\\\lozenge (F) $",
+    "$ (\\\\lozenge F) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "C is consistent with B",
+  "options": [
+    "$ (\\\\lozenge C \\\\cdot \\\\lozenge B) $",
+    "$ \\\\lozenge (C \\\\cdot B) $",
+    "$ (C \\\\cdot B) $",
+    "$ (\\\\lozenge C \\\\cdot B) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If Jim is a politician, then Jim couldn't be bold",
+  "options": [
+    "$ (P \\\\supset \\\\square \\\\sim B) $",
+    "$ \\\\square (P \\\\supset \\\\sim B) $",
+    "$ \\\\square P \\\\supset \\\\sim B $",
+    "Ambiguous between 1 & 2"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "F is self-contradictory",
+  "options": [
+    "$ \\\\sim \\\\lozenge F $",
+    "$ \\\\lozenge \\\\sim F $",
+    "$ \\\\sim \\\\lozenge (F) $",
+    "$ \\\\sim (\\\\lozenge F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're smart' is consistent with 'You're gloomy'",
+  "options": [
+    "$ (S \\\\cdot G) $",
+    "$ \\\\lozenge (S \\\\cdot G) $",
+    "$ (\\\\lozenge S \\\\cdot \\\\lozenge G) $",
+    "$ (\\\\lozenge S \\\\cdot G) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Necessarily, if you're a biologist then you're cruel",
+  "options": [
+    "$ \\\\square (B \\\\supset C) $",
+    "Ambiguous between 1 & 4",
+    "$ \\\\square B \\\\supset C $",
+    "$ (B \\\\supset \\\\square C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "M is consistent with D",
+  "options": [
+    "$ (M \\\\cdot D) $",
+    "$ (\\\\lozenge M \\\\cdot D) $",
+    "$ (\\\\lozenge M \\\\cdot \\\\lozenge D) $",
+    "$ \\\\lozenge (M \\\\cdot D) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're a convict, then it's necessary that you're bold",
+  "options": [
+    "$ \\\\square (C \\\\supset B) $",
+    "Ambiguous between 1 & 3",
+    "$ (C \\\\supset \\\\square B) $",
+    "$ \\\\square C \\\\supset B $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If D is true, then S couldn't be true",
+  "options": [
+    "$ \\\\square (D \\\\supset \\\\sim S) $",
+    "$ \\\\square D \\\\supset \\\\sim S $",
+    "Ambiguous between 1 & 4",
+    "$ (D \\\\supset \\\\square \\\\sim S) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Necessarily, if you're a dentist then you're tough",
+  "options": [
+    "$ (D \\\\supset \\\\square T) $",
+    "$ \\\\square D \\\\supset T $",
+    "Ambiguous between 1 & 4",
+    "$ \\\\square (D \\\\supset T) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If C is necessary then S is necessary",
+  "options": [
+    "$ \\\\square (C \\\\supset S) $",
+    "$ \\\\square (C \\\\supset \\\\square S) $",
+    "$ \\\\square C \\\\supset \\\\square S $",
+    "$ (\\\\square C \\\\supset \\\\square S) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If Einstein is a foreigner, then Einstein must be clean",
+  "options": [
+    "Ambiguous between 2 & 4",
+    "$ (F \\\\supset \\\\square C) $",
+    "$ \\\\square F \\\\supset C $",
+    "$ \\\\square (F \\\\supset C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.28",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If D is true, then C couldn't be true",
+  "options": [
+    "Ambiguous between 2 & 3",
+    "$ (D \\\\supset \\\\square \\\\sim C) $",
+    "$ \\\\square (D \\\\supset \\\\sim C) $",
+    "$ \\\\square D \\\\supset \\\\sim C $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "C entails M",
+  "options": [
+    "$ (C \\\\supset \\\\square M) $",
+    "$ \\\\square (C \\\\supset M) $",
+    "Ambiguous between 1 & 2",
+    "$ \\\\square C \\\\supset M $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If F is necessary then P is necessary",
+  "options": [
+    "$ (\\\\square F \\\\supset \\\\square P) $",
+    "$ \\\\square (F \\\\supset \\\\square P) $",
+    "$ \\\\square F \\\\supset \\\\square P $",
+    "$ \\\\square (F \\\\supset P) $"
+  ],
+  "correct": 0,
+  "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessary things?",
+  "explanation": "This sentence connects two necessity claims with a regular 'if...then': 'IF (F is necessary) THEN (P is necessary)'. Each □ attaches to its own proposition. So: (□F ⊃ □P). Compare to □(F ⊃ P) which would mean 'it's necessary that F implies P' — a claim about the necessity of the implication itself, not about F and P each being necessary."
+}
+
+{
+  "id": "J_4.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It must be that you aren't cowardly",
+  "options": [
+    "$ \\\\sim \\\\square (C) $",
+    "$ \\\\square \\\\sim C $",
+    "$ (\\\\square \\\\sim C) $",
+    "$ \\\\sim \\\\square C $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Necessarily, if you're a customer then you're strong",
+  "options": [
+    "$ \\\\square (C \\\\supset S) $",
+    "$ \\\\square C \\\\supset S $",
+    "Ambiguous between 1 & 4",
+    "$ (C \\\\supset \\\\square S) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Either P is necessary or C is necessary",
+  "options": [
+    "$ \\\\square (P \\\\vee \\\\square C) $",
+    "$ (\\\\square P \\\\vee \\\\square C) $",
+    "$ \\\\square P \\\\vee \\\\square C $",
+    "$ \\\\square (P \\\\vee C) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It must be that you aren't filthy",
+  "options": [
+    "$ \\\\square \\\\sim F $",
+    "$ \\\\sim \\\\square F $",
+    "$ (\\\\square \\\\sim F) $",
+    "$ \\\\sim \\\\square (F) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "P is true",
+  "options": [
+    "$ \\\\square P $",
+    "$ \\\\square (P) $",
+    "$ P $",
+    "$ (\\\\square (P)) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's necessary that H is false",
+  "options": [
+    "$ (\\\\square \\\\sim H) $",
+    "$ \\\\square \\\\sim H $",
+    "$ \\\\sim \\\\square (H) $",
+    "$ \\\\sim \\\\square H $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's necessary that someone is B",
+  "options": [
+    "$ \\\\square ((\\\\exists x)Bx) $",
+    "$ (\\\\exists x)(\\\\square Bx) $",
+    "$ \\\\square (\\\\exists x)Bx $",
+    "$ (\\\\exists x)\\\\square Bx $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's possible that someone is D",
+  "options": [
+    "$ (\\\\exists x)(\\\\lozenge Dx) $",
+    "$ \\\\lozenge (\\\\exists x)Dx $",
+    "$ (\\\\exists x)\\\\lozenge Dx $",
+    "$ \\\\lozenge ((\\\\exists x)Dx) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Someone has the property of being necessarily strong",
+  "options": [
+    "$ (\\\\exists x)\\\\square Sx $",
+    "$ \\\\square (\\\\exists x)Sx $",
+    "$ \\\\square ((\\\\exists x)Sx) $",
+    "$ (\\\\exists x)(\\\\square Sx) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "J_4.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Not being miserable is a necessary property of Sally",
+  "options": [
+    "$ \\\\square \\\\sim Ms $",
+    "$ (\\\\square \\\\sim Ms) $",
+    "$ \\\\square (\\\\sim Ms) $",
+    "$ \\\\sim M \\\\square s $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+--- MODULE: 04_deontic ---
+{
+  "id": "deontic",
+  "title": "Deontic Logic",
+  "pedagogy": "Learn to translate statements about obligation, permission, and prohibition.",
+  "order": 4
+}
+
+{
+  "id": "L_12.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Defeat Tom",
+  "options": [
+    "$ D\\\\underline{t} $",
+    "$ OD\\\\underline{u}t $",
+    "$ D\\\\underline{u} t $",
+    "$ Dut $"
+  ],
+  "correct": 2,
+  "hint": "Who is doing the defeating here? The underline marks the AGENT — the one performing the action. Look for who is commanded to act.",
+  "explanation": "In deontic logic, the underlined term marks the AGENT — the person who must perform the action. 'Defeat Tom' is a command to YOU (the listener, represented by 'u'). So we write D with 'u' underlined as the agent, and 't' (Tom) as the one being defeated. The underline is like pointing a finger: 'YOU do this!'"
+}
+
+{
+  "id": "L_12.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sing, Tom",
+  "options": [
+    "$ OS\\\\underline{t} $",
+    "$ S\\\\underline{t} $",
+    "$ St $",
+    "$ S\\\\underline{u}t $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You're praying but don't pray",
+  "options": [
+    "$ \\\\lozenge (Pu\\\\cdot \\\\sim Pu) $",
+    "$ \\\\lozenge (Pu\\\\cdot \\\\sim P\\\\underline{u} ) $",
+    "$ (\\\\lozenge Pu\\\\cdot \\\\sim P\\\\underline{u} ) $",
+    "$ (Pu\\\\cdot \\\\sim P\\\\underline{u} ) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't distrub Tom",
+  "options": [
+    "$ \\\\sim D\\\\underline{t} $",
+    "$ \\\\sim Dut $",
+    "$ \\\\sim D\\\\underline{u} t $",
+    "$ O\\\\sim D\\\\underline{u} t $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Insult Donna",
+  "options": [
+    "$ Iud $",
+    "$ Oi\\\\underline{u} d $",
+    "$ I\\\\underline{u} d $",
+    "$ I\\\\underline{d} $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Harm Donna",
+  "options": [
+    "$ H\\\\underline{u} d $",
+    "$ OH\\\\underline{u} d $",
+    "$ Hud $",
+    "$ H\\\\underline{d} $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Flirt only if you laugh",
+  "options": [
+    "$ (F\\\\underline{u} \\\\supset Lu) $",
+    "$ (F\\\\underline{u} \\\\supset L\\\\underline{u} ) $",
+    "$ (OF\\\\underline{y} \\\\supset Lu ) $",
+    "$ (Fu\\\\supset Lu) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.18",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't appoint Donna",
+  "options": [
+    "$ \\\\sim A\\\\underline{d} $",
+    "$ \\\\sim Aud $",
+    "$ \\\\sim A\\\\underline{u} d $",
+    "$ O\\\\sim A\\\\underline{u} d $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that no one cheat",
+  "options": [
+    "$ \\\\sim (exists x)C\\\\underline{x} $",
+    "$ O\\\\sim (exists x)C\\\\underline{x} $",
+    "$ (\\\\exists\\\\underline{x}) Cx $",
+    "$ \\\\sim (exists x)Cx $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Invest only if you look",
+  "options": [
+    "$ (Iu\\\\supset Lu) $",
+    "$ (Ol\\\\underline{u}\\\\supset Lu) $",
+    "$ (I\\\\underline{u}\\\\supset Lu ) $",
+    "$ (I\\\\underline{u} \\\\supset L\\\\underline{u} ) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't insult Donna",
+  "options": [
+    "$ \\\\sim I\\\\underline{u} d $",
+    "$ \\\\sim I\\\\underline{d} $",
+    "$ \\\\sim Iud $",
+    "$ O\\\\sim I\\\\underline{u} d $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "I allowed someone to cheat",
+  "options": [
+    "$ (\\\\exists x)(Ix\\\\cdot C\\\\underline{x} ) $",
+    "$ (\\\\exists x)(Ix\\\\cdot Cx) $",
+    "$ (\\\\exists x)(Ix\\\\cdot C\\\\underline{x} ) $",
+    "$ (\\\\exists x)(I\\\\underline{x} \\\\cdot Cx) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.25",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sing and despair",
+  "options": [
+    "$ (S\\\\underline{u}\\\\cdot Du ) $",
+    "$ (Su\\\\cdot D\\\\underline{u} ) $",
+    "$ (S\\\\underline{u}\\\\cdot D\\\\underline{u}  ) $",
+    "$ (Su\\\\cdot Du) $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Look and conform",
+  "options": [
+    "$ (Lu\\\\cdot Cu) $",
+    "$ (L\\\\underline{u}\\\\cdot C\\\\underline{u}  ) $",
+    "$ (Lu\\\\cdot C\\\\underline{u} ) $",
+    "$ (L\\\\underline{u}\\\\cdot Cu  ) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.27",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're crying, then sing",
+  "options": [
+    "$ (Cu\\\\supset OS\\\\underline{u} ) $",
+    "$ (Cu\\\\supset S\\\\underline{u} ) $",
+    "$ (C\\\\underline{u}\\\\supset S\\\\underline{u}  ) $",
+    "$ (Cu\\\\supset Su) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.32",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that someone sing",
+  "options": [
+    "$ O(\\\\exists x)S\\\\underline{x} $",
+    "$ (\\\\exists x)Sx $",
+    "$ (\\\\exists x)S\\\\underline{x} $",
+    "$ (\\\\exists x)Sx $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Steal only if you pray",
+  "options": [
+    "$ (OS\\\\underline{u}\\\\supset Pu ) $",
+    "$ (Su\\\\supset Pu) $",
+    "$ (S\\\\underline{u}\\\\supset P\\\\underline{u}  ) $",
+    "$ (S\\\\underline{u}\\\\supset Pu ) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.34",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'Let everyone cheer'is consistent",
+  "options": [
+    "$ \\\\lozenge (x)C\\\\underline{x} $",
+    "$ (x)C\\\\underline{x} $",
+    "$ (\\\\lozenge (x)C\\\\underline{x} ) $",
+    "$ \\\\lozenge (x)Cx $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let no one boast",
+  "options": [
+    "$ O\\\\sim (\\\\exists x)B\\\\underline{x} $",
+    "$ (\\\\exists x)Bx $",
+    "$ \\\\sim (\\\\exists x)Bx $",
+    "$ \\\\sim (\\\\exists x)B\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.38",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that someone fly",
+  "options": [
+    "$ (\\\\exists x)Fx $",
+    "$ (\\\\exists x)F\\\\underline{x} $",
+    "$ O(\\\\exists x)F\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Fx $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.39",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Bluff only if you cheer",
+  "options": [
+    "$ (B\\\\underline{u}\\\\supset C\\\\underline{u}  ) $",
+    "$ (B\\\\underline{u}\\\\supset Cu ) $",
+    "$ (OB\\\\underline{u}\\\\supset Cu ) $",
+    "$ (Bu\\\\supset Cu) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Forfeit and speak",
+  "options": [
+    "$ (F\\\\underline{u}\\\\cdot S\\\\underline{u}  ) $",
+    "$ (Fu\\\\cdot S\\\\underline{u} ) $",
+    "$ (Fu\\\\cdot Su) $",
+    "$ (F\\\\underline{u}\\\\cdot Su ) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: F represents prohibition - 'must not' or 'is forbidden to'. Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.41",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that everyone boast",
+  "options": [
+    "$ O(x)B\\\\underline{x} $",
+    "$ (x)Bx $",
+    "$ (\\\\underline{x} )Bx $",
+    "$ (x)B\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sleep, Donna",
+  "options": [
+    "$ S\\\\underline{d} $",
+    "$ S\\\\underline{u} d $",
+    "$ OS\\\\underline{d} $",
+    "$ Sd $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Would that no one steal",
+  "options": [
+    "$ (\\\\exists x)Sx $",
+    "$ O\\\\sim (\\\\exists x)S\\\\underline{x} $",
+    "$ \\\\sim (\\\\exists x)Sx $",
+    "$ \\\\sim (\\\\exists x)S\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you're sellin, then cheer",
+  "options": [
+    "$ (Su\\\\supset OC\\\\underline{u} ) $",
+    "$ (Su\\\\supset Cu) $",
+    "$ (S\\\\underline{u}\\\\supset C\\\\underline{u}  ) $",
+    "$ (Su\\\\supset C\\\\underline{u} ) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let someone despair",
+  "options": [
+    "$ O(\\\\exists x)D\\\\underline{x} $",
+    "$ (\\\\exists x)Dx $",
+    "$ (\\\\exists x)D\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Dx $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Sleep only if you laugh",
+  "options": [
+    "$ (S\\\\underline{u}\\\\supset L\\\\underline{u}  ) $",
+    "$ (S\\\\underline{u}\\\\supset Lu ) $",
+    "$ (OS\\\\underline{u}\\\\supset Lu ) $",
+    "$ (Su\\\\supset Lu) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Hurt Donna",
+  "options": [
+    "$ Hud $",
+    "$ H\\\\underline{d} $",
+    "$ OH\\\\underline{u} d $",
+    "$ H\\\\underline{u} d $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Boast and speak",
+  "options": [
+    "$ (Bu\\\\cdot S\\\\underline{u} ) $",
+    "$ (B\\\\underline{u}\\\\cdot S\\\\underline{u}  ) $",
+    "$ (Bu\\\\cdot Su) $",
+    "$ (B\\\\underline{u}\\\\cdot Su ) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You ought not to help Madonna",
+  "options": [
+    "$ O\\\\sim Hum $",
+    "$ \\\\sim H\\\\underline{u} m $",
+    "$ O\\\\sim H\\\\underline{u} m $",
+    "$ O\\\\sim Hu\\\\underline{m} $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're crying but don't cry' is consistent",
+  "options": [
+    "$ (\\\\lozenge Cu\\\\cdot \\\\sim C\\\\underline{u} ) $",
+    "$ \\\\lozenge (Cu\\\\cdot \\\\sim C\\\\underline{u} ) $",
+    "$ (Cu\\\\cdot \\\\sim C\\\\underline{u} ) $",
+    "$ \\\\lozenge (Cu\\\\cdot \\\\sim Cu) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let someone sleep",
+  "options": [
+    "$ (\\\\exists x)Sx $",
+    "$ O(\\\\exists x)S\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Sx $",
+    "$ (\\\\exists x)S\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Tom ought to pray",
+  "options": [
+    "$ OPt $",
+    "$ OP\\\\underline{t} $",
+    "$ O\\\\underline{t} $",
+    "$ P\\\\underline{t} $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "'You're selling but don't sell' is consistent",
+  "options": [
+    "$ (Su\\\\cdot 1,S\\\\underline{u} ) $",
+    "$ \\\\lozenge (Su\\\\cdot \\\\sim S\\\\underline{u} ) $",
+    "$ \\\\lozenge (Su\\\\cdot \\\\sim Su) $",
+    "$ (\\\\lozenge Su\\\\cdot \\\\sim S\\\\underline{u} ) $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Let no one talk",
+  "options": [
+    "$ \\\\sim (\\\\exists x)T\\\\underline{x} $",
+    "$ O\\\\sim (\\\\exists x)T\\\\underline{x} $",
+    "$ (\\\\exists \\\\underline{x} )Tx $",
+    "$ \\\\sim (\\\\exists x)Tx $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's required that you cry",
+  "options": [
+    "$ RC\\\\underline{u} $",
+    "$ OCu $",
+    "$ RCu $",
+    "$ OC\\\\underline{u} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+{
+  "id": "L_12.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's permissible for you to sell",
+  "options": [
+    "$ OS\\\\underline{u} $",
+    "$ RSu $",
+    "$ OSu $",
+    "$ RS\\\\underline{u} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+}
+
+--- MODULE: 05_belief ---
+{
+  "id": "belief",
+  "title": "Belief Logic",
+  "pedagogy": "Learn to translate statements about beliefs, knowledge, and propositional attitudes.",
+  "order": 5
+}
+
+{
+  "id": "N_14.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Believe that you are frivolous",
+  "options": [
+    "$ u : Fu $",
+    "$ u : F\\\\underline{u} $",
+    "$ \\\\underline{u} : Fu $",
+    "$ \\\\underline{u} : F\\\\underline{u} $"
+  ],
+  "correct": 0,
+  "hint": "Who is the one holding the belief? Where do we mark the believer in the formula? The part before the colon (:) tells us WHO believes.",
+  "explanation": "In belief logic, we write 'believer : belief-content'. Here, 'you' (u) believe that 'you are frivolous' (Fu). The 'u' before the colon identifies the BELIEVER, and 'Fu' after the colon is WHAT they believe. It's like saying 'According to you: you are frivolous.' The believer comes first!"
+}
+
+{
+  "id": "N_14.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Believe that P is false",
+  "options": [
+    "$ u:\\\\sim \\\\underline{P} $",
+    "$ \\\\underline{u} :\\\\sim \\\\underline{P} $",
+    "$ \\\\underline{u} :\\\\sim P $",
+    "$ u:\\\\sim P $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Believe that C is true",
+  "options": [
+    "$ u:C $",
+    "$ u:\\\\underline{C} $",
+    "$ \\\\underline{u} :C $",
+    "$ \\\\underline{u} :\\\\underline{C} $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't believe that C is false",
+  "options": [
+    "$ \\\\sim u:\\\\sim \\\\underline{C} $",
+    "$ \\\\sim \\\\underline{u} :\\\\sim C $",
+    "$ \\\\sim u:\\\\sim C $",
+    "$ \\\\sim \\\\underline{u} :\\\\sim \\\\underline{C} $"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Believe that C is true",
+  "options": [
+    "$ u:C $",
+    "$ \\\\underline{u} :\\\\underline{C} $",
+    "$ u:C $",
+    "$ \\\\underline{u} :C $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't believe that F is false",
+  "options": [
+    "$ \\\\sim \\\\underline{u} :\\\\sim \\\\underline{F} $",
+    "$ \\\\sim u:\\\\sim \\\\underline{F} $",
+    "$ \\\\sim \\\\underline{u}:\\\\sim F $",
+    "$ \\\\sim u:\\\\sim F $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "If you believe F, then you believe C",
+  "options": [
+    "$ (u:F\\\\supset u:C) $",
+    "$ (\\\\underline{u}:F\\\\supset \\\\underline{u}:C) $",
+    "$ (u:F\\\\supset \\\\underline{u}:C) $",
+    "$ (\\\\underline{u}:F\\\\supset u:C) $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't believe that you are confident",
+  "options": [
+    "$ \\\\sim u:Cu $",
+    "$ \\\\sim u:C\\\\underline{u} $",
+    "$ \\\\sim \\\\underline{u}:C\\\\underline{u} $",
+    "$ \\\\sim \\\\underline{u}:Cu $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want Carol to harm you",
+  "options": [
+    "$ \\\\underline{u}:Hcu $",
+    "$ u:Hcu $",
+    "$ u:H\\\\underline{c} u $",
+    "$ \\\\underline{u}:H\\\\underline{c} u $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want everyone to despair",
+  "options": [
+    "$ u:(x)D\\\\underline{x} $",
+    "$ \\\\underline{u}:(x)D\\\\underline{u} $",
+    "$ u:(x)Dx $",
+    "$ (x)x:D\\\\underline{u} $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want everyone to laugh",
+  "options": [
+    "$ \\\\underline{u} :(x)L\\\\underline{x} $",
+    "$ (x)x:L\\\\underline{u} $",
+    "$ u:(x)Lx $",
+    "$ u:(x)L\\\\underline{x} $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Don't want Keith to defraud you",
+  "options": [
+    "$ \\\\sim \\\\underline{u} :D\\\\underline{k} u $",
+    "$ \\\\sim \\\\underline{u} :Dku $",
+    "$ \\\\sim u:Dku $",
+    "$ \\\\sim u:D\\\\underline{k} u $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "You want everyone to boast",
+  "options": [
+    "$ u:(x)B\\\\underline{x} $",
+    "$ u:(x)Bx $",
+    "$ (x)x:B\\\\underline{u} $",
+    "$ \\\\underline{u} :(x)B\\\\underline{x} $"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: B represents belief - 'believes that'. The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It's evident that L and E are both true",
+  "options": [
+    "$ (O\\\\underline{u}L\\\\cdot O\\\\underline{u}:E ) $",
+    "$ (Ou:L\\\\cdot Ou:E) $",
+    "$ Ou:(L\\\\cdot E) $",
+    "$ O\\\\underline{u}:(L\\\\cdot E) $"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+{
+  "id": "N_14.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "It ins't evident to you that you're charitable",
+  "options": [
+    "$ \\\\sim Ou:Cu $",
+    "$ \\\\sim Ou:C\\\\underline{u} $",
+    "$ \\\\sim O\\\\underline{u} :Cu $",
+    "$ \\\\sim OCu $"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+}
+
+--- MODULE: 06_informal ---
+{
+  "id": "informal",
+  "title": "Definitions & Meanings",
+  "pedagogy": "Learn to identify problems with definitions: too broad, too narrow, circular, and more.",
+  "order": 6
+}
+
+{
+  "id": "Q_3.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Science is that cold and empty worship of experiments.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe Science neutrally, or does it judge Science? Would a scientist agree this captures what they do?",
+  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!"
+}
+
+{
+  "id": "Q_3.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A tent is a movable dwelling made of canvas.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (tents might be made of nylon)"
+}
+
+{
+  "id": "Q_3.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Philosophy is the study of the human condition.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1."
+}
+
+{
+  "id": "Q_3.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Logic is that dreadful discipline that analyses reasoning.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": null,
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An old person is anyone over seventy.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A game is an amusing competition between various players.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+}
+
+{
+  "id": "Q_3.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A logician is an obnoxious hair-splitter.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": null,
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A fish is an animal that lives mainly in the water.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of any water-dwelling animals that AREN'T fish? Would this definition accidentally include them?",
+  "explanation": "This definition captures TOO MUCH. Whales, dolphins, and otters all 'live mainly in water' but aren't fish. The definition fails to exclude things that shouldn't be included. A better definition would specify what MAKES something a fish (cold-blooded, gills, scales) rather than just where it lives."
+}
+
+{
+  "id": "Q_3.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A male is whatever has male reproductive organs.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 3 (and 2, if we consider castration)."
+}
+
+{
+  "id": "Q_3.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A police officer is a mere cop.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": null,
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Uncle\" means \"brother of a parent\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+}
+
+{
+  "id": "Q_3.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is a true belief that is absolutely certain.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (most knowledge is not absolutely certain)."
+}
+
+{
+  "id": "Q_3.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A bachelor is an unmarried man who weighs over 50 pounds.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 6,
+  "hint": null,
+  "explanation": "This violates 7."
+}
+
+{
+  "id": "Q_3.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Triangles are what you study in geometry.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (you study other things too)."
+}
+
+{
+  "id": "Q_3.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Architecture is frozen music.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "This violates 4."
+}
+
+{
+  "id": "Q_3.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An apple is a red fruit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A warm day is one that is over 86 degrees Fahrenheit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A university instructor is just an egghead.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": null,
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"True\" means \"proved to be true\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 and especially 3."
+}
+
+{
+  "id": "Q_3.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A chair is whatever is used as a chair.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "This violates 3."
+}
+
+{
+  "id": "Q_3.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A teacher is one who instructs children.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2."
+}
+
+{
+  "id": "Q_3.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A net is anything with interstitial vacuities.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "This violates 4."
+}
+
+{
+  "id": "Q_3.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Cars are vehicles powered by gasoline.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"God\" means \"object of ultimate concern\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Could someone's 'object of ultimate concern' be something other than God? What about career, family, or money?",
+  "explanation": "This definition is TOO BROAD. Many people's 'object of ultimate concern' might be their family, their nation, or even their career — but we wouldn't call those things 'God'. The definition captures too many things that don't fit the term. It fails to pick out what's distinctive about the concept of God."
+}
+
+{
+  "id": "Q_3.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A man is a featherless biped.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Punishment is anything unpleasant done to a person.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A king is the ruler of a country.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (consider presidents and dictators)."
+}
+
+{
+  "id": "Q_3.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is true belief.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (a true belief might be a lucky guess)."
+}
+
+{
+  "id": "Q_3.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A politician is a scoundrel involved in politics.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (some are honest) and 6."
+}
+
+{
+  "id": "Q_3.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A doctor is a man who is licensed to practice medicine.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (many doctors are women)."
+}
+
+{
+  "id": "Q_3.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A lie is a falsehood that you assert to be true.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.42",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An adolescent is a person between 9 and 19 years-old.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An adult is anyone over 17.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Philosophy is what you study in philosophy classes.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 2,
+  "hint": null,
+  "explanation": "This violates 3."
+}
+
+{
+  "id": "Q_3.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A cold day is one that is under 20 degrees Fahrenheit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An honest person is one who doesn't steal.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (consider liars who don"
+}
+
+{
+  "id": "Q_3.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Murder\" means \"killing of a human being.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (consider accidental killing)."
+}
+
+{
+  "id": "Q_3.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A liberal is a permissive do-gooder who knows nothing.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1, 2 and especially 6."
+}
+
+{
+  "id": "Q_3.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Logic is that wonderful discipline that analyses reasoning.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": null,
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Chair\" means \"what you sit on.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.51",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A conservative is an inflexible person who never thinks.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1, 2 and especially 6."
+}
+
+{
+  "id": "Q_3.52",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A wrong action is one that is against the law.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 and 2."
+}
+
+{
+  "id": "Q_3.53",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A child is anyone between 2 and 12 years old.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.55",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A kitten is a young female cat.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": null,
+  "explanation": "This violates 2 (kittens can be male)."
+}
+
+{
+  "id": "Q_3.57",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is the cognizance of a reality by an intellect.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": null,
+  "explanation": "This violates 4."
+}
+
+{
+  "id": "Q_3.58",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A bird is an animal that can fly.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1 (consider ostriches) and 2 (consider bats)."
+}
+
+{
+  "id": "Q_3.59",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Metaphysics\" means \"any sleep-inducing subject\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": null,
+  "explanation": "This violates 1, 2 and 6."
+}
+
+{
+  "id": "Q_3.60",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Tall person\" means \"person over 6 feet tall.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": null,
+  "explanation": "This violates 5."
+}
+
+=== ERA: 01_trivium ===
+{
+  "id": "trivium",
+  "title": "Basics",
+  "description": "Learn to name objects, describe properties, and express relationships.",
+  "order": 1
+}
+
+--- MODULE: 01_atomic ---
+{
+  "id": "atomic",
+  "title": "The Atomic World",
+  "pedagogy": "Properties are functions mapping individuals to Truth. A predicate applied to a constant yields a proposition.",
+  "order": 1
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 1,
+  "prompt": "Translate this observation:",
+  "template": "{ProperName} is {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Apply the adjective as a predicate to the constant."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 1,
+  "prompt": "Translate this action:",
+  "template": "{ProperName} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "An intransitive verb takes only one argument: the subject."
+}
+
+{
+  "id": "ex_03",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Which logical form represents 'Alice runs'?",
+  "options": [
+    "Runs(Alice)",
+    "Alice(Runs)",
+    "∀x(Runs(x))",
+    "Runs ∧ Alice"
+  ],
+  "correct": 0,
+  "hint": "Think of it like a function call in programming: which is the function (action), and which is the input (person)?",
+  "explanation": "In logic, predicates work like functions: Runs(Alice) means 'apply the RUNS predicate to ALICE'. The predicate (action/property) comes first, then the subject goes in parentheses. Alice(Runs) would mean 'apply Alice to Runs' — but Alice isn't a predicate! And 'Runs ∧ Alice' treats them as separate propositions, losing the connection between Alice and running."
+}
+
+--- MODULE: 02_relations ---
+{
+  "id": "relations",
+  "title": "Connections",
+  "pedagogy": "Relations bind multiple individuals. Argument order matters: Loves(a,b) differs from Loves(b,a).",
+  "order": 2
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this relationship:",
+  "template": "{ProperName} {Verb} {ProperName}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "A transitive verb creates a two-place relation: R(subject, object)."
+}
+
+{
+  "id": "ex_02",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "If 'John loves Mary' is Loves(John, Mary), what is 'Mary loves John'?",
+  "options": [
+    "Loves(Mary, John)",
+    "Loves(John, Mary)",
+    "John(Loves, Mary)",
+    "Loves(Mary) ∧ Loves(John)"
+  ],
+  "correct": 0,
+  "hint": "Argument order matters in relations. The subject comes first."
+}
+
+--- MODULE: 03_negation ---
+{
+  "id": "negation",
+  "title": "Negation",
+  "pedagogy": "Negation flips truth values. Learn where the ¬ operator belongs in logical structure.",
+  "order": 3
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negation:",
+  "template": "{ProperName} is not {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Negation wraps the entire predication: ¬P(x)."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negated action:",
+  "template": "{ProperName} does not {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Negation of an action: ¬V(subject)."
+}
+
+=== ERA: 02_quadrivium ===
+{
+  "id": "quadrivium",
+  "title": "Quantifiers",
+  "description": "Master universal and existential quantifiers that give logic its power.",
+  "order": 2
+}
+
+--- MODULE: 01_universal ---
+{
+  "id": "universal",
+  "title": "Universal Quantification",
+  "pedagogy": "The universal quantifier ∀ expresses claims about ALL members of a domain. Universal statements use → to connect restrictor and scope.",
+  "order": 1
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this universal claim:",
+  "template": "All {Noun:Plural} are {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Universal: ∀x(Restrictor(x) → Scope(x)). Use → not ∧."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this universal statement:",
+  "template": "Every {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Every N V = ∀x(N(x) → V(x))."
+}
+
+{
+  "id": "ex_03",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Why is ∀x(Dog(x) ∧ Barks(x)) WRONG for 'All dogs bark'?",
+  "options": [
+    "It claims everything is a barking dog",
+    "It uses the wrong quantifier",
+    "Dog should be lowercase",
+    "Barks should come before Dog"
+  ],
+  "correct": 0,
+  "hint": "If this logic were true, would a Cat exist in this world? Would a Table? Or would everything — cats, tables, numbers — ALL have to be barking dogs?",
+  "explanation": "The bug is using ∧ (AND) instead of → (IMPLIES). ∀x(Dog(x) ∧ Barks(x)) says 'For ALL things x: x is a Dog AND x Barks.' This forces EVERYTHING to be a barking dog — cats, tables, even you! The fix: ∀x(Dog(x) → Barks(x)) says 'For all x: IF x is a Dog, THEN x Barks.' Now cats can exist peacefully."
+}
+
+--- MODULE: 02_existential ---
+{
+  "id": "existential",
+  "title": "Existential Quantification",
+  "pedagogy": "The existential quantifier ∃ asserts that SOME member exists. Existential statements use ∧ to conjoin restrictor and scope.",
+  "order": 2
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this existential claim:",
+  "template": "Some {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Existential: ∃x(Restrictor(x) ∧ Scope(x)). Use ∧ not →."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this indefinite:",
+  "template": "A {Noun} is {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Indefinite 'a' introduces existential quantification."
+}
+
+--- MODULE: 03_scope ---
+{
+  "id": "scope",
+  "title": "Scope Ambiguity",
+  "pedagogy": "When multiple quantifiers appear, their relative scope creates ambiguity. Different scopings yield different truth conditions.",
+  "order": 3
+}
+
+{
+  "id": "ex_01",
+  "type": "ambiguity",
+  "difficulty": 4,
+  "prompt": "This sentence has two readings. Identify both:",
+  "template": "Every {Noun} {Verb} a {Noun}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "Think about 'Every person has a mother' vs 'Every citizen has a President.' In one case, each person has their OWN mother (narrow scope). In the other, everyone shares the SAME President (wide scope). Which reading applies here?"
+}
+
+=== ERA: 03_metaphysics ===
+{
+  "id": "metaphysics",
+  "title": "Modality & Time",
+  "description": "Express possibility, necessity, and temporal relationships.",
+  "order": 3
+}
+
+--- MODULE: 01_modality ---
+{
+  "id": "modality",
+  "title": "Modal Logic",
+  "pedagogy": "Possibility (◇) and necessity (□) extend logic beyond actual truth to possible truth across worlds.",
+  "order": 1
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this possibility:",
+  "template": "{ProperName} might {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Possibility uses ◇ (diamond): ◇P means P is true in some possible world."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this necessity:",
+  "template": "{ProperName} must {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Necessity uses □ (box): □P means P is true in all possible worlds."
+}
+
+--- MODULE: 02_time ---
+{
+  "id": "time",
+  "title": "Temporal Logic",
+  "pedagogy": "Past (P) and Future (F) operators locate propositions in time, enabling reasoning about change.",
+  "order": 2
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this past event:",
+  "template": "{ProperName} {Verb:Past}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Past tense uses P operator: P(V(x)) means V(x) was true at some past time."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this future event:",
+  "template": "{ProperName} will {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Future tense uses F operator: F(V(x)) means V(x) will be true at some future time."
+}
+

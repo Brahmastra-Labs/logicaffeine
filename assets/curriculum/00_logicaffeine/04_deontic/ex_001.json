@@ -10,6 +10,6 @@
     "$ Dut $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In deontic logic: Deontic operators express moral or legal requirements."
+  "hint": "Who is doing the defeating here? The underline marks the AGENT — the one performing the action. Look for who is commanded to act.",
+  "explanation": "In deontic logic, the underlined term marks the AGENT — the person who must perform the action. 'Defeat Tom' is a command to YOU (the listener, represented by 'u'). So we write D with 'u' underlined as the agent, and 't' (Tom) as the one being defeated. The underline is like pointing a finger: 'YOU do this!'"
 }

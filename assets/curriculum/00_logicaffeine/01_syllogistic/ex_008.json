@@ -10,6 +10,6 @@
     "D is H"
   ],
   "correct": 1,
-  "hint": null,
-  "explanation": "\"All\" indicates a universal statement about every member of a class. \"D\" refers to a class of things, so use uppercase. The predicate \"H\" refers to a class/property, so use uppercase."
+  "hint": "Who is doing the hating here? The detectives or the frantic people? In 'all X is Y', X is the subject doing/being something.",
+  "explanation": "Think of it as a claim about EVERY detective: 'Take any detective — that detective hates frantic people.' The subject (D for Detectives) comes first, the predicate (H for Haters-of-frantic-people) comes second. We use uppercase because we're talking about classes of people, not specific individuals like 'Sherlock'."
 }

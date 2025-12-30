@@ -10,6 +10,6 @@
     "$ \\\\square (F \\\\supset P) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Is the 'if...then' itself necessary, or is it a regular conditional connecting two necessary things?",
+  "explanation": "This sentence connects two necessity claims with a regular 'if...then': 'IF (F is necessary) THEN (P is necessary)'. Each □ attaches to its own proposition. So: (□F ⊃ □P). Compare to □(F ⊃ P) which would mean 'it's necessary that F implies P' — a claim about the necessity of the implication itself, not about F and P each being necessary."
 }

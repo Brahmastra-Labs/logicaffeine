@@ -10,6 +10,6 @@
     "$ (\\\\lozenge M \\\\cdot B) $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "What does 'consistent' mean in logic? Is it saying both ARE true, or that both COULD BE true together?",
+  "explanation": "Two statements are 'consistent' if there's a possible world where BOTH are true simultaneously. The diamond (◇) means 'possibly'. So ◇(M · B) says: 'It's POSSIBLE that (you're mean AND you're bitter).' This is weaker than just (M · B), which would claim they ARE both true. Consistency is about possibility, not actuality."
 }
