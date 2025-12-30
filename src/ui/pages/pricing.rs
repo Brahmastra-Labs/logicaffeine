@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const PRICING_STYLE: &str = r#"
 :root {
@@ -626,14 +627,9 @@ pub fn Pricing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            div { class: "pricing-container",
-                Link {
-                    class: "back-link",
-                    to: Route::Landing {},
-                    style: "align-self: flex-start; margin-bottom: 16px;",
-                    "← Back to Home"
-                }
+            MainNav { active: ActivePage::Pricing }
 
+            div { class: "pricing-container",
                 div { class: "pricing-header",
                     h1 { "Commercial Licensing" }
                     p { "Business Source License — free for individuals and small teams" }

@@ -10,6 +10,6 @@
     "$ \\\\lozenge \\\\sim C $"
   ],
   "correct": 2,
-  "hint": null,
-  "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+  "hint": "Think of possibility like doorways to other worlds. Is this sentence saying 'There is NO doorway to a world where you are careful' or 'There IS a doorway to a world where you are NOT careful'?",
+  "explanation": "When we say 'It isn't possible that X', we're closing ALL doors to worlds where X happens. The negation (∼) comes BEFORE the possibility diamond (◊), giving us ∼◊C. Compare this to ◊∼C which means 'It IS possible that you're NOT careful' — that's saying a door exists to a world of carelessness, not that all doors to carefulness are closed!"
 }

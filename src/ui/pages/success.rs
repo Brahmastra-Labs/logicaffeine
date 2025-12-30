@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{LicenseState, LicensePlan};
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const LICENSE_API_URL: &str = "https://api.logicaffeine.com/session";
 
@@ -306,6 +307,8 @@ pub fn Success() -> Element {
 
     rsx! {
         style { "{SUCCESS_STYLE}" }
+
+        MainNav { active: ActivePage::Pricing, subtitle: Some("Payment Complete"), show_nav_links: false }
 
         div { class: "success-container",
             div { class: "success-icon", "✓" }

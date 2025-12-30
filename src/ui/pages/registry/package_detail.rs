@@ -5,6 +5,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::PackageDetails;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -302,18 +303,18 @@ pub fn PackageDetail(name: String) -> Element {
     rsx! {
         style { "{DETAIL_STYLE}" }
 
+        MainNav { active: ActivePage::Registry, subtitle: Some("Package Details") }
+
         div { class: "detail-container",
             if *is_loading.read() {
                 div { class: "loading-spinner", "Loading package..." }
             } else if let Some(err) = error.read().as_ref() {
                 div { class: "error-message",
-                    Link { to: Route::Registry {}, class: "back-link", "< Back to Registry" }
                     p { "Error: {err}" }
                 }
             } else if let Some(pkg) = details.read().as_ref() {
                 // Header
                 header { class: "detail-header",
-                    Link { to: Route::Registry {}, class: "back-link", "< Back to Registry" }
                     div { class: "package-title",
                         h1 { "{pkg.name}" }
                         if pkg.verified {

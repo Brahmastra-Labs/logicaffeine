@@ -10,5 +10,6 @@
     "Runs ∧ Alice"
   ],
   "correct": 0,
-  "hint": "A predicate takes the subject as its argument."
+  "hint": "Think of it like a function call in programming: which is the function (action), and which is the input (person)?",
+  "explanation": "In logic, predicates work like functions: Runs(Alice) means 'apply the RUNS predicate to ALICE'. The predicate (action/property) comes first, then the subject goes in parentheses. Alice(Runs) would mean 'apply Alice to Runs' — but Alice isn't a predicate! And 'Runs ∧ Alice' treats them as separate propositions, losing the connection between Alice and running."
 }

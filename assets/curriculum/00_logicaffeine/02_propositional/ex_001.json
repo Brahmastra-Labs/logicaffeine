@@ -10,6 +10,6 @@
     "$ ((P \\\\cdot L) \\\\vee D) $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In propositional logic: 'and' is represented by · (conjunction). 'or' is represented by ∨ (disjunction). Pay attention to the scope of operators - parentheses matter!"
+  "hint": "Imagine P is 'Pass the exam', L is 'Learn the material', and D is 'Do extra practice'. To pass, you need to (Learn OR Do extra practice). Where do the parentheses go to group your path to success?",
+  "explanation": "Think of it like planning your success: 'I will Pass AND (Learn OR Practice)'. The parentheses show that 'Learn or Practice' is your choice of METHOD, and you ALSO commit to Passing. Without proper grouping, '(Pass AND Learn) OR Practice' means something different — you'd either (pass while learning) or just practice without committing to pass. Precision in logic = precision in planning your life."
 }

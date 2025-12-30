@@ -92,12 +92,16 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
+<<<<<<< Updated upstream
     - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
     - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
     - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
     - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
     - [End-to-End Tests](#end-to-end-tests)
+=======
+    - [Phase 42: Discourse Representation Structure](#phase-42-discourse-representation-structure)
+>>>>>>> Stashed changes
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1678,6 +1682,7 @@ add_test_description "tests/phase41_event_adjectives.rs" \
     "Olga is a beautiful dancer. → Intersective + Event readings"
 
 add_test_description "tests/phase42_drs.rs" \
+<<<<<<< Updated upstream
     "Phase 42: Discourse Representation Structures" \
     "Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries." \
     "Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))"
@@ -1779,6 +1784,12 @@ add_test_description "tests/e2e_variables.rs" \
     "Runtime verification of variable operations: Let bindings, Set mutation, scoping rules, shadowing behavior." \
     "Let x be 5. Set x to 10. Let x be 20. (shadowing)"
 
+=======
+    "Phase 42: Discourse Representation Structure" \
+    "Kamp's DRT for donkey anaphora and accessibility. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL force (not existential). DrsBox tracks referent sources (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). Accessibility rules determine pronoun binding across clause boundaries." \
+    "Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))"
+
+>>>>>>> Stashed changes
 # Other tests
 add_test_description "tests/aktionsart_tests.rs" \
     "Aktionsart/Vendler Classes" \
@@ -2121,12 +2132,17 @@ add_file "src/analysis/discovery.rs" \
     "First pass of two-pass compilation. DiscoveryPass scans source for ## Definition blocks to populate TypeRegistry before full parsing. Enables forward references and mutual recursion in type definitions. Extracts type names, parameters, and kind (struct/enum) from definition headers."
 
 add_file "src/analysis/dependencies.rs" \
+<<<<<<< Updated upstream
     "Module Dependency Scanner" \
     "Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##)."
 
 add_file "src/analysis/escape.rs" \
     "Escape Analysis" \
     "Phase 8.5: Zone safety enforcement. EscapeChecker tracks variable zone depths and detects escape violations (return from zone, assignment to outer variable). Socratic error messages explain Hotel California rule. Falls back to Rust's borrow checker for complex patterns."
+=======
+    "Dependency Scanner" \
+    "Phase 36 dependency scanner for the Hyperlink Module System. Scans the Abstract (first paragraph) for [Alias](URI) links, interpreted as module dependencies. Supports file:, logos:, and https: URI schemes."
+>>>>>>> Stashed changes
 
 # ==============================================================================
 # CODE GENERATION
@@ -2156,6 +2172,14 @@ add_file "src/cli.rs" \
     "CLI Interface" \
     "Command-line interface for LOGOS build tool. Implements largo new/init/build/run/check commands via clap. Feature-gated behind 'cli' feature flag."
 
+add_file "src/project/mod.rs" \
+    "Project Module" \
+    "Infrastructure for multi-file LOGOS projects (Phase 36/37/39). Provides module loading from URI schemes (file:, logos:, https:), caching, standard library embedding, manifests, build orchestration, and package registry client."
+
+add_file "src/project/loader.rs" \
+    "Module Loader" \
+    "Phase 36 module loader. Handles resolution from URI schemes: file: (local filesystem), logos: (built-in stdlib), https: (remote registry). Caches loaded modules with cycle detection. ModuleSource stores content and resolved path."
+
 add_file "src/project/manifest.rs" \
     "Project Manifest" \
     "Largo.toml parser. Defines Manifest struct with package metadata (name, version, edition) and dependencies (path/git/version variants)."
@@ -2164,6 +2188,7 @@ add_file "src/project/build.rs" \
     "Build Orchestration" \
     "Project build pipeline. find_project_root() walks up to find Largo.toml, build() coordinates parse→compile→cargo build, run() executes the built binary."
 
+<<<<<<< Updated upstream
 add_file "src/project/mod.rs" \
     "Project Module" \
     "Phase 36/37/39 project infrastructure exports. Provides Loader, Manifest, BuildConfig, Credentials, and RegistryClient. Feature-gated: loader always available, others require 'cli' feature."
@@ -2179,6 +2204,15 @@ add_file "src/project/credentials.rs" \
 add_file "src/project/registry.rs" \
     "Registry Client" \
     "Phase 39 package registry HTTP client. RegistryClient handles auth, publish (multipart tarball upload), token validation. create_tarball() packages src/, Largo.toml, README.md, LICENSE. is_git_dirty() for safety checks."
+=======
+add_file "src/project/credentials.rs" \
+    "Credential Management" \
+    "Phase 39 credential storage. Stores and retrieves API tokens for the package registry. Credentials struct with registries HashMap. Loads from ~/.largo/credentials.toml."
+
+add_file "src/project/registry.rs" \
+    "Registry Client" \
+    "Phase 39 HTTP client for the LOGOS package registry. RegistryClient for API communication. create_tarball() for packaging, is_git_dirty() for publish guards."
+>>>>>>> Stashed changes
 
 # ==============================================================================
 # SUPPORT INFRASTRUCTURE

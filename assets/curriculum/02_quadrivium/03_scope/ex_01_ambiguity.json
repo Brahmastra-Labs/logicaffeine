@@ -7,5 +7,5 @@
   "constraints": {
     "Verb": ["Transitive"]
   },
-  "hint": "Consider: does 'a' take wide scope (same object for all) or narrow scope (different object for each)?"
+  "hint": "Think about 'Every person has a mother' vs 'Every citizen has a President.' In one case, each person has their OWN mother (narrow scope). In the other, everyone shares the SAME President (wide scope). Which reading applies here?"
 }

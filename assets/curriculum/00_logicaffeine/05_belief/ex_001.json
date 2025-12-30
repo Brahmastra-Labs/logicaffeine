@@ -4,12 +4,12 @@
   "difficulty": 1,
   "prompt": "Believe that you are frivolous",
   "options": [
-    "$ \\\\underline{}u :Fu $",
-    "$ u:F\\\\underline{u} $",
-    "$ u:F\\\\underline{u} $",
-    "$ \\\\underline{u} :F\\\\underline{u} $"
+    "$ u : Fu $",
+    "$ u : F\\\\underline{u} $",
+    "$ \\\\underline{u} : Fu $",
+    "$ \\\\underline{u} : F\\\\underline{u} $"
   ],
   "correct": 0,
-  "hint": null,
-  "explanation": "In belief/epistemic logic: The subscript indicates who holds the belief or knowledge."
+  "hint": "Who is the one holding the belief? Where do we mark the believer in the formula? The part before the colon (:) tells us WHO believes.",
+  "explanation": "In belief logic, we write 'believer : belief-content'. Here, 'you' (u) believe that 'you are frivolous' (Fu). The 'u' before the colon identifies the BELIEVER, and 'Fu' after the colon is WHAT they believe. It's like saying 'According to you: you are frivolous.' The believer comes first!"
 }

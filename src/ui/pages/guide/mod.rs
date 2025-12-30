@@ -12,6 +12,7 @@ use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::components::guide_sidebar::{GuideSidebar, SectionInfo};
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 use content::SECTIONS;
 
 const GUIDE_STYLE: &str = r#"
@@ -393,25 +394,9 @@ pub fn Guide() -> Element {
 
         div { class: "guide-page",
             // Navigation
-            nav { class: "guide-nav",
-                div { class: "guide-nav-inner",
-                    Link {
-                        to: Route::Landing {},
-                        class: "guide-brand",
-                        div { class: "guide-logo" }
-                        div { class: "guide-brand-text",
-                            span { class: "guide-brand-name", "LOGICAFFEINE" }
-                            span { class: "guide-brand-subtitle", "Programmer's Guide" }
-                        }
-                    }
-
-                    div { class: "guide-nav-links",
-                        Link { to: Route::Studio {}, class: "guide-nav-link", "Studio" }
-                        Link { to: Route::Learn {}, class: "guide-nav-link", "Learn" }
-                        Link { to: Route::Roadmap {}, class: "guide-nav-link", "Roadmap" }
-                        Link { to: Route::Landing {}, class: "guide-nav-link primary", "Home" }
-                    }
-                }
+            MainNav {
+                active: ActivePage::Guide,
+                subtitle: Some("Programmer's Guide"),
             }
 
             // Hero

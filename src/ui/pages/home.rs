@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::logic_output::highlight_logic;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const HOME_STYLE: &str = r#"
 .home-wrapper {
@@ -301,13 +302,9 @@ pub fn Home() -> Element {
     rsx! {
         style { "{HOME_STYLE}" }
 
-        div { class: "home-wrapper",
-            Link {
-                to: Route::Landing {},
-                style: "align-self: flex-start; color: #667eea; text-decoration: none; font-size: 14px; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.10); background: rgba(255, 255, 255, 0.04); transition: all 0.2s ease;",
-                "← Back to Site"
-            }
+        MainNav { active: ActivePage::Home, show_nav_links: true }
 
+        div { class: "home-wrapper",
             div { class: "brand-header",
                 h1 { "LOGICAFFEINE" }
                 p { "Choose your path to logical mastery." }

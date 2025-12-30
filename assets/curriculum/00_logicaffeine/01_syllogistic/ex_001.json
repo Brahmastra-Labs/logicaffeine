@@ -10,6 +10,6 @@
     "u is not b"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"b\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+  "hint": "Does the word 'You' refer to a vast group of people, or a specific person standing right here?",
+  "explanation": "\"You\" refers to a specific individual (the listener), so we use lowercase \"u\". The phrase \"the cleanest biologist\" also picks out a specific individual (like saying \"the tallest person\"), so we use lowercase \"b\". In logic, lowercase = specific individual, UPPERCASE = a class or category of things."
 }

@@ -4,7 +4,7 @@ use crate::ui::components::editor::LiveEditor;
 use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const STUDIO_STYLE: &str = r#"
 .studio-container {
@@ -247,7 +247,7 @@ pub fn Studio() -> Element {
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
 
-            AppNavbar { title: "Studio".to_string() }
+            MainNav { active: ActivePage::Studio }
 
             main { class: "studio-main",
                 section {

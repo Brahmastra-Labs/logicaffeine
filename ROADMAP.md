@@ -4,9 +4,9 @@
 
 ---
 
-## Current Release: v0.5.4
+## Current Release: v0.5.5
 
-### 901 Tests Passing | 32 Test Phases | Production Ready Core
+### 991 Tests Passing | 42 Test Phases | Production Ready Core
 
 ---
 

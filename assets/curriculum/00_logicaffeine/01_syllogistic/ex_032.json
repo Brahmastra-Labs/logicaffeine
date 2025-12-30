@@ -10,6 +10,6 @@
     "u is not c"
   ],
   "correct": 3,
-  "hint": null,
-  "explanation": "\"You\" refers to a specific individual (the listener), so use lowercase \"u\". The predicate \"c\" refers to a specific individual (like \"the X-est Y\"), so use lowercase. The \"not\" applies to the predication, indicating the subject lacks the property."
+  "hint": "Could there be multiple 'wildest criminals' in the world? Or does 'THE wildest' pick out exactly one person?",
+  "explanation": "Both 'you' and 'the wildest criminal' refer to specific individuals, not categories. 'You' is the person being addressed (lowercase u). 'The wildest criminal' picks out ONE specific person — whoever holds that title — so it's also lowercase (c). Compare: 'You are A criminal' would use uppercase C because 'a criminal' means 'a member of the criminal class.'"
 }

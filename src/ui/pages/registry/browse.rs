@@ -5,6 +5,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -371,9 +372,14 @@ pub fn Registry() -> Element {
         style { "{REGISTRY_STYLE}" }
 
         div { class: "registry-container",
+            MainNav {
+                active: ActivePage::Registry,
+                subtitle: Some("Package Registry"),
+            }
+
+            // Registry auth section (kept separate from main nav)
             header { class: "registry-header",
                 div { class: "header-left",
-                    Link { to: Route::Home {}, class: "back-link", "< Back" }
                     h1 { "Package Registry" }
                 }
                 div { class: "header-right",
