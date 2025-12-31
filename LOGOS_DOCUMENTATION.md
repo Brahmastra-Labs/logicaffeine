@@ -79,16 +79,12 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
     - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
     - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
-<<<<<<< Updated upstream
     - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
     - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
     - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
     - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
     - [End-to-End Tests](#end-to-end-tests)
-=======
-    - [Phase 42: Discourse Representation Structure](#phase-42-discourse-representation-structure)
->>>>>>> Stashed changes
 5. [Statistics](#statistics)
 
 ### Source Code
@@ -1857,25 +1853,16 @@ Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O
 
 ---
 
-<<<<<<< Updated upstream
 #### Phase 42: Discourse Representation Structures
 
 **File:** `tests/phase42_drs.rs`
 
 Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries.
-=======
-#### Phase 42: Discourse Representation Structure
-
-**File:** `tests/phase42_drs.rs`
-
-Kamp's DRT for donkey anaphora and accessibility. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL force (not existential). DrsBox tracks referent sources (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). Accessibility rules determine pronoun binding across clause boundaries.
->>>>>>> Stashed changes
 
 **Example:** Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))
 
 ---
 
-<<<<<<< Updated upstream
 #### Phase 42b: Z3 Static Verification
 
 **File:** `tests/phase_verification.rs`
@@ -2066,8 +2053,6 @@ Runtime verification of variable operations: Let bindings, Set mutation, scoping
 
 ---
 
-=======
->>>>>>> Stashed changes
 #### Aktionsart/Vendler Classes
 
 **File:** `tests/aktionsart_tests.rs`
@@ -2122,50 +2107,28 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-<<<<<<< Updated upstream
-Lexer (token.rs, lexer.rs):           2227 lines
-Parser (ast/, parser/):               12251 lines
+Lexer (token.rs, lexer.rs):           2263 lines
+Parser (ast/, parser/):               12682 lines
 Transpilation:                        1341 lines
-Code Generation:                      1622 lines
+Code Generation:                      1775 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1918 lines
-Support Infrastructure:               4242 lines
-Desktop UI:                              10122 lines
-=======
-Lexer (token.rs, lexer.rs):           1729 lines
-Parser (ast/, parser/):               10996 lines
-Transpilation:                        1030 lines
-Code Generation:                      1117 lines
-Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1195 lines
-Support Infrastructure:               4210 lines
-Desktop UI:                               9983 lines
->>>>>>> Stashed changes
+Type Analysis (analysis/):            2069 lines
+Support Infrastructure:               4322 lines
+Desktop UI:                              15246 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-<<<<<<< Updated upstream
-Source lines:        43607
-Test lines:          15105
-Total Rust lines: 58712
-=======
-Source lines:        38670
-Test lines:          10150
-Total Rust lines: 48820
->>>>>>> Stashed changes
+Source lines:        51560
+Test lines:          16508
+Total Rust lines: 68068
 ```
 
 ### File Counts
 ```
-<<<<<<< Updated upstream
-Source files: 103
-Test files:   99
-=======
-Source files: 97
-Test files:   70
->>>>>>> Stashed changes
+Source files: 119
+Test files:   106
 ```
 ## Lexicon Data
 
@@ -3123,6 +3086,23 @@ pub enum TokenType {
     Following,      // "the following"
     Simultaneously, // "Simultaneously:" -> parallel (CPU-bound)
 
+    // Phase 46: Agent System (Actor Model)
+    Spawn,    // "Spawn a Worker called 'w1'" -> create agent
+    Send,     // "Send Ping to 'agent'" -> send message to agent
+    Await,    // "Await response from 'agent' into result" -> receive message
+
+    // Phase 47: Serialization
+    Portable, // "A Message is Portable and has:" -> serde derives
+
+    // Phase 48: Sipping Protocol
+    Manifest, // "the manifest of Zone" -> FileSipper manifest
+    Chunk,    // "the chunk at N in Zone" -> FileSipper chunk
+
+    // Phase 49: CRDT Keywords
+    Shared,   // "A Counter is Shared and has:" -> CRDT struct
+    Merge,    // "Merge remote into local" -> CRDT merge
+    Increase, // "Increase x's count by 10" -> GCounter increment
+
     // Block Scoping
     Colon,
     Indent,
@@ -3237,6 +3217,7 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
+    Percent,  // Modulo operator
 
     // Grand Challenge: Comparison Operators
     Lt,        // <
@@ -3926,7 +3907,7 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' | '=' => {
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -4110,6 +4091,7 @@ impl<'a> Lexer<'a> {
                         '-' => TokenType::Minus,
                         '*' => TokenType::Star,
                         '/' => TokenType::Slash,
+                        '%' => TokenType::Percent,
                         '<' => TokenType::Lt,
                         '>' => TokenType::Gt,
                         _ => {
@@ -4163,6 +4145,7 @@ impl<'a> Lexer<'a> {
                                     '-' => TokenType::Minus,
                                     '*' => TokenType::Star,
                                     '/' => TokenType::Slash,
+                                    '%' => TokenType::Percent,
                                     '<' => TokenType::Lt,
                                     '>' => TokenType::Gt,
                                     _ => {
@@ -4198,6 +4181,7 @@ impl<'a> Lexer<'a> {
                     '-' => TokenType::Minus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Slash,
+                    '%' => TokenType::Percent,
                     '<' => TokenType::Lt,
                     '>' => TokenType::Gt,
                     _ => {
@@ -4624,6 +4608,8 @@ impl<'a> Lexer<'a> {
             "in" if self.mode == LexerMode::Imperative => return TokenType::In,
             // Phase 8.5: Zone keywords (must come before is_preposition check)
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
+            // Phase 48: "at" for chunk access (must come before is_preposition check)
+            "at" if self.mode == LexerMode::Imperative => return TokenType::At,
             _ => {}
         }
 
@@ -4696,6 +4682,19 @@ impl<'a> Lexer<'a> {
             "write" if self.mode == LexerMode::Imperative => return TokenType::Write,
             "console" if self.mode == LexerMode::Imperative => return TokenType::Console,
             "file" if self.mode == LexerMode::Imperative => return TokenType::File,
+            // Phase 46: Agent System keywords (Imperative mode only)
+            "spawn" if self.mode == LexerMode::Imperative => return TokenType::Spawn,
+            "send" if self.mode == LexerMode::Imperative => return TokenType::Send,
+            "await" if self.mode == LexerMode::Imperative => return TokenType::Await,
+            // Phase 47: Serialization keyword (works in Definition blocks too)
+            "portable" => return TokenType::Portable,
+            // Phase 48: Sipping Protocol keywords (Imperative mode only)
+            "manifest" if self.mode == LexerMode::Imperative => return TokenType::Manifest,
+            "chunk" if self.mode == LexerMode::Imperative => return TokenType::Chunk,
+            // Phase 49: CRDT keywords
+            "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
+            "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
+            "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
@@ -5729,6 +5728,7 @@ pub enum BinaryOpKind {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Eq,
     NotEq,
     Lt,
@@ -5818,6 +5818,12 @@ pub enum Stmt<'a> {
         justification: Symbol,
     },
 
+    /// Runtime assertion with imperative condition
+    /// `Assert that condition.` (for imperative mode)
+    RuntimeAssert {
+        condition: &'a Expr<'a>,
+    },
+
     /// Ownership transfer (move): `Give x to processor.`
     /// Semantics: Move ownership of `object` to `recipient`.
     Give {
@@ -5840,9 +5846,11 @@ pub enum Stmt<'a> {
     },
 
     /// Phase 31: Struct definition for codegen
+    /// Phase 47: Added is_portable for serde derives
     StructDef {
         name: Symbol,
         fields: Vec<(Symbol, Symbol, bool)>, // (name, type_name, is_public)
+        is_portable: bool,                    // Phase 47: Derives Serialize/Deserialize
     },
 
     /// Phase 32/38: Function definition
@@ -5927,6 +5935,42 @@ pub enum Stmt<'a> {
         content: &'a Expr<'a>,
         path: &'a Expr<'a>,
     },
+
+    /// Phase 46: Spawn an agent
+    /// `Spawn a Worker called "w1".`
+    Spawn {
+        agent_type: Symbol,
+        name: Symbol,
+    },
+
+    /// Phase 46: Send message to agent
+    /// `Send Ping to "agent".`
+    SendMessage {
+        message: &'a Expr<'a>,
+        destination: &'a Expr<'a>,
+    },
+
+    /// Phase 46: Await response from agent
+    /// `Await response from "agent" into result.`
+    AwaitMessage {
+        source: &'a Expr<'a>,
+        into: Symbol,
+    },
+
+    /// Phase 49: Merge CRDT state
+    /// `Merge remote into local.` or `Merge remote's field into local's field.`
+    MergeCrdt {
+        source: &'a Expr<'a>,
+        target: &'a Expr<'a>,
+    },
+
+    /// Phase 49: Increment GCounter
+    /// `Increase local's points by 10.`
+    IncreaseCrdt {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        amount: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -5975,6 +6019,19 @@ pub enum Expr<'a> {
     /// Phase 43D: Length expression: `length of items` → items.len()
     Length {
         collection: &'a Expr<'a>,
+    },
+
+    /// Phase 48: Get manifest of a zone
+    /// `the manifest of Zone` → FileSipper::from_zone(&zone).manifest()
+    ManifestOf {
+        zone: &'a Expr<'a>,
+    },
+
+    /// Phase 48: Get chunk at index from a zone
+    /// `the chunk at N in Zone` → FileSipper::from_zone(&zone).get_chunk(N)
+    ChunkAt {
+        index: &'a Expr<'a>,
+        zone: &'a Expr<'a>,
     },
 
     /// List literal: [1, 2, 3]
@@ -6883,6 +6940,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_write_statement();
         }
 
+        // Phase 46: Agent System statements
+        if self.check(&TokenType::Spawn) {
+            return self.parse_spawn_statement();
+        }
+        if self.check(&TokenType::Send) {
+            return self.parse_send_statement();
+        }
+        if self.check(&TokenType::Await) {
+            return self.parse_await_statement();
+        }
+
+        // Phase 49: CRDT statements
+        if self.check(&TokenType::Merge) {
+            return self.parse_merge_statement();
+        }
+        if self.check(&TokenType::Increase) {
+            return self.parse_increase_statement();
+        }
+
+        // Expression-statement: function call without "Call" keyword
+        // e.g., `greet("Alice").` instead of `Call greet with "Alice".`
+        // Check if next token is LParen (indicating a function call)
+        if self.tokens.get(self.current + 1)
+            .map(|t| matches!(t.kind, TokenType::LParen))
+            .unwrap_or(false)
+        {
+            // Get the function name from current token
+            let function = self.peek().lexeme;
+            self.advance(); // consume function name
+
+            // Parse the call expression (starts from LParen)
+            let expr = self.parse_call_expr(function)?;
+            if let Expr::Call { function, args } = expr {
+                return Ok(Stmt::Call { function: *function, args: args.clone() });
+            }
+        }
+
         Err(ParseError {
             kind: ParseErrorKind::ExpectedStatement,
             span: self.current_span(),
@@ -7217,10 +7311,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Grand Challenge: Parse a single comparison expression
     fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
+        // Handle unary "not" operator: "not a" or "not (x > 5)"
+        if self.check(&TokenType::Not) || self.check_word("not") {
+            self.advance(); // consume "not"
+            let operand = self.parse_comparison()?; // recursive to handle "not not x"
+            // Implement as: operand == false (since we don't have UnaryNot)
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Eq,
+                left: operand,
+                right: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(false))),
+            }));
+        }
+
         let left = self.parse_imperative_expr()?;
 
         // Check for comparison operators
         let op = if self.check(&TokenType::Equals) {
+            self.advance();
+            Some(BinaryOpKind::Eq)
+        } else if self.check(&TokenType::Identity) {
+            // "is equal to" was tokenized as TokenType::Identity
             self.advance();
             Some(BinaryOpKind::Eq)
         } else if self.check_word("is") {
@@ -7465,17 +7575,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        // Save current mode and switch to declarative for proposition parsing
-        let saved_mode = self.mode;
-        self.mode = ParserMode::Declarative;
+        // Parse condition using imperative expression parser
+        // This allows syntax like "Assert that b is not 0."
+        let condition = self.parse_condition()?;
 
-        // Parse the proposition using the Logic Kernel
-        let proposition = self.parse()?;
-
-        // Restore mode
-        self.mode = saved_mode;
-
-        Ok(Stmt::Assert { proposition })
+        Ok(Stmt::RuntimeAssert { condition })
     }
 
     /// Phase 35: Parse Trust statement
@@ -7567,8 +7671,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         self.advance(); // consume "Show"
 
-        // Parse the object being shown: "x" or "the data"
-        let object = self.parse_imperative_expr()?;
+        // Parse the object being shown - use parse_condition to support
+        // comparisons (x is less than y) and boolean operators (a and b)
+        let object = self.parse_condition()?;
 
         // Optional "to" preposition - if not present, default to "show" function
         let recipient = if self.check_preposition_is("to") {
@@ -8504,8 +8609,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             params.push((param_name, param_type));
 
-            // Check for "and" between parameters
-            if self.check_word("and") {
+            // Check for "and", preposition, or "from" between parameters
+            // Allows: "## To withdraw (amount: Int) from (balance: Int)"
+            if self.check_word("and") || self.check_preposition() || self.check(&TokenType::From) {
                 self.advance();
             }
         }
@@ -8656,6 +8762,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 33: Extended for variant constructors "a new Circle with radius 10"
             // Phase 34: Extended for generic instantiation "a new Box of Int"
             TokenType::Article(_) => {
+                // Phase 48: Check if followed by Manifest or Chunk token
+                // Pattern: "the manifest of Zone" or "the chunk at N in Zone"
+                if let Some(next) = self.tokens.get(self.current + 1) {
+                    if matches!(next.kind, TokenType::Manifest) {
+                        self.advance(); // consume "the"
+                        // Delegate to Manifest handling
+                        return self.parse_primary_expr();
+                    }
+                    if matches!(next.kind, TokenType::Chunk) {
+                        self.advance(); // consume "the"
+                        // Delegate to Chunk handling
+                        return self.parse_primary_expr();
+                    }
+                }
                 // Check if followed by New token
                 if let Some(next) = self.tokens.get(self.current + 1) {
                     if matches!(next.kind, TokenType::New) {
@@ -8970,11 +9090,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
             }
 
-            // Phase 43D: Length expression: "length of items"
+            // Phase 43D: Length expression: "length of items" or "length(items)"
             TokenType::Length => {
+                let func_name = self.peek().lexeme;
+
+                // Check for function call syntax: length(x)
+                if self.tokens.get(self.current + 1)
+                    .map(|t| matches!(t.kind, TokenType::LParen))
+                    .unwrap_or(false)
+                {
+                    self.advance(); // consume "length"
+                    return self.parse_call_expr(func_name);
+                }
+
                 self.advance(); // consume "length"
 
-                // Expect "of"
+                // Expect "of" for natural syntax
                 if !self.check_preposition_is("of") {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
@@ -8987,11 +9118,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection }))
             }
 
-            // Phase 43D: Copy expression: "copy of slice"
+            // Phase 43D: Copy expression: "copy of slice" or "copy(slice)"
             TokenType::Copy => {
+                let func_name = self.peek().lexeme;
+
+                // Check for function call syntax: copy(x)
+                if self.tokens.get(self.current + 1)
+                    .map(|t| matches!(t.kind, TokenType::LParen))
+                    .unwrap_or(false)
+                {
+                    self.advance(); // consume "copy"
+                    return self.parse_call_expr(func_name);
+                }
+
                 self.advance(); // consume "copy"
 
-                // Expect "of"
+                // Expect "of" for natural syntax
                 if !self.check_preposition_is("of") {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
@@ -9002,6 +9144,51 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 let expr = self.parse_imperative_expr()?;
                 Ok(self.ctx.alloc_imperative_expr(Expr::Copy { expr }))
+            }
+
+            // Phase 48: Manifest expression: "manifest of Zone"
+            TokenType::Manifest => {
+                self.advance(); // consume "manifest"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let zone = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::ManifestOf { zone }))
+            }
+
+            // Phase 48: Chunk expression: "chunk at N in Zone"
+            TokenType::Chunk => {
+                self.advance(); // consume "chunk"
+
+                // Expect "at"
+                if !self.check(&TokenType::At) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "at"
+
+                let index = self.parse_imperative_expr()?;
+
+                // Expect "in"
+                if !self.check_preposition_is("in") && !self.check(&TokenType::In) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "in".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "in"
+
+                let zone = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::ChunkAt { index, zone }))
             }
 
             // Handle verbs in expression context:
@@ -9073,12 +9260,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
 
-                // Don't verify as variable - might be a function call
+                // Don't verify as variable - might be a function call or enum variant
                 self.advance();
 
                 // Phase 32: Check for function call: identifier(args)
                 if self.check(&TokenType::LParen) {
                     return self.parse_call_expr(sym);
+                }
+
+                // Phase 33: Check if this is a bare enum variant (e.g., "North" for Direction)
+                if let Some(enum_name) = self.find_variant(sym) {
+                    let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                        enum_name,
+                        variant: sym,
+                        fields: vec![],
+                    });
+                    return self.parse_field_access_chain(base);
                 }
 
                 // Centralized verification for undefined/moved checks (only for variables)
@@ -9094,6 +9291,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 // Phase 31: Check for field access via possessive
+                self.parse_field_access_chain(base)
+            }
+
+            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            TokenType::Merge | TokenType::Increase => {
+                let sym = token.lexeme;
+                self.advance();
+
+                // Check for function call: Merge(args)
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
 
@@ -9194,7 +9405,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_primary_expr()
     }
 
-    /// Parse multiplicative expressions (*, /) - left-to-right associative
+    /// Parse multiplicative expressions (*, /, %) - left-to-right associative
     fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_unary_expr()?;
 
@@ -9207,6 +9418,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Slash => {
                     self.advance();
                     BinaryOpKind::Divide
+                }
+                TokenType::Percent => {
+                    self.advance();
+                    BinaryOpKind::Modulo
                 }
                 _ => break,
             };
@@ -9272,21 +9487,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
     }
 
-    /// Phase 31: Parse field access chain via possessive ('s)
-    /// Handles patterns like: p's x, p's x's y
+    /// Phase 31: Parse field access chain via possessive ('s) and bracket indexing
+    /// Handles patterns like: p's x, p's x's y, items[1], items[i]'s field
     fn parse_field_access_chain(&mut self, base: &'a Expr<'a>) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Expr;
 
         let mut result = base;
 
-        // Keep parsing field accesses while we see possessive tokens
-        while self.check(&TokenType::Possessive) {
-            self.advance(); // consume "'s"
-            let field = self.expect_identifier()?;
-            result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
-                object: result,
-                field,
-            });
+        // Keep parsing field accesses and bracket indexing
+        loop {
+            if self.check(&TokenType::Possessive) {
+                // Field access: p's x
+                self.advance(); // consume "'s"
+                let field = self.expect_identifier()?;
+                result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
+                    object: result,
+                    field,
+                });
+            } else if self.check(&TokenType::LBracket) {
+                // Bracket indexing: items[1], items[i]
+                self.advance(); // consume "["
+                let index = self.parse_imperative_expr()?;
+
+                if !self.check(&TokenType::RBracket) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "]".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "]"
+
+                result = self.ctx.alloc_imperative_expr(Expr::Index {
+                    collection: result,
+                    index,
+                });
+            } else {
+                break;
+            }
         }
 
         Ok(result)
@@ -9350,7 +9587,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Read |
             TokenType::Write |
             TokenType::File |
-            TokenType::Console => {
+            TokenType::Console |
+            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            TokenType::Merge |
+            TokenType::Increase => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -12060,6 +12300,196 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return false;
         }
         matches!(self.tokens[self.current + 1].kind, TokenType::Verb { .. })
+    }
+
+    // =========================================================================
+    // Phase 46: Agent System Parsing
+    // =========================================================================
+
+    /// Parse spawn statement: "Spawn a Worker called 'w1'."
+    fn parse_spawn_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Spawn"
+
+        // Expect article (a/an)
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "a/an".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume article
+
+        // Get agent type name (Noun or ProperName)
+        let agent_type = match &self.tokens[self.current].kind {
+            TokenType::Noun(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "agent type".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "called"
+        if !self.check(&TokenType::Called) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "called"
+
+        // Get agent name (string literal)
+        let name = if let TokenType::StringLiteral(sym) = &self.tokens[self.current].kind {
+            let s = *sym;
+            self.advance();
+            s
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "agent name".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        Ok(Stmt::Spawn { agent_type, name })
+    }
+
+    /// Parse send statement: "Send Ping to 'agent'."
+    fn parse_send_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Send"
+
+        // Parse message expression
+        let message = self.parse_imperative_expr()?;
+
+        // Expect "to"
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse destination expression
+        let destination = self.parse_imperative_expr()?;
+
+        Ok(Stmt::SendMessage { message, destination })
+    }
+
+    /// Parse await statement: "Await response from 'agent' into result."
+    fn parse_await_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Await"
+
+        // Skip optional "response" word
+        if self.check_word("response") {
+            self.advance();
+        }
+
+        // Expect "from" (can be keyword or preposition)
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse source expression
+        let source = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check_word("into") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "into"
+
+        // Get variable name (Noun, ProperName, or Adjective - can be any content word)
+        let into = match &self.tokens[self.current].kind {
+            TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            // Also accept lexemes from other token types if they look like identifiers
+            _ if self.check_content_word() => {
+                let sym = self.tokens[self.current].lexeme;
+                self.advance();
+                sym
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        Ok(Stmt::AwaitMessage { source, into })
+    }
+
+    // =========================================================================
+    // Phase 49: CRDT Statement Parsing
+    // =========================================================================
+
+    /// Parse merge statement: "Merge remote into local." or "Merge remote's field into local's field."
+    fn parse_merge_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Merge"
+
+        // Parse source expression
+        let source = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check_word("into") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "into"
+
+        // Parse target expression
+        let target = self.parse_imperative_expr()?;
+
+        Ok(Stmt::MergeCrdt { source, target })
+    }
+
+    /// Parse increase statement: "Increase local's points by 10."
+    fn parse_increase_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Increase"
+
+        // Parse object with field access (e.g., "local's points")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "by"
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        // Parse amount
+        let amount = self.parse_imperative_expr()?;
+
+        Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
     }
 
 }
@@ -22832,15 +23262,23 @@ pub enum TypeDef {
     Primitive,
     /// Struct with named fields and visibility
     /// Phase 34: Now includes optional type parameters
+    /// Phase 47: Added is_portable for serde derives
+    /// Phase 49: Added is_shared for CRDT Merge impl
     Struct {
         fields: Vec<FieldDef>,
         generics: Vec<Symbol>,  // [T, U] for "A Pair of [T] and [U] has:"
+        is_portable: bool,       // Phase 47: Derives Serialize/Deserialize
+        is_shared: bool,         // Phase 49: Generates impl Merge
     },
     /// Phase 33: Enum with variants (unit or with payload)
     /// Phase 34: Now includes optional type parameters
+    /// Phase 47: Added is_portable for serde derives
+    /// Phase 49: Added is_shared for CRDT Merge impl
     Enum {
         variants: Vec<VariantDef>,
         generics: Vec<Symbol>,  // [T] for "A Maybe of [T] is either:"
+        is_portable: bool,       // Phase 47: Derives Serialize/Deserialize
+        is_shared: bool,         // Phase 49: Generates impl Merge
     },
     /// Built-in generic type (List, Option, Result)
     Generic { param_count: usize },
@@ -23060,8 +23498,40 @@ impl<'a> DiscoveryPass<'a> {
                 vec![]
             };
 
+            // Phase 47/49: Check for "is Portable/Shared and" pattern before "has:"
+            let mut is_portable = false;
+            let mut is_shared = false;
+            if self.check_copula() {
+                let copula_pos = self.pos;
+                self.advance(); // consume is/are
+
+                // Check for modifiers in any order (e.g., "is Shared and Portable and")
+                loop {
+                    if self.check_portable() {
+                        self.advance(); // consume "Portable"
+                        is_portable = true;
+                        if self.check_word("and") {
+                            self.advance(); // consume "and"
+                        }
+                    } else if self.check_shared() {
+                        self.advance(); // consume "Shared"
+                        is_shared = true;
+                        if self.check_word("and") {
+                            self.advance(); // consume "and"
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                // If no modifiers were found, restore position
+                if !is_portable && !is_shared {
+                    self.pos = copula_pos;
+                }
+            }
+
             // Phase 31/34: Check for "has:" which indicates struct with fields
-            // Pattern: "A Point has:" or "A Box of [T] has:"
+            // Pattern: "A Point has:" or "A Box of [T] has:" or "A Message is Portable and has:"
             if self.check_word("has") {
                 self.advance(); // consume "has"
                 if self.check_colon() {
@@ -23073,7 +23543,7 @@ impl<'a> DiscoveryPass<'a> {
                     if self.check_indent() {
                         self.advance(); // consume INDENT
                         let fields = self.parse_struct_fields_with_params(&type_params);
-                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params });
+                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params, is_portable, is_shared });
                         return;
                     }
                 }
@@ -23109,7 +23579,7 @@ impl<'a> DiscoveryPass<'a> {
                         if self.check_indent() {
                             self.advance(); // consume INDENT
                             let variants = self.parse_enum_variants_with_params(&type_params);
-                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params });
+                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params, is_portable, is_shared });
                             return;
                         }
                     }
@@ -23123,10 +23593,10 @@ impl<'a> DiscoveryPass<'a> {
                         registry.register(name_sym, TypeDef::Generic { param_count: 1 });
                         self.skip_to_period();
                     } else if self.check_word("record") || self.check_word("struct") || self.check_word("structure") {
-                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![] });
+                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false, is_shared: false });
                         self.skip_to_period();
                     } else if self.check_word("sum") || self.check_word("enum") || self.check_word("choice") {
-                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![] });
+                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![], is_portable: false, is_shared: false });
                         self.skip_to_period();
                     }
                 }
@@ -23160,37 +23630,37 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse variant: "A VariantName [with fields | (field: Type)]."
+            // Parse variant: "A VariantName [with fields | (field: Type)]." or bare "VariantName."
+            // Optionally consume article (a/an) if present
             if self.check_article() {
                 self.advance(); // consume "A"/"An"
+            }
 
-                if let Some(variant_name) = self.consume_noun_or_proper() {
-                    // Check for payload fields
-                    let fields = if self.check_word("with") {
-                        // Natural syntax: "A Circle with a radius, which is Int."
-                        self.parse_variant_fields_natural_with_params(type_params)
-                    } else if self.check_lparen() {
-                        // Concise syntax: "A Circle (radius: Int)."
-                        self.parse_variant_fields_concise_with_params(type_params)
-                    } else {
-                        // Unit variant: "A Point."
-                        vec![]
-                    };
-
-                    variants.push(VariantDef {
-                        name: variant_name,
-                        fields,
-                    });
-
-                    // Consume period
-                    if self.check_period() {
-                        self.advance();
-                    }
+            // Try to parse variant name (noun or proper name)
+            if let Some(variant_name) = self.consume_noun_or_proper() {
+                // Check for payload fields
+                let fields = if self.check_word("with") {
+                    // Natural syntax: "A Circle with a radius, which is Int."
+                    self.parse_variant_fields_natural_with_params(type_params)
+                } else if self.check_lparen() {
+                    // Concise syntax: "A Circle (radius: Int)."
+                    self.parse_variant_fields_concise_with_params(type_params)
                 } else {
-                    self.advance(); // skip malformed token
+                    // Unit variant: "A Point." or "Point."
+                    vec![]
+                };
+
+                variants.push(VariantDef {
+                    name: variant_name,
+                    fields,
+                });
+
+                // Consume period
+                if self.check_period() {
+                    self.advance();
                 }
             } else {
-                self.advance();
+                self.advance(); // skip malformed token
             }
         }
 
@@ -23470,11 +23940,29 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Phase 47: Accept Performative as type name (for agent messages like "Command")
+            TokenType::Performative(s) => {
+                let sym = *s;
+                self.advance();
+                Some(sym)
+            }
             // Phase 34: Accept special tokens as identifiers using their lexeme
             TokenType::Items | TokenType::Some => {
                 let sym = t.lexeme;
                 self.advance();
                 Some(sym)
+            }
+            // Phase 49: Accept Verb tokens that look like type names (uppercase, e.g., "Setting")
+            // These are -ing words that get classified as verbs but could be type names
+            TokenType::Verb { .. } => {
+                let lexeme_str = self.interner.resolve(t.lexeme);
+                if lexeme_str.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    let sym = t.lexeme;
+                    self.advance();
+                    Some(sym)
+                } else {
+                    None
+                }
             }
             _ => None
         }
@@ -23533,6 +24021,16 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_rparen(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+    }
+
+    /// Phase 47: Check for Portable token
+    fn check_portable(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Portable, .. }))
+    }
+
+    /// Phase 49: Check for Shared token
+    fn check_shared(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Shared, .. }))
     }
 
     // Phase 34: Bracket checks for type parameters
@@ -23735,7 +24233,7 @@ A Point has:
         let point = interner.intern("Point");
         assert!(registry.is_type(point), "Point should be registered");
 
-        if let Some(TypeDef::Struct { fields, generics }) = registry.get(point) {
+        if let Some(TypeDef::Struct { fields, generics, .. }) = registry.get(point) {
             assert_eq!(fields.len(), 2, "Point should have 2 fields, got {:?}", fields);
             assert_eq!(interner.resolve(fields[0].name), "x");
             assert_eq!(interner.resolve(fields[1].name), "y");
@@ -23767,25 +24265,84 @@ A Point has:
         let point = interner.intern("Point");
         assert!(registry.is_type(point), "Point should be discovered even with # header");
     }
+
+    #[test]
+    fn discovery_parses_portable_enum() {
+        let source = r#"## Definition
+A Command is Portable and is either:
+    a Start.
+    a Stop.
+    a Pause.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens to see what we're getting
+        eprintln!("Tokens for portable enum:");
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let command = interner.intern("Command");
+        assert!(registry.is_type(command), "Command should be registered as type");
+
+        if let Some(TypeDef::Enum { variants, is_portable, .. }) = registry.get(command) {
+            eprintln!("Command is_portable: {}", is_portable);
+            eprintln!("Variants: {:?}", variants.iter().map(|v| interner.resolve(v.name)).collect::<Vec<_>>());
+            assert!(*is_portable, "Command should be portable");
+            assert_eq!(variants.len(), 3, "Command should have 3 variants");
+        } else {
+            panic!("Command should be an enum, got: {:?}", registry.get(command));
+        }
+    }
+
+    #[test]
+    fn discovery_parses_lww_int_field() {
+        let source = r#"## Definition
+A Setting is Shared and has:
+    a volume, which is LastWriteWins of Int.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens
+        eprintln!("Tokens for LWW of Int:");
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("{:3}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let setting = interner.intern("Setting");
+        assert!(registry.is_type(setting), "Setting should be registered");
+
+        if let Some(TypeDef::Struct { fields, is_shared, .. }) = registry.get(setting) {
+            eprintln!("is_shared: {}", is_shared);
+            eprintln!("Fields: {:?}", fields.len());
+            for f in fields {
+                eprintln!("  field: {} = {:?}", interner.resolve(f.name), f.ty);
+            }
+            assert!(*is_shared, "Setting should be shared");
+            assert_eq!(fields.len(), 1, "Setting should have 1 field");
+        } else {
+            panic!("Setting should be a struct, got: {:?}", registry.get(setting));
+        }
+    }
 }
 
 ```
 
 ---
 
-<<<<<<< Updated upstream
 ### Module Dependency Scanner
 
 **File:** `src/analysis/dependencies.rs`
 
 Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##).
-=======
-### Dependency Scanner
-
-**File:** `src/analysis/dependencies.rs`
-
-Phase 36 dependency scanner for the Hyperlink Module System. Scans the Abstract (first paragraph) for [Alias](URI) links, interpreted as module dependencies. Supports file:, logos:, and https: URI schemes.
->>>>>>> Stashed changes
 
 ```rust
 //! Phase 36: Dependency Scanner for the Hyperlink Module System
@@ -24062,7 +24619,6 @@ Uses [A](file:a.md), [B](file:b.md), and [C](file:c.md).
 
 ---
 
-<<<<<<< Updated upstream
 ### Escape Analysis
 
 **File:** `src/analysis/escape.rs`
@@ -24307,6 +24863,15 @@ impl<'a> EscapeChecker<'a> {
                 }
             }
 
+            Expr::ManifestOf { zone } => {
+                self.check_no_escape(zone, max_depth)?;
+            }
+
+            Expr::ChunkAt { index, zone } => {
+                self.check_no_escape(index, max_depth)?;
+                self.check_no_escape(zone, max_depth)?;
+            }
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }
@@ -24371,8 +24936,6 @@ mod tests {
 
 ---
 
-=======
->>>>>>> Stashed changes
 ## Code Generation
 
 Rust code emission from imperative AST.
@@ -24558,12 +25121,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
 
-    // Collect user-defined structs from registry (Phase 34: now with generics)
+    // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Struct { fields, generics } = def {
+            if let TypeDef::Struct { fields, generics, is_portable, is_shared } = def {
                 if !fields.is_empty() || !generics.is_empty() {
-                    Some((*name, fields.clone(), generics.clone()))
+                    Some((*name, fields.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -24573,12 +25136,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         })
         .collect();
 
-    // Phase 33/34: Collect user-defined enums from registry (now with generics)
+    // Phase 33/34: Collect user-defined enums from registry (generics, Phase 47: is_portable, Phase 49: is_shared)
     let enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Enum { variants, generics } = def {
+            if let TypeDef::Enum { variants, generics, is_portable, is_shared } = def {
                 if !variants.is_empty() || !generics.is_empty() {
-                    Some((*name, variants.clone(), generics.clone()))
+                    Some((*name, variants.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -24593,12 +25156,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "pub mod user_types {{").unwrap();
         writeln!(output, "    use super::*;\n").unwrap();
 
-        for (name, fields, generics) in &structs {
-            output.push_str(&codegen_struct_def(*name, fields, generics, interner, 4));
+        for (name, fields, generics, is_portable, is_shared) in &structs {
+            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, *is_shared, interner, 4));
         }
 
-        for (name, variants, generics) in &enums {
-            output.push_str(&codegen_enum_def(*name, variants, generics, interner, 4));
+        for (name, variants, generics, is_portable, is_shared) in &enums {
+            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, *is_shared, interner, 4));
         }
 
         writeln!(output, "}}\n").unwrap();
@@ -24814,7 +25377,9 @@ fn map_type_to_rust(ty: &str) -> String {
 
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
-fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now supports is_shared for CRDT Merge impl.
+fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -24828,7 +25393,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for field in fields {
@@ -24838,11 +25408,67 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
     }
 
     writeln!(output, "{}}}\n", ind).unwrap();
+
+    // Phase 49: Generate Merge impl for Shared structs
+    if is_shared {
+        output.push_str(&codegen_merge_impl(name, fields, generics, interner, indent));
+    }
+
     output
 }
 
+/// Phase 49: Generate impl Merge for a Shared struct.
+fn codegen_merge_impl(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+    let ind = " ".repeat(indent);
+    let name_str = interner.resolve(name);
+    let mut output = String::new();
+
+    // Build generic parameter string: <T, U> or empty
+    let generic_str = if generics.is_empty() {
+        String::new()
+    } else {
+        let params: Vec<&str> = generics.iter()
+            .map(|g| interner.resolve(*g))
+            .collect();
+        format!("<{}>", params.join(", "))
+    };
+
+    writeln!(output, "{}impl{} logos_core::crdt::Merge for {}{} {{", ind, generic_str, name_str, generic_str).unwrap();
+    writeln!(output, "{}    fn merge(&mut self, other: &Self) {{", ind).unwrap();
+
+    for field in fields {
+        let field_name = interner.resolve(field.name);
+        // Only merge fields that implement Merge (CRDT types)
+        if is_crdt_field_type(&field.ty, interner) {
+            writeln!(output, "{}        self.{}.merge(&other.{});", ind, field_name, field_name).unwrap();
+        }
+    }
+
+    writeln!(output, "{}    }}", ind).unwrap();
+    writeln!(output, "{}}}\n", ind).unwrap();
+
+    output
+}
+
+/// Phase 49: Check if a field type is a CRDT type that implements Merge.
+fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "ConvergentCount" | "GCounter")
+        }
+        FieldType::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "LastWriteWins" | "LWWRegister")
+        }
+        _ => false,
+    }
+}
+
 /// Phase 33/34: Generate enum definition with optional generic parameters.
-fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now accepts is_shared parameter (enums don't generate Merge impl yet).
+fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, _is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -24856,7 +25482,12 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for variant in variants {
@@ -24894,12 +25525,21 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 other => other.to_string(),
             }
         }
-        FieldType::Named(sym) => interner.resolve(*sym).to_string(),
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                // Phase 49: CRDT type mapping
+                "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                _ => name.to_string(),
+            }
+        }
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
                 "Option" => "Option",
                 "Result" => "Result",
+                // Phase 49: CRDT generic type
+                "LastWriteWins" => "logos_core::crdt::LWWRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -25027,6 +25667,11 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
             let condition = codegen_assertion(proposition, interner);
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
+        Stmt::RuntimeAssert { condition } => {
+            let cond_str = codegen_expr(condition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -25274,6 +25919,63 @@ pub fn codegen_stmt<'a>(
                 indent_str, path_str, content_str
             ).unwrap();
         }
+
+        // Phase 46: Spawn an agent
+        Stmt::Spawn { agent_type, name } => {
+            let type_name = interner.resolve(*agent_type);
+            let agent_name = interner.resolve(*name);
+            // Generate agent spawn with tokio channel
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ /* {} agent loop */ }});",
+                indent_str, agent_name, type_name
+            ).unwrap();
+        }
+
+        // Phase 46: Send message to agent
+        Stmt::SendMessage { message, destination } => {
+            let msg_str = codegen_expr(message, interner);
+            let dest_str = codegen_expr(destination, interner);
+            writeln!(
+                output,
+                "{}{}.send({}).await.expect(\"Failed to send message\");",
+                indent_str, dest_str, msg_str
+            ).unwrap();
+        }
+
+        // Phase 46: Await response from agent
+        Stmt::AwaitMessage { source, into } => {
+            let src_str = codegen_expr(source, interner);
+            let var_name = interner.resolve(*into);
+            writeln!(
+                output,
+                "{}let {} = {}.recv().await.expect(\"Failed to receive message\");",
+                indent_str, var_name, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Merge CRDT state
+        Stmt::MergeCrdt { source, target } => {
+            let src_str = codegen_expr(source, interner);
+            let tgt_str = codegen_expr(target, interner);
+            writeln!(
+                output,
+                "{}{}.merge(&{});",
+                indent_str, tgt_str, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Increment GCounter
+        Stmt::IncreaseCrdt { object, field, amount } => {
+            let obj_str = codegen_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner);
+            writeln!(
+                output,
+                "{}{}.{}.increment({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
     }
 
     output
@@ -25293,6 +25995,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
                 BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
                 BinaryOpKind::Lt => "<",
@@ -25337,6 +26040,19 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             let coll_str = codegen_expr(collection, interner);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
+        }
+
+        // Phase 48: Sipping Protocol expressions
+        Expr::ManifestOf { zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
+        }
+
+        Expr::ChunkAt { index, zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            let index_str = codegen_expr(index, interner);
+            // LOGOS uses 1-indexed, Rust uses 0-indexed
+            format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
@@ -27240,7 +27956,6 @@ mod tests {
 
 ---
 
-<<<<<<< Updated upstream
 ### Project Module
 
 **File:** `src/project/mod.rs`
@@ -27520,17 +28235,11 @@ mod tests {
 
 ---
 
-=======
->>>>>>> Stashed changes
 ### Credential Management
 
 **File:** `src/project/credentials.rs`
 
-<<<<<<< Updated upstream
 Phase 39 API token storage. Credentials struct persists to ~/.config/logos/credentials.toml with 0600 permissions. Supports LOGOS_TOKEN env var override. TOML format with registry→token map.
-=======
-Phase 39 credential storage. Stores and retrieves API tokens for the package registry. Credentials struct with registries HashMap. Loads from ~/.largo/credentials.toml.
->>>>>>> Stashed changes
 
 ```rust
 //! Phase 39: Credential Management
@@ -27664,11 +28373,7 @@ impl std::error::Error for CredentialsError {}
 
 **File:** `src/project/registry.rs`
 
-<<<<<<< Updated upstream
 Phase 39 package registry HTTP client. RegistryClient handles auth, publish (multipart tarball upload), token validation. create_tarball() packages src/, Largo.toml, README.md, LICENSE. is_git_dirty() for safety checks.
-=======
-Phase 39 HTTP client for the LOGOS package registry. RegistryClient for API communication. create_tarball() for packaging, is_git_dirty() for publish guards.
->>>>>>> Stashed changes
 
 ```rust
 //! Phase 39: Registry Client
@@ -28069,12 +28774,17 @@ pub mod scope;
 pub mod storage;
 pub mod srs;
 pub mod style;
+pub mod unlock;
+pub mod learn_state;
+pub mod symbol_dict;
+pub mod struggle;
 pub mod suggest;
 pub mod token;
 pub mod transpile;
 pub mod ui;
 pub mod view;
 pub mod visitor;
+pub mod interpreter;
 
 pub mod test_utils;
 
@@ -28101,6 +28811,7 @@ pub use scope::{ScopeStack, ScopeEntry};
 pub use token::{BlockType, Token, TokenType};
 pub use view::{ExprView, NounPhraseView, Resolve, TermView};
 pub use visitor::{Visitor, walk_expr, walk_term, walk_np};
+pub use interpreter::{Interpreter, InterpreterResult, RuntimeValue};
 
 // ═══════════════════════════════════════════════════════════════════
 // Output Format Configuration
@@ -28994,6 +29705,80 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
                 ast: None,
                 readings: Vec::new(),
                 tokens,
+                error: Some(advice),
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Imperative Interpreter API - For Guide Page Interactive Examples
+// ═══════════════════════════════════════════════════════════════════
+
+use crate::ast::stmt::{Stmt, Expr, TypeExpr};
+
+/// Interpret LOGOS imperative code and return output lines.
+/// This is used by the Guide page for interactive code examples.
+pub fn interpret_for_ui(input: &str) -> InterpreterResult {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Apply MWE collapsing (for consistency with compile pipeline)
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    // Create arenas for AST allocation
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context (imperative mode)
+    let mut discourse = DiscourseContext::new();
+    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+
+    match parser.parse_program() {
+        Ok(stmts) => {
+            let mut interp = interpreter::Interpreter::new(&interner);
+            match interp.run(&stmts) {
+                Ok(()) => InterpreterResult {
+                    lines: interp.output,
+                    error: None,
+                },
+                Err(e) => InterpreterResult {
+                    lines: interp.output,
+                    error: Some(e),
+                },
+            }
+        }
+        Err(e) => {
+            let advice = socratic_explanation(&e, &interner);
+            InterpreterResult {
+                lines: vec![],
                 error: Some(advice),
             }
         }
@@ -36029,8 +36814,63 @@ Root application component with Router wrapper and global CSS styles (gradients,
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{LicenseState, RegistryAuthState};
+use crate::ui::theme;
 
 const GLOBAL_STYLE: &str = r#"
+:root {
+    /* Primary colors */
+    --color-primary-blue: #667eea;
+    --color-primary-purple: #764ba2;
+    --color-accent-blue: #60a5fa;
+    --color-accent-purple: #a78bfa;
+
+    /* Semantic colors */
+    --color-success: #4ade80;
+    --color-warning: #f59e0b;
+    --color-error: #e06c75;
+    --color-info: #60a5fa;
+
+    /* Text colors - accessible grays (lighter for visibility) */
+    --text-primary: #f0f0f0;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #909090;
+    --text-muted: #a0a0a0;
+    --text-placeholder: #808080;
+
+    /* Font sizes - +2px for accessibility */
+    --font-display-xl: 66px;
+    --font-display-lg: 50px;
+    --font-display-md: 34px;
+    --font-heading-lg: 26px;
+    --font-heading-md: 22px;
+    --font-heading-sm: 20px;
+    --font-body-lg: 18px;
+    --font-body-md: 16px;
+    --font-body-sm: 15px;
+    --font-caption-lg: 14px;
+    --font-caption-md: 13px;
+    --font-caption-sm: 12px;
+
+    /* Font families */
+    --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 12px;
+    --spacing-lg: 16px;
+    --spacing-xl: 24px;
+    --spacing-xxl: 32px;
+
+    /* Border radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -36040,8 +36880,9 @@ const GLOBAL_STYLE: &str = r#"
 html, body {
     height: 100%;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #e8e8e8;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-body-lg);
     overflow-x: hidden;
 }
 
@@ -36060,13 +36901,13 @@ a {
     padding: 30px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--spacing-lg);
 }
 
 .message {
     max-width: 75%;
     padding: 14px 20px;
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
     line-height: 1.6;
     animation: fadeIn 0.3s ease;
 }
@@ -36078,9 +36919,9 @@ a {
 
 .message.user {
     align-self: flex-end;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-primary-blue) 0%, var(--color-primary-purple) 100%);
     color: white;
-    border-bottom-right-radius: 4px;
+    border-bottom-right-radius: var(--radius-sm);
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
 }
 
@@ -36088,9 +36929,9 @@ a {
     align-self: flex-start;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
-    border-bottom-left-radius: 4px;
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 18px;
+    border-bottom-left-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--font-heading-sm);
     color: #00d4ff;
     text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
 }
@@ -36099,7 +36940,7 @@ a {
     align-self: flex-start;
     background: linear-gradient(135deg, #ff6b6b 0%, #c92a2a 100%);
     color: white;
-    border-bottom-left-radius: 4px;
+    border-bottom-left-radius: var(--radius-sm);
     font-style: italic;
     box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
 }
@@ -36113,7 +36954,7 @@ a {
 
 .input-row {
     display: flex;
-    gap: 12px;
+    gap: var(--spacing-md);
     align-items: center;
 }
 
@@ -36121,29 +36962,29 @@ a {
     flex: 1;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     padding: 14px 20px;
-    font-size: 16px;
+    font-size: var(--font-body-lg);
     color: white;
     outline: none;
     transition: all 0.2s ease;
 }
 
 .input-row input::placeholder {
-    color: #666;
+    color: var(--text-placeholder);
 }
 
 .input-row input:focus {
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
 }
 
 .input-row button {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-primary-blue) 0%, var(--color-primary-purple) 100%);
     border: none;
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     padding: 14px 28px;
-    font-size: 16px;
+    font-size: var(--font-body-lg);
     font-weight: 600;
     color: white;
     cursor: pointer;
@@ -36158,6 +36999,178 @@ a {
 
 .input-row button:active {
     transform: translateY(0);
+}
+
+/* Interactive reveal section */
+.reveal-section {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.reveal-buttons {
+    display: flex;
+    gap: var(--spacing-md);
+    flex-wrap: wrap;
+    margin-bottom: var(--spacing-lg);
+}
+
+.reveal-btn {
+    padding: 10px 16px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.reveal-btn:hover {
+    background: rgba(255,255,255,0.10);
+    color: var(--text-primary);
+}
+
+.reveal-btn.active {
+    background: linear-gradient(135deg, rgba(96,165,250,0.2), rgba(167,139,250,0.2));
+    border-color: rgba(167,139,250,0.4);
+    color: var(--text-primary);
+}
+
+.revealed-content {
+    padding: var(--spacing-lg);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+    margin-top: var(--spacing-md);
+    animation: fadeIn 0.2s ease;
+}
+
+.revealed-label {
+    font-size: var(--font-caption-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.revealed-logic {
+    font-family: var(--font-mono);
+    font-size: var(--font-heading-sm);
+    color: var(--color-accent-blue);
+    padding: var(--spacing-md);
+    background: rgba(96, 165, 250, 0.08);
+    border-radius: var(--radius-md);
+    margin: var(--spacing-md) 0;
+}
+
+/* Socratic hint box */
+.socratic-hint-box {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg);
+    background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(96,165,250,0.08));
+    border: 1px solid rgba(167,139,250,0.2);
+    border-radius: var(--radius-lg);
+    border-left: 4px solid var(--color-accent-purple);
+}
+
+.hint-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-sm);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: var(--color-accent-purple);
+}
+
+.hint-text {
+    color: var(--text-secondary);
+    line-height: 1.6;
+}
+
+/* Multiple choice options */
+.multiple-choice-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    margin: var(--spacing-lg) 0;
+}
+
+.multiple-choice-options .reveal-btn {
+    width: 100%;
+    text-align: left;
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-family: var(--font-mono);
+}
+
+.multiple-choice-options .reveal-btn.correct {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: var(--color-success);
+}
+
+.multiple-choice-options .reveal-btn.incorrect {
+    background: rgba(248, 113, 113, 0.15);
+    border-color: var(--color-error);
+}
+
+/* Progress indicator */
+.exercise-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-caption-md);
+    color: var(--text-tertiary);
+    margin-bottom: var(--spacing-md);
+}
+
+.progress-bar {
+    flex: 1;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-accent-blue), var(--color-accent-purple));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+.practice-score {
+    font-weight: 600;
+    color: var(--color-success);
+}
+
+/* Exercise mode badges */
+.exercise-mode-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+    font-size: var(--font-caption-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: var(--spacing-md);
+}
+
+.exercise-mode-badge.test {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.exercise-mode-badge.practice {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
 }
 "#;
 
@@ -36194,10 +37207,13 @@ UI module built with Dioxus 0.6.
 pub mod app;
 pub mod state;
 pub mod components;
+pub mod hooks;
 pub mod router;
 pub mod pages;
+pub mod theme;
 
 pub use app::App;
+pub use theme::{colors, font_size, font_family, spacing, radius};
 
 ```
 
@@ -36211,7 +37227,7 @@ Dioxus Router with routes: / (Home), /pricing (Pricing), /studio (Studio), /lear
 
 ```rust
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio};
+use crate::ui::pages::{Home, Landing, Learn, Pricing, Privacy, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
@@ -36234,20 +37250,19 @@ pub enum Route {
     #[route("/roadmap")]
     Roadmap {},
 
+    #[route("/guide")]
+    Guide {},
+
     #[route("/success")]
     Success {},
 
     #[route("/studio")]
     Studio {},
 
+    // Integrated Learn page - all learning happens here
+    // Replaces: /lesson/:era/:module/:mode and /review
     #[route("/learn")]
     Learn {},
-
-    #[route("/review")]
-    Review {},
-
-    #[route("/lesson/:era/:module/:mode")]
-    Lesson { era: String, module: String, mode: String },
 
     #[route("/workspace/:subject")]
     Workspace { subject: String },
@@ -36719,6 +37734,202 @@ mod tests {
 
 ---
 
+### UI: theme
+
+**File:** `src/ui/theme.rs`
+
+UI module built with Dioxus 0.6.
+
+```rust
+/// Design tokens for consistent styling across the application.
+/// All colors, font sizes, and spacing values should be defined here.
+
+// =============================================================================
+// COLORS
+// =============================================================================
+
+/// Primary brand colors
+pub mod colors {
+    // Primary palette
+    pub const PRIMARY_BLUE: &str = "#667eea";
+    pub const PRIMARY_PURPLE: &str = "#764ba2";
+    pub const ACCENT_BLUE: &str = "#60a5fa";
+    pub const ACCENT_PURPLE: &str = "#a78bfa";
+
+    // Semantic colors
+    pub const SUCCESS: &str = "#4ade80";
+    pub const WARNING: &str = "#f59e0b";
+    pub const ERROR: &str = "#e06c75";
+    pub const INFO: &str = "#60a5fa";
+
+    // Achievement/gamification colors
+    pub const XP_GREEN: &str = "#4ade80";
+    pub const COMBO_ORANGE: &str = "#f97316";
+    pub const COMBO_LIGHT: &str = "#fb923c";
+    pub const ACHIEVEMENT_GOLD: &str = "#fbbf24";
+
+    // Syntax highlighting colors
+    pub const SYNTAX_QUANTIFIER: &str = "#c678dd";
+    pub const SYNTAX_VARIABLE: &str = "#61afef";
+    pub const SYNTAX_PREDICATE: &str = "#98c379";
+    pub const SYNTAX_CONSTANT: &str = "#e5c07b";
+    pub const SYNTAX_DETERMINER: &str = "#56b6c2";
+    pub const SYNTAX_CONNECTIVE: &str = "#c678dd";
+
+    // Text colors - UPDATED for better accessibility
+    pub const TEXT_PRIMARY: &str = "#f0f0f0";           // Was #e8e8e8, now lighter
+    pub const TEXT_SECONDARY: &str = "#b0b0b0";         // Was #888, now lighter
+    pub const TEXT_TERTIARY: &str = "#909090";          // Was #666, now lighter
+    pub const TEXT_MUTED: &str = "#a0a0a0";             // Was #aaa, kept similar
+    pub const TEXT_PLACEHOLDER: &str = "#808080";       // Was darker
+
+    // Text with opacity (for overlays/backgrounds)
+    pub const TEXT_HIGH_CONTRAST: &str = "rgba(240,242,245,0.95)";    // Was 0.9
+    pub const TEXT_MEDIUM: &str = "rgba(240,242,245,0.80)";           // Was 0.72
+    pub const TEXT_LOW: &str = "rgba(240,242,245,0.70)";              // Was 0.65
+    pub const TEXT_SUBTLE: &str = "rgba(240,242,245,0.55)";           // Was 0.45
+    pub const TEXT_VERY_SUBTLE: &str = "rgba(240,242,245,0.45)";      // Was 0.35
+
+    // Background colors
+    pub const BG_DARK: &str = "#060814";
+    pub const BG_OVERLAY_DARK: &str = "rgba(0,0,0,0.8)";
+    pub const BG_OVERLAY_LIGHT: &str = "rgba(0,0,0,0.25)";
+    pub const BG_SUBTLE: &str = "rgba(255,255,255,0.08)";
+    pub const BG_VERY_SUBTLE: &str = "rgba(255,255,255,0.04)";
+    pub const BG_HOVER: &str = "rgba(255,255,255,0.1)";
+
+    // Border colors
+    pub const BORDER_SUBTLE: &str = "rgba(255,255,255,0.1)";
+    pub const BORDER_MEDIUM: &str = "rgba(255,255,255,0.2)";
+}
+
+// =============================================================================
+// TYPOGRAPHY
+// =============================================================================
+
+/// Font sizes - UPDATED: all increased by 2px for accessibility
+pub mod font_size {
+    // Display sizes
+    pub const DISPLAY_XL: &str = "66px";    // Was 64px
+    pub const DISPLAY_LG: &str = "50px";    // Was 48px
+    pub const DISPLAY_MD: &str = "34px";    // Was 32px
+
+    // Heading sizes
+    pub const HEADING_LG: &str = "26px";    // Was 24px
+    pub const HEADING_MD: &str = "22px";    // Was 20px
+    pub const HEADING_SM: &str = "20px";    // Was 18px
+
+    // Body sizes
+    pub const BODY_LG: &str = "18px";       // Was 16px
+    pub const BODY_MD: &str = "16px";       // Was 14px
+    pub const BODY_SM: &str = "15px";       // Was 13px
+
+    // Small/caption sizes
+    pub const CAPTION_LG: &str = "14px";    // Was 12px
+    pub const CAPTION_MD: &str = "13px";    // Was 11px
+    pub const CAPTION_SM: &str = "12px";    // Was 10px
+}
+
+/// Font families
+pub mod font_family {
+    pub const MONO: &str = "'SF Mono', 'Fira Code', 'Consolas', monospace";
+    pub const MONO_SYSTEM: &str = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace";
+    pub const SANS: &str = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif";
+}
+
+// =============================================================================
+// SPACING
+// =============================================================================
+
+pub mod spacing {
+    pub const XS: &str = "4px";
+    pub const SM: &str = "8px";
+    pub const MD: &str = "12px";
+    pub const LG: &str = "16px";
+    pub const XL: &str = "24px";
+    pub const XXL: &str = "32px";
+}
+
+// =============================================================================
+// BORDER RADIUS
+// =============================================================================
+
+pub mod radius {
+    pub const SM: &str = "4px";
+    pub const MD: &str = "8px";
+    pub const LG: &str = "12px";
+    pub const XL: &str = "16px";
+    pub const FULL: &str = "9999px";
+}
+
+// =============================================================================
+// CSS VARIABLE INJECTION
+// =============================================================================
+
+/// Returns a CSS block that defines all theme variables as CSS custom properties.
+/// Include this in your root component to make variables available everywhere.
+pub fn css_variables() -> &'static str {
+    r#"
+    :root {
+        /* Primary colors */
+        --color-primary-blue: #667eea;
+        --color-primary-purple: #764ba2;
+        --color-accent-blue: #60a5fa;
+        --color-accent-purple: #a78bfa;
+
+        /* Semantic colors */
+        --color-success: #4ade80;
+        --color-warning: #f59e0b;
+        --color-error: #e06c75;
+        --color-info: #60a5fa;
+
+        /* Text colors - accessible grays */
+        --text-primary: #f0f0f0;
+        --text-secondary: #b0b0b0;
+        --text-tertiary: #909090;
+        --text-muted: #a0a0a0;
+        --text-placeholder: #808080;
+
+        /* Font sizes - +2px for accessibility */
+        --font-display-xl: 66px;
+        --font-display-lg: 50px;
+        --font-display-md: 34px;
+        --font-heading-lg: 26px;
+        --font-heading-md: 22px;
+        --font-heading-sm: 20px;
+        --font-body-lg: 18px;
+        --font-body-md: 16px;
+        --font-body-sm: 15px;
+        --font-caption-lg: 14px;
+        --font-caption-md: 13px;
+        --font-caption-sm: 12px;
+
+        /* Font families */
+        --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+        --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+
+        /* Spacing */
+        --spacing-xs: 4px;
+        --spacing-sm: 8px;
+        --spacing-md: 12px;
+        --spacing-lg: 16px;
+        --spacing-xl: 24px;
+        --spacing-xxl: 32px;
+
+        /* Border radius */
+        --radius-sm: 4px;
+        --radius-md: 8px;
+        --radius-lg: 12px;
+        --radius-xl: 16px;
+        --radius-full: 9999px;
+    }
+    "#
+}
+
+```
+
+---
+
 ### Page: Home
 
 **File:** `src/ui/pages/home.rs`
@@ -36729,6 +37940,7 @@ Quadrivium landing page with 4 subject portals (Logic, English, Coding, Mathemat
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::logic_output::highlight_logic;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const HOME_STYLE: &str = r#"
 .home-wrapper {
@@ -37029,13 +38241,9 @@ pub fn Home() -> Element {
     rsx! {
         style { "{HOME_STYLE}" }
 
-        div { class: "home-wrapper",
-            Link {
-                to: Route::Landing {},
-                style: "align-self: flex-start; color: #667eea; text-decoration: none; font-size: 14px; margin-bottom: 20px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.10); background: rgba(255, 255, 255, 0.04); transition: all 0.2s ease;",
-                "← Back to Site"
-            }
+        MainNav { active: ActivePage::Home, show_nav_links: true }
 
+        div { class: "home-wrapper",
             div { class: "brand-header",
                 h1 { "LOGICAFFEINE" }
                 p { "Choose your path to logical mastery." }
@@ -37117,7 +38325,7 @@ pub fn Home() -> Element {
                 }
 
                 Link {
-                    to: Route::Review {},
+                    to: Route::Learn {},
                     class: "portal-card",
                     div { class: "icon", "🔄" }
                     h2 { "Daily Review" }
@@ -37151,42 +38359,24 @@ Application page component.
 ```rust
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const LANDING_STYLE: &str = r#"
-:root {
-  --bg0: #070a12;
-  --bg1: #0b1022;
-  --card: rgba(255,255,255,0.06);
-  --card2: rgba(255,255,255,0.04);
-  --border: rgba(255,255,255,0.10);
-  --border2: rgba(255,255,255,0.14);
-  --text: #e5e7eb;
-  --muted: rgba(229,231,235,0.72);
-  --muted2: rgba(229,231,235,0.56);
-  --brand: #a78bfa;
-  --brand2:#60a5fa;
-  --ok: #22c55e;
-  --shadow: 0 30px 80px rgba(0,0,0,0.55);
-}
-
-* { box-sizing: border-box; }
-a { color: inherit; }
-
 body:has(.landing) {
   overflow: hidden;
 }
 
 .landing {
   height: 100vh;
-  color: var(--text);
+  color: var(--text-primary);
   background:
     radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.18), transparent 60%),
     radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.18), transparent 60%),
     radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.10), transparent 62%),
-    linear-gradient(180deg, var(--bg0), var(--bg1) 55%, #070a12);
+    linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
   overflow-x: hidden;
   overflow-y: auto;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: var(--font-sans);
   position: relative;
 }
 
@@ -37195,111 +38385,37 @@ body:has(.landing) {
   inset: auto;
   width: 520px;
   height: 520px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   filter: blur(42px);
   opacity: 0.22;
   pointer-events: none;
   animation: float 14s ease-in-out infinite, pulse-glow 10s ease-in-out infinite;
 }
-.orb1 { top: -220px; left: -160px; background: radial-gradient(circle at 30% 30%, var(--brand2), transparent 60%); animation-delay: 0s; }
-.orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--brand), transparent 60%); animation-delay: -5s; }
+.orb1 { top: -220px; left: -160px; background: radial-gradient(circle at 30% 30%, var(--color-accent-blue), transparent 60%); animation-delay: 0s; }
+.orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--color-accent-purple), transparent 60%); animation-delay: -5s; }
 .orb3 { bottom: -260px; left: 20%; background: radial-gradient(circle at 40% 35%, rgba(34,197,94,0.9), transparent 60%); animation-delay: -10s; }
 
 .container {
   width: 100%;
   max-width: 1120px;
   margin: 0 auto;
-  padding: 0 20px;
+  padding: 0 var(--spacing-xl);
 }
 
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  backdrop-filter: blur(18px);
-  background: linear-gradient(180deg, rgba(7,10,18,0.72), rgba(7,10,18,0.44));
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-}
-
-.nav-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 0;
-  gap: 14px;
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-decoration: none;
-}
-
-.logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background:
-    radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
-    radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
-    rgba(255,255,255,0.06);
-  border: 1px solid rgba(255,255,255,0.10);
-  box-shadow: 0 14px 35px rgba(0,0,0,0.35);
-}
-
-.brand-name {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.05;
-}
-
-.brand-name strong {
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  font-size: 14px;
-}
-.brand-name span {
-  font-size: 12px;
-  color: var(--muted2);
-}
-
-.nav-links {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  color: var(--muted);
-  font-size: 14px;
-}
-.nav-links a {
-  text-decoration: none;
-  padding: 8px 10px;
-  border-radius: 10px;
-  transition: background 0.18s ease, color 0.18s ease;
-}
-.nav-links a:hover {
-  background: rgba(255,255,255,0.05);
-  color: rgba(255,255,255,0.92);
-}
-
-.nav-cta {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
+/* Navigation now handled by MainNav component */
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 12px 16px;
-  border-radius: 14px;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.05);
   text-decoration: none;
   font-weight: 650;
-  font-size: 14px;
+  font-size: var(--font-body-md);
   transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
   will-change: transform;
 }
@@ -37313,7 +38429,7 @@ body:has(.landing) {
   box-shadow: 0 18px 40px rgba(96,165,250,0.18);
 }
 .btn-primary:hover {
-  background: linear-gradient(135deg, rgba(96,165,250,1.0), rgba(167,139,250,1.0));
+  background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
 }
 
 .btn-ghost {
@@ -37339,7 +38455,7 @@ body:has(.landing) {
   transition: color 0.2s ease;
 }
 .github-link:hover {
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .hero {
@@ -37358,20 +38474,20 @@ body:has(.landing) {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
   backdrop-filter: blur(18px);
   box-shadow: 0 18px 40px rgba(0,0,0,0.25);
-  color: rgba(255,255,255,0.88);
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: var(--font-caption-md);
   font-weight: 650;
 }
 .badge .dot {
   width: 8px;
   height: 8px;
-  border-radius: 99px;
-  background: var(--ok);
+  border-radius: var(--radius-full);
+  background: var(--color-success);
   box-shadow: 0 0 0 6px rgba(34,197,94,0.12);
   animation: pulse-glow 2s ease-in-out infinite;
 }
@@ -37385,8 +38501,8 @@ body:has(.landing) {
 .hero .demo { animation: fadeInUp 0.8s ease 0.44s both; }
 
 .h-title {
-  margin: 18px 0 12px;
-  font-size: 62px;
+  margin: 18px 0 var(--spacing-md);
+  font-size: var(--font-display-xl);
   line-height: 1.04;
   letter-spacing: -2px;
   font-weight: 900;
@@ -37396,31 +38512,31 @@ body:has(.landing) {
 }
 
 .h-sub {
-  margin: 0 0 20px;
+  margin: 0 0 var(--spacing-xl);
   max-width: 580px;
-  color: var(--muted);
-  font-size: 18px;
+  color: var(--text-secondary);
+  font-size: var(--font-body-lg);
   line-height: 1.65;
 }
 
 .hero-ctas {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   flex-wrap: wrap;
   margin: 18px 0 14px;
 }
 
 .microcopy {
-  font-size: 13px;
-  color: var(--muted2);
+  font-size: var(--font-caption-md);
+  color: var(--text-tertiary);
 }
 
 .demo {
-  border-radius: 20px;
+  border-radius: var(--radius-xl);
   border: 1px solid rgba(255,255,255,0.10);
   background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
   backdrop-filter: blur(18px);
-  box-shadow: var(--shadow);
+  box-shadow: 0 30px 80px rgba(0,0,0,0.55);
   overflow: hidden;
   position: relative;
 }
@@ -37440,21 +38556,21 @@ body:has(.landing) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  padding: 14px var(--spacing-lg);
   border-bottom: 1px solid rgba(255,255,255,0.06);
   background: rgba(0,0,0,0.10);
 }
 
-.win-dots { display: flex; gap: 8px; align-items: center; }
-.wdot { width: 11px; height: 11px; border-radius: 99px; opacity: 0.9; }
+.win-dots { display: flex; gap: var(--spacing-sm); align-items: center; }
+.wdot { width: 11px; height: 11px; border-radius: var(--radius-full); opacity: 0.9; }
 .wr { background: #ef4444; } .wy { background: #fbbf24; } .wg { background: #22c55e; }
 
 .demo-label {
-  font-size: 12px;
-  color: rgba(229,231,235,0.78);
+  font-size: var(--font-caption-sm);
+  color: var(--text-secondary);
   border: 1px solid rgba(255,255,255,0.10);
   padding: 7px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: rgba(255,255,255,0.04);
 }
 
@@ -37478,37 +38594,37 @@ body:has(.landing) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
-  font-size: 12px;
-  color: rgba(229,231,235,0.72);
+  margin-bottom: var(--spacing-md);
+  font-size: var(--font-caption-sm);
+  color: var(--text-secondary);
 }
 
 .pill {
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.04);
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--font-caption-md);
   line-height: 1.6;
-  color: rgba(229,231,235,0.90);
+  color: var(--text-primary);
   white-space: pre-wrap;
 }
 
-.code.logic { color: rgba(167,139,250,0.96); }
+.code.logic { color: var(--color-accent-purple); }
 
 .demo-foot {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 14px 16px;
+  padding: 14px var(--spacing-lg);
   border-top: 1px solid rgba(255,255,255,0.06);
   background: rgba(0,0,0,0.12);
-  color: rgba(229,231,235,0.70);
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-md);
 }
 
 .section {
@@ -37516,13 +38632,13 @@ body:has(.landing) {
 }
 
 .section-title {
-  font-size: 30px;
+  font-size: var(--font-heading-lg);
   letter-spacing: -0.8px;
   margin: 0 0 10px;
 }
 .section-sub {
-  margin: 0 0 26px;
-  color: var(--muted);
+  margin: 0 0 var(--spacing-xl);
+  color: var(--text-secondary);
   line-height: 1.65;
   max-width: 760px;
 }
@@ -37540,7 +38656,7 @@ body:has(.landing) {
 
 .card {
   position: relative;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.04);
   backdrop-filter: blur(18px);
@@ -37552,7 +38668,7 @@ body:has(.landing) {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(135deg, rgba(96,165,250,0.12), rgba(167,139,250,0.12));
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -37569,35 +38685,35 @@ body:has(.landing) {
 
 .icon {
   width: 42px; height: 42px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   display: grid;
   place-items: center;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
-  margin-bottom: 12px;
+  margin-bottom: var(--spacing-md);
 }
 
 .card h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-body-md);
   letter-spacing: -0.2px;
 }
 .card p {
   margin: 0;
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.6;
-  font-size: 14px;
+  font-size: var(--font-body-md);
 }
 
 .quote {
-  font-size: 14px;
+  font-size: var(--font-body-md);
   line-height: 1.65;
-  color: rgba(229,231,235,0.86);
+  color: var(--text-primary);
 }
 .quoter {
   margin-top: 10px;
-  color: var(--muted2);
-  font-size: 13px;
+  color: var(--text-tertiary);
+  font-size: var(--font-caption-md);
 }
 
 .kpi {
@@ -37618,12 +38734,12 @@ body:has(.landing) {
 }
 
 .tech-badge {
-  font-size: 12px;
-  padding: 6px 12px;
+  font-size: var(--font-caption-sm);
+  padding: 6px var(--spacing-md);
   border-radius: 6px;
   background: rgba(255,255,255,0.03);
   border: 1px solid rgba(255,255,255,0.08);
-  color: var(--muted);
+  color: var(--text-secondary);
 }
 
 .tech-badge.rust {
@@ -37636,16 +38752,16 @@ body:has(.landing) {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 24px;
+  gap: var(--spacing-xl);
   flex-wrap: wrap;
-  margin: 24px 0;
+  margin: var(--spacing-xl) 0;
 }
 
 .hello-code, .hello-result {
   flex: 1;
   min-width: 280px;
   max-width: 400px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(0,0,0,0.3);
   overflow: hidden;
@@ -37653,50 +38769,50 @@ body:has(.landing) {
 
 .code-header {
   padding: 10px 14px;
-  font-size: 12px;
-  color: var(--muted);
+  font-size: var(--font-caption-sm);
+  color: var(--text-secondary);
   background: rgba(255,255,255,0.03);
   border-bottom: 1px solid rgba(255,255,255,0.06);
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
 }
 
 .hello-code .code {
   margin: 0;
-  padding: 16px;
-  font-size: 14px;
+  padding: var(--spacing-lg);
+  font-size: var(--font-body-md);
   line-height: 1.6;
 }
 
 .terminal {
-  padding: 16px;
-  font-family: ui-monospace, monospace;
-  font-size: 14px;
+  padding: var(--spacing-lg);
+  font-family: var(--font-mono);
+  font-size: var(--font-body-md);
 }
 
 .terminal .prompt {
-  color: var(--ok);
+  color: var(--color-success);
 }
 
 .terminal .output {
-  color: var(--text);
+  color: var(--text-primary);
 }
 
 .hello-arrow {
   font-size: 28px;
-  color: var(--brand);
+  color: var(--color-accent-purple);
 }
 
 .hello-note {
   text-align: center;
-  font-size: 14px;
-  color: var(--muted);
-  margin-top: 8px;
+  font-size: var(--font-body-md);
+  color: var(--text-secondary);
+  margin-top: var(--spacing-sm);
 }
 
 .compare-table {
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid rgba(255,255,255,0.10);
   overflow: hidden;
   max-width: 800px;
@@ -37711,7 +38827,7 @@ body:has(.landing) {
 .compare-row.header {
   background: rgba(255,255,255,0.05);
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--font-caption-md);
 }
 
 .compare-row:not(.header) {
@@ -37719,21 +38835,21 @@ body:has(.landing) {
 }
 
 .compare-cell {
-  padding: 12px 14px;
-  font-size: 13px;
-  color: var(--muted);
+  padding: var(--spacing-md) 14px;
+  font-size: var(--font-caption-md);
+  color: var(--text-secondary);
   text-align: center;
 }
 
 .compare-cell.label {
   text-align: left;
-  color: var(--text);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .compare-cell.highlight {
   background: rgba(167,139,250,0.08);
-  color: var(--brand);
+  color: var(--color-accent-purple);
   font-weight: 500;
 }
 
@@ -37752,26 +38868,26 @@ body:has(.landing) {
 }
 
 .faq-item {
-  padding: 16px 16px 14px;
-  border-radius: 16px;
+  padding: var(--spacing-lg) var(--spacing-lg) 14px;
+  border-radius: var(--radius-xl);
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.03);
 }
-.faq-q { font-weight: 750; margin-bottom: 8px; }
-.faq-a { color: var(--muted); line-height: 1.6; font-size: 14px; }
+.faq-q { font-weight: 750; margin-bottom: var(--spacing-sm); }
+.faq-a { color: var(--text-secondary); line-height: 1.6; font-size: var(--font-body-md); }
 
 .footer {
   padding: 34px 0 44px;
   border-top: 1px solid rgba(255,255,255,0.06);
-  color: var(--muted2);
-  font-size: 13px;
+  color: var(--text-tertiary);
+  font-size: var(--font-caption-md);
 }
 
 .footer-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--spacing-lg);
   flex-wrap: wrap;
 }
 
@@ -37781,8 +38897,7 @@ body:has(.landing) {
   .demo-col + .demo-col { border-left: none; border-top: 1px solid rgba(255,255,255,0.06); }
   .grid3 { grid-template-columns: 1fr; }
   .grid2 { grid-template-columns: 1fr; }
-  .h-title { font-size: 48px; }
-  .nav-links { display: none; }
+  .h-title { font-size: var(--font-display-lg); }
 }
 
 @keyframes fadeInUp {
@@ -37814,7 +38929,7 @@ html { scroll-behavior: smooth; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: var(--spacing-xl);
   flex-wrap: wrap;
 }
 
@@ -37823,8 +38938,8 @@ html { scroll-behavior: smooth; }
   min-width: 200px;
   max-width: 280px;
   text-align: center;
-  padding: 24px;
-  border-radius: 18px;
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-xl);
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.10);
   animation: fadeInUp 0.6s ease both;
@@ -37837,31 +38952,31 @@ html { scroll-behavior: smooth; }
 .step-num {
   width: 48px;
   height: 48px;
-  margin: 0 auto 16px;
+  margin: 0 auto var(--spacing-lg);
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--brand2), var(--brand));
+  background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
   color: #060814;
   font-weight: 800;
-  font-size: 20px;
+  font-size: var(--font-heading-sm);
   display: grid;
   place-items: center;
 }
 
 .step h3 {
-  margin: 0 0 8px;
-  font-size: 18px;
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-body-lg);
 }
 
 .step p {
   margin: 0;
-  color: var(--muted);
-  font-size: 14px;
+  color: var(--text-secondary);
+  font-size: var(--font-body-md);
   line-height: 1.5;
 }
 
 .step-arrow {
   font-size: 24px;
-  color: var(--muted2);
+  color: var(--text-tertiary);
 }
 
 .grid3 .card:nth-child(1) .icon { background: rgba(96,165,250,0.15); }
@@ -37874,7 +38989,7 @@ html { scroll-behavior: smooth; }
 .demo-col:first-child .code::after {
   content: " ▋";
   animation: blink 1s step-end infinite;
-  color: var(--brand2);
+  color: var(--color-accent-blue);
 }
 
 @media (max-width: 980px) {
@@ -37883,8 +38998,7 @@ html { scroll-behavior: smooth; }
   .demo-col + .demo-col { border-left: none; border-top: 1px solid rgba(255,255,255,0.06); }
   .grid3 { grid-template-columns: 1fr; }
   .grid2 { grid-template-columns: 1fr; }
-  .h-title { font-size: 48px; }
-  .nav-links { display: none; }
+  .h-title { font-size: var(--font-display-lg); }
   .step-arrow { display: none; }
   .steps { flex-direction: column; }
 }
@@ -37904,47 +39018,7 @@ pub fn Landing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            header { class: "nav",
-                div { class: "container",
-                    div { class: "nav-inner",
-                        Link {
-                            to: Route::Landing {},
-                            class: "brand",
-                            div { class: "logo" }
-                            div { class: "brand-name",
-                                strong { "LOGICAFFEINE" }
-                                span { "Debug your thoughts." }
-                            }
-                        }
-
-                        nav { class: "nav-links",
-                            a { href: "#product", "Product" }
-                            a { href: "#for", "Who it's for" }
-                            a { href: "#faq", "FAQ" }
-                            Link { to: Route::Roadmap {}, "Roadmap" }
-                            Link { to: Route::Pricing {}, "Pricing" }
-                        }
-
-                        div { class: "nav-cta",
-                            a {
-                                href: "https://github.com/Brahmastra-Labs/logicaffeine",
-                                target: "_blank",
-                                class: "btn btn-icon",
-                                title: "View on GitHub",
-                                svg {
-                                    xmlns: "http://www.w3.org/2000/svg",
-                                    view_box: "0 0 24 24",
-                                    path {
-                                        d: "M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
-                                    }
-                                }
-                            }
-                            Link { to: Route::Pricing {}, class: "btn btn-ghost", "Licenses" }
-                            Link { to: Route::Home {}, class: "btn btn-primary", "Launch App" }
-                        }
-                    }
-                }
-            }
+            MainNav { active: ActivePage::Home }
 
             main { class: "container",
                 section { class: "hero",
@@ -38303,266 +39377,955 @@ Curriculum browser with expandable era/module hierarchy. Displays Trivium, Quadr
 
 ```rust
 use dioxus::prelude::*;
-use crate::ui::router::Route;
-use crate::ui::components::mode_selector::{ModeSelector, ModeInfo};
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::learn_sidebar::{LearnSidebar, ModuleInfo};
+use crate::ui::components::symbol_dictionary::SymbolDictionary;
+use crate::ui::components::guide_code_block::GuideCodeBlock;
+use crate::ui::pages::guide::content::ExampleMode;
+use crate::content::ContentEngine;
+use crate::generator::{Generator, AnswerType, Challenge};
+use crate::grader::check_answer;
+use crate::struggle::{StruggleDetector, StruggleReason};
+use rand::SeedableRng;
+use rand::rngs::StdRng;
+use std::collections::HashMap;
 
 const LEARN_STYLE: &str = r#"
-.learn-container {
+.learn-page {
     min-height: 100vh;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #e8e8e8;
-    padding: 40px 20px;
+    color: var(--text-primary);
+    background:
+        radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.14), transparent 60%),
+        radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.14), transparent 60%),
+        radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.08), transparent 62%),
+        linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
+    font-family: var(--font-sans);
 }
 
-.learn-header {
-    max-width: 1000px;
-    margin: 0 auto 40px;
+/* Hero */
+.learn-hero {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 60px var(--spacing-xl) 40px;
 }
 
-.learn-header h1 {
-    font-size: 36px;
-    font-weight: 700;
-    background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+.learn-hero h1 {
+    font-size: var(--font-display-lg);
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    line-height: 1.1;
+    background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.78) 65%, rgba(229,231,235,0.62) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    margin-bottom: 8px;
+    margin: 0 0 var(--spacing-lg);
 }
 
-.learn-header p {
-    color: #888;
-    font-size: 16px;
+.learn-hero p {
+    font-size: var(--font-body-lg);
+    color: var(--text-secondary);
+    max-width: 600px;
+    line-height: 1.6;
+    margin: 0;
 }
 
-.era-list {
-    max-width: 1000px;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-}
-
-.era-card {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 16px;
-    overflow: hidden;
-}
-
-.era-header {
-    padding: 24px;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    transition: background 0.2s ease;
-}
-
-.era-header:hover {
-    background: rgba(255, 255, 255, 0.03);
-}
-
-.era-title {
-    font-size: 24px;
-    font-weight: 600;
-    color: #fff;
-    margin-bottom: 4px;
-}
-
-.era-description {
-    color: #888;
-    font-size: 14px;
-}
-
-.era-toggle {
-    font-size: 24px;
-    color: #667eea;
-    transition: transform 0.3s ease;
-}
-
-.era-toggle.open {
-    transform: rotate(180deg);
-}
-
-.module-list {
-    padding: 0 24px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-}
-
-.module-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 16px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-decoration: none;
-}
-
-.module-card:hover {
-    background: rgba(255, 255, 255, 0.06);
-    border-color: #667eea;
-    transform: translateX(4px);
-}
-
-.module-info h3 {
-    color: #fff;
-    font-size: 16px;
-    margin-bottom: 4px;
-}
-
-.module-info p {
-    color: #666;
-    font-size: 13px;
-}
-
-.module-stats {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.exercise-count {
-    color: #888;
-    font-size: 13px;
-}
-
-.difficulty-stars {
-    color: #667eea;
-    font-size: 14px;
-}
-
-.start-btn {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: transform 0.2s ease;
-}
-
-.start-btn:hover {
-    transform: scale(1.05);
-}
-
-.back-link {
+.learn-hero-badge {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    color: #667eea;
-    text-decoration: none;
-    margin-bottom: 24px;
-    font-size: 14px;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) 14px;
+    border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xl);
 }
 
-.back-link:hover {
-    text-decoration: underline;
+.learn-hero-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 0 4px rgba(34,197,94,0.15);
+}
+
+/* Layout */
+.learn-layout {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: flex;
+    gap: 48px;
+    padding: 0 var(--spacing-xl) 80px;
+}
+
+/* Main content */
+.learn-content {
+    flex: 1;
+    min-width: 0;
+    max-width: 800px;
+}
+
+/* Era sections */
+.learn-era {
+    margin-bottom: 64px;
+    scroll-margin-top: 100px;
+}
+
+.learn-era-divider {
+    margin: 80px 0 48px;
+    padding: var(--spacing-xl) 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.learn-era-divider h2 {
+    font-size: var(--font-body-md);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-tertiary);
+    margin: 0;
+}
+
+.learn-era-header {
+    margin-bottom: var(--spacing-xl);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.learn-era-header h2 {
+    font-size: var(--font-display-md);
+    font-weight: 800;
+    letter-spacing: -0.8px;
+    line-height: 1.2;
+    background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.85) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0 0 var(--spacing-sm);
+}
+
+.learn-era-header p {
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm);
+    line-height: 1.6;
+    margin: 0;
+}
+
+/* Module cards */
+.learn-modules {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.learn-module-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-xl);
+    transition: all 0.2s ease;
+    scroll-margin-top: 100px;
+}
+
+.learn-module-card:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.12);
+}
+
+.learn-module-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.learn-module-info {
+    flex: 1;
+}
+
+.learn-module-title {
+    font-size: var(--font-heading-sm);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.learn-module-number {
+    font-size: var(--font-body-md);
+    font-weight: 700;
+    color: var(--color-accent-purple);
+    opacity: 0.8;
+}
+
+.learn-module-desc {
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.learn-module-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--spacing-sm);
+}
+
+.learn-exercise-count {
+    font-size: var(--font-caption-md);
+    color: var(--text-secondary);
+    background: rgba(255,255,255,0.05);
+    padding: var(--spacing-xs) 10px;
+    border-radius: var(--radius-full);
+}
+
+.learn-difficulty {
+    display: flex;
+    gap: 3px;
+}
+
+.learn-difficulty-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+}
+
+.learn-difficulty-dot.filled {
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+}
+
+/* Preview section */
+.learn-module-preview {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.learn-preview-label {
+    font-size: var(--font-caption-sm);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    margin-bottom: var(--spacing-md);
+}
+
+/* Action buttons */
+.learn-module-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: var(--spacing-xl);
+}
+
+.learn-action-btn {
+    padding: 10px 18px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-body-md);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid transparent;
+}
+
+.learn-action-btn.primary {
+    background: linear-gradient(135deg, rgba(96,165,250,0.9), rgba(167,139,250,0.9));
+    color: #060814;
+    border-color: rgba(255,255,255,0.1);
+}
+
+.learn-action-btn.primary:hover {
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+}
+
+.learn-action-btn.secondary {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-secondary);
+    border-color: rgba(255,255,255,0.12);
+}
+
+.learn-action-btn.secondary:hover {
+    background: rgba(255,255,255,0.10);
+    color: var(--text-primary);
+}
+
+/* Expanded module state */
+.learn-module-card.expanded {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(167,139,250,0.3);
+    box-shadow: 0 0 40px rgba(167,139,250,0.08);
+}
+
+.learn-module-expanded-content {
+    margin-top: var(--spacing-xl);
+    padding-top: var(--spacing-xl);
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.learn-module-close {
+    position: absolute;
+    top: var(--spacing-lg);
+    right: var(--spacing-lg);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text-secondary);
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.learn-module-close:hover {
+    background: rgba(255,255,255,0.15);
+    color: var(--text-primary);
+}
+
+/* Tab content panels */
+.tab-panel {
+    padding: var(--spacing-xl) 0;
+}
+
+.tab-panel-lesson {
+    color: var(--text-primary);
+    line-height: 1.7;
+}
+
+.tab-panel-lesson h3 {
+    font-size: var(--font-heading-sm);
+    font-weight: 700;
+    margin: var(--spacing-xl) 0 var(--spacing-md);
+    color: var(--text-primary);
+}
+
+.tab-panel-lesson p {
+    margin-bottom: var(--spacing-lg);
+    color: var(--text-secondary);
+}
+
+.exercise-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-bottom: var(--spacing-lg);
+}
+
+.exercise-prompt {
+    font-size: var(--font-caption-md);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-tertiary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.exercise-sentence {
+    font-size: var(--font-heading-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-lg);
+}
+
+.exercise-input-row {
+    display: flex;
+    gap: var(--spacing-md);
+}
+
+.exercise-input {
+    flex: 1;
+    padding: var(--spacing-md) var(--spacing-lg);
+    font-size: var(--font-body-md);
+    font-family: var(--font-mono);
+    background: rgba(255,255,255,0.06);
+    border: 2px solid rgba(255,255,255,0.12);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.exercise-input:focus {
+    border-color: var(--color-accent-blue);
+}
+
+.exercise-input.correct {
+    border-color: var(--color-success);
+    background: rgba(74, 222, 128, 0.1);
+}
+
+.exercise-input.incorrect {
+    border-color: var(--color-error);
+    background: rgba(248, 113, 113, 0.1);
+}
+
+.exercise-submit-btn {
+    padding: var(--spacing-md) var(--spacing-xl);
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    border: none;
+    border-radius: var(--radius-md);
+    color: #060814;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.exercise-submit-btn:hover {
+    opacity: 0.9;
+}
+
+.exercise-feedback {
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+}
+
+.exercise-feedback.correct {
+    background: rgba(74, 222, 128, 0.15);
+    border: 1px solid rgba(74, 222, 128, 0.3);
+    color: var(--color-success);
+}
+
+.exercise-feedback.incorrect {
+    background: rgba(248, 113, 113, 0.15);
+    border: 1px solid rgba(248, 113, 113, 0.3);
+    color: var(--color-error);
+}
+
+.logic-output {
+    font-family: var(--font-mono);
+    font-size: var(--font-body-lg);
+    padding: var(--spacing-lg);
+    background: rgba(96, 165, 250, 0.1);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-md);
+    color: var(--color-accent-blue);
+    margin: var(--spacing-lg) 0;
+}
+
+/* Focus mode - fade other eras */
+.learn-era.faded {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.learn-era.faded .learn-module-card {
+    pointer-events: none;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .learn-layout {
+        flex-direction: column;
+    }
+
+    .learn-hero h1 {
+        font-size: var(--font-display-md);
+    }
+
+    .learn-hero {
+        padding: 40px var(--spacing-xl) var(--spacing-xxl);
+    }
+}
+
+@media (max-width: 640px) {
+    .learn-hero h1 {
+        font-size: var(--font-heading-lg);
+    }
+
+    .learn-hero p {
+        font-size: var(--font-body-md);
+    }
+
+    .learn-era-header h2 {
+        font-size: var(--font-heading-lg);
+    }
+
+    .learn-module-header {
+        flex-direction: column;
+    }
+
+    .learn-module-meta {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .learn-module-actions {
+        flex-direction: column;
+    }
+
+    .learn-action-btn {
+        justify-content: center;
+    }
 }
 "#;
 
+/// Module data with preview example
+struct ModuleData {
+    id: &'static str,
+    title: &'static str,
+    description: &'static str,
+    exercise_count: u32,
+    difficulty: u8,
+    preview_code: Option<&'static str>,
+}
+
+/// Era data structure
+struct EraData {
+    id: &'static str,
+    title: &'static str,
+    description: &'static str,
+    modules: Vec<ModuleData>,
+}
+
+fn get_curriculum_data() -> Vec<EraData> {
+    vec![
+        // Era 1: First Steps
+        EraData {
+            id: "first-steps",
+            title: "First Steps",
+            description: "Get comfortable with logic. Learn what arguments are, how to spot good reasoning, and the classical foundations.",
+            modules: vec![
+                ModuleData {
+                    id: "introduction",
+                    title: "Introduction",
+                    description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
+                    exercise_count: 4,
+                    difficulty: 1,
+                    preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
+                },
+                ModuleData {
+                    id: "syllogistic",
+                    title: "Syllogistic Logic",
+                    description: "Translate English into syllogistic notation. Master the classical form of logical reasoning.",
+                    exercise_count: 99,
+                    difficulty: 1,
+                    preview_code: Some("All humans are mortal."),
+                },
+                ModuleData {
+                    id: "definitions",
+                    title: "Meaning and Definitions",
+                    description: "Understand uses of language, types of definitions, and the analytic/synthetic distinction.",
+                    exercise_count: 49,
+                    difficulty: 2,
+                    preview_code: None,
+                },
+                ModuleData {
+                    id: "fallacies",
+                    title: "Fallacies and Argumentation",
+                    description: "Identify good arguments vs. fallacious reasoning. Master informal fallacies.",
+                    exercise_count: 5,
+                    difficulty: 2,
+                    preview_code: None,
+                },
+                ModuleData {
+                    id: "inductive",
+                    title: "Inductive Reasoning",
+                    description: "Master probability, analogical reasoning, Mill's methods, and inference to best explanation.",
+                    exercise_count: 10,
+                    difficulty: 2,
+                    preview_code: Some("90% of observed swans are white..."),
+                },
+            ],
+        },
+        // Era 2: Building Blocks
+        EraData {
+            id: "building-blocks",
+            title: "Building Blocks",
+            description: "Master the core of formal logic. Propositional connectives, truth tables, and proof construction.",
+            modules: vec![
+                ModuleData {
+                    id: "propositional",
+                    title: "Basic Propositional Logic",
+                    description: "Master AND, OR, NOT, and IF-THEN connectives. Truth tables, S-rules, and I-rules.",
+                    exercise_count: 115,
+                    difficulty: 2,
+                    preview_code: Some("If John runs, then Mary walks."),
+                },
+                ModuleData {
+                    id: "proofs",
+                    title: "Propositional Proofs",
+                    description: "Construct formal proofs and refutations. Learn natural deduction and truth trees.",
+                    exercise_count: 6,
+                    difficulty: 3,
+                    preview_code: Some("1. P → Q  2. P  ∴ Q"),
+                },
+            ],
+        },
+        // Era 3: Expanding Horizons
+        EraData {
+            id: "expanding-horizons",
+            title: "Expanding Horizons",
+            description: "Explore richer logical systems. Quantifiers, modality, obligations, and beliefs.",
+            modules: vec![
+                ModuleData {
+                    id: "quantificational",
+                    title: "Basic Quantificational Logic",
+                    description: "Master universal and existential quantifiers. Translations, proofs, and refutations.",
+                    exercise_count: 6,
+                    difficulty: 3,
+                    preview_code: Some("All birds fly."),
+                },
+                ModuleData {
+                    id: "relations",
+                    title: "Relations and Identity",
+                    description: "Extend predicate logic with identity and relations. Handle definite descriptions.",
+                    exercise_count: 3,
+                    difficulty: 3,
+                    preview_code: Some("John loves Mary."),
+                },
+                ModuleData {
+                    id: "modal",
+                    title: "Basic Modal Logic",
+                    description: "Explore possibility and necessity operators. Express what could be or must be true.",
+                    exercise_count: 37,
+                    difficulty: 3,
+                    preview_code: Some("It is possible that John runs."),
+                },
+                ModuleData {
+                    id: "further_modal",
+                    title: "Further Modal Systems",
+                    description: "Advanced modal systems including quantified modal logic and temporal operators.",
+                    exercise_count: 3,
+                    difficulty: 4,
+                    preview_code: Some("John will run tomorrow."),
+                },
+                ModuleData {
+                    id: "deontic",
+                    title: "Deontic and Imperative Logic",
+                    description: "Reason about obligation, permission, and prohibition. The logic of ethics and law.",
+                    exercise_count: 39,
+                    difficulty: 3,
+                    preview_code: Some("John ought to leave."),
+                },
+                ModuleData {
+                    id: "belief",
+                    title: "Belief Logic",
+                    description: "Express beliefs, knowledge, willing, and rationality. Model propositional attitudes.",
+                    exercise_count: 16,
+                    difficulty: 3,
+                    preview_code: Some("John believes that Mary runs."),
+                },
+            ],
+        },
+        // Era 4: Mastery
+        EraData {
+            id: "mastery",
+            title: "Mastery",
+            description: "Deep understanding. The philosophy, history, and frontiers of logical thought.",
+            modules: vec![
+                ModuleData {
+                    id: "ethics",
+                    title: "A Formalized Ethical Theory",
+                    description: "Apply logic to ethics: practical reason, consistency, and the golden rule formalized.",
+                    exercise_count: 6,
+                    difficulty: 4,
+                    preview_code: None,
+                },
+                ModuleData {
+                    id: "metalogic",
+                    title: "Metalogic",
+                    description: "Study logic about logic: soundness, completeness, and Gödel's incompleteness theorem.",
+                    exercise_count: 6,
+                    difficulty: 4,
+                    preview_code: None,
+                },
+                ModuleData {
+                    id: "history",
+                    title: "History of Logic",
+                    description: "Trace logic from Aristotle through Frege, Russell, and modern developments.",
+                    exercise_count: 5,
+                    difficulty: 2,
+                    preview_code: None,
+                },
+                ModuleData {
+                    id: "deviant",
+                    title: "Deviant Logics",
+                    description: "Explore non-classical logics: many-valued, paraconsistent, intuitionist, and relevance logic.",
+                    exercise_count: 4,
+                    difficulty: 4,
+                    preview_code: None,
+                },
+                ModuleData {
+                    id: "philosophy",
+                    title: "Philosophy of Logic",
+                    description: "Examine philosophical foundations: abstract entities, truth, paradoxes, and logic's scope.",
+                    exercise_count: 5,
+                    difficulty: 4,
+                    preview_code: None,
+                },
+            ],
+        },
+    ]
+}
+
+/// Expanded module key: (era_id, module_id)
+type ExpandedModuleKey = Option<(String, String)>;
+
 #[component]
 pub fn Learn() -> Element {
-    let mut expanded_era = use_signal(|| Some("logicaffeine".to_string()));
-    let mut pending_module = use_signal(|| None::<(String, String, String)>);
-    let navigator = use_navigator();
+    let mut active_module = use_signal(|| None::<String>);
+    // Expanded module state: which module is currently expanded inline
+    let mut expanded_module = use_signal::<ExpandedModuleKey>(|| None);
 
-    let eras = vec![
-        ("logicaffeine", "Practice", "Classic logic exercises from Gensler's Introduction to Logic.", vec![
-            ("syllogistic", "The Syllogism", "Translate English into syllogistic notation", 99, 1),
-            ("propositional", "Propositional Logic", "AND, OR, NOT, and IF-THEN connectives", 114, 2),
-            ("modal", "Modal Logic", "Possibility and necessity operators", 34, 3),
-            ("deontic", "Deontic Logic", "Obligation, permission, and prohibition", 38, 3),
-            ("belief", "Belief Logic", "Beliefs, knowledge, and attitudes", 15, 3),
-            ("informal", "Definitions & Meanings", "Identify problems with definitions", 48, 2),
-        ]),
-        ("trivium", "Basics", "Learn to name objects, describe properties, and express relationships.", vec![
-            ("atomic", "The Atomic World", "Properties as functions mapping individuals to Truth", 3, 1),
-            ("relations", "Connections", "Relations bind multiple individuals", 2, 2),
-            ("negation", "Negation", "Negation flips truth values", 2, 2),
-        ]),
-        ("quadrivium", "Quantifiers", "Master universal and existential quantifiers that give logic its power.", vec![
-            ("universal", "Universal Quantification", "The ∀ expresses claims about ALL", 3, 3),
-            ("existential", "Existential Quantification", "The ∃ asserts that SOME exists", 2, 3),
-            ("scope", "Scope Ambiguity", "Multiple quantifiers create ambiguity", 1, 4),
-        ]),
-        ("metaphysics", "Modality & Time", "Express possibility, necessity, and temporal relationships.", vec![
-            ("modality", "Modal Logic", "Possibility and necessity", 2, 4),
-            ("time", "Temporal Logic", "Past and future operators", 2, 4),
-        ]),
-    ];
+    let eras = get_curriculum_data();
+
+    // Build module info for sidebar
+    let sidebar_modules: Vec<ModuleInfo> = eras.iter().flat_map(|era| {
+        era.modules.iter().map(|m| ModuleInfo {
+            era_id: era.id.to_string(),
+            era_title: era.title.to_string(),
+            module_id: m.id.to_string(),
+            module_title: m.title.to_string(),
+            exercise_count: m.exercise_count,
+            difficulty: m.difficulty,
+        })
+    }).collect();
+
+    // Collect all module IDs for intersection observer (used in wasm32 target)
+    #[allow(unused_variables)]
+    let module_ids: Vec<String> = eras.iter()
+        .flat_map(|era| era.modules.iter().map(|m| m.id.to_string()))
+        .collect();
+
+    // Set up scroll tracking with IntersectionObserver
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+
+        let module_ids_for_effect = module_ids.clone();
+
+        use_effect(move || {
+            let window = match web_sys::window() {
+                Some(w) => w,
+                None => return,
+            };
+            let document = match window.document() {
+                Some(d) => d,
+                None => return,
+            };
+
+            // Create a closure that will be called when elements intersect
+            // Use RefCell to allow mutation from within Fn closure
+            use std::cell::RefCell;
+            use std::rc::Rc;
+
+            let active_module_clone = Rc::new(RefCell::new(active_module.clone()));
+            let active_module_for_closure = active_module_clone.clone();
+
+            let callback = Closure::<dyn Fn(js_sys::Array, web_sys::IntersectionObserver)>::new(
+                move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
+                    // Simple approach: when a module crosses the threshold line (enters from below),
+                    // it becomes active. The threshold is set so modules activate when their top
+                    // reaches ~100px from the top of the viewport.
+                    for i in 0..entries.length() {
+                        if let Ok(entry) = entries.get(i).dyn_into::<web_sys::IntersectionObserverEntry>() {
+                            // Only activate when element is entering (crossing the threshold)
+                            if entry.is_intersecting() {
+                                let target = entry.target();
+                                let id = target.id();
+                                if !id.is_empty() {
+                                    active_module_for_closure.borrow_mut().set(Some(id));
+                                }
+                            }
+                        }
+                    }
+                },
+            );
+
+            // Create IntersectionObserver options
+            let mut options = web_sys::IntersectionObserverInit::new();
+            // Root margin: top offset of -100px means the "viewport" starts 100px below the actual top
+            // Bottom margin of -90% means only the top 10% of viewport triggers intersection
+            // This creates a thin "tripwire" near the top of the screen
+            options.root_margin("-100px 0px -90% 0px");
+            // Single threshold at 0 - fires once when element crosses the line
+            let thresholds = js_sys::Array::new();
+            thresholds.push(&JsValue::from(0.0));
+            options.threshold(&thresholds);
+
+            // Create the observer
+            let observer = match web_sys::IntersectionObserver::new_with_options(
+                callback.as_ref().unchecked_ref(),
+                &options,
+            ) {
+                Ok(obs) => obs,
+                Err(_) => return,
+            };
+
+            // Observe all module cards
+            for module_id in &module_ids_for_effect {
+                if let Some(element) = document.get_element_by_id(module_id) {
+                    observer.observe(&element);
+                }
+            }
+
+            // Keep callback alive
+            callback.forget();
+        });
+    }
+
+    // Track first era for divider logic
+    let mut is_first_era = true;
 
     rsx! {
         style { "{LEARN_STYLE}" }
 
-        AppNavbar { title: "Curriculum".to_string() }
+        div { class: "learn-page",
+            MainNav { active: ActivePage::Learn }
 
-        div { class: "learn-container",
-            div { class: "learn-header",
-                h1 { "Curriculum" }
-                p { "Master first-order logic through progressive challenges" }
+            // Hero
+            header { class: "learn-hero",
+                div { class: "learn-hero-badge",
+                    div { class: "dot" }
+                    span { "Interactive Curriculum" }
+                }
+                h1 { "Learn Logic" }
+                p {
+                    "Master first-order logic through progressive challenges. Start with the basics and work your way up to advanced reasoning."
+                }
             }
 
-            div { class: "era-list",
-                for (era_id, title, description, modules) in eras.iter() {
-                    div { class: "era-card",
-                        div {
-                            class: "era-header",
-                            onclick: {
-                                let era_id_str = era_id.to_string();
-                                move |_| {
-                                    if expanded_era().as_ref() == Some(&era_id_str) {
-                                        expanded_era.set(None);
-                                    } else {
-                                        expanded_era.set(Some(era_id_str.clone()));
+            // Main layout
+            div { class: "learn-layout",
+                // Sidebar
+                LearnSidebar {
+                    modules: sidebar_modules,
+                    active_module: active_module.read().clone(),
+                    on_module_click: move |(_era_id, module_id): (String, String)| {
+                        active_module.set(Some(module_id));
+                    },
+                }
+
+                // Content
+                main { class: "learn-content",
+                    for era in eras.iter() {
+                        {
+                            // Show divider for all eras except the first
+                            let show_divider = !is_first_era;
+                            is_first_era = false;
+
+                            rsx! {
+                                // Era divider
+                                if show_divider {
+                                    div { class: "learn-era-divider",
+                                        h2 { "{era.title}" }
                                     }
                                 }
-                            },
-                            div {
-                                div { class: "era-title", "{title}" }
-                                div { class: "era-description", "{description}" }
-                            }
-                            span {
-                                class: if expanded_era().as_ref() == Some(&era_id.to_string()) { "era-toggle open" } else { "era-toggle" },
-                                "▼"
-                            }
-                        }
 
-                        if expanded_era().as_ref() == Some(&era_id.to_string()) {
-                            div { class: "module-list",
-                                for (mod_id, mod_title, mod_desc, ex_count, difficulty) in modules.iter() {
-                                    {
-                                        let era_for_click = era_id.to_string();
-                                        let mod_for_click = mod_id.to_string();
-                                        let title_for_click = mod_title.to_string();
-                                        rsx! {
-                                            div {
-                                                class: "module-card",
-                                                onclick: move |_| {
-                                                    pending_module.set(Some((
-                                                        era_for_click.clone(),
-                                                        mod_for_click.clone(),
-                                                        title_for_click.clone(),
-                                                    )));
-                                                },
-                                                div { class: "module-info",
-                                                    h3 { "{mod_title}" }
-                                                    p { "{mod_desc}" }
-                                                }
-                                                div { class: "module-stats",
-                                                    span { class: "exercise-count", "{ex_count} exercises" }
-                                                    span { class: "difficulty-stars",
-                                                        for _ in 0..*difficulty {
-                                                            "★"
+                                // Era section
+                                section { class: "learn-era",
+                                    div { class: "learn-era-header",
+                                        h2 { "{era.title}" }
+                                        p { "{era.description}" }
+                                    }
+
+                                    div { class: "learn-modules",
+                                        for (idx, module) in era.modules.iter().enumerate() {
+                                            {
+                                                let era_id = era.id.to_string();
+                                                let module_id = module.id.to_string();
+                                                let module_number = idx + 1;
+
+                                                // Check if this module is expanded
+                                                let is_expanded = expanded_module.read().as_ref()
+                                                    .map(|(e, m)| e == era.id && m == module.id)
+                                                    .unwrap_or(false);
+
+                                                let card_class = if is_expanded {
+                                                    "learn-module-card expanded"
+                                                } else {
+                                                    "learn-module-card"
+                                                };
+
+                                                rsx! {
+                                                    div {
+                                                        class: "{card_class}",
+                                                        id: "{module.id}",
+                                                        style: if is_expanded { "position: relative;" } else { "" },
+
+                                                        // Close button when expanded
+                                                        if is_expanded {
+                                                            button {
+                                                                class: "learn-module-close",
+                                                                onclick: move |_| {
+                                                                    expanded_module.set(None);
+                                                                },
+                                                                "×"
+                                                            }
                                                         }
-                                                        for _ in *difficulty..5 {
-                                                            "☆"
+
+                                                        div { class: "learn-module-header",
+                                                            div { class: "learn-module-info",
+                                                                h3 { class: "learn-module-title",
+                                                                    span { class: "learn-module-number", "{module_number}." }
+                                                                    "{module.title}"
+                                                                }
+                                                                p { class: "learn-module-desc", "{module.description}" }
+                                                            }
+
+                                                            div { class: "learn-module-meta",
+                                                                span { class: "learn-exercise-count", "{module.exercise_count} exercises" }
+                                                                div { class: "learn-difficulty",
+                                                                    for i in 1..=5u8 {
+                                                                        div {
+                                                                            class: if i <= module.difficulty { "learn-difficulty-dot filled" } else { "learn-difficulty-dot" }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Show preview only when collapsed
+                                                        if !is_expanded {
+                                                            if let Some(preview) = module.preview_code {
+                                                                div { class: "learn-module-preview",
+                                                                    div { class: "learn-preview-label", "Try an Example" }
+                                                                    GuideCodeBlock {
+                                                                        id: format!("preview-{}", module.id),
+                                                                        label: "Example".to_string(),
+                                                                        mode: ExampleMode::Logic,
+                                                                        initial_code: preview.to_string(),
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            // Action buttons (only when collapsed)
+                                                            div { class: "learn-module-actions",
+                                                                button {
+                                                                    class: "learn-action-btn primary",
+                                                                    onclick: {
+                                                                        let era = era_id.clone();
+                                                                        let module = module_id.clone();
+                                                                        move |_| {
+                                                                            expanded_module.set(Some((era.clone(), module.clone())));
+                                                                        }
+                                                                    },
+                                                                    "Start Learning"
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Expanded content - Interactive exercises
+                                                        if is_expanded {
+                                                            div { class: "learn-module-expanded-content",
+                                                                InteractiveExercisePanel {
+                                                                    era_id: era_id.clone(),
+                                                                    module_id: module_id.clone(),
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -38575,30 +40338,598 @@ pub fn Learn() -> Element {
                     }
                 }
             }
+        }
+    }
+}
 
-            if let Some((era, module, title)) = pending_module() {
-                ModeSelector {
-                    info: ModeInfo {
-                        era: era.clone(),
-                        module: module.clone(),
-                        title: title.clone(),
-                    },
-                    on_select: move |mode: String| {
-                        let nav = navigator.clone();
-                        let e = era.clone();
-                        let m = module.clone();
-                        pending_module.set(None);
-                        nav.push(Route::Lesson {
-                            era: e,
-                            module: m,
-                            mode,
-                        });
-                    },
-                    on_cancel: move |_| {
-                        pending_module.set(None);
-                    },
+/// What is currently revealed in the exercise - each section can be shown independently
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct RevealState {
+    hint: bool,
+    answer: bool,
+    symbol_dictionary: bool,
+}
+
+impl RevealState {
+    fn reset(&mut self) {
+        self.hint = false;
+        self.answer = false;
+        self.symbol_dictionary = false;
+    }
+}
+
+/// Practice mode state
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum PracticeMode {
+    #[default]
+    Practice,
+    Test,
+}
+
+/// Interactive exercise panel with reveal buttons instead of tabs
+#[component]
+fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
+    let engine = ContentEngine::new();
+    let generator = Generator::new();
+
+    // Exercise state
+    let mut current_exercise_idx = use_signal(|| 0usize);
+    let mut user_answer = use_signal(|| String::new());
+    let mut reveal_state = use_signal(RevealState::default);
+    let mut feedback = use_signal(|| None::<(bool, String)>);
+    let mut score = use_signal(|| 0u32);
+    let mut streak = use_signal(|| 0u32);
+    let mut correct_count = use_signal(|| 0u32);
+    let mut practice_mode = use_signal(PracticeMode::default);
+    // Track wrong attempts per exercise - each wrong costs 5 XP, max 10 XP available per exercise
+    // After 2 wrong attempts, no XP can be earned from that exercise
+    let mut exercise_attempts = use_signal(|| std::collections::HashMap::<usize, u32>::new());
+    // Track which exercises have been completed (earned XP) - prevents double XP
+    let mut completed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+
+    // Test mode state
+    let mut test_question = use_signal(|| 0usize);
+    let mut test_answers = use_signal(|| Vec::<bool>::new());
+    let mut test_complete = use_signal(|| false);
+
+    // Struggle detection state
+    let mut struggle_detector = use_signal(StruggleDetector::default);
+    let mut show_socratic_hint = use_signal(|| false);
+
+    // Stable seed per exercise - only set once when component mounts or exercise changes
+    // Use a signal to store the base seed so it doesn't change on re-renders
+    let base_seed = use_signal(|| {
+        #[cfg(target_arch = "wasm32")]
+        { js_sys::Date::now() as u64 }
+        #[cfg(not(target_arch = "wasm32"))]
+        { 42u64 }
+    });
+
+    // Generate challenge from exercise using stable seed
+    let module_opt = engine.get_module(&era_id, &module_id);
+    let current_challenge: Option<Challenge> = module_opt.as_ref().and_then(|module| {
+        let idx = *current_exercise_idx.read();
+        let seed = *base_seed.read();
+        module.exercises.get(idx).and_then(|ex| {
+            // Use exercise index as part of seed to get different sentences per exercise
+            // but stable within the same exercise
+            let mut rng = StdRng::seed_from_u64(seed.wrapping_add((idx * 1000) as u64));
+            generator.generate(ex, &mut rng)
+        })
+    });
+
+    let total_exercises = module_opt.as_ref().map(|m| m.exercises.len()).unwrap_or(0);
+    let current_idx = *current_exercise_idx.read();
+    let progress_pct = if total_exercises > 0 {
+        ((current_idx + 1) * 100) / total_exercises
+    } else {
+        0
+    };
+
+    // Get the golden answer for validation
+    let golden_answer = current_challenge.as_ref().and_then(|ch| {
+        match &ch.answer {
+            AnswerType::FreeForm { golden_logic } => Some(golden_logic.clone()),
+            AnswerType::MultipleChoice { options, correct_index } => {
+                options.get(*correct_index).cloned()
+            }
+            AnswerType::Ambiguity { readings } => readings.first().cloned(),
+        }
+    });
+
+    // Get hint from exercise
+    let hint_text = current_challenge.as_ref().and_then(|ch| ch.hint.clone());
+
+    // Test mode constants
+    let test_total = 10usize;
+    let is_test_mode = *practice_mode.read() == PracticeMode::Test;
+    let current_test_q = *test_question.read();
+
+    rsx! {
+        div { class: "interactive-exercise-panel",
+            // Test mode header
+            if is_test_mode {
+                if *test_complete.read() {
+                    // Test results
+                    div { class: "test-results",
+                        style: "text-align: center; padding: var(--spacing-xxl);",
+                        h3 { style: "margin-bottom: var(--spacing-lg); font-size: var(--font-heading-lg);",
+                            "Test Complete!"
+                        }
+                        {
+                            let answers = test_answers.read();
+                            let correct = answers.iter().filter(|&&c| c).count();
+                            let pct = (correct * 100) / test_total;
+                            let grade = if pct >= 90 { "A" } else if pct >= 80 { "B" } else if pct >= 70 { "C" } else if pct >= 60 { "D" } else { "F" };
+                            rsx! {
+                                div { style: "font-size: var(--font-display-md); font-weight: 700; color: var(--color-accent-blue);",
+                                    "{correct}/{test_total}"
+                                }
+                                div { style: "font-size: var(--font-heading-lg); color: var(--text-secondary); margin: var(--spacing-md) 0;",
+                                    "Grade: {grade} ({pct}%)"
+                                }
+                            }
+                        }
+                        div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                            button {
+                                class: "learn-action-btn secondary",
+                                onclick: move |_| {
+                                    practice_mode.set(PracticeMode::Practice);
+                                    test_complete.set(false);
+                                },
+                                "Back to Practice"
+                            }
+                            button {
+                                class: "learn-action-btn primary",
+                                onclick: move |_| {
+                                    test_question.set(0);
+                                    test_answers.set(Vec::new());
+                                    test_complete.set(false);
+                                    user_answer.set(String::new());
+                                    feedback.set(None);
+                                },
+                                "Retake Test"
+                            }
+                        }
+                    }
+                } else {
+                    // Test mode progress
+                    div { class: "exercise-progress",
+                        div { class: "exercise-mode-badge test", "TEST MODE" }
+                        span { "Question {current_test_q + 1} of {test_total}" }
+                        div { class: "progress-bar",
+                            div {
+                                class: "progress-fill",
+                                style: "width: {((current_test_q + 1) * 100) / test_total}%",
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Practice mode progress
+                div { class: "exercise-progress",
+                    span { "Exercise {current_idx + 1} of {total_exercises}" }
+                    div { class: "progress-bar",
+                        div {
+                            class: "progress-fill",
+                            style: "width: {progress_pct}%",
+                        }
+                    }
+                    span { class: "practice-score", "+{score} XP" }
+                    if *correct_count.read() > 0 {
+                        span { style: "color: var(--color-success); font-size: var(--font-caption-md);",
+                            " ({correct_count} correct)"
+                        }
+                    }
                 }
             }
+
+            // Don't show exercise card when test is complete
+            if !(is_test_mode && *test_complete.read()) {
+            if let Some(challenge) = current_challenge.as_ref() {
+                div { class: "exercise-card",
+                    // Exercise prompt
+                    div { class: "exercise-prompt", "{challenge.prompt}" }
+                    div { class: "exercise-sentence", "{challenge.sentence}" }
+
+                    // Answer input based on exercise type
+                    match &challenge.answer {
+                        AnswerType::FreeForm { .. } => rsx! {
+                            div { class: "exercise-input-row",
+                                input {
+                                    class: match feedback.read().as_ref() {
+                                        Some((true, _)) => "exercise-input correct",
+                                        Some((false, _)) => "exercise-input incorrect",
+                                        None => "exercise-input",
+                                    },
+                                    r#type: "text",
+                                    placeholder: "Enter your logic translation...",
+                                    value: "{user_answer}",
+                                    oninput: {
+                                        move |e: Event<FormData>| {
+                                            user_answer.set(e.value());
+                                            // Record activity to reset inactivity timer
+                                            struggle_detector.write().record_activity();
+                                        }
+                                    },
+                                }
+                                button {
+                                    class: "exercise-submit-btn",
+                                    onclick: {
+                                        let golden = golden_answer.clone();
+                                        move |_| {
+                                            let answer = user_answer.read().clone();
+                                            if !answer.is_empty() {
+                                                if let Some(ref expected) = golden {
+                                                    // Use the real grader
+                                                    let result = check_answer(&answer, expected);
+                                                    if result.correct {
+                                                        // Only award XP if this exercise hasn't been completed yet
+                                                        let already_completed = completed_exercises.read().contains(&current_idx);
+                                                        if !already_completed {
+                                                            // Calculate XP based on wrong attempts (each wrong costs 5 XP)
+                                                            let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
+                                                            let base_xp = 10u32.saturating_sub(wrong_count * 5);
+
+                                                            if base_xp > 0 {
+                                                                let current_streak = *streak.read();
+                                                                let current_score = *score.read();
+                                                                let current_correct = *correct_count.read();
+                                                                let bonus = (current_streak as u32).min(5);
+                                                                let xp = base_xp + bonus;
+                                                                score.set(current_score + xp);
+                                                                streak.set(current_streak + 1);
+                                                                correct_count.set(current_correct + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+                                                            } else {
+                                                                // Too many wrong attempts - no XP but still mark complete
+                                                                let current_correct = *correct_count.read();
+                                                                correct_count.set(current_correct + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - too many attempts)".to_string())));
+                                                            }
+                                                        } else {
+                                                            // Already earned XP for this exercise
+                                                            feedback.set(Some((true, "Correct! (already completed)".to_string())));
+                                                        }
+                                                        struggle_detector.write().record_correct_attempt();
+                                                        show_socratic_hint.set(false);
+                                                    } else {
+                                                        // Wrong answer - record attempt and show feedback
+                                                        let attempts = exercise_attempts.read().get(&current_idx).copied().unwrap_or(0);
+                                                        exercise_attempts.write().insert(current_idx, attempts + 1);
+
+                                                        let remaining = 10u32.saturating_sub((attempts + 1) * 5);
+                                                        let penalty_msg = if remaining > 0 {
+                                                            format!(" (-5 XP, {} remaining)", remaining)
+                                                        } else {
+                                                            " (no XP remaining)".to_string()
+                                                        };
+
+                                                        feedback.set(Some((false, format!("{}{}", result.feedback, penalty_msg))));
+                                                        struggle_detector.write().record_wrong_attempt();
+                                                        show_socratic_hint.set(true);
+                                                        streak.set(0);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    "Check"
+                                }
+                            }
+                        },
+                        AnswerType::MultipleChoice { options, correct_index } => rsx! {
+                            div { class: "multiple-choice-options",
+                                for (idx, option) in options.iter().enumerate() {
+                                    {
+                                        let is_selected = user_answer.read().as_str() == option;
+                                        let is_correct_option = idx == *correct_index;
+                                        let option_clone = option.clone();
+                                        let show_result = feedback.read().is_some();
+
+                                        let btn_class = if show_result && is_selected {
+                                            if is_correct_option { "reveal-btn active correct" } else { "reveal-btn active incorrect" }
+                                        } else if is_selected {
+                                            "reveal-btn active"
+                                        } else {
+                                            "reveal-btn"
+                                        };
+
+                                        rsx! {
+                                            button {
+                                                class: "{btn_class}",
+                                                onclick: {
+                                                    let opt = option_clone.clone();
+                                                    let correct = is_correct_option;
+                                                    move |_| {
+                                                        user_answer.set(opt.clone());
+                                                        if correct {
+                                                            // Only award XP if this exercise hasn't been completed yet
+                                                            let already_completed = completed_exercises.read().contains(&current_idx);
+                                                            if !already_completed {
+                                                                // Calculate XP based on wrong attempts (each wrong costs 5 XP)
+                                                                let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
+                                                                let base_xp = 10u32.saturating_sub(wrong_count * 5);
+
+                                                                if base_xp > 0 {
+                                                                    let current_streak = *streak.read();
+                                                                    let current_score = *score.read();
+                                                                    let current_correct = *correct_count.read();
+                                                                    let bonus = (current_streak as u32).min(5);
+                                                                    let xp = base_xp + bonus;
+                                                                    score.set(current_score + xp);
+                                                                    streak.set(current_streak + 1);
+                                                                    correct_count.set(current_correct + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+                                                                } else {
+                                                                    // Too many wrong attempts - no XP but still mark complete
+                                                                    let current_correct = *correct_count.read();
+                                                                    correct_count.set(current_correct + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    feedback.set(Some((true, "Correct! (no XP - too many attempts)".to_string())));
+                                                                }
+                                                            } else {
+                                                                feedback.set(Some((true, "Correct! (already completed)".to_string())));
+                                                            }
+                                                            struggle_detector.write().record_correct_attempt();
+                                                            show_socratic_hint.set(false);
+                                                        } else {
+                                                            // Wrong answer - record attempt and show feedback
+                                                            let attempts = exercise_attempts.read().get(&current_idx).copied().unwrap_or(0);
+                                                            exercise_attempts.write().insert(current_idx, attempts + 1);
+
+                                                            let remaining = 10u32.saturating_sub((attempts + 1) * 5);
+                                                            let penalty_msg = if remaining > 0 {
+                                                                format!(" (-5 XP, {} remaining)", remaining)
+                                                            } else {
+                                                                " (no XP remaining)".to_string()
+                                                            };
+
+                                                            feedback.set(Some((false, format!("Not quite.{}", penalty_msg))));
+                                                            struggle_detector.write().record_wrong_attempt();
+                                                            show_socratic_hint.set(true);
+                                                            streak.set(0);
+                                                        }
+                                                    }
+                                                },
+                                                "{option}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        AnswerType::Ambiguity { readings } => rsx! {
+                            div { class: "ambiguity-readings",
+                                p { class: "exercise-prompt", "This sentence has {readings.len()} possible interpretations:" }
+                                for (i, reading) in readings.iter().enumerate() {
+                                    div { class: "revealed-logic",
+                                        span { class: "revealed-label", "Reading {i + 1}" }
+                                        "{reading}"
+                                    }
+                                }
+                            }
+                        },
+                    }
+
+                    // Show feedback
+                    if let Some((is_correct, msg)) = feedback.read().as_ref() {
+                        div {
+                            class: if *is_correct { "exercise-feedback correct" } else { "exercise-feedback incorrect" },
+                            "{msg}"
+                        }
+                    }
+
+                    // Socratic hint (triggered by wrong answer or inactivity) - NOT in test mode
+                    if !is_test_mode && *show_socratic_hint.read() && hint_text.is_some() {
+                        div { class: "socratic-hint-box",
+                            div { class: "hint-header",
+                                "🦉 Socrates says..."
+                            }
+                            div { class: "hint-text",
+                                if let Some(reason) = struggle_detector.read().reason() {
+                                    "{reason.message()} "
+                                }
+                                if let Some(hint) = hint_text.as_ref() {
+                                    "{hint}"
+                                }
+                            }
+                        }
+                    }
+
+                    // Interactive reveal buttons - NOT in test mode
+                    if !is_test_mode {
+                    div { class: "reveal-section",
+                        div { class: "reveal-buttons",
+                            // Show Hint button - toggles independently
+                            button {
+                                class: if reveal_state.read().hint { "reveal-btn active" } else { "reveal-btn" },
+                                onclick: move |_| {
+                                    let current = reveal_state.read().hint;
+                                    reveal_state.write().hint = !current;
+                                },
+                                "💡 Show Hint"
+                            }
+
+                            // Show Answer button - toggles independently
+                            button {
+                                class: if reveal_state.read().answer { "reveal-btn active" } else { "reveal-btn" },
+                                onclick: move |_| {
+                                    let current = reveal_state.read().answer;
+                                    reveal_state.write().answer = !current;
+                                },
+                                "✓ Show Answer"
+                            }
+
+                            // Symbol Dictionary button (only for FreeForm/Ambiguity) - toggles independently
+                            if matches!(&challenge.answer, AnswerType::FreeForm { .. } | AnswerType::Ambiguity { .. }) {
+                                button {
+                                    class: if reveal_state.read().symbol_dictionary { "reveal-btn active" } else { "reveal-btn" },
+                                    onclick: move |_| {
+                                        let current = reveal_state.read().symbol_dictionary;
+                                        reveal_state.write().symbol_dictionary = !current;
+                                    },
+                                    "📖 Symbol Dictionary"
+                                }
+                            }
+                        }
+
+                        // Stacked revealed content - each section shows independently
+                        if reveal_state.read().hint {
+                            div { class: "revealed-content",
+                                div { class: "revealed-label", "Hint" }
+                                if let Some(hint) = hint_text.as_ref() {
+                                    p { "{hint}" }
+                                } else {
+                                    p { "No hint available for this exercise." }
+                                }
+                            }
+                        }
+
+                        if reveal_state.read().answer {
+                            div { class: "revealed-content",
+                                div { class: "revealed-label", "Correct Answer" }
+                                if let Some(answer) = golden_answer.as_ref() {
+                                    div { class: "revealed-logic", "{answer}" }
+                                    // Show explanation if available
+                                    if let Some(explanation) = challenge.explanation.as_ref() {
+                                        p { style: "margin-top: 12px; color: var(--text-secondary);", "{explanation}" }
+                                    }
+                                }
+                            }
+                        }
+
+                        if reveal_state.read().symbol_dictionary {
+                            div { class: "revealed-content",
+                                if let Some(answer) = golden_answer.as_ref() {
+                                    SymbolDictionary { logic: answer.clone() }
+                                } else {
+                                    p { "No logic output to analyze." }
+                                }
+                            }
+                        }
+                    }
+                    } // end if !is_test_mode
+
+                    // Action buttons
+                    div { class: "learn-module-actions", style: "margin-top: 24px;",
+                        if is_test_mode {
+                            // Test mode: Submit answer and move to next question
+                            button {
+                                class: "learn-action-btn primary",
+                                onclick: {
+                                    let golden = golden_answer.clone();
+                                    move |_| {
+                                        let answer = user_answer.read().clone();
+                                        let is_correct = if let Some(ref expected) = golden {
+                                            if !answer.is_empty() {
+                                                check_answer(&answer, expected).correct
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        };
+
+                                        // Record answer
+                                        test_answers.write().push(is_correct);
+
+                                        // Move to next question or complete
+                                        let next_q = current_test_q + 1;
+                                        if next_q >= test_total {
+                                            test_complete.set(true);
+                                        } else {
+                                            test_question.set(next_q);
+                                            // Also advance the exercise index for variety
+                                            let next_idx = (current_idx + 1) % total_exercises;
+                                            current_exercise_idx.set(next_idx);
+                                        }
+                                        user_answer.set(String::new());
+                                        feedback.set(None);
+                                    }
+                                },
+                                "Submit Answer →"
+                            }
+                            button {
+                                class: "learn-action-btn secondary",
+                                onclick: move |_| {
+                                    practice_mode.set(PracticeMode::Practice);
+                                },
+                                "Exit Test"
+                            }
+                        } else {
+                        // Practice mode buttons
+                        button {
+                            class: "learn-action-btn secondary",
+                            onclick: {
+                                move |_| {
+                                    // Move to next exercise
+                                    let next = current_idx + 1;
+                                    if next < total_exercises {
+                                        current_exercise_idx.set(next);
+                                    } else {
+                                        current_exercise_idx.set(0); // Loop back
+                                    }
+                                    // Reset state
+                                    user_answer.set(String::new());
+                                    feedback.set(None);
+                                    reveal_state.write().reset();
+                                    struggle_detector.write().reset();
+                                    show_socratic_hint.set(false);
+                                }
+                            },
+                            "Skip →"
+                        }
+
+                        if feedback.read().as_ref().map(|(c, _)| *c).unwrap_or(false) {
+                            button {
+                                class: "learn-action-btn primary",
+                                onclick: {
+                                    move |_| {
+                                        let next = current_idx + 1;
+                                        if next < total_exercises {
+                                            current_exercise_idx.set(next);
+                                        } else {
+                                            current_exercise_idx.set(0);
+                                        }
+                                        user_answer.set(String::new());
+                                        feedback.set(None);
+                                        reveal_state.write().reset();
+                                        struggle_detector.write().reset();
+                                        show_socratic_hint.set(false);
+                                    }
+                                },
+                                "Next Exercise →"
+                            }
+                        }
+
+                        // Show "Take Test" button after 5 correct answers
+                        if *correct_count.read() >= 5 {
+                            button {
+                                class: "learn-action-btn test-ready",
+                                style: "background: linear-gradient(135deg, #fbbf24, #f59e0b); margin-left: auto;",
+                                onclick: move |_| {
+                                    practice_mode.set(PracticeMode::Test);
+                                    test_question.set(0);
+                                    test_answers.set(Vec::new());
+                                    test_complete.set(false);
+                                    user_answer.set(String::new());
+                                    feedback.set(None);
+                                    reveal_state.write().reset();
+                                },
+                                "🎯 Take Test"
+                            }
+                        }
+                        } // end else (practice mode)
+                    }
+                }
+            } else {
+                p { "Loading exercises..." }
+            }
+            } // end if !(is_test_mode && test_complete)
         }
     }
 }
@@ -38620,7 +40951,7 @@ use crate::ui::components::mixed_text::MixedText;
 use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::achievement_toast::AchievementToast;
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -38679,13 +41010,13 @@ const LESSON_STYLE: &str = r#"
 .lesson-container {
     min-height: 100vh;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #e8e8e8;
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
 }
 
 .lesson-header {
-    padding: 16px 24px;
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(0, 0, 0, 0.2);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
@@ -38696,45 +41027,45 @@ const LESSON_STYLE: &str = r#"
 .breadcrumb {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: #888;
-    font-size: 14px;
+    gap: var(--spacing-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
 }
 
 .breadcrumb a {
-    color: #667eea;
+    color: var(--color-primary-blue);
     text-decoration: none;
 }
 
 .progress-info {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--spacing-lg);
 }
 
 .progress-bar {
     width: 200px;
     height: 8px;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
 }
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
+    background: linear-gradient(90deg, var(--color-primary-blue), var(--color-primary-purple));
     transition: width 0.3s ease;
 }
 
 .score-display {
-    color: #667eea;
+    color: var(--color-primary-blue);
     font-weight: 600;
 }
 
 .xp-display {
-    color: #4ade80;
+    color: var(--color-success);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--font-body-md);
 }
 
 .lesson-main {
@@ -38743,13 +41074,13 @@ const LESSON_STYLE: &str = r#"
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
+    padding: 40px var(--spacing-xl);
 }
 
 .problem-card {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     padding: 40px;
     max-width: 700px;
     width: 100%;
@@ -38764,61 +41095,61 @@ const LESSON_STYLE: &str = r#"
 }
 
 .problem-prompt {
-    color: #888;
-    font-size: 14px;
-    margin-bottom: 16px;
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
+    margin-bottom: var(--spacing-lg);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 .problem-sentence {
-    font-size: 28px;
+    font-size: var(--font-heading-lg);
     font-weight: 500;
-    color: #fff;
-    margin-bottom: 32px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xxl);
     line-height: 1.4;
 }
 
 .answer-input {
     width: 100%;
-    padding: 16px 20px;
-    font-size: 18px;
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    padding: var(--spacing-lg) var(--spacing-xl);
+    font-size: var(--font-body-lg);
+    font-family: var(--font-mono);
     background: rgba(255, 255, 255, 0.08);
     border: 2px solid rgba(255, 255, 255, 0.15);
-    border-radius: 12px;
-    color: #e8e8e8;
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
     outline: none;
     transition: border-color 0.2s ease;
 }
 
 .answer-input:focus {
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
 }
 
 .answer-input.correct {
-    border-color: #4ade80;
+    border-color: var(--color-success);
     background: rgba(74, 222, 128, 0.1);
 }
 
 .answer-input.incorrect {
-    border-color: #f87171;
+    border-color: var(--color-error);
     background: rgba(248, 113, 113, 0.1);
 }
 
 .multiple-choice {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--spacing-md);
 }
 
 .choice-btn {
-    padding: 16px 20px;
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(255, 255, 255, 0.05);
     border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    color: #e8e8e8;
-    font-size: 16px;
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
+    font-size: var(--font-body-md);
     text-align: left;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -38826,53 +41157,53 @@ const LESSON_STYLE: &str = r#"
 
 .choice-btn:hover {
     background: rgba(255, 255, 255, 0.08);
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
 }
 
 .choice-btn.selected {
     background: rgba(102, 126, 234, 0.2);
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
 }
 
 .choice-btn.correct {
     background: rgba(74, 222, 128, 0.2);
-    border-color: #4ade80;
+    border-color: var(--color-success);
 }
 
 .choice-btn.incorrect {
     background: rgba(248, 113, 113, 0.2);
-    border-color: #f87171;
+    border-color: var(--color-error);
 }
 
 .action-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-top: 24px;
+    margin-top: var(--spacing-xl);
 }
 
 .hint-btn {
-    padding: 10px 20px;
+    padding: 10px var(--spacing-xl);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: #888;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .hint-btn:hover {
-    border-color: #667eea;
-    color: #667eea;
+    border-color: var(--color-primary-blue);
+    color: var(--color-primary-blue);
 }
 
 .submit-btn {
-    padding: 12px 32px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: var(--spacing-md) var(--spacing-xxl);
+    background: linear-gradient(135deg, var(--color-primary-blue) 0%, var(--color-primary-purple) 100%);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: white;
-    font-size: 16px;
+    font-size: var(--font-body-md);
     font-weight: 600;
     cursor: pointer;
     transition: transform 0.2s ease;
@@ -38888,63 +41219,63 @@ const LESSON_STYLE: &str = r#"
 }
 
 .feedback-box {
-    margin-top: 20px;
-    padding: 16px 20px;
-    border-radius: 12px;
-    font-size: 15px;
+    margin-top: var(--spacing-xl);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-body-sm);
 }
 
 .feedback-correct {
     background: rgba(74, 222, 128, 0.15);
     border: 1px solid rgba(74, 222, 128, 0.3);
-    color: #4ade80;
+    color: var(--color-success);
 }
 
 .feedback-incorrect {
     background: rgba(248, 113, 113, 0.15);
     border: 1px solid rgba(248, 113, 113, 0.3);
-    color: #f87171;
+    color: var(--color-error);
 }
 
 .feedback-partial {
     background: rgba(251, 191, 36, 0.15);
     border: 1px solid rgba(251, 191, 36, 0.3);
-    color: #fbbf24;
+    color: var(--color-warning);
 }
 
 .hint-box {
-    margin-top: 16px;
-    padding: 16px 20px;
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(102, 126, 234, 0.1);
     border: 1px solid rgba(102, 126, 234, 0.2);
-    border-radius: 12px;
-    color: #a5b4fc;
-    font-size: 14px;
+    border-radius: var(--radius-lg);
+    color: var(--color-info);
+    font-size: var(--font-body-md);
 }
 
 .explanation-box {
-    margin-top: 16px;
-    padding: 16px 20px;
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(248, 113, 113, 0.08);
     border: 1px solid rgba(248, 113, 113, 0.2);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     color: #fca5a5;
-    font-size: 14px;
+    font-size: var(--font-body-md);
     line-height: 1.6;
 }
 
 .explanation-box strong {
-    color: #f87171;
+    color: var(--color-error);
     font-weight: 600;
 }
 
 .next-btn {
-    padding: 12px 32px;
-    background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+    padding: var(--spacing-md) var(--spacing-xxl);
+    background: linear-gradient(135deg, var(--color-success) 0%, #22c55e 100%);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: white;
-    font-size: 16px;
+    font-size: var(--font-body-md);
     font-weight: 600;
     cursor: pointer;
 }
@@ -38954,36 +41285,36 @@ const LESSON_STYLE: &str = r#"
 }
 
 .complete-message h2 {
-    font-size: 32px;
-    color: #4ade80;
-    margin-bottom: 16px;
+    font-size: var(--font-display-md);
+    color: var(--color-success);
+    margin-bottom: var(--spacing-lg);
 }
 
 .complete-message p {
-    color: #888;
-    margin-bottom: 24px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xl);
 }
 
 .reading-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--spacing-sm);
 }
 
 .reading-item {
-    padding: 12px 16px;
+    padding: var(--spacing-md) var(--spacing-lg);
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 14px;
-    color: #a5b4fc;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--font-body-md);
+    color: var(--color-info);
 }
 
 .mode-badge {
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 12px;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-caption-sm);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -38991,45 +41322,45 @@ const LESSON_STYLE: &str = r#"
 
 .mode-badge.learning {
     background: rgba(74, 222, 128, 0.2);
-    color: #4ade80;
+    color: var(--color-success);
     border: 1px solid rgba(74, 222, 128, 0.3);
 }
 
 .mode-badge.testing {
     background: rgba(251, 146, 60, 0.2);
-    color: #fb923c;
+    color: var(--color-warning);
     border: 1px solid rgba(251, 146, 60, 0.3);
 }
 
 .mode-badge.textbook {
     background: rgba(96, 165, 250, 0.2);
-    color: #60a5fa;
+    color: var(--color-accent-blue);
     border: 1px solid rgba(96, 165, 250, 0.3);
 }
 
 .test-summary {
-    margin-top: 24px;
-    padding: 20px;
+    margin-top: var(--spacing-xl);
+    padding: var(--spacing-xl);
     background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .test-summary h3 {
-    margin-bottom: 16px;
-    color: #888;
-    font-size: 14px;
+    margin-bottom: var(--spacing-lg);
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 .result-item {
-    padding: 12px;
-    margin-bottom: 8px;
-    border-radius: 8px;
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    border-radius: var(--radius-md);
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--spacing-md);
 }
 
 .result-item.correct {
@@ -39043,7 +41374,7 @@ const LESSON_STYLE: &str = r#"
 }
 
 .result-icon {
-    font-size: 18px;
+    font-size: var(--font-body-lg);
 }
 
 .result-content {
@@ -39051,13 +41382,13 @@ const LESSON_STYLE: &str = r#"
 }
 
 .result-question {
-    color: #e8e8e8;
-    margin-bottom: 4px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
 }
 
 .result-explanation {
-    color: #888;
-    font-size: 13px;
+    color: var(--text-secondary);
+    font-size: var(--font-caption-md);
 }
 
 .textbook-container {
@@ -39068,82 +41399,82 @@ const LESSON_STYLE: &str = r#"
 .textbook-card {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    padding: 32px;
-    margin-bottom: 20px;
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-xxl);
+    margin-bottom: var(--spacing-xl);
 }
 
 .textbook-card h2 {
-    color: #fff;
-    font-size: 24px;
-    margin-bottom: 16px;
+    color: var(--text-primary);
+    font-size: var(--font-heading-lg);
+    margin-bottom: var(--spacing-lg);
 }
 
 .textbook-intro {
-    color: #aaa;
-    font-size: 16px;
+    color: var(--text-muted);
+    font-size: var(--font-body-md);
     line-height: 1.6;
-    margin-bottom: 24px;
+    margin-bottom: var(--spacing-xl);
 }
 
 .example-section {
-    margin-top: 24px;
+    margin-top: var(--spacing-xl);
 }
 
 .example-section h3 {
-    color: #667eea;
-    font-size: 14px;
+    color: var(--color-primary-blue);
+    font-size: var(--font-caption-lg);
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 16px;
+    margin-bottom: var(--spacing-lg);
 }
 
 .example-item {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 12px;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
 }
 
 .example-sentence {
-    color: #e8e8e8;
-    font-size: 18px;
-    margin-bottom: 12px;
+    color: var(--text-primary);
+    font-size: var(--font-body-lg);
+    margin-bottom: var(--spacing-md);
 }
 
 .example-explanation {
-    color: #888;
-    font-size: 14px;
+    color: var(--text-secondary);
+    font-size: var(--font-caption-lg);
     line-height: 1.5;
-    padding-left: 16px;
+    padding-left: var(--spacing-lg);
     border-left: 2px solid rgba(102, 126, 234, 0.3);
 }
 
 .textbook-nav {
     display: flex;
     justify-content: space-between;
-    margin-top: 24px;
+    margin-top: var(--spacing-xl);
 }
 
 .textbook-nav-btn {
-    padding: 12px 24px;
+    padding: var(--spacing-md) var(--spacing-xl);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: #888;
-    font-size: 14px;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-caption-lg);
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .textbook-nav-btn:hover {
-    border-color: #667eea;
-    color: #667eea;
+    border-color: var(--color-primary-blue);
+    color: var(--color-primary-blue);
 }
 
 .textbook-nav-btn.primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-primary-blue) 0%, var(--color-primary-purple) 100%);
     border: none;
     color: white;
 }
@@ -39153,8 +41484,8 @@ const LESSON_STYLE: &str = r#"
 }
 
 .page-indicator {
-    color: #666;
-    font-size: 14px;
+    color: var(--text-tertiary);
+    font-size: var(--font-caption-lg);
     align-self: center;
 }
 "#;
@@ -39208,11 +41539,17 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
 
     let module_title = module_data.map(|m| m.meta.title.clone()).unwrap_or_default();
     let era_title = match era.as_str() {
+        "first-steps" => "First Steps",
+        "building-blocks" => "Building Blocks",
+        "expanding-horizons" => "Expanding Horizons",
+        "mastery" => "Mastery",
+        // Legacy era mappings (deprecated)
+        "logic-caffeine" => "Introduction to Logic",
         "trivium" => "Basics",
         "quadrivium" => "Quantifiers",
         "metaphysics" => "Modality & Time",
         "logicaffeine" => "Practice",
-        _ => "Training",
+        _ => "Logic",
     };
 
     let progress_style = format!("width: {}%", progress_pct);
@@ -39222,7 +41559,7 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
     rsx! {
         style { "{LESSON_STYLE}" }
 
-        AppNavbar { title: "Lesson".to_string() }
+        MainNav { active: ActivePage::Learn }
 
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {
@@ -39690,29 +42027,31 @@ Page module exports for Home, Pricing, Workspace, Learn, Lesson, and Studio page
 pub mod home;
 pub mod landing;
 pub mod learn;
-pub mod lesson;
+// Lesson and Review pages are deprecated - functionality moved to Learn page
+// Keeping files for reference during Step 9 refactoring
+// pub mod lesson;
+// pub mod review;
 pub mod pricing;
 pub mod privacy;
 pub mod registry;
-pub mod review;
 pub mod roadmap;
 pub mod success;
 pub mod terms;
 pub mod workspace;
 pub mod studio;
+pub mod guide;
 
 pub use home::Home;
 pub use landing::Landing;
 pub use learn::Learn;
-pub use lesson::Lesson;
 pub use pricing::Pricing;
 pub use privacy::Privacy;
-pub use review::Review;
 pub use roadmap::Roadmap;
 pub use success::Success;
 pub use terms::Terms;
 pub use workspace::Workspace;
 pub use studio::Studio;
+pub use guide::Guide;
 
 ```
 
@@ -39727,36 +42066,23 @@ Commercial licensing information page with Fair Source explanation and enterpris
 ```rust
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const PRICING_STYLE: &str = r#"
-:root {
-  --bg0: #070a12;
-  --bg1: #0b1022;
-  --card: rgba(255,255,255,0.06);
-  --border: rgba(255,255,255,0.10);
-  --border2: rgba(255,255,255,0.14);
-  --text: #e5e7eb;
-  --muted: rgba(229,231,235,0.72);
-  --muted2: rgba(229,231,235,0.56);
-  --brand: #a78bfa;
-  --brand2: #60a5fa;
-  --ok: #22c55e;
-}
-
 * { box-sizing: border-box; }
 a { color: inherit; }
 
 .pricing {
   height: 100vh;
-  color: var(--text);
+  color: var(--text-primary);
   background:
     radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.18), transparent 60%),
     radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.18), transparent 60%),
     radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.10), transparent 62%),
-    linear-gradient(180deg, var(--bg0), var(--bg1) 55%, #070a12);
+    linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
   overflow-x: hidden;
   overflow-y: auto;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans";
+  font-family: var(--font-sans);
   position: relative;
 }
 
@@ -39765,14 +42091,14 @@ a { color: inherit; }
   inset: auto;
   width: 520px;
   height: 520px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   filter: blur(42px);
   opacity: 0.22;
   pointer-events: none;
   animation: float 14s ease-in-out infinite, pulse-glow 10s ease-in-out infinite;
 }
-.orb1 { top: -220px; left: -160px; background: radial-gradient(circle at 30% 30%, var(--brand2), transparent 60%); animation-delay: 0s; }
-.orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--brand), transparent 60%); animation-delay: -5s; }
+.orb1 { top: -220px; left: -160px; background: radial-gradient(circle at 30% 30%, var(--color-accent-blue), transparent 60%); animation-delay: 0s; }
+.orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--color-accent-purple), transparent 60%); animation-delay: -5s; }
 .orb3 { bottom: -260px; left: 20%; background: radial-gradient(circle at 40% 35%, rgba(34,197,94,0.9), transparent 60%); animation-delay: -10s; }
 
 @keyframes float {
@@ -39795,7 +42121,7 @@ a { color: inherit; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 60px 20px;
+  padding: 60px var(--spacing-xl);
   max-width: 1000px;
   margin: 0 auto;
 }
@@ -39807,25 +42133,25 @@ a { color: inherit; }
 }
 
 .pricing-header h1 {
-  font-size: 48px;
+  font-size: var(--font-display-lg);
   font-weight: 900;
   letter-spacing: -2px;
   background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.78) 65%, rgba(229,231,235,0.62) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .pricing-header p {
-  color: var(--muted);
-  font-size: 18px;
+  color: var(--text-secondary);
+  font-size: var(--font-body-lg);
   line-height: 1.65;
 }
 
 .pricing-tiers {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
+  gap: var(--spacing-xl);
   width: 100%;
   margin-bottom: 40px;
 }
@@ -39833,9 +42159,9 @@ a { color: inherit; }
 .tier-card {
   position: relative;
   background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 32px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(18px);
@@ -39854,7 +42180,7 @@ a { color: inherit; }
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(135deg, rgba(96,165,250,0.12), rgba(167,139,250,0.12));
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -39884,7 +42210,7 @@ a { color: inherit; }
 
 .tier-card.disabled:hover {
   transform: none;
-  border-color: var(--border);
+  border-color: rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.04);
 }
 
@@ -39903,9 +42229,9 @@ a { color: inherit; }
 .free-license-banner {
   position: relative;
   background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 32px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
   margin-bottom: 40px;
   width: 100%;
   text-align: center;
@@ -39920,15 +42246,15 @@ a { color: inherit; }
 }
 
 .free-license-banner h2 {
-  color: var(--text);
-  font-size: 24px;
-  margin-bottom: 12px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
+  margin-bottom: var(--spacing-md);
   font-weight: 700;
 }
 
 .free-license-banner p {
-  color: var(--muted);
-  margin-bottom: 20px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
   line-height: 1.65;
 }
 
@@ -39936,9 +42262,9 @@ a { color: inherit; }
   display: inline-block;
   background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
   color: #060814;
-  padding: 14px 32px;
-  border-radius: 14px;
-  font-size: 16px;
+  padding: var(--spacing-md) var(--spacing-xxl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
   font-weight: 650;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -39952,13 +42278,13 @@ a { color: inherit; }
 
 .tier-badge {
   display: inline-block;
-  background: linear-gradient(135deg, var(--brand2), var(--brand));
+  background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
   color: #060814;
-  font-size: 11px;
+  font-size: var(--font-caption-md);
   font-weight: 700;
-  padding: 5px 12px;
-  border-radius: 999px;
-  margin-bottom: 16px;
+  padding: 5px var(--spacing-md);
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-lg);
   align-self: flex-start;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -39966,13 +42292,13 @@ a { color: inherit; }
 
 .early-access-badge {
   display: inline-block;
-  background: linear-gradient(135deg, var(--ok), #16a34a);
+  background: linear-gradient(135deg, var(--color-success), #16a34a);
   color: #060814;
-  font-size: 10px;
+  font-size: var(--font-caption-sm);
   font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 12px;
+  padding: var(--spacing-xs) 10px;
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-md);
   align-self: flex-start;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -39981,63 +42307,63 @@ a { color: inherit; }
 .coming-soon-badge {
   display: inline-block;
   background: rgba(255,255,255,0.12);
-  color: var(--muted);
-  font-size: 10px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-sm);
   font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 12px;
+  padding: var(--spacing-xs) 10px;
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-md);
   align-self: flex-start;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .tier-name {
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .tier-revenue {
-  color: var(--muted);
-  font-size: 14px;
-  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  margin-bottom: var(--spacing-xl);
 }
 
 .tier-price {
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .tier-price .amount {
-  color: var(--text);
-  font-size: 36px;
+  color: var(--text-primary);
+  font-size: var(--font-display-md);
   font-weight: 800;
 }
 
 .tier-price .period {
-  color: var(--muted);
-  font-size: 16px;
+  color: var(--text-secondary);
+  font-size: var(--font-body-md);
 }
 
 .tier-annual {
-  color: var(--brand);
-  font-size: 14px;
-  margin-bottom: 24px;
+  color: var(--color-accent-purple);
+  font-size: var(--font-caption-lg);
+  margin-bottom: var(--spacing-xl);
 }
 
 .tier-features {
   list-style: none;
   padding: 0;
-  margin: 0 0 24px 0;
+  margin: 0 0 var(--spacing-xl) 0;
   flex-grow: 1;
 }
 
 .tier-features li {
-  color: var(--muted);
-  font-size: 14px;
-  padding: 8px 0;
-  padding-left: 24px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  padding: var(--spacing-sm) 0;
+  padding-left: var(--spacing-xl);
   position: relative;
   line-height: 1.5;
 }
@@ -40046,22 +42372,22 @@ a { color: inherit; }
   content: "✓";
   position: absolute;
   left: 0;
-  color: var(--brand);
+  color: var(--color-accent-purple);
 }
 
 .tier-buttons {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 .btn-primary {
   display: block;
   background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
   color: #060814;
-  padding: 14px 24px;
-  border-radius: 14px;
-  font-size: 16px;
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
   font-weight: 650;
   text-decoration: none;
   text-align: center;
@@ -40077,11 +42403,11 @@ a { color: inherit; }
 .btn-secondary {
   display: block;
   background: rgba(255,255,255,0.05);
-  color: var(--brand);
-  padding: 14px 24px;
+  color: var(--color-accent-purple);
+  padding: var(--spacing-md) var(--spacing-xl);
   border: 1px solid rgba(167,139,250,0.3);
-  border-radius: 14px;
-  font-size: 14px;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-caption-lg);
   font-weight: 600;
   text-decoration: none;
   text-align: center;
@@ -40096,11 +42422,11 @@ a { color: inherit; }
 .btn-contact {
   display: block;
   background: rgba(255,255,255,0.06);
-  color: var(--text);
-  padding: 14px 24px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  font-size: 16px;
+  color: var(--text-primary);
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-size: var(--font-body-md);
   font-weight: 600;
   text-decoration: none;
   text-align: center;
@@ -40109,14 +42435,14 @@ a { color: inherit; }
 
 .btn-contact:hover {
   background: rgba(255,255,255,0.10);
-  border-color: var(--border2);
+  border-color: rgba(255,255,255,0.14);
 }
 
 .lifetime-section {
   position: relative;
   background: linear-gradient(135deg, rgba(167,139,250,0.12) 0%, rgba(96,165,250,0.08) 100%);
   border: 1px solid rgba(167,139,250,0.3);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 40px;
   text-align: center;
   width: 100%;
@@ -40136,31 +42462,31 @@ a { color: inherit; }
 
 .lifetime-section h2 {
   position: relative;
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: var(--spacing-md);
 }
 
 .lifetime-section .price {
   position: relative;
-  color: var(--brand);
+  color: var(--color-accent-purple);
   font-size: 42px;
   font-weight: 800;
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .lifetime-section .subtext {
   position: relative;
-  color: var(--muted);
-  font-size: 14px;
-  margin-bottom: 24px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  margin-bottom: var(--spacing-xl);
 }
 
 .license-section {
   background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
   padding: 40px;
   margin-bottom: 40px;
   width: 100%;
@@ -40169,41 +42495,41 @@ a { color: inherit; }
 }
 
 .license-section h2 {
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-xl);
 }
 
 .license-section h3 {
-  color: var(--brand);
-  font-size: 18px;
+  color: var(--color-accent-purple);
+  font-size: var(--font-body-lg);
   font-weight: 600;
-  margin: 24px 0 12px 0;
+  margin: var(--spacing-xl) 0 var(--spacing-md) 0;
 }
 
 .license-section p {
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.8;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .license-section ul {
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.8;
-  margin-left: 24px;
-  margin-bottom: 16px;
+  margin-left: var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
 }
 
 .license-section li {
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .manage-section {
   background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 32px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
   text-align: center;
   width: 100%;
   margin-bottom: 40px;
@@ -40212,15 +42538,15 @@ a { color: inherit; }
 }
 
 .manage-section p {
-  color: var(--muted);
-  margin-bottom: 16px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-lg);
   line-height: 1.65;
 }
 
 .contact-section {
   background: linear-gradient(135deg, rgba(96,165,250,0.08) 0%, rgba(167,139,250,0.08) 100%);
   border: 1px solid rgba(167,139,250,0.25);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 40px;
   text-align: center;
   width: 100%;
@@ -40229,21 +42555,21 @@ a { color: inherit; }
 }
 
 .contact-section h2 {
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .contact-section p {
-  color: var(--muted);
-  margin-bottom: 24px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
   line-height: 1.65;
 }
 
 .contact-links {
   display: flex;
-  gap: 16px;
+  gap: var(--spacing-lg);
   justify-content: center;
   flex-wrap: wrap;
 }
@@ -40252,9 +42578,9 @@ a { color: inherit; }
   display: inline-block;
   background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
   color: #060814;
-  padding: 14px 32px;
-  border-radius: 14px;
-  font-size: 16px;
+  padding: var(--spacing-md) var(--spacing-xxl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
   font-weight: 650;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -40269,11 +42595,11 @@ a { color: inherit; }
 .back-link {
   margin-top: 40px;
   background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 24px;
-  color: var(--muted);
-  font-size: 15px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-body-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -40281,13 +42607,13 @@ a { color: inherit; }
 
 .back-link:hover {
   background: rgba(255,255,255,0.08);
-  color: var(--text);
-  border-color: var(--border2);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.14);
 }
 
 .pricing-footer-links {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   align-items: center;
   margin-top: 40px;
 }
@@ -40296,13 +42622,13 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 20px;
-  color: var(--muted);
-  font-size: 15px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-body-sm);
   font-weight: 600;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -40310,8 +42636,8 @@ a { color: inherit; }
 
 .github-btn:hover {
   background: rgba(255,255,255,0.08);
-  color: var(--text);
-  border-color: var(--border2);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.14);
 }
 
 .github-btn svg {
@@ -40322,7 +42648,7 @@ a { color: inherit; }
 
 @media (max-width: 700px) {
   .pricing-header h1 {
-    font-size: 36px;
+    font-size: var(--font-display-md);
   }
   .pricing-tiers {
     grid-template-columns: 1fr;
@@ -40353,14 +42679,9 @@ pub fn Pricing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            div { class: "pricing-container",
-                Link {
-                    class: "back-link",
-                    to: Route::Landing {},
-                    style: "align-self: flex-start; margin-bottom: 16px;",
-                    "← Back to Home"
-                }
+            MainNav { active: ActivePage::Pricing }
 
+            div { class: "pricing-container",
                 div { class: "pricing-header",
                     h1 { "Commercial Licensing" }
                     p { "Business Source License — free for individuals and small teams" }
@@ -40641,6 +42962,7 @@ Application page component.
 ```rust
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const PRIVACY_HTML: &str = include_str!("../../../privacy.html");
 
@@ -40650,64 +42972,6 @@ const LEGAL_STYLE: &str = r#"
     display: flex;
     flex-direction: column;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-}
-
-.legal-nav {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    backdrop-filter: blur(18px);
-    background: linear-gradient(180deg, rgba(7,10,18,0.72), rgba(7,10,18,0.44));
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    padding: 16px 20px;
-}
-
-.legal-nav-inner {
-    max-width: 1120px;
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.legal-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    text-decoration: none;
-    color: #e5e7eb;
-}
-
-.legal-logo {
-    width: 36px;
-    height: 36px;
-    border-radius: 12px;
-    background:
-        radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
-        radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
-        rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.10);
-}
-
-.legal-brand-name {
-    font-weight: 800;
-    font-size: 14px;
-    letter-spacing: -0.5px;
-}
-
-.legal-back {
-    color: #a78bfa;
-    text-decoration: none;
-    font-size: 14px;
-    padding: 8px 16px;
-    border-radius: 8px;
-    border: 1px solid rgba(167,139,250,0.3);
-    transition: all 0.2s ease;
-}
-
-.legal-back:hover {
-    background: rgba(167,139,250,0.1);
-    border-color: rgba(167,139,250,0.5);
 }
 
 .legal-content {
@@ -40743,37 +43007,6 @@ const LEGAL_STYLE: &str = r#"
     color: #a78bfa;
 }
 
-.legal-nav-links {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.legal-github {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.03);
-    color: rgba(229,231,235,0.72);
-    transition: all 0.2s ease;
-}
-
-.legal-github:hover {
-    background: rgba(255,255,255,0.08);
-    color: #e5e7eb;
-    border-color: rgba(255,255,255,0.2);
-}
-
-.legal-github svg {
-    width: 18px;
-    height: 18px;
-    fill: currentColor;
-}
-
 .github-link {
     display: inline-flex;
     align-items: center;
@@ -40787,36 +43020,7 @@ pub fn Privacy() -> Element {
         style { "{LEGAL_STYLE}" }
 
         div { class: "legal-container",
-            nav { class: "legal-nav",
-                div { class: "legal-nav-inner",
-                    Link {
-                        to: Route::Landing {},
-                        class: "legal-brand",
-                        div { class: "legal-logo" }
-                        span { class: "legal-brand-name", "LOGICAFFEINE" }
-                    }
-                    div { class: "legal-nav-links",
-                        a {
-                            href: "https://github.com/Brahmastra-Labs/logicaffeine",
-                            target: "_blank",
-                            class: "legal-github",
-                            title: "View on GitHub",
-                            svg {
-                                xmlns: "http://www.w3.org/2000/svg",
-                                view_box: "0 0 24 24",
-                                path {
-                                    d: "M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
-                                }
-                            }
-                        }
-                        Link {
-                            to: Route::Landing {},
-                            class: "legal-back",
-                            "← Back to Home"
-                        }
-                    }
-                }
-            }
+            MainNav { active: ActivePage::Other, subtitle: Some("Privacy Policy"), show_nav_links: false }
 
             main { class: "legal-content",
                 div {
@@ -40871,7 +43075,7 @@ use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::streak_display::StreakDisplay;
 use crate::ui::components::achievement_toast::AchievementToast;
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -41205,7 +43409,7 @@ pub fn Review() -> Element {
     rsx! {
         style { "{REVIEW_STYLE}" }
 
-        AppNavbar { title: "Daily Review".to_string() }
+        MainNav { active: ActivePage::Learn, subtitle: Some("Daily Review") }
 
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {
@@ -41598,6 +43802,7 @@ Application page component.
 ```rust
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 // (label, english, simple_fol, unicode)
 const MILESTONE_EXAMPLES: &[&[(&str, &str, &str, &str)]] = &[
@@ -42136,36 +44341,7 @@ pub fn Roadmap() -> Element {
         style { "{ROADMAP_STYLE}" }
 
         div { class: "roadmap-container",
-            nav { class: "roadmap-nav",
-                div { class: "roadmap-nav-inner",
-                    Link {
-                        to: Route::Landing {},
-                        class: "roadmap-brand",
-                        div { class: "roadmap-logo" }
-                        span { class: "roadmap-brand-name", "LOGICAFFEINE" }
-                    }
-                    div { class: "roadmap-nav-links",
-                        a {
-                            href: "https://github.com/Brahmastra-Labs/logicaffeine",
-                            target: "_blank",
-                            class: "roadmap-github",
-                            title: "View on GitHub",
-                            svg {
-                                xmlns: "http://www.w3.org/2000/svg",
-                                view_box: "0 0 24 24",
-                                path {
-                                    d: "M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
-                                }
-                            }
-                        }
-                        Link {
-                            to: Route::Landing {},
-                            class: "roadmap-back",
-                            "← Back to Home"
-                        }
-                    }
-                }
-            }
+            MainNav { active: ActivePage::Roadmap }
 
             section { class: "roadmap-hero",
                 h1 { "LOGOS Roadmap" }
@@ -42376,7 +44552,7 @@ use crate::ui::components::editor::LiveEditor;
 use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const STUDIO_STYLE: &str = r#"
 .studio-container {
@@ -42619,7 +44795,7 @@ pub fn Studio() -> Element {
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
 
-            AppNavbar { title: "Studio".to_string() }
+            MainNav { active: ActivePage::Studio }
 
             main { class: "studio-main",
                 section {
@@ -42712,6 +44888,7 @@ Application page component.
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{LicenseState, LicensePlan};
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const LICENSE_API_URL: &str = "https://api.logicaffeine.com/session";
 
@@ -43018,6 +45195,8 @@ pub fn Success() -> Element {
     rsx! {
         style { "{SUCCESS_STYLE}" }
 
+        MainNav { active: ActivePage::Pricing, subtitle: Some("Payment Complete"), show_nav_links: false }
+
         div { class: "success-container",
             div { class: "success-icon", "✓" }
 
@@ -43100,6 +45279,7 @@ Application page component.
 ```rust
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const TERMS_HTML: &str = include_str!("../../../terms.html");
 
@@ -43109,64 +45289,6 @@ const LEGAL_STYLE: &str = r#"
     display: flex;
     flex-direction: column;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-}
-
-.legal-nav {
-    position: sticky;
-    top: 0;
-    z-index: 50;
-    backdrop-filter: blur(18px);
-    background: linear-gradient(180deg, rgba(7,10,18,0.72), rgba(7,10,18,0.44));
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    padding: 16px 20px;
-}
-
-.legal-nav-inner {
-    max-width: 1120px;
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
-.legal-brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    text-decoration: none;
-    color: #e5e7eb;
-}
-
-.legal-logo {
-    width: 36px;
-    height: 36px;
-    border-radius: 12px;
-    background:
-        radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
-        radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
-        rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.10);
-}
-
-.legal-brand-name {
-    font-weight: 800;
-    font-size: 14px;
-    letter-spacing: -0.5px;
-}
-
-.legal-back {
-    color: #a78bfa;
-    text-decoration: none;
-    font-size: 14px;
-    padding: 8px 16px;
-    border-radius: 8px;
-    border: 1px solid rgba(167,139,250,0.3);
-    transition: all 0.2s ease;
-}
-
-.legal-back:hover {
-    background: rgba(167,139,250,0.1);
-    border-color: rgba(167,139,250,0.5);
 }
 
 .legal-content {
@@ -43202,37 +45324,6 @@ const LEGAL_STYLE: &str = r#"
     color: #a78bfa;
 }
 
-.legal-nav-links {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.legal-github {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.1);
-    background: rgba(255,255,255,0.03);
-    color: rgba(229,231,235,0.72);
-    transition: all 0.2s ease;
-}
-
-.legal-github:hover {
-    background: rgba(255,255,255,0.08);
-    color: #e5e7eb;
-    border-color: rgba(255,255,255,0.2);
-}
-
-.legal-github svg {
-    width: 18px;
-    height: 18px;
-    fill: currentColor;
-}
-
 .github-link {
     display: inline-flex;
     align-items: center;
@@ -43246,36 +45337,7 @@ pub fn Terms() -> Element {
         style { "{LEGAL_STYLE}" }
 
         div { class: "legal-container",
-            nav { class: "legal-nav",
-                div { class: "legal-nav-inner",
-                    Link {
-                        to: Route::Landing {},
-                        class: "legal-brand",
-                        div { class: "legal-logo" }
-                        span { class: "legal-brand-name", "LOGICAFFEINE" }
-                    }
-                    div { class: "legal-nav-links",
-                        a {
-                            href: "https://github.com/Brahmastra-Labs/logicaffeine",
-                            target: "_blank",
-                            class: "legal-github",
-                            title: "View on GitHub",
-                            svg {
-                                xmlns: "http://www.w3.org/2000/svg",
-                                view_box: "0 0 24 24",
-                                path {
-                                    d: "M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
-                                }
-                            }
-                        }
-                        Link {
-                            to: Route::Landing {},
-                            class: "legal-back",
-                            "← Back to Home"
-                        }
-                    }
-                }
-            }
+            MainNav { active: ActivePage::Other, subtitle: Some("Terms of Use"), show_nav_links: false }
 
             main { class: "legal-content",
                 div {
@@ -43327,7 +45389,7 @@ use dioxus::prelude::*;
 use crate::ui::state::AppState;
 use crate::ui::components::chat::ChatDisplay;
 use crate::ui::components::input::InputArea;
-use crate::ui::components::app_navbar::AppNavbar;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const WORKSPACE_STYLE: &str = r#"
 .workspace {
@@ -43478,7 +45540,7 @@ pub fn Workspace(subject: String) -> Element {
     rsx! {
         style { "{WORKSPACE_STYLE}" }
 
-        AppNavbar { title: title.to_string() }
+        MainNav { active: ActivePage::Studio, subtitle: Some(title) }
 
         div { class: "workspace",
             div { class: "workspace-content",
@@ -43531,6 +45593,7 @@ Package registry browser. Lists available LOGOS packages with search and filteri
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -43897,9 +45960,14 @@ pub fn Registry() -> Element {
         style { "{REGISTRY_STYLE}" }
 
         div { class: "registry-container",
+            MainNav {
+                active: ActivePage::Registry,
+                subtitle: Some("Package Registry"),
+            }
+
+            // Registry auth section (kept separate from main nav)
             header { class: "registry-header",
                 div { class: "header-left",
-                    Link { to: Route::Home {}, class: "back-link", "< Back" }
                     h1 { "Package Registry" }
                 }
                 div { class: "header-right",
@@ -44097,6 +46165,7 @@ Individual package view showing metadata, versions, dependencies, and documentat
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::PackageDetails;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -44394,18 +46463,18 @@ pub fn PackageDetail(name: String) -> Element {
     rsx! {
         style { "{DETAIL_STYLE}" }
 
+        MainNav { active: ActivePage::Registry, subtitle: Some("Package Details") }
+
         div { class: "detail-container",
             if *is_loading.read() {
                 div { class: "loading-spinner", "Loading package..." }
             } else if let Some(err) = error.read().as_ref() {
                 div { class: "error-message",
-                    Link { to: Route::Registry {}, class: "back-link", "< Back to Registry" }
                     p { "Error: {err}" }
                 }
             } else if let Some(pkg) = details.read().as_ref() {
                 // Header
                 header { class: "detail-header",
-                    Link { to: Route::Registry {}, class: "back-link", "< Back to Registry" }
                     div { class: "package-title",
                         h1 { "{pkg.name}" }
                         if pkg.verified {
@@ -45332,6 +47401,657 @@ pub fn LiveEditor(
 
 ---
 
+### Component: guide_code_block
+
+**File:** `src/ui/components/guide_code_block.rs`
+
+Reusable UI component.
+
+```rust
+//! Interactive code block component for the Programmer's Guide.
+//!
+//! Features:
+//! - Editable code area
+//! - Run button (Logic mode: FOL output, Imperative mode: interpreter)
+//! - Copy button
+//! - Reset button
+//! - Output panel
+
+use dioxus::prelude::*;
+use crate::ui::pages::guide::content::ExampleMode;
+use crate::compile_for_ui;
+use crate::interpret_for_ui;
+
+const CODE_BLOCK_STYLE: &str = r#"
+.guide-code-block {
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(0,0,0,0.35);
+    overflow: hidden;
+    margin: 20px 0;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+.guide-code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.guide-code-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.guide-code-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(229,231,235,0.9);
+}
+
+.guide-code-mode {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.guide-code-mode.logic {
+    background: rgba(167,139,250,0.2);
+    color: #a78bfa;
+    border: 1px solid rgba(167,139,250,0.3);
+}
+
+.guide-code-mode.imperative {
+    background: rgba(34,197,94,0.2);
+    color: #22c55e;
+    border: 1px solid rgba(34,197,94,0.3);
+}
+
+.guide-code-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.guide-code-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    color: rgba(229,231,235,0.8);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.guide-code-btn:hover {
+    background: rgba(255,255,255,0.10);
+    border-color: rgba(255,255,255,0.20);
+    color: #fff;
+}
+
+.guide-code-btn:active {
+    transform: scale(0.97);
+}
+
+.guide-code-btn.primary {
+    background: linear-gradient(135deg, rgba(96,165,250,0.9), rgba(167,139,250,0.9));
+    border-color: rgba(255,255,255,0.2);
+    color: #060814;
+}
+
+.guide-code-btn.primary:hover {
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+}
+
+.guide-code-btn.running {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.guide-code-editor {
+    position: relative;
+}
+
+.guide-code-textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 16px;
+    background: transparent;
+    border: none;
+    color: rgba(229,231,235,0.95);
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
+    font-size: 14px;
+    line-height: 1.7;
+    resize: vertical;
+    outline: none;
+    tab-size: 4;
+}
+
+.guide-code-textarea::placeholder {
+    color: rgba(229,231,235,0.3);
+}
+
+.guide-code-output {
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.25);
+}
+
+.guide-code-output-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(229,231,235,0.5);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.guide-code-output-content {
+    padding: 16px;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.guide-code-output-content.success {
+    color: #a78bfa;
+}
+
+.guide-code-output-content.error {
+    color: #f87171;
+}
+
+.guide-code-output-content.info {
+    color: rgba(229,231,235,0.7);
+}
+
+.guide-code-copied {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 8px 16px;
+    background: rgba(34,197,94,0.9);
+    color: #fff;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    animation: fadeInOut 1.5s ease forwards;
+    pointer-events: none;
+}
+
+@keyframes fadeInOut {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+.guide-code-placeholder {
+    padding: 24px 16px;
+    text-align: center;
+    color: rgba(229,231,235,0.4);
+    font-size: 13px;
+}
+"#;
+
+#[derive(Props, Clone, PartialEq)]
+pub struct GuideCodeBlockProps {
+    pub id: String,
+    pub label: String,
+    pub mode: ExampleMode,
+    pub initial_code: String,
+}
+
+#[component]
+pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
+    let mut code = use_signal(|| props.initial_code.clone());
+    let mut output = use_signal(String::new);
+    let mut output_type = use_signal(|| "info".to_string());
+    let mut is_running = use_signal(|| false);
+    let mut show_copied = use_signal(|| false);
+    let mut has_run = use_signal(|| false);
+
+    let initial_code = props.initial_code.clone();
+    let mode = props.mode;
+    let id = props.id.clone();
+
+    // Run handler
+    let handle_run = move |_| {
+        is_running.set(true);
+        has_run.set(true);
+
+        let current_code = code.read().clone();
+
+        match mode {
+            ExampleMode::Logic => {
+                // Use compile_for_ui for Logic mode
+                let result = compile_for_ui(&current_code);
+                if let Some(logic) = result.logic {
+                    output.set(logic);
+                    output_type.set("success".to_string());
+                } else if let Some(err) = result.error {
+                    output.set(err);
+                    output_type.set("error".to_string());
+                } else {
+                    output.set("No output".to_string());
+                    output_type.set("info".to_string());
+                }
+            }
+            ExampleMode::Imperative => {
+                // Use the real LOGOS parser + tree-walking interpreter
+                let result = interpret_for_ui(&current_code);
+                if let Some(err) = result.error {
+                    output.set(err);
+                    output_type.set("error".to_string());
+                } else if result.lines.is_empty() {
+                    output.set("(no output)".to_string());
+                    output_type.set("info".to_string());
+                } else {
+                    output.set(result.lines.join("\n"));
+                    output_type.set("success".to_string());
+                }
+            }
+        }
+
+        is_running.set(false);
+    };
+
+    // Copy handler
+    let handle_copy = move |_| {
+        let code_to_copy = code.read().clone();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(window) = web_sys::window() {
+                let clipboard = window.navigator().clipboard();
+                let _ = clipboard.write_text(&code_to_copy);
+                show_copied.set(true);
+
+                // Reset after animation
+                spawn(async move {
+                    gloo_timers::future::TimeoutFuture::new(1500).await;
+                    show_copied.set(false);
+                });
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = code_to_copy;
+            show_copied.set(true);
+        }
+    };
+
+    // Reset handler
+    let handle_reset = {
+        let initial = initial_code.clone();
+        move |_| {
+            code.set(initial.clone());
+            output.set(String::new());
+            has_run.set(false);
+        }
+    };
+
+    let mode_class = match mode {
+        ExampleMode::Logic => "logic",
+        ExampleMode::Imperative => "imperative",
+    };
+
+    let mode_label = match mode {
+        ExampleMode::Logic => "Logic",
+        ExampleMode::Imperative => "Run",
+    };
+
+    rsx! {
+        style { "{CODE_BLOCK_STYLE}" }
+
+        div {
+            class: "guide-code-block",
+            id: "{id}",
+
+            // Header
+            div { class: "guide-code-header",
+                div { class: "guide-code-label",
+                    span { class: "guide-code-title", "{props.label}" }
+                    span { class: "guide-code-mode {mode_class}",
+                        match mode {
+                            ExampleMode::Logic => "Logic Mode",
+                            ExampleMode::Imperative => "Imperative",
+                        }
+                    }
+                }
+
+                div { class: "guide-code-actions",
+                    button {
+                        class: if *is_running.read() { "guide-code-btn primary running" } else { "guide-code-btn primary" },
+                        onclick: handle_run,
+                        disabled: *is_running.read(),
+                        if *is_running.read() {
+                            "Running..."
+                        } else {
+                            "{mode_label}"
+                        }
+                    }
+                    button {
+                        class: "guide-code-btn",
+                        onclick: handle_copy,
+                        "Copy"
+                    }
+                    button {
+                        class: "guide-code-btn",
+                        onclick: handle_reset,
+                        "Reset"
+                    }
+                }
+            }
+
+            // Editor
+            div { class: "guide-code-editor",
+                textarea {
+                    class: "guide-code-textarea",
+                    value: "{code}",
+                    oninput: move |evt| code.set(evt.value()),
+                    spellcheck: "false",
+                    autocomplete: "off",
+                    autocapitalize: "off",
+                }
+
+                if *show_copied.read() {
+                    div { class: "guide-code-copied", "Copied!" }
+                }
+            }
+
+            // Output (only show if has run)
+            if *has_run.read() {
+                div { class: "guide-code-output",
+                    div { class: "guide-code-output-header",
+                        span { "Output" }
+                    }
+                    div {
+                        class: "guide-code-output-content {output_type}",
+                        "{output}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+```
+
+---
+
+### Component: guide_sidebar
+
+**File:** `src/ui/components/guide_sidebar.rs`
+
+Reusable UI component.
+
+```rust
+//! Sidebar navigation component for the Programmer's Guide.
+//!
+//! Features:
+//! - Sticky positioning
+//! - Sections grouped by Part
+//! - Active section highlighting
+//! - Click navigation with anchor links
+
+use dioxus::prelude::*;
+
+const SIDEBAR_STYLE: &str = r#"
+.guide-sidebar {
+    position: sticky;
+    top: 90px;
+    width: 260px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    flex-shrink: 0;
+    padding: 4px 0;
+
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.guide-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.guide-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.guide-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+}
+
+.guide-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+.sidebar-part {
+    margin-bottom: 24px;
+}
+
+.sidebar-part:last-child {
+    margin-bottom: 0;
+}
+
+.sidebar-part-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(229,231,235,0.45);
+    padding: 0 16px;
+    margin-bottom: 10px;
+}
+
+.sidebar-section {
+    display: block;
+    padding: 9px 16px;
+    margin: 2px 8px;
+    border-radius: 8px;
+    color: rgba(229,231,235,0.65);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.18s ease;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+}
+
+.sidebar-section:hover {
+    background: rgba(255,255,255,0.05);
+    color: rgba(229,231,235,0.9);
+}
+
+.sidebar-section.active {
+    background: rgba(167,139,250,0.12);
+    color: #a78bfa;
+    border-left-color: #a78bfa;
+    font-weight: 600;
+}
+
+.sidebar-section-number {
+    display: inline-block;
+    min-width: 22px;
+    color: rgba(229,231,235,0.35);
+    font-weight: 500;
+}
+
+.sidebar-section.active .sidebar-section-number {
+    color: rgba(167,139,250,0.7);
+}
+
+@media (max-width: 1024px) {
+    .guide-sidebar {
+        display: none;
+    }
+}
+
+/* Mobile sidebar toggle - shown on mobile */
+.sidebar-mobile-toggle {
+    display: none;
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    border: none;
+    color: #060814;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 100;
+    transition: transform 0.2s ease;
+}
+
+.sidebar-mobile-toggle:hover {
+    transform: scale(1.05);
+}
+
+@media (max-width: 1024px) {
+    .sidebar-mobile-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+"#;
+
+/// Information about a section for the sidebar
+#[derive(Clone, PartialEq, Debug)]
+pub struct SectionInfo {
+    pub id: String,
+    pub number: u8,
+    pub title: String,
+    pub part: String,
+}
+
+#[derive(Props, Clone, PartialEq)]
+pub struct GuideSidebarProps {
+    pub sections: Vec<SectionInfo>,
+    pub active_section: String,
+    pub on_section_click: EventHandler<String>,
+}
+
+#[component]
+pub fn GuideSidebar(props: GuideSidebarProps) -> Element {
+    // Group sections by part
+    let grouped = group_sections_by_part(&props.sections);
+
+    rsx! {
+        style { "{SIDEBAR_STYLE}" }
+
+        nav { class: "guide-sidebar",
+            for (part, sections) in grouped {
+                div { class: "sidebar-part",
+                    h4 { class: "sidebar-part-title", "{part}" }
+
+                    for section in sections {
+                        {
+                            let section_id = section.id.clone();
+                            let is_active = props.active_section == section.id;
+                            let class_name = if is_active {
+                                "sidebar-section active"
+                            } else {
+                                "sidebar-section"
+                            };
+
+                            rsx! {
+                                a {
+                                    class: "{class_name}",
+                                    href: "#{section_id}",
+                                    onclick: {
+                                        let id = section.id.clone();
+                                        let handler = props.on_section_click.clone();
+                                        move |evt: Event<MouseData>| {
+                                            evt.prevent_default();
+                                            handler.call(id.clone());
+
+                                            // Smooth scroll to section
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                if let Some(window) = web_sys::window() {
+                                                    if let Some(document) = window.document() {
+                                                        if let Some(element) = document.get_element_by_id(&id) {
+                                                            let options = web_sys::ScrollIntoViewOptions::new();
+                                                            options.set_behavior(web_sys::ScrollBehavior::Smooth);
+                                                            options.set_block(web_sys::ScrollLogicalPosition::Start);
+                                                            let _ = element.scroll_into_view_with_scroll_into_view_options(&options);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    span { class: "sidebar-section-number", "{section.number}." }
+                                    " {section.title}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Groups sections by their part name, preserving order
+fn group_sections_by_part(sections: &[SectionInfo]) -> Vec<(String, Vec<SectionInfo>)> {
+    let mut result: Vec<(String, Vec<SectionInfo>)> = Vec::new();
+
+    for section in sections {
+        if let Some((_, group)) = result.iter_mut().find(|(part, _)| part == &section.part) {
+            group.push(section.clone());
+        } else {
+            result.push((section.part.clone(), vec![section.clone()]));
+        }
+    }
+
+    result
+}
+
+/// Mobile sidebar toggle button component
+#[component]
+pub fn SidebarMobileToggle(on_toggle: EventHandler<()>) -> Element {
+    rsx! {
+        button {
+            class: "sidebar-mobile-toggle",
+            onclick: move |_| on_toggle.call(()),
+            title: "Toggle navigation",
+            "☰"
+        }
+    }
+}
+
+```
+
+---
+
 ### Component: InputArea
 
 **File:** `src/ui/components/input.rs`
@@ -45540,6 +48260,275 @@ mod tests {
         assert_eq!(parts[0], TextPart::Plain("Start ".to_string()));
         assert_eq!(parts[1], TextPart::Plain("$unclosed".to_string()));
     }
+}
+
+```
+
+---
+
+### Component: learn_sidebar
+
+**File:** `src/ui/components/learn_sidebar.rs`
+
+Reusable UI component.
+
+```rust
+//! Sidebar navigation component for the Learn/Curriculum page.
+//!
+//! Features:
+//! - Sticky positioning
+//! - Eras grouped with modules
+//! - Active module highlighting
+//! - Click navigation with scroll behavior
+//! - Difficulty indicators
+
+use dioxus::prelude::*;
+
+const SIDEBAR_STYLE: &str = r#"
+.learn-sidebar {
+    position: sticky;
+    top: 90px;
+    width: 280px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    flex-shrink: 0;
+    padding: var(--spacing-sm) 0;
+
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.learn-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.learn-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.learn-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+}
+
+.learn-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+.learn-sidebar-era {
+    margin-bottom: var(--spacing-xl);
+}
+
+.learn-sidebar-era:last-child {
+    margin-bottom: 0;
+}
+
+.learn-sidebar-era-title {
+    font-size: var(--font-caption-md);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-tertiary);
+    padding: 0 var(--spacing-lg);
+    margin-bottom: var(--spacing-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.learn-sidebar-era-title::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    opacity: 0.6;
+}
+
+.learn-sidebar-module {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px var(--spacing-lg);
+    margin: 2px var(--spacing-sm);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.18s ease;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+}
+
+.learn-sidebar-module:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-primary);
+}
+
+.learn-sidebar-module.active {
+    background: rgba(96,165,250,0.15);
+    color: var(--color-accent-blue);
+    border-left-color: var(--color-accent-blue);
+    font-weight: 600;
+}
+
+.learn-sidebar-module-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.learn-sidebar-difficulty {
+    display: flex;
+    gap: 2px;
+    margin-left: var(--spacing-sm);
+    flex-shrink: 0;
+}
+
+.learn-sidebar-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+}
+
+.learn-sidebar-dot.filled {
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+}
+
+.learn-sidebar-module.active .learn-sidebar-dot {
+    background: rgba(96,165,250,0.3);
+}
+
+.learn-sidebar-module.active .learn-sidebar-dot.filled {
+    background: var(--color-accent-blue);
+}
+
+.learn-sidebar-count {
+    font-size: var(--font-caption-md);
+    color: var(--text-muted);
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+.learn-sidebar-module.active .learn-sidebar-count {
+    color: rgba(96,165,250,0.7);
+}
+
+@media (max-width: 1024px) {
+    .learn-sidebar {
+        display: none;
+    }
+}
+"#;
+
+/// Information about a module for the sidebar
+#[derive(Clone, PartialEq, Debug)]
+pub struct ModuleInfo {
+    pub era_id: String,
+    pub era_title: String,
+    pub module_id: String,
+    pub module_title: String,
+    pub exercise_count: u32,
+    pub difficulty: u8,
+}
+
+#[derive(Props, Clone, PartialEq)]
+pub struct LearnSidebarProps {
+    pub modules: Vec<ModuleInfo>,
+    pub active_module: Option<String>,
+    pub on_module_click: EventHandler<(String, String)>, // (era_id, module_id)
+}
+
+#[component]
+pub fn LearnSidebar(props: LearnSidebarProps) -> Element {
+    // Group modules by era
+    let grouped = group_modules_by_era(&props.modules);
+
+    rsx! {
+        style { "{SIDEBAR_STYLE}" }
+
+        nav { class: "learn-sidebar",
+            for (era_id, era_title, modules) in grouped {
+                div { class: "learn-sidebar-era",
+                    h4 { class: "learn-sidebar-era-title", "{era_title}" }
+
+                    for module in modules {
+                        {
+                            let is_active = props.active_module.as_ref() == Some(&module.module_id);
+                            let class_name = if is_active {
+                                "learn-sidebar-module active"
+                            } else {
+                                "learn-sidebar-module"
+                            };
+
+                            let era_for_click = era_id.clone();
+                            let mod_for_click = module.module_id.clone();
+
+                            rsx! {
+                                a {
+                                    class: "{class_name}",
+                                    href: "#{module.module_id}",
+                                    onclick: {
+                                        let era = era_for_click.clone();
+                                        let module_id = mod_for_click.clone();
+                                        let handler = props.on_module_click.clone();
+                                        move |evt: Event<MouseData>| {
+                                            evt.prevent_default();
+                                            handler.call((era.clone(), module_id.clone()));
+
+                                            // Smooth scroll to section
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                if let Some(window) = web_sys::window() {
+                                                    if let Some(document) = window.document() {
+                                                        if let Some(element) = document.get_element_by_id(&module_id) {
+                                                            let options = web_sys::ScrollIntoViewOptions::new();
+                                                            options.set_behavior(web_sys::ScrollBehavior::Smooth);
+                                                            options.set_block(web_sys::ScrollLogicalPosition::Start);
+                                                            let _ = element.scroll_into_view_with_scroll_into_view_options(&options);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    span { class: "learn-sidebar-module-name", "{module.module_title}" }
+
+                                    // Difficulty dots
+                                    div { class: "learn-sidebar-difficulty",
+                                        for i in 1..=5u8 {
+                                            div {
+                                                class: if i <= module.difficulty { "learn-sidebar-dot filled" } else { "learn-sidebar-dot" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Groups modules by their era, preserving order
+fn group_modules_by_era(modules: &[ModuleInfo]) -> Vec<(String, String, Vec<ModuleInfo>)> {
+    let mut result: Vec<(String, String, Vec<ModuleInfo>)> = Vec::new();
+
+    for module in modules {
+        if let Some((_, _, group)) = result.iter_mut().find(|(era_id, _, _)| era_id == &module.era_id) {
+            group.push(module.clone());
+        } else {
+            result.push((module.era_id.clone(), module.era_title.clone(), vec![module.clone()]));
+        }
+    }
+
+    result
 }
 
 ```
@@ -45757,6 +48746,345 @@ pub fn highlight_logic(logic: &str) -> String {
 
 ---
 
+### Component: main_nav
+
+**File:** `src/ui/components/main_nav.rs`
+
+Reusable UI component.
+
+```rust
+//! Unified navigation component for consistent header across all pages.
+//!
+//! Features:
+//! - Logo and brand name
+//! - Navigation links with active underline indicator
+//! - GitHub icon and CTA buttons
+//! - Responsive design
+
+use dioxus::prelude::*;
+use crate::ui::router::Route;
+
+/// Navigation item definition
+#[derive(Clone, PartialEq)]
+pub struct NavItem {
+    pub label: &'static str,
+    pub route: Route,
+}
+
+/// Which page is currently active
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum ActivePage {
+    #[default]
+    Home,
+    Guide,
+    Learn,
+    Studio,
+    Roadmap,
+    Pricing,
+    Registry,
+    Other,
+}
+
+impl ActivePage {
+    /// Determine the active page from a Route
+    pub fn from_route(route: &Route) -> Self {
+        match route {
+            Route::Landing {} => ActivePage::Home,
+            Route::Home {} => ActivePage::Home,
+            Route::Guide {} => ActivePage::Guide,
+            Route::Learn {} => ActivePage::Learn,
+            Route::Studio {} => ActivePage::Studio,
+            Route::Workspace { .. } => ActivePage::Studio,
+            Route::Roadmap {} => ActivePage::Roadmap,
+            Route::Pricing {} => ActivePage::Pricing,
+            Route::Success {} => ActivePage::Pricing,
+            Route::Registry {} => ActivePage::Registry,
+            Route::PackageDetail { .. } => ActivePage::Registry,
+            _ => ActivePage::Other,
+        }
+    }
+}
+
+const MAIN_NAV_STYLE: &str = r#"
+.main-nav {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(18px);
+    background: linear-gradient(180deg, rgba(7,10,18,0.72), rgba(7,10,18,0.44));
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.main-nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg) var(--spacing-xl);
+    max-width: 1280px;
+    margin: 0 auto;
+    gap: var(--spacing-lg);
+}
+
+.main-nav-brand {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    text-decoration: none;
+    color: var(--text-primary);
+}
+
+.main-nav-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-lg);
+    background:
+        radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
+        radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
+        rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    box-shadow: 0 14px 35px rgba(0,0,0,0.35);
+}
+
+.main-nav-brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.05;
+}
+
+.main-nav-brand-name {
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    font-size: var(--font-body-md);
+}
+
+.main-nav-brand-subtitle {
+    font-size: var(--font-caption-sm);
+    color: var(--text-tertiary);
+}
+
+.main-nav-links {
+    display: flex;
+    gap: var(--spacing-xs);
+    align-items: center;
+}
+
+.main-nav-link {
+    position: relative;
+    text-decoration: none;
+    padding: 10px 14px;
+    font-size: var(--font-body-md);
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: color 0.18s ease;
+    border-radius: var(--radius-md);
+}
+
+.main-nav-link:hover {
+    color: var(--text-primary);
+    background: rgba(255,255,255,0.04);
+}
+
+/* Active underline indicator */
+.main-nav-link::after {
+    content: "";
+    position: absolute;
+    bottom: 2px;
+    left: 14px;
+    right: 14px;
+    height: 2px;
+    background: linear-gradient(90deg, var(--color-accent-blue), var(--color-accent-purple));
+    border-radius: 2px;
+    opacity: 0;
+    transform: scaleX(0);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.main-nav-link.active {
+    color: var(--text-primary);
+}
+
+.main-nav-link.active::after {
+    opacity: 1;
+    transform: scaleX(1);
+}
+
+.main-nav-cta {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.main-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: 10px var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.05);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: var(--font-body-md);
+    color: var(--text-primary);
+    transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.main-nav-btn:hover {
+    transform: translateY(-1px);
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.18);
+}
+
+.main-nav-btn.primary {
+    background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
+    border-color: rgba(255,255,255,0.20);
+    color: #060814;
+    box-shadow: 0 12px 30px rgba(96,165,250,0.18);
+}
+
+.main-nav-btn.primary:hover {
+    background: linear-gradient(135deg, rgba(96,165,250,1.0), rgba(167,139,250,1.0));
+}
+
+.main-nav-btn.ghost {
+    background: rgba(255,255,255,0.03);
+}
+
+.main-nav-btn-icon {
+    padding: 10px;
+    background: rgba(255,255,255,0.03);
+}
+
+.main-nav-btn-icon svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+}
+
+/* Responsive */
+@media (max-width: 980px) {
+    .main-nav-links {
+        display: none;
+    }
+    .main-nav-brand-text {
+        display: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .main-nav-inner {
+        padding: var(--spacing-md) var(--spacing-lg);
+    }
+    .main-nav-btn {
+        padding: var(--spacing-sm) var(--spacing-md);
+        font-size: var(--font-caption-md);
+    }
+}
+"#;
+
+/// Main navigation component with consistent styling and active page underline
+#[component]
+pub fn MainNav(
+    /// The currently active page
+    #[props(default)]
+    active: ActivePage,
+    /// Optional subtitle for the brand (e.g., "Programmer's Guide")
+    #[props(default)]
+    subtitle: Option<&'static str>,
+    /// Whether to show the full nav links (default true)
+    #[props(default = true)]
+    show_nav_links: bool,
+    /// Primary CTA button text (default "Launch App")
+    #[props(default = "Launch App")]
+    primary_cta: &'static str,
+    /// Primary CTA route
+    #[props(default = Route::Home {})]
+    primary_cta_route: Route,
+) -> Element {
+    rsx! {
+        style { "{MAIN_NAV_STYLE}" }
+
+        header { class: "main-nav",
+            div { class: "main-nav-inner",
+                // Brand
+                Link {
+                    to: Route::Landing {},
+                    class: "main-nav-brand",
+                    div { class: "main-nav-logo" }
+                    div { class: "main-nav-brand-text",
+                        span { class: "main-nav-brand-name", "LOGICAFFEINE" }
+                        if let Some(sub) = subtitle {
+                            span { class: "main-nav-brand-subtitle", "{sub}" }
+                        } else {
+                            span { class: "main-nav-brand-subtitle", "Debug your thoughts." }
+                        }
+                    }
+                }
+
+                // Navigation links with active underline
+                if show_nav_links {
+                    nav { class: "main-nav-links",
+                        Link {
+                            to: Route::Guide {},
+                            class: if active == ActivePage::Guide { "main-nav-link active" } else { "main-nav-link" },
+                            "Guide"
+                        }
+                        Link {
+                            to: Route::Learn {},
+                            class: if active == ActivePage::Learn { "main-nav-link active" } else { "main-nav-link" },
+                            "Learn"
+                        }
+                        Link {
+                            to: Route::Studio {},
+                            class: if active == ActivePage::Studio { "main-nav-link active" } else { "main-nav-link" },
+                            "Studio"
+                        }
+                        Link {
+                            to: Route::Roadmap {},
+                            class: if active == ActivePage::Roadmap { "main-nav-link active" } else { "main-nav-link" },
+                            "Roadmap"
+                        }
+                        Link {
+                            to: Route::Pricing {},
+                            class: if active == ActivePage::Pricing { "main-nav-link active" } else { "main-nav-link" },
+                            "Pricing"
+                        }
+                    }
+                }
+
+                // CTA buttons
+                div { class: "main-nav-cta",
+                    // GitHub button
+                    a {
+                        href: "https://github.com/Brahmastra-Labs/logicaffeine",
+                        target: "_blank",
+                        class: "main-nav-btn main-nav-btn-icon",
+                        title: "View on GitHub",
+                        svg {
+                            xmlns: "http://www.w3.org/2000/svg",
+                            view_box: "0 0 24 24",
+                            path {
+                                d: "M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
+                            }
+                        }
+                    }
+                    // Primary CTA
+                    Link {
+                        to: primary_cta_route,
+                        class: "main-nav-btn primary",
+                        "{primary_cta}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+```
+
+---
+
 ### Component: mixed_text
 
 **File:** `src/ui/components/mixed_text.rs`
@@ -45812,6 +49140,12 @@ pub mod combo_indicator;
 pub mod streak_display;
 pub mod achievement_toast;
 pub mod mode_selector;
+pub mod guide_code_block;
+pub mod guide_sidebar;
+pub mod learn_sidebar;
+pub mod main_nav;
+pub mod module_tabs;
+pub mod symbol_dictionary;
 
 ```
 
@@ -46055,6 +49389,209 @@ pub fn ModeSelector(
                 }
             }
         }
+    }
+}
+
+```
+
+---
+
+### Component: module_tabs
+
+**File:** `src/ui/components/module_tabs.rs`
+
+Reusable UI component.
+
+```rust
+//! Module Tab Bar component for the integrated Learn page.
+//!
+//! Displays tabs: LESSON | EXAMPLES | PRACTICE ∞ | TEST 📝
+//! allowing users to switch between different learning modes within a module.
+
+use dioxus::prelude::*;
+use crate::learn_state::TabMode;
+
+const MODULE_TABS_STYLE: &str = r#"
+.module-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    width: fit-content;
+}
+
+.module-tab {
+    padding: 10px 18px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: rgba(229, 231, 235, 0.56);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.module-tab:hover:not(.locked):not(.active) {
+    color: rgba(229, 231, 235, 0.85);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.module-tab.active {
+    background: linear-gradient(135deg, rgba(96, 165, 250, 0.2), rgba(167, 139, 250, 0.2));
+    color: #e5e7eb;
+    box-shadow: 0 2px 8px rgba(96, 165, 250, 0.15);
+}
+
+.module-tab.locked {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.module-tab.lesson.active {
+    background: linear-gradient(135deg, rgba(96, 165, 250, 0.25), rgba(96, 165, 250, 0.15));
+}
+
+.module-tab.examples.active {
+    background: linear-gradient(135deg, rgba(167, 139, 250, 0.25), rgba(167, 139, 250, 0.15));
+}
+
+.module-tab.practice.active {
+    background: linear-gradient(135deg, rgba(74, 222, 128, 0.25), rgba(74, 222, 128, 0.15));
+}
+
+.module-tab.test.active {
+    background: linear-gradient(135deg, rgba(251, 146, 60, 0.25), rgba(251, 146, 60, 0.15));
+}
+
+/* Compact variant for inline use */
+.module-tabs.compact {
+    padding: 2px;
+    gap: 2px;
+}
+
+.module-tabs.compact .module-tab {
+    padding: 6px 12px;
+    font-size: 11px;
+}
+"#;
+
+/// Props for the ModuleTabs component
+#[derive(Props, Clone, PartialEq)]
+pub struct ModuleTabsProps {
+    /// Currently active tab
+    current: TabMode,
+    /// Handler called when user clicks a tab
+    on_change: EventHandler<TabMode>,
+    /// Tabs that should be locked (disabled)
+    #[props(default)]
+    locked_tabs: Vec<TabMode>,
+    /// Use compact variant
+    #[props(default = false)]
+    compact: bool,
+}
+
+/// Tab bar for switching between module learning modes
+#[component]
+pub fn ModuleTabs(props: ModuleTabsProps) -> Element {
+    let container_class = if props.compact {
+        "module-tabs compact"
+    } else {
+        "module-tabs"
+    };
+
+    rsx! {
+        style { "{MODULE_TABS_STYLE}" }
+        div { class: "{container_class}",
+            for tab in TabMode::all() {
+                {
+                    let is_active = tab == props.current;
+                    let is_locked = props.locked_tabs.contains(&tab);
+                    let tab_class_name = match tab {
+                        TabMode::Lesson => "lesson",
+                        TabMode::Examples => "examples",
+                        TabMode::Practice => "practice",
+                        TabMode::Test => "test",
+                    };
+                    let class = format!(
+                        "module-tab {}{}{}",
+                        tab_class_name,
+                        if is_active { " active" } else { "" },
+                        if is_locked { " locked" } else { "" }
+                    );
+
+                    rsx! {
+                        button {
+                            key: "{tab_class_name}",
+                            class: "{class}",
+                            disabled: is_locked,
+                            onclick: {
+                                let on_change = props.on_change.clone();
+                                move |_| {
+                                    if !is_locked {
+                                        on_change.call(tab);
+                                    }
+                                }
+                            },
+                            "{tab.label()}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Individual tab button component for custom layouts
+#[component]
+pub fn TabButton(
+    tab: TabMode,
+    is_active: bool,
+    #[props(default = false)] is_locked: bool,
+    on_click: EventHandler<TabMode>,
+) -> Element {
+    let tab_class_name = match tab {
+        TabMode::Lesson => "lesson",
+        TabMode::Examples => "examples",
+        TabMode::Practice => "practice",
+        TabMode::Test => "test",
+    };
+    let class = format!(
+        "module-tab {}{}{}",
+        tab_class_name,
+        if is_active { " active" } else { "" },
+        if is_locked { " locked" } else { "" }
+    );
+
+    rsx! {
+        style { "{MODULE_TABS_STYLE}" }
+        button {
+            class: "{class}",
+            disabled: is_locked,
+            onclick: move |_| {
+                if !is_locked {
+                    on_click.call(tab);
+                }
+            },
+            "{tab.label()}"
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tab_class_names() {
+        // Verify class name generation logic
+        assert!(TabMode::Lesson.label().contains("LESSON"));
+        assert!(TabMode::Practice.label().contains("PRACTICE"));
     }
 }
 
@@ -46411,6 +49948,329 @@ pub fn StreakDisplay(streak: u32, status: StreakStatus, freezes: u8) -> Element 
                 }
             }
         }
+    }
+}
+
+```
+
+---
+
+### Component: symbol_dictionary
+
+**File:** `src/ui/components/symbol_dictionary.rs`
+
+Reusable UI component.
+
+```rust
+//! Symbol Dictionary component for displaying FOL symbol meanings.
+//!
+//! Automatically extracts symbols from a First-Order Logic formula
+//! and displays them grouped by category with descriptions.
+
+use dioxus::prelude::*;
+use crate::symbol_dict::{extract_symbols, group_symbols_by_kind, SymbolKind};
+
+const SYMBOL_DICT_STYLE: &str = r#"
+.symbol-dictionary {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.symbol-dictionary.collapsed {
+    padding: 12px 16px;
+    cursor: pointer;
+}
+
+.symbol-dictionary.collapsed:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.symbol-dict-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(229, 231, 235, 0.56);
+    margin-bottom: 12px;
+}
+
+.symbol-dictionary.collapsed .symbol-dict-header {
+    margin-bottom: 0;
+}
+
+.symbol-dict-toggle {
+    color: rgba(229, 231, 235, 0.4);
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.symbol-dictionary.collapsed .symbol-dict-toggle {
+    transform: rotate(-90deg);
+}
+
+.symbol-dict-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.symbol-group {
+    margin-bottom: 0;
+}
+
+.symbol-group-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: #a78bfa;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.symbol-group-title.quantifier {
+    color: #60a5fa;
+}
+
+.symbol-group-title.connective {
+    color: #f472b6;
+}
+
+.symbol-group-title.modal {
+    color: #c084fc;
+}
+
+.symbol-group-title.predicate {
+    color: #4ade80;
+}
+
+.symbol-group-title.variable {
+    color: #fbbf24;
+}
+
+.symbol-group-title.constant {
+    color: #fb923c;
+}
+
+.symbol-entries {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.symbol-entry {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    transition: background 0.15s ease;
+}
+
+.symbol-entry:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.symbol-glyph {
+    font-size: 18px;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+    color: #60a5fa;
+    min-width: 32px;
+    text-align: center;
+}
+
+.symbol-glyph.quantifier {
+    color: #60a5fa;
+}
+
+.symbol-glyph.connective {
+    color: #f472b6;
+}
+
+.symbol-glyph.modal {
+    color: #c084fc;
+}
+
+.symbol-glyph.predicate {
+    color: #4ade80;
+}
+
+.symbol-glyph.variable {
+    color: #fbbf24;
+}
+
+.symbol-glyph.constant {
+    color: #fb923c;
+}
+
+.symbol-desc {
+    font-size: 13px;
+    color: rgba(229, 231, 235, 0.72);
+}
+
+.symbol-dictionary-empty {
+    color: rgba(229, 231, 235, 0.4);
+    font-size: 13px;
+    text-align: center;
+    padding: 8px;
+}
+
+/* Compact inline variant */
+.symbol-dictionary.inline {
+    padding: 12px;
+    margin-top: 8px;
+}
+
+.symbol-dictionary.inline .symbol-dict-header {
+    margin-bottom: 8px;
+}
+
+.symbol-dictionary.inline .symbol-entries {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.symbol-dictionary.inline .symbol-entry {
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+}
+
+.symbol-dictionary.inline .symbol-glyph {
+    font-size: 14px;
+    min-width: 20px;
+}
+
+.symbol-dictionary.inline .symbol-desc {
+    font-size: 11px;
+}
+"#;
+
+/// Props for the SymbolDictionary component
+#[derive(Props, Clone, PartialEq)]
+pub struct SymbolDictionaryProps {
+    /// The FOL formula to extract symbols from
+    logic: String,
+    /// Whether to start collapsed
+    #[props(default = false)]
+    collapsed: bool,
+    /// Use compact inline variant
+    #[props(default = false)]
+    inline: bool,
+}
+
+/// Symbol Dictionary component that auto-generates from FOL output
+#[component]
+pub fn SymbolDictionary(props: SymbolDictionaryProps) -> Element {
+    let mut is_collapsed = use_signal(|| props.collapsed);
+
+    let symbols = extract_symbols(&props.logic);
+
+    if symbols.is_empty() {
+        return rsx! { "" };
+    }
+
+    let grouped = group_symbols_by_kind(&symbols);
+
+    let container_class = format!(
+        "symbol-dictionary{}{}",
+        if *is_collapsed.read() { " collapsed" } else { "" },
+        if props.inline { " inline" } else { "" }
+    );
+
+    rsx! {
+        style { "{SYMBOL_DICT_STYLE}" }
+        div {
+            class: "{container_class}",
+            onclick: move |_| {
+                if *is_collapsed.read() {
+                    is_collapsed.set(false);
+                }
+            },
+
+            div { class: "symbol-dict-header",
+                span { "Symbol Dictionary" }
+                span {
+                    class: "symbol-dict-toggle",
+                    onclick: move |e| {
+                        e.stop_propagation();
+                        let current = *is_collapsed.read();
+                        is_collapsed.set(!current);
+                    },
+                    "▼"
+                }
+            }
+
+            if !*is_collapsed.read() {
+                div { class: "symbol-dict-content",
+                    for (kind, entries) in grouped {
+                        {
+                            let kind_class = match kind {
+                                SymbolKind::Quantifier => "quantifier",
+                                SymbolKind::Connective => "connective",
+                                SymbolKind::Modal => "modal",
+                                SymbolKind::Predicate => "predicate",
+                                SymbolKind::Variable => "variable",
+                                SymbolKind::Constant => "constant",
+                                SymbolKind::Temporal => "temporal",
+                            };
+
+                            rsx! {
+                                div { class: "symbol-group",
+                                    key: "{kind_class}",
+                                    div { class: "symbol-group-title {kind_class}",
+                                        "{kind.label()}"
+                                    }
+                                    div { class: "symbol-entries",
+                                        for entry in entries {
+                                            div { class: "symbol-entry",
+                                                key: "{entry.symbol}",
+                                                span { class: "symbol-glyph {kind_class}",
+                                                    "{entry.symbol}"
+                                                }
+                                                span { class: "symbol-desc",
+                                                    "{entry.description}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Compact inline symbol legend for quick reference
+#[component]
+pub fn SymbolLegend(logic: String) -> Element {
+    rsx! {
+        SymbolDictionary {
+            logic: logic,
+            inline: true,
+            collapsed: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_symbol_kind_class_names() {
+        assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
+        assert_eq!(SymbolKind::Connective.label(), "Connective");
     }
 }
 
@@ -46866,67 +50726,114 @@ mod tests {
     #[test]
     fn test_curriculum_loads() {
         let engine = ContentEngine::new();
-        assert!(engine.era_count() >= 3, "Should have at least 3 eras (got {})", engine.era_count());
+        assert!(engine.era_count() >= 4, "Should have at least 4 eras (got {})", engine.era_count());
     }
 
     #[test]
-    fn test_era_trivium_exists() {
+    fn test_first_steps_era_exists() {
         let engine = ContentEngine::new();
-        let trivium = engine.get_era("trivium");
-        assert!(trivium.is_some(), "Trivium era should exist");
-        assert_eq!(trivium.unwrap().meta.title, "Basics");
+        let era = engine.get_era("first-steps");
+        assert!(era.is_some(), "First Steps era should exist");
+        assert_eq!(era.unwrap().meta.title, "First Steps");
     }
 
     #[test]
-    fn test_module_atomic_exists() {
+    fn test_building_blocks_era_exists() {
         let engine = ContentEngine::new();
-        let atomic = engine.get_module("trivium", "atomic");
-        assert!(atomic.is_some(), "Atomic module should exist");
-        assert_eq!(atomic.unwrap().meta.title, "The Atomic World");
+        let era = engine.get_era("building-blocks");
+        assert!(era.is_some(), "Building Blocks era should exist");
+        assert_eq!(era.unwrap().meta.title, "Building Blocks");
+    }
+
+    #[test]
+    fn test_expanding_horizons_era_exists() {
+        let engine = ContentEngine::new();
+        let era = engine.get_era("expanding-horizons");
+        assert!(era.is_some(), "Expanding Horizons era should exist");
+        assert_eq!(era.unwrap().meta.title, "Expanding Horizons");
+    }
+
+    #[test]
+    fn test_mastery_era_exists() {
+        let engine = ContentEngine::new();
+        let era = engine.get_era("mastery");
+        assert!(era.is_some(), "Mastery era should exist");
+        assert_eq!(era.unwrap().meta.title, "Mastery");
+    }
+
+    #[test]
+    fn test_introduction_module_exists() {
+        let engine = ContentEngine::new();
+        let module = engine.get_module("first-steps", "introduction");
+        assert!(module.is_some(), "Introduction module should exist");
+        assert_eq!(module.unwrap().meta.title, "Introduction");
+    }
+
+    #[test]
+    fn test_syllogistic_module_exists() {
+        let engine = ContentEngine::new();
+        let module = engine.get_module("first-steps", "syllogistic");
+        assert!(module.is_some(), "Syllogistic module should exist");
+        let m = module.unwrap();
+        assert_eq!(m.meta.title, "Syllogistic Logic");
+        assert!(m.exercises.len() >= 90, "Should have at least 90 exercises (got {})", m.exercises.len());
+    }
+
+    #[test]
+    fn test_propositional_module_exists() {
+        let engine = ContentEngine::new();
+        let module = engine.get_module("building-blocks", "propositional");
+        assert!(module.is_some(), "Propositional module should exist");
+        let m = module.unwrap();
+        assert_eq!(m.meta.title, "Basic Propositional Logic");
+        assert!(m.exercises.len() >= 100, "Should have at least 100 exercises (got {})", m.exercises.len());
     }
 
     #[test]
     fn test_exercises_load() {
         let engine = ContentEngine::new();
-        let count = engine.exercise_count("trivium", "atomic");
-        assert!(count >= 2, "Atomic module should have at least 2 exercises");
+        let count = engine.exercise_count("first-steps", "syllogistic");
+        assert!(count >= 90, "Syllogistic module should have at least 90 exercises");
     }
 
     #[test]
-    fn test_exercise_has_template() {
+    fn test_exercise_has_explanation() {
         let engine = ContentEngine::new();
-        let ex = engine.get_exercise("trivium", "atomic", "ex_01");
-        assert!(ex.is_some(), "Exercise ex_01 should exist");
-        assert!(ex.unwrap().template.is_some(), "Exercise should have template");
-    }
-
-    #[test]
-    fn test_logicaffeine_era_exists() {
-        let engine = ContentEngine::new();
-        let logicaffeine = engine.get_era("logicaffeine");
-        assert!(logicaffeine.is_some(), "Logicaffeine era should exist");
-        assert_eq!(logicaffeine.unwrap().meta.title, "Practice");
-    }
-
-    #[test]
-    fn test_logicaffeine_syllogistic_module() {
-        let engine = ContentEngine::new();
-        let module = engine.get_module("logicaffeine", "syllogistic");
-        assert!(module.is_some(), "Syllogistic module should exist");
-        let m = module.unwrap();
-        assert_eq!(m.meta.title, "The Syllogism");
-        assert!(m.exercises.len() >= 90, "Should have at least 90 exercises (got {})", m.exercises.len());
-    }
-
-    #[test]
-    fn test_logicaffeine_exercise_has_explanation() {
-        let engine = ContentEngine::new();
-        let ex = engine.get_exercise("logicaffeine", "syllogistic", "A_1.1");
+        let ex = engine.get_exercise("first-steps", "syllogistic", "A_1.1");
         assert!(ex.is_some(), "Exercise A_1.1 should exist");
         let exercise = ex.unwrap();
         assert!(exercise.explanation.is_some(), "Exercise should have explanation");
         assert!(exercise.options.is_some(), "Exercise should have options");
         assert_eq!(exercise.exercise_type, ExerciseType::MultipleChoice);
+    }
+
+    #[test]
+    fn test_all_eras_have_modules() {
+        let engine = ContentEngine::new();
+
+        // First Steps: 5 modules
+        let first_steps_modules = ["introduction", "syllogistic", "definitions", "fallacies", "inductive"];
+        for module in first_steps_modules {
+            assert!(engine.get_module("first-steps", module).is_some(), "first-steps/{} should exist", module);
+        }
+
+        // Building Blocks: 2 modules
+        let building_blocks_modules = ["propositional", "proofs"];
+        for module in building_blocks_modules {
+            assert!(engine.get_module("building-blocks", module).is_some(), "building-blocks/{} should exist", module);
+        }
+
+        // Expanding Horizons: 6 modules
+        let expanding_modules = ["quantificational", "relations", "modal", "further_modal", "deontic", "belief"];
+        for module in expanding_modules {
+            assert!(engine.get_module("expanding-horizons", module).is_some(), "expanding-horizons/{} should exist", module);
+        }
+
+        // Mastery: 5 modules
+        let mastery_modules = ["ethics", "metalogic", "history", "deviant", "philosophy"];
+        for module in mastery_modules {
+            assert!(engine.get_module("mastery", module).is_some(), "mastery/{} should exist", module);
+        }
     }
 }
 
@@ -47182,7 +51089,10 @@ mod tests {
         let generator = Generator::new();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let exercise = engine.get_exercise("trivium", "atomic", "ex_01").unwrap();
+        // Use introduction module which has Translation exercises
+        let exercise = engine.get_exercise("first-steps", "introduction", "ex_01");
+        assert!(exercise.is_some(), "Exercise first-steps/introduction/ex_01 should exist");
+        let exercise = exercise.unwrap();
         let challenge = generator.generate(exercise, &mut rng);
 
         assert!(challenge.is_some(), "Should generate a challenge");
@@ -47202,7 +51112,10 @@ mod tests {
         let generator = Generator::new();
         let mut rng = StdRng::seed_from_u64(42);
 
-        let exercise = engine.get_exercise("trivium", "atomic", "ex_03").unwrap();
+        // Use syllogistic module which has MultipleChoice exercises
+        let exercise = engine.get_exercise("first-steps", "syllogistic", "A_1.1");
+        assert!(exercise.is_some(), "Exercise first-steps/syllogistic/A_1.1 should exist");
+        let exercise = exercise.unwrap();
         let challenge = generator.generate(exercise, &mut rng);
 
         assert!(challenge.is_some(), "Should generate a challenge");
@@ -47210,7 +51123,7 @@ mod tests {
 
         if let AnswerType::MultipleChoice { options, correct_index } = &challenge.answer {
             assert_eq!(options.len(), 4, "Should have 4 options");
-            assert_eq!(*correct_index, 0, "Correct answer should be first option");
+            assert!(*correct_index < options.len(), "Correct index should be within options range");
         } else {
             panic!("Expected MultipleChoice answer type");
         }
@@ -47942,6 +51855,10 @@ pub mod time;
 pub mod random;
 pub mod env;
 pub mod memory;
+// Phase 48: Network primitives
+pub mod network;
+// Phase 49: CRDT primitives
+pub mod crdt;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -47997,6 +51914,10 @@ pub mod prelude {
     pub use crate::logos_index_mut;
     // Phase 8.5: Zone-based memory management
     pub use crate::memory::Zone;
+    // Phase 48: Sipping protocol
+    pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 49: CRDT primitives
+    pub use crate::crdt::{GCounter, LWWRegister, Merge};
 }
 
 #[cfg(test)]
@@ -51576,12 +55497,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
 
-    // Collect user-defined structs from registry (Phase 34: now with generics)
+    // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Struct { fields, generics } = def {
+            if let TypeDef::Struct { fields, generics, is_portable, is_shared } = def {
                 if !fields.is_empty() || !generics.is_empty() {
-                    Some((*name, fields.clone(), generics.clone()))
+                    Some((*name, fields.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -51591,12 +55512,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         })
         .collect();
 
-    // Phase 33/34: Collect user-defined enums from registry (now with generics)
+    // Phase 33/34: Collect user-defined enums from registry (generics, Phase 47: is_portable, Phase 49: is_shared)
     let enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Enum { variants, generics } = def {
+            if let TypeDef::Enum { variants, generics, is_portable, is_shared } = def {
                 if !variants.is_empty() || !generics.is_empty() {
-                    Some((*name, variants.clone(), generics.clone()))
+                    Some((*name, variants.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -51611,12 +55532,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "pub mod user_types {{").unwrap();
         writeln!(output, "    use super::*;\n").unwrap();
 
-        for (name, fields, generics) in &structs {
-            output.push_str(&codegen_struct_def(*name, fields, generics, interner, 4));
+        for (name, fields, generics, is_portable, is_shared) in &structs {
+            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, *is_shared, interner, 4));
         }
 
-        for (name, variants, generics) in &enums {
-            output.push_str(&codegen_enum_def(*name, variants, generics, interner, 4));
+        for (name, variants, generics, is_portable, is_shared) in &enums {
+            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, *is_shared, interner, 4));
         }
 
         writeln!(output, "}}\n").unwrap();
@@ -51832,7 +55753,9 @@ fn map_type_to_rust(ty: &str) -> String {
 
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
-fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now supports is_shared for CRDT Merge impl.
+fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -51846,7 +55769,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for field in fields {
@@ -51856,11 +55784,67 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
     }
 
     writeln!(output, "{}}}\n", ind).unwrap();
+
+    // Phase 49: Generate Merge impl for Shared structs
+    if is_shared {
+        output.push_str(&codegen_merge_impl(name, fields, generics, interner, indent));
+    }
+
     output
 }
 
+/// Phase 49: Generate impl Merge for a Shared struct.
+fn codegen_merge_impl(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+    let ind = " ".repeat(indent);
+    let name_str = interner.resolve(name);
+    let mut output = String::new();
+
+    // Build generic parameter string: <T, U> or empty
+    let generic_str = if generics.is_empty() {
+        String::new()
+    } else {
+        let params: Vec<&str> = generics.iter()
+            .map(|g| interner.resolve(*g))
+            .collect();
+        format!("<{}>", params.join(", "))
+    };
+
+    writeln!(output, "{}impl{} logos_core::crdt::Merge for {}{} {{", ind, generic_str, name_str, generic_str).unwrap();
+    writeln!(output, "{}    fn merge(&mut self, other: &Self) {{", ind).unwrap();
+
+    for field in fields {
+        let field_name = interner.resolve(field.name);
+        // Only merge fields that implement Merge (CRDT types)
+        if is_crdt_field_type(&field.ty, interner) {
+            writeln!(output, "{}        self.{}.merge(&other.{});", ind, field_name, field_name).unwrap();
+        }
+    }
+
+    writeln!(output, "{}    }}", ind).unwrap();
+    writeln!(output, "{}}}\n", ind).unwrap();
+
+    output
+}
+
+/// Phase 49: Check if a field type is a CRDT type that implements Merge.
+fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "ConvergentCount" | "GCounter")
+        }
+        FieldType::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "LastWriteWins" | "LWWRegister")
+        }
+        _ => false,
+    }
+}
+
 /// Phase 33/34: Generate enum definition with optional generic parameters.
-fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now accepts is_shared parameter (enums don't generate Merge impl yet).
+fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, _is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -51874,7 +55858,12 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for variant in variants {
@@ -51912,12 +55901,21 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 other => other.to_string(),
             }
         }
-        FieldType::Named(sym) => interner.resolve(*sym).to_string(),
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                // Phase 49: CRDT type mapping
+                "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                _ => name.to_string(),
+            }
+        }
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
                 "Option" => "Option",
                 "Result" => "Result",
+                // Phase 49: CRDT generic type
+                "LastWriteWins" => "logos_core::crdt::LWWRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -52045,6 +56043,11 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
             let condition = codegen_assertion(proposition, interner);
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
+        Stmt::RuntimeAssert { condition } => {
+            let cond_str = codegen_expr(condition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -52292,6 +56295,63 @@ pub fn codegen_stmt<'a>(
                 indent_str, path_str, content_str
             ).unwrap();
         }
+
+        // Phase 46: Spawn an agent
+        Stmt::Spawn { agent_type, name } => {
+            let type_name = interner.resolve(*agent_type);
+            let agent_name = interner.resolve(*name);
+            // Generate agent spawn with tokio channel
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ /* {} agent loop */ }});",
+                indent_str, agent_name, type_name
+            ).unwrap();
+        }
+
+        // Phase 46: Send message to agent
+        Stmt::SendMessage { message, destination } => {
+            let msg_str = codegen_expr(message, interner);
+            let dest_str = codegen_expr(destination, interner);
+            writeln!(
+                output,
+                "{}{}.send({}).await.expect(\"Failed to send message\");",
+                indent_str, dest_str, msg_str
+            ).unwrap();
+        }
+
+        // Phase 46: Await response from agent
+        Stmt::AwaitMessage { source, into } => {
+            let src_str = codegen_expr(source, interner);
+            let var_name = interner.resolve(*into);
+            writeln!(
+                output,
+                "{}let {} = {}.recv().await.expect(\"Failed to receive message\");",
+                indent_str, var_name, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Merge CRDT state
+        Stmt::MergeCrdt { source, target } => {
+            let src_str = codegen_expr(source, interner);
+            let tgt_str = codegen_expr(target, interner);
+            writeln!(
+                output,
+                "{}{}.merge(&{});",
+                indent_str, tgt_str, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Increment GCounter
+        Stmt::IncreaseCrdt { object, field, amount } => {
+            let obj_str = codegen_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner);
+            writeln!(
+                output,
+                "{}{}.{}.increment({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
     }
 
     output
@@ -52311,6 +56371,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
                 BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
                 BinaryOpKind::Lt => "<",
@@ -52355,6 +56416,19 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             let coll_str = codegen_expr(collection, interner);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
+        }
+
+        // Phase 48: Sipping Protocol expressions
+        Expr::ManifestOf { zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
+        }
+
+        Expr::ChunkAt { index, zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            let index_str = codegen_expr(index, interner);
+            // LOGOS uses 1-indexed, Rust uses 0-indexed
+            format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
@@ -52983,7 +57057,6 @@ mod tests {
 
 ---
 
-<<<<<<< Updated upstream
 ### Module: diagnostic
 
 **File:** `src/diagnostic.rs`
@@ -53409,8 +57482,6 @@ mod tests {
 
 ---
 
-=======
->>>>>>> Stashed changes
 ### Module: drs
 
 **File:** `src/drs.rs`
@@ -54163,6 +58234,1188 @@ mod tests {
     fn test_is_yesterday() {
         assert!(is_yesterday("2025-01-01", "2025-01-02"));
         assert!(!is_yesterday("2025-01-01", "2025-01-03"));
+    }
+}
+
+```
+
+---
+
+### Module: interpreter
+
+**File:** `src/interpreter.rs`
+
+Additional source module.
+
+```rust
+//! Tree-walking interpreter for LOGOS imperative code.
+//!
+//! This module provides runtime execution of parsed LOGOS programs,
+//! walking the AST and executing statements/expressions directly.
+
+use std::collections::HashMap;
+
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, Stmt, TypeExpr};
+use crate::intern::{Interner, Symbol};
+
+/// Runtime values during interpretation.
+#[derive(Debug, Clone)]
+pub enum RuntimeValue {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
+    List(Vec<RuntimeValue>),
+    Struct {
+        type_name: String,
+        fields: HashMap<String, RuntimeValue>,
+    },
+    Nothing,
+}
+
+impl RuntimeValue {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            RuntimeValue::Int(_) => "Int",
+            RuntimeValue::Float(_) => "Float",
+            RuntimeValue::Bool(_) => "Bool",
+            RuntimeValue::Text(_) => "Text",
+            RuntimeValue::List(_) => "List",
+            RuntimeValue::Struct { .. } => "Struct",
+            RuntimeValue::Nothing => "Nothing",
+        }
+    }
+
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            RuntimeValue::Bool(b) => *b,
+            RuntimeValue::Int(n) => *n != 0,
+            RuntimeValue::Nothing => false,
+            _ => true,
+        }
+    }
+
+    pub fn to_display_string(&self) -> String {
+        match self {
+            RuntimeValue::Int(n) => n.to_string(),
+            RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
+            RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
+            RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::List(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Struct { type_name, fields } => {
+                if fields.is_empty() {
+                    // Unit variant - just show the name
+                    type_name.clone()
+                } else {
+                    let field_strs: Vec<String> = fields
+                        .iter()
+                        .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                        .collect();
+                    format!("{} {{ {} }}", type_name, field_strs.join(", "))
+                }
+            }
+            RuntimeValue::Nothing => "nothing".to_string(),
+        }
+    }
+}
+
+/// Control flow signals for statement execution.
+pub enum ControlFlow {
+    Continue,
+    Return(RuntimeValue),
+    Break,
+}
+
+/// Stored function definition for user-defined functions.
+pub struct FunctionDef<'a> {
+    pub params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+    pub body: Block<'a>,
+    pub return_type: Option<&'a TypeExpr<'a>>,
+}
+
+/// Tree-walking interpreter for LOGOS programs.
+pub struct Interpreter<'a> {
+    interner: &'a Interner,
+    /// Scope stack - each HashMap is a scope level
+    env: Vec<HashMap<Symbol, RuntimeValue>>,
+    /// User-defined functions
+    functions: HashMap<Symbol, FunctionDef<'a>>,
+    /// Struct type definitions (for constructor validation)
+    struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
+    /// Output lines from show() calls
+    pub output: Vec<String>,
+}
+
+impl<'a> Interpreter<'a> {
+    pub fn new(interner: &'a Interner) -> Self {
+        Interpreter {
+            interner,
+            env: vec![HashMap::new()], // Global scope
+            functions: HashMap::new(),
+            struct_defs: HashMap::new(),
+            output: Vec::new(),
+        }
+    }
+
+    /// Execute a program (list of statements).
+    pub fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        for stmt in stmts {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Return(_) => break,
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Execute a single statement.
+    fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                let val = self.evaluate_expr(value)?;
+                self.define(*var, val);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Set { target, value } => {
+                let val = self.evaluate_expr(value)?;
+                self.assign(*target, val)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Call { function, args } => {
+                self.call_function(*function, args)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::If { cond, then_block, else_block } => {
+                let condition = self.evaluate_expr(cond)?;
+                if condition.is_truthy() {
+                    let flow = self.execute_block(then_block)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow); // Propagate Return/Break from If block
+                    }
+                } else if let Some(else_stmts) = else_block {
+                    let flow = self.execute_block(else_stmts)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow); // Propagate Return/Break from Otherwise block
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::While { cond, body, .. } => {
+                loop {
+                    let condition = self.evaluate_expr(cond)?;
+                    if !condition.is_truthy() {
+                        break;
+                    }
+                    match self.execute_block(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                        ControlFlow::Continue => {}
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Repeat { var, iterable, body } => {
+                let iter_val = self.evaluate_expr(iterable)?;
+                let items = match iter_val {
+                    RuntimeValue::List(list) => list,
+                    RuntimeValue::Text(s) => {
+                        s.chars().map(|c| RuntimeValue::Text(c.to_string())).collect()
+                    }
+                    _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
+                };
+
+                self.push_scope();
+                for item in items {
+                    self.define(*var, item);
+                    match self.execute_block(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => {
+                            self.pop_scope();
+                            return Ok(ControlFlow::Return(v));
+                        }
+                        ControlFlow::Continue => {}
+                    }
+                }
+                self.pop_scope();
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Return { value } => {
+                let ret_val = match value {
+                    Some(expr) => self.evaluate_expr(expr)?,
+                    None => RuntimeValue::Nothing,
+                };
+                Ok(ControlFlow::Return(ret_val))
+            }
+
+            Stmt::FunctionDef { name, params, body, return_type, .. } => {
+                let func = FunctionDef {
+                    params: params.clone(),
+                    body: *body,
+                    return_type: *return_type,
+                };
+                self.functions.insert(*name, func);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::StructDef { name, fields, .. } => {
+                self.struct_defs.insert(*name, fields.clone());
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetField { object, field, value } => {
+                let new_val = self.evaluate_expr(value)?;
+                // Get the object identifier
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+                    if let RuntimeValue::Struct { fields, .. } = &mut obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err(format!("Cannot set field on non-struct value"));
+                    }
+                } else {
+                    return Err("SetField target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Push { value, collection } => {
+                let val = self.evaluate_expr(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        items.push(val);
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only push to a List".to_string());
+                    }
+                } else {
+                    return Err("Push collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Pop { collection, into } => {
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        let popped = items.pop().unwrap_or(RuntimeValue::Nothing);
+                        self.assign(*coll_sym, coll_val)?;
+                        if let Some(into_var) = into {
+                            self.define(*into_var, popped);
+                        }
+                    } else {
+                        return Err("Can only pop from a List".to_string());
+                    }
+                } else {
+                    return Err("Pop collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetIndex { collection, index, value } => {
+                let idx_val = self.evaluate_expr(index)?;
+                let new_val = self.evaluate_expr(value)?;
+                let idx = match idx_val {
+                    RuntimeValue::Int(n) => n as usize,
+                    _ => return Err("Index must be an integer".to_string()),
+                };
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        // 1-indexed
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                        }
+                        items[idx - 1] = new_val;
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only index into a List".to_string());
+                    }
+                } else {
+                    return Err("SetIndex collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Inspect { target, arms, .. } => {
+                let target_val = self.evaluate_expr(target)?;
+                self.execute_inspect(&target_val, arms)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Zone { name, body, .. } => {
+                // Zones create a new scope
+                self.push_scope();
+                // Define the zone handle (as Nothing for now)
+                self.define(*name, RuntimeValue::Nothing);
+                let result = self.execute_block(body);
+                self.pop_scope();
+                result?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+                // In WASM, execute sequentially
+                for task in tasks.iter() {
+                    self.execute_stmt(task)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Assert { .. } | Stmt::Trust { .. } => {
+                // Logic assertions - for now, just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::RuntimeAssert { condition } => {
+                let val = self.evaluate_expr(condition)?;
+                if !val.is_truthy() {
+                    return Err("Assertion failed".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Give { .. } => {
+                // Ownership semantics - in interpreter, just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Show { object, recipient } => {
+                // Show statement: "Show x." or "Show x to console."
+                // The recipient is the show function by default
+                let obj_val = self.evaluate_expr(object)?;
+
+                // Check if recipient is the "show" function (default)
+                if let Expr::Identifier(sym) = recipient {
+                    let name = self.interner.resolve(*sym);
+                    if name == "show" {
+                        // Output the value
+                        self.output.push(obj_val.to_display_string());
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::ReadFrom { var, .. } => {
+                // No filesystem in WASM - return empty string
+                self.define(*var, RuntimeValue::Text(String::new()));
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::WriteFile { .. } => {
+                // No filesystem in WASM - just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Spawn { name, .. } => {
+                // No agents in WASM - create a placeholder
+                self.define(*name, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SendMessage { .. } => {
+                // No agents in WASM
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::AwaitMessage { into, .. } => {
+                // No agents in WASM - define the into variable as Nothing
+                self.define(*into, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            // Phase 49: CRDT operations - not supported in interpreter (compile-only)
+            Stmt::MergeCrdt { .. } => {
+                Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::IncreaseCrdt { .. } => {
+                Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+        }
+    }
+
+    /// Execute a block of statements, returning control flow.
+    fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
+        self.push_scope();
+        for stmt in block.iter() {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Continue => {}
+                flow => {
+                    self.pop_scope();
+                    return Ok(flow);
+                }
+            }
+        }
+        self.pop_scope();
+        Ok(ControlFlow::Continue)
+    }
+
+    /// Execute Inspect (pattern matching).
+    fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
+        for arm in arms {
+            if arm.variant.is_none() {
+                // Otherwise arm - always matches
+                self.execute_block(arm.body)?;
+                return Ok(());
+            }
+            // For now, simplified matching - just check type name
+            if let RuntimeValue::Struct { type_name, fields } = target {
+                if let Some(variant) = arm.variant {
+                    let variant_name = self.interner.resolve(variant);
+                    if type_name == variant_name {
+                        // Bind fields
+                        self.push_scope();
+                        for (field_name, binding_name) in &arm.bindings {
+                            let field_str = self.interner.resolve(*field_name);
+                            if let Some(val) = fields.get(field_str) {
+                                self.define(*binding_name, val.clone());
+                            }
+                        }
+                        let result = self.execute_block(arm.body);
+                        self.pop_scope();
+                        result?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Evaluate an expression to a runtime value.
+    fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        match expr {
+            Expr::Literal(lit) => self.evaluate_literal(lit),
+
+            Expr::Identifier(sym) => {
+                self.lookup(*sym).cloned()
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let left_val = self.evaluate_expr(left)?;
+                let right_val = self.evaluate_expr(right)?;
+                self.apply_binary_op(*op, left_val, right_val)
+            }
+
+            Expr::Call { function, args } => {
+                self.call_function(*function, args)
+            }
+
+            Expr::Index { collection, index } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                let idx_val = self.evaluate_expr(index)?;
+                match (&coll_val, &idx_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
+                        // 1-indexed
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
+                    (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > s.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
+                    }
+                    _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
+                }
+            }
+
+            Expr::Slice { collection, start, end } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                let start_val = self.evaluate_expr(start)?;
+                let end_val = self.evaluate_expr(end)?;
+                match (&coll_val, &start_val, &end_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let start = (*s as usize).saturating_sub(1);
+                        let end = *e as usize;
+                        let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
+                        Ok(RuntimeValue::List(slice))
+                    }
+                    _ => Err("Slice requires List and Int indices".to_string()),
+                }
+            }
+
+            Expr::Copy { expr: inner } => {
+                // Copy just evaluates and clones
+                self.evaluate_expr(inner)
+            }
+
+            Expr::Length { collection } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                match &coll_val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::List(items) => {
+                let values: Result<Vec<RuntimeValue>, String> = items
+                    .iter()
+                    .map(|e| self.evaluate_expr(e))
+                    .collect();
+                Ok(RuntimeValue::List(values?))
+            }
+
+            Expr::Range { start, end } => {
+                let start_val = self.evaluate_expr(start)?;
+                let end_val = self.evaluate_expr(end)?;
+                match (&start_val, &end_val) {
+                    (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let range: Vec<RuntimeValue> = (*s..=*e)
+                            .map(RuntimeValue::Int)
+                            .collect();
+                        Ok(RuntimeValue::List(range))
+                    }
+                    _ => Err("Range requires Int bounds".to_string()),
+                }
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_val = self.evaluate_expr(object)?;
+                match &obj_val {
+                    RuntimeValue::Struct { fields, .. } => {
+                        let field_name = self.interner.resolve(*field);
+                        fields.get(field_name).cloned()
+                            .ok_or_else(|| format!("Field '{}' not found", field_name))
+                    }
+                    _ => Err(format!("Cannot access field on {}", obj_val.type_name())),
+                }
+            }
+
+            Expr::New { type_name, init_fields, .. } => {
+                let name = self.interner.resolve(*type_name).to_string();
+                let mut fields = HashMap::new();
+                for (field_sym, field_expr) in init_fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr(field_expr)?;
+                    fields.insert(field_name, field_val);
+                }
+                Ok(RuntimeValue::Struct { type_name: name, fields })
+            }
+
+            Expr::NewVariant { variant, fields, .. } => {
+                let name = self.interner.resolve(*variant).to_string();
+                let mut field_map = HashMap::new();
+                for (field_sym, field_expr) in fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr(field_expr)?;
+                    field_map.insert(field_name, field_val);
+                }
+                Ok(RuntimeValue::Struct { type_name: name, fields: field_map })
+            }
+
+            Expr::ManifestOf { .. } => {
+                // Phase 48: Zone manifests not available in WASM
+                Ok(RuntimeValue::List(vec![]))
+            }
+
+            Expr::ChunkAt { .. } => {
+                // Phase 48: Zone chunks not available in WASM
+                Ok(RuntimeValue::Nothing)
+            }
+        }
+    }
+
+    /// Evaluate a literal to a runtime value.
+    fn evaluate_literal(&self, lit: &Literal) -> Result<RuntimeValue, String> {
+        match lit {
+            Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
+            Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
+            Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
+            Literal::Nothing => Ok(RuntimeValue::Nothing),
+        }
+    }
+
+    /// Apply a binary operator.
+    fn apply_binary_op(&self, op: BinaryOpKind, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match op {
+            BinaryOpKind::Add => self.apply_add(left, right),
+            BinaryOpKind::Subtract => self.apply_subtract(left, right),
+            BinaryOpKind::Multiply => self.apply_multiply(left, right),
+            BinaryOpKind::Divide => self.apply_divide(left, right),
+            BinaryOpKind::Modulo => self.apply_modulo(left, right),
+            BinaryOpKind::Eq => Ok(RuntimeValue::Bool(self.values_equal(&left, &right))),
+            BinaryOpKind::NotEq => Ok(RuntimeValue::Bool(!self.values_equal(&left, &right))),
+            BinaryOpKind::Lt => self.apply_comparison(left, right, |a, b| a < b),
+            BinaryOpKind::Gt => self.apply_comparison(left, right, |a, b| a > b),
+            BinaryOpKind::LtEq => self.apply_comparison(left, right, |a, b| a <= b),
+            BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
+            BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
+            BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+        }
+    }
+
+    fn apply_add(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a + b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a + b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 + b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a + *b as f64)),
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", a, b))),
+            (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(format!("{}{}", a, other.to_display_string()))),
+            (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
+            _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a - b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a - b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 - b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a - *b as f64)),
+            _ => Err(format!("Cannot subtract {} from {}", right.type_name(), left.type_name())),
+        }
+    }
+
+    fn apply_multiply(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a * b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a * b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 * b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a * *b as f64)),
+            _ => Err(format!("Cannot multiply {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_divide(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Int(a / b))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
+                if *b == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(a / b))
+            }
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
+                if *b == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(*a as f64 / b))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(a / *b as f64))
+            }
+            _ => Err(format!("Cannot divide {} by {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_modulo(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Modulo by zero".to_string());
+                }
+                Ok(RuntimeValue::Int(a % b))
+            }
+            _ => Err(format!("Cannot compute modulo of {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_comparison<F>(&self, left: RuntimeValue, right: RuntimeValue, cmp: F) -> Result<RuntimeValue, String>
+    where
+        F: Fn(i64, i64) -> bool,
+    {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            _ => Err(format!("Cannot compare {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn values_equal(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
+        match (left, right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+            _ => false,
+        }
+    }
+
+    /// Call a function (built-in or user-defined).
+    fn call_function(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+        let func_name = self.interner.resolve(function);
+
+        // Built-in functions
+        match func_name {
+            "show" => {
+                for arg in args {
+                    let val = self.evaluate_expr(arg)?;
+                    self.output.push(val.to_display_string());
+                }
+                return Ok(RuntimeValue::Nothing);
+            }
+            "length" => {
+                if args.len() != 1 {
+                    return Err("length() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return match &val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", val.type_name())),
+                };
+            }
+            "format" => {
+                if args.is_empty() {
+                    return Ok(RuntimeValue::Text(String::new()));
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(RuntimeValue::Text(val.to_display_string()));
+            }
+            "abs" => {
+                if args.len() != 1 {
+                    return Err("abs() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return match val {
+                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
+                    RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
+                    _ => Err(format!("abs() requires a number, got {}", val.type_name())),
+                };
+            }
+            "min" => {
+                if args.len() != 2 {
+                    return Err("min() takes exactly 2 arguments".to_string());
+                }
+                let a = self.evaluate_expr(args[0])?;
+                let b = self.evaluate_expr(args[1])?;
+                return match (&a, &b) {
+                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
+                    _ => Err("min() requires integers".to_string()),
+                };
+            }
+            "max" => {
+                if args.len() != 2 {
+                    return Err("max() takes exactly 2 arguments".to_string());
+                }
+                let a = self.evaluate_expr(args[0])?;
+                let b = self.evaluate_expr(args[1])?;
+                return match (&a, &b) {
+                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
+                    _ => Err("max() requires integers".to_string()),
+                };
+            }
+            "copy" => {
+                if args.len() != 1 {
+                    return Err("copy() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(val.clone());
+            }
+            _ => {}
+        }
+
+        // User-defined function lookup
+        // Need to get the function separately to avoid borrow conflicts
+        let func_data = self.functions.get(&function)
+            .map(|f| (f.params.clone(), f.body))
+            .ok_or_else(|| format!("Unknown function: {}", func_name))?;
+
+        let (params, body) = func_data;
+
+        if args.len() != params.len() {
+            return Err(format!(
+                "Function {} expects {} arguments, got {}",
+                func_name,
+                params.len(),
+                args.len()
+            ));
+        }
+
+        // Evaluate arguments before pushing scope
+        let mut arg_values = Vec::new();
+        for arg in args {
+            arg_values.push(self.evaluate_expr(arg)?);
+        }
+
+        // Push new scope and bind parameters
+        self.push_scope();
+        for ((param_name, _), arg_val) in params.iter().zip(arg_values) {
+            self.define(*param_name, arg_val);
+        }
+
+        // Execute function body
+        let mut return_value = RuntimeValue::Nothing;
+        for stmt in body.iter() {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Return(val) => {
+                    return_value = val;
+                    break;
+                }
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+
+        self.pop_scope();
+        Ok(return_value)
+    }
+
+    // Scope management
+
+    fn push_scope(&mut self) {
+        self.env.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.env.len() > 1 {
+            self.env.pop();
+        }
+    }
+
+    fn define(&mut self, name: Symbol, value: RuntimeValue) {
+        if let Some(scope) = self.env.last_mut() {
+            scope.insert(name, value);
+        }
+    }
+
+    fn assign(&mut self, name: Symbol, value: RuntimeValue) -> Result<(), String> {
+        // Search from innermost to outermost scope
+        for scope in self.env.iter_mut().rev() {
+            if scope.contains_key(&name) {
+                scope.insert(name, value);
+                return Ok(());
+            }
+        }
+        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+
+    fn lookup(&self, name: Symbol) -> Result<&RuntimeValue, String> {
+        // Search from innermost to outermost scope
+        for scope in self.env.iter().rev() {
+            if let Some(value) = scope.get(&name) {
+                return Ok(value);
+            }
+        }
+        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+}
+
+/// Result from interpretation.
+#[derive(Debug, Clone)]
+pub struct InterpreterResult {
+    pub lines: Vec<String>,
+    pub error: Option<String>,
+}
+
+```
+
+---
+
+### Module: learn_state
+
+**File:** `src/learn_state.rs`
+
+Additional source module.
+
+```rust
+//! State management for the integrated Learn page.
+//!
+//! This module provides state types for:
+//! - Tab navigation within modules (LESSON | EXAMPLES | PRACTICE | TEST)
+//! - Focus mode (collapse other eras when one is expanded)
+//! - Module expansion state
+
+use serde::{Deserialize, Serialize};
+
+// ═══════════════════════════════════════════════════════════════════
+// Tab Mode
+// ═══════════════════════════════════════════════════════════════════
+
+/// The available tabs within a module section
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum TabMode {
+    /// Reading content from lesson.md
+    #[default]
+    Lesson,
+    /// Interactive code blocks with symbol dictionary
+    Examples,
+    /// Infinite flashcard mode, earn XP per correct answer
+    Practice,
+    /// 17-question assessment with final score
+    Test,
+}
+
+impl TabMode {
+    /// Get the display label for this tab
+    pub fn label(&self) -> &'static str {
+        match self {
+            TabMode::Lesson => "LESSON",
+            TabMode::Examples => "EXAMPLES",
+            TabMode::Practice => "PRACTICE \u{221E}",  // ∞ infinity symbol
+            TabMode::Test => "TEST \u{1F4DD}",          // 📝 memo emoji
+        }
+    }
+
+    /// Get all tab modes in display order
+    pub fn all() -> [TabMode; 4] {
+        [TabMode::Lesson, TabMode::Examples, TabMode::Practice, TabMode::Test]
+    }
+
+    /// Check if this is a practice or test mode (earns XP)
+    pub fn is_exercise_mode(&self) -> bool {
+        matches!(self, TabMode::Practice | TabMode::Test)
+    }
+
+    /// Check if hints are allowed in this mode
+    pub fn allows_hints(&self) -> bool {
+        !matches!(self, TabMode::Test)
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Module Tab State
+// ═══════════════════════════════════════════════════════════════════
+
+/// State for a single module's tab navigation and exercise progress
+#[derive(Debug, Clone)]
+pub struct ModuleTabState {
+    /// The module ID this state belongs to
+    pub module_id: String,
+    /// Currently selected tab
+    pub current_tab: TabMode,
+    /// Current exercise index (for Practice/Test modes)
+    pub exercise_index: usize,
+    /// Whether the current exercise has been submitted
+    pub submitted: bool,
+    /// User's answer for the current exercise
+    pub user_answer: Option<String>,
+    /// Combo counter for Practice mode
+    pub combo: u32,
+    /// Session statistics
+    pub session_correct: u32,
+    pub session_wrong: u32,
+}
+
+impl ModuleTabState {
+    /// Create a new module tab state
+    pub fn new(module_id: &str) -> Self {
+        Self {
+            module_id: module_id.to_string(),
+            current_tab: TabMode::Lesson,
+            exercise_index: 0,
+            submitted: false,
+            user_answer: None,
+            combo: 0,
+            session_correct: 0,
+            session_wrong: 0,
+        }
+    }
+
+    /// Switch to a different tab, resetting exercise state if changing tabs
+    pub fn set_tab(&mut self, tab: TabMode) {
+        if self.current_tab != tab {
+            self.current_tab = tab;
+            self.exercise_index = 0;
+            self.submitted = false;
+            self.user_answer = None;
+            // Reset combo when leaving Practice mode
+            if !matches!(tab, TabMode::Practice) {
+                self.combo = 0;
+            }
+        }
+    }
+
+    /// Move to the next exercise
+    pub fn next_exercise(&mut self) {
+        self.exercise_index += 1;
+        self.submitted = false;
+        self.user_answer = None;
+    }
+
+    /// Record an answer result
+    pub fn record_answer(&mut self, correct: bool) {
+        self.submitted = true;
+        if correct {
+            self.session_correct += 1;
+            self.combo += 1;
+        } else {
+            self.session_wrong += 1;
+            self.combo = 0;
+        }
+    }
+
+    /// Get session accuracy as a percentage
+    pub fn accuracy(&self) -> f64 {
+        let total = self.session_correct + self.session_wrong;
+        if total == 0 {
+            0.0
+        } else {
+            (self.session_correct as f64 / total as f64) * 100.0
+        }
+    }
+
+    /// Reset session statistics
+    pub fn reset_session(&mut self) {
+        self.session_correct = 0;
+        self.session_wrong = 0;
+        self.combo = 0;
+        self.exercise_index = 0;
+        self.submitted = false;
+        self.user_answer = None;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Focus State
+// ═══════════════════════════════════════════════════════════════════
+
+/// State for focus mode - which era/module is expanded
+#[derive(Debug, Clone, Default)]
+pub struct FocusState {
+    /// Currently focused era (if any)
+    pub focused_era: Option<String>,
+    /// Currently focused module within the era (if any)
+    pub focused_module: Option<String>,
+}
+
+impl FocusState {
+    /// Create a new focus state with nothing focused
+    pub fn new() -> Self {
+        Self {
+            focused_era: None,
+            focused_module: None,
+        }
+    }
+
+    /// Check if any era is focused
+    pub fn is_focused(&self) -> bool {
+        self.focused_era.is_some()
+    }
+
+    /// Set focus to a specific era
+    pub fn set_focus(&mut self, era_id: &str) {
+        self.focused_era = Some(era_id.to_string());
+        self.focused_module = None;
+    }
+
+    /// Toggle focus on an era - if already focused, clear; otherwise focus
+    pub fn toggle_focus(&mut self, era_id: &str) {
+        if self.focused_era.as_deref() == Some(era_id) {
+            self.focused_era = None;
+            self.focused_module = None;
+        } else {
+            self.focused_era = Some(era_id.to_string());
+            self.focused_module = None;
+        }
+    }
+
+    /// Clear all focus
+    pub fn clear_focus(&mut self) {
+        self.focused_era = None;
+        self.focused_module = None;
+    }
+
+    /// Check if a specific era is visible (not hidden by focus mode)
+    pub fn is_era_visible(&self, era_id: &str) -> bool {
+        match &self.focused_era {
+            None => true, // No focus means all visible
+            Some(focused) => focused == era_id,
+        }
+    }
+
+    /// Set focus to a specific module within an era
+    pub fn set_focus_module(&mut self, era_id: &str, module_id: &str) {
+        self.focused_era = Some(era_id.to_string());
+        self.focused_module = Some(module_id.to_string());
+    }
+
+    /// Toggle focus on a module - if already focused, clear; otherwise focus
+    pub fn toggle_focus_module(&mut self, era_id: &str, module_id: &str) {
+        if self.is_module_focused(era_id, module_id) {
+            self.focused_module = None;
+        } else {
+            self.focused_era = Some(era_id.to_string());
+            self.focused_module = Some(module_id.to_string());
+        }
+    }
+
+    /// Check if a specific module is focused
+    pub fn is_module_focused(&self, era_id: &str, module_id: &str) -> bool {
+        self.focused_era.as_deref() == Some(era_id)
+            && self.focused_module.as_deref() == Some(module_id)
+    }
+
+    /// Check if a module is expanded (either focused or in a focused era with no module focus)
+    pub fn is_module_expanded(&self, era_id: &str, module_id: &str) -> bool {
+        match (&self.focused_era, &self.focused_module) {
+            (None, _) => false, // Nothing focused = nothing expanded
+            (Some(e), None) => e == era_id, // Era focused, all modules in era are "semi-expanded"
+            (Some(e), Some(m)) => e == era_id && m == module_id, // Specific module focused
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tab_mode_is_exercise_mode() {
+        assert!(!TabMode::Lesson.is_exercise_mode());
+        assert!(!TabMode::Examples.is_exercise_mode());
+        assert!(TabMode::Practice.is_exercise_mode());
+        assert!(TabMode::Test.is_exercise_mode());
+    }
+
+    #[test]
+    fn test_tab_mode_allows_hints() {
+        assert!(TabMode::Lesson.allows_hints());
+        assert!(TabMode::Examples.allows_hints());
+        assert!(TabMode::Practice.allows_hints());
+        assert!(!TabMode::Test.allows_hints());
+    }
+
+    #[test]
+    fn test_module_tab_state_accuracy() {
+        let mut state = ModuleTabState::new("test");
+        assert_eq!(state.accuracy(), 0.0);
+
+        state.record_answer(true);
+        state.record_answer(true);
+        state.record_answer(false);
+        assert!((state.accuracy() - 66.67).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_module_tab_state_combo() {
+        let mut state = ModuleTabState::new("test");
+        state.set_tab(TabMode::Practice);
+
+        state.record_answer(true);
+        assert_eq!(state.combo, 1);
+        state.record_answer(true);
+        assert_eq!(state.combo, 2);
+        state.record_answer(false);
+        assert_eq!(state.combo, 0);
     }
 }
 
@@ -55111,6 +60364,809 @@ pub fn clear() {
 
 ---
 
+### Module: struggle
+
+**File:** `src/struggle.rs`
+
+Additional source module.
+
+```rust
+//! Struggle detection for triggering Socratic hints.
+//!
+//! The struggle detector monitors user activity and triggers hints when:
+//! - The user has been inactive for 5+ seconds (configurable)
+//! - The user submits a wrong answer
+//!
+//! This implements a gentle pedagogical approach: hints appear when
+//! students need them most, not as punishments but as support.
+
+use std::time::Duration;
+
+/// Default inactivity threshold before triggering a hint
+const DEFAULT_INACTIVITY_THRESHOLD: Duration = Duration::from_secs(5);
+
+/// The reason why the user is struggling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StruggleReason {
+    /// User hasn't typed anything for a while
+    Inactivity,
+    /// User submitted an incorrect answer
+    WrongAttempt,
+}
+
+impl StruggleReason {
+    /// Get a human-readable message for this reason
+    pub fn message(&self) -> &'static str {
+        match self {
+            StruggleReason::Inactivity => "Taking your time? Here's a hint.",
+            StruggleReason::WrongAttempt => "Not quite. Let me help you.",
+        }
+    }
+}
+
+/// Detects when a user is struggling and should receive a hint.
+#[derive(Debug, Clone)]
+pub struct StruggleDetector {
+    /// Inactivity threshold before triggering
+    threshold: Duration,
+    /// Whether the user is currently struggling
+    is_struggling: bool,
+    /// The reason for struggling (if any)
+    reason: Option<StruggleReason>,
+    /// Number of wrong attempts on current exercise
+    wrong_attempts: u32,
+    /// Whether a hint has been shown for this struggle
+    hint_shown: bool,
+}
+
+impl StruggleDetector {
+    /// Create a new detector with default 5-second threshold
+    pub fn new() -> Self {
+        Self {
+            threshold: DEFAULT_INACTIVITY_THRESHOLD,
+            is_struggling: false,
+            reason: None,
+            wrong_attempts: 0,
+            hint_shown: false,
+        }
+    }
+
+    /// Create a detector with a custom inactivity threshold
+    pub fn with_threshold(threshold: Duration) -> Self {
+        Self {
+            threshold,
+            is_struggling: false,
+            reason: None,
+            wrong_attempts: 0,
+            hint_shown: false,
+        }
+    }
+
+    /// Get the current inactivity threshold
+    pub fn threshold(&self) -> Duration {
+        self.threshold
+    }
+
+    /// Check if the user is currently struggling
+    pub fn is_struggling(&self) -> bool {
+        self.is_struggling
+    }
+
+    /// Get the reason for struggling (if any)
+    pub fn reason(&self) -> Option<StruggleReason> {
+        self.reason
+    }
+
+    /// Get the number of wrong attempts on the current exercise
+    pub fn wrong_attempts(&self) -> u32 {
+        self.wrong_attempts
+    }
+
+    /// Check if a hint has been shown for this struggle
+    pub fn hint_shown(&self) -> bool {
+        self.hint_shown
+    }
+
+    /// Record a period of inactivity
+    ///
+    /// If the duration exceeds the threshold, triggers struggling state.
+    pub fn record_inactivity(&mut self, duration: Duration) {
+        if duration >= self.threshold {
+            self.is_struggling = true;
+            self.reason = Some(StruggleReason::Inactivity);
+        }
+    }
+
+    /// Record that the user did something (typed, clicked, etc.)
+    ///
+    /// This clears inactivity-based struggling but not wrong-attempt struggling.
+    pub fn record_activity(&mut self) {
+        if self.reason == Some(StruggleReason::Inactivity) {
+            self.is_struggling = false;
+            self.reason = None;
+            self.hint_shown = false;
+        }
+    }
+
+    /// Record a wrong answer attempt
+    pub fn record_wrong_attempt(&mut self) {
+        self.wrong_attempts += 1;
+        self.is_struggling = true;
+        self.reason = Some(StruggleReason::WrongAttempt);
+        self.hint_shown = false;
+    }
+
+    /// Record a correct answer attempt
+    ///
+    /// This clears the struggling state since the user succeeded.
+    pub fn record_correct_attempt(&mut self) {
+        // Correct answers clear struggling but we keep wrong_attempts
+        // for statistics purposes
+        self.is_struggling = false;
+        self.reason = None;
+        self.hint_shown = false;
+    }
+
+    /// Mark that a hint has been shown to the user
+    pub fn mark_hint_shown(&mut self) {
+        self.hint_shown = true;
+    }
+
+    /// Reset all state for a new exercise
+    pub fn reset(&mut self) {
+        self.is_struggling = false;
+        self.reason = None;
+        self.wrong_attempts = 0;
+        self.hint_shown = false;
+    }
+
+    /// Check if we should show a hint now
+    ///
+    /// Returns true if struggling and hint hasn't been shown yet.
+    pub fn should_show_hint(&self) -> bool {
+        self.is_struggling && !self.hint_shown
+    }
+}
+
+impl Default for StruggleDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_struggle_reason_messages() {
+        assert!(!StruggleReason::Inactivity.message().is_empty());
+        assert!(!StruggleReason::WrongAttempt.message().is_empty());
+    }
+
+    #[test]
+    fn test_should_show_hint() {
+        let mut detector = StruggleDetector::new();
+
+        // Initially: not struggling
+        assert!(!detector.should_show_hint());
+
+        // After wrong attempt: should show
+        detector.record_wrong_attempt();
+        assert!(detector.should_show_hint());
+
+        // After hint shown: should not show again
+        detector.mark_hint_shown();
+        assert!(!detector.should_show_hint());
+    }
+
+    #[test]
+    fn test_activity_only_clears_inactivity_struggle() {
+        let mut detector = StruggleDetector::new();
+
+        // Wrong attempt struggle should NOT be cleared by activity
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling());
+
+        detector.record_activity();
+        // Still struggling because it was wrong-attempt, not inactivity
+        assert!(detector.is_struggling());
+    }
+}
+
+```
+
+---
+
+### Module: symbol_dict
+
+**File:** `src/symbol_dict.rs`
+
+Additional source module.
+
+```rust
+//! Symbol Dictionary extraction from First-Order Logic output.
+//!
+//! This module parses FOL strings and extracts symbols with their meanings,
+//! allowing the UI to display a "Symbol Dictionary" that helps students
+//! understand the notation.
+
+use std::collections::HashSet;
+
+/// The category of a logical symbol
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SymbolKind {
+    /// ∀, ∃ - quantifiers
+    Quantifier,
+    /// ∧, ∨, →, ↔, ¬ - logical connectives
+    Connective,
+    /// x, y, z - bound variables
+    Variable,
+    /// Dog, Bark, Loves - predicate symbols
+    Predicate,
+    /// J, M, S - individual constants (named entities)
+    Constant,
+    /// □, ◇ - modal necessity/possibility
+    Modal,
+    /// ○, G, F, H, P - temporal operators (future, past, etc.)
+    Temporal,
+}
+
+impl SymbolKind {
+    /// Get a display label for this kind
+    pub fn label(&self) -> &'static str {
+        match self {
+            SymbolKind::Quantifier => "Quantifier",
+            SymbolKind::Connective => "Connective",
+            SymbolKind::Variable => "Variable",
+            SymbolKind::Predicate => "Predicate",
+            SymbolKind::Constant => "Constant",
+            SymbolKind::Modal => "Modal",
+            SymbolKind::Temporal => "Temporal",
+        }
+    }
+}
+
+/// A single entry in the symbol dictionary
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SymbolEntry {
+    /// The symbol itself (e.g., "∀", "Dog", "x")
+    pub symbol: String,
+    /// The category of the symbol
+    pub kind: SymbolKind,
+    /// Human-readable description of what it means
+    pub description: String,
+}
+
+/// Extract all unique symbols from a First-Order Logic string.
+///
+/// # Arguments
+/// * `logic` - A FOL formula string (e.g., "∀x(Dog(x) → Bark(x))")
+///
+/// # Returns
+/// A vector of `SymbolEntry` items, one for each unique symbol found.
+/// Duplicates are automatically removed.
+pub fn extract_symbols(logic: &str) -> Vec<SymbolEntry> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut symbols: Vec<SymbolEntry> = Vec::new();
+
+    let mut chars = logic.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        let entry = match c {
+            // ═══════════════════════════════════════════════════════════════
+            // Quantifiers
+            // ═══════════════════════════════════════════════════════════════
+            '∀' | '\u{2200}' => Some(SymbolEntry {
+                symbol: "∀".to_string(),
+                kind: SymbolKind::Quantifier,
+                description: "Universal quantifier: \"for all\"".to_string(),
+            }),
+            '∃' | '\u{2203}' => Some(SymbolEntry {
+                symbol: "∃".to_string(),
+                kind: SymbolKind::Quantifier,
+                description: "Existential quantifier: \"there exists\"".to_string(),
+            }),
+
+            // ═══════════════════════════════════════════════════════════════
+            // Connectives
+            // ═══════════════════════════════════════════════════════════════
+            '¬' | '\u{00AC}' => Some(SymbolEntry {
+                symbol: "¬".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Negation: \"not\"".to_string(),
+            }),
+            '∧' | '\u{2227}' => Some(SymbolEntry {
+                symbol: "∧".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Conjunction: \"and\"".to_string(),
+            }),
+            '∨' | '\u{2228}' => Some(SymbolEntry {
+                symbol: "∨".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Disjunction: \"or\"".to_string(),
+            }),
+            '→' | '\u{2192}' => Some(SymbolEntry {
+                symbol: "→".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Implication: \"if...then\"".to_string(),
+            }),
+            '↔' | '\u{2194}' => Some(SymbolEntry {
+                symbol: "↔".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Biconditional: \"if and only if\"".to_string(),
+            }),
+            '⊃' | '\u{2283}' => Some(SymbolEntry {
+                symbol: "⊃".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Material conditional: \"if...then\" (horseshoe)".to_string(),
+            }),
+            '≡' | '\u{2261}' => Some(SymbolEntry {
+                symbol: "≡".to_string(),
+                kind: SymbolKind::Connective,
+                description: "Material equivalence: \"if and only if\"".to_string(),
+            }),
+
+            // ═══════════════════════════════════════════════════════════════
+            // Modal Operators
+            // ═══════════════════════════════════════════════════════════════
+            '□' | '\u{25A1}' | '\u{25FB}' => Some(SymbolEntry {
+                symbol: "□".to_string(),
+                kind: SymbolKind::Modal,
+                description: "Necessity: \"necessarily\" or \"it must be that\"".to_string(),
+            }),
+            '◇' | '\u{25C7}' | '\u{25CA}' => Some(SymbolEntry {
+                symbol: "◇".to_string(),
+                kind: SymbolKind::Modal,
+                description: "Possibility: \"possibly\" or \"it might be that\"".to_string(),
+            }),
+
+            // ═══════════════════════════════════════════════════════════════
+            // Variables (lowercase single letters)
+            // ═══════════════════════════════════════════════════════════════
+            c if c.is_ascii_lowercase() => {
+                // Check if standalone variable (not part of a word)
+                let is_standalone = chars.peek().map_or(true, |next| {
+                    !next.is_alphanumeric()
+                });
+
+                if is_standalone {
+                    Some(SymbolEntry {
+                        symbol: c.to_string(),
+                        kind: SymbolKind::Variable,
+                        description: format!("Variable: bound by a quantifier"),
+                    })
+                } else {
+                    None
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // Predicates and Constants (uppercase)
+            // ═══════════════════════════════════════════════════════════════
+            c if c.is_ascii_uppercase() => {
+                // Collect the full word
+                let mut word = String::from(c);
+                while let Some(&next) = chars.peek() {
+                    if next.is_alphanumeric() || next == '_' {
+                        word.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+
+                // Check if followed by parenthesis (predicate) or not (constant)
+                let is_predicate = chars.peek() == Some(&'(');
+
+                if is_predicate {
+                    Some(SymbolEntry {
+                        symbol: word.clone(),
+                        kind: SymbolKind::Predicate,
+                        description: format!("Predicate: {}", humanize_predicate(&word)),
+                    })
+                } else {
+                    // Single uppercase letter is typically a constant
+                    Some(SymbolEntry {
+                        symbol: word.clone(),
+                        kind: SymbolKind::Constant,
+                        description: format!("Constant: individual named \"{}\"", word),
+                    })
+                }
+            }
+
+            _ => None,
+        };
+
+        if let Some(e) = entry {
+            if !seen.contains(&e.symbol) {
+                seen.insert(e.symbol.clone());
+                symbols.push(e);
+            }
+        }
+    }
+
+    symbols
+}
+
+/// Convert a predicate name to a more human-readable form
+fn humanize_predicate(name: &str) -> String {
+    // Handle common patterns
+    match name {
+        "D" => "is a dog".to_string(),
+        "C" => "is a cat".to_string(),
+        "B" => "barks".to_string(),
+        "M" => "is a man / is mortal".to_string(),
+        "W" => "is a woman / walks".to_string(),
+        "L" => "loves".to_string(),
+        "R" => "runs".to_string(),
+        "S" => "sleeps / is a student".to_string(),
+        "P" => "is a property".to_string(),
+        "Q" => "is a property".to_string(),
+        _ if name.len() == 1 => format!("property {}", name),
+        _ => format!("\"{}\"", name.to_lowercase()),
+    }
+}
+
+/// Group symbols by their kind for display
+pub fn group_symbols_by_kind(symbols: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
+    let kinds = [
+        SymbolKind::Quantifier,
+        SymbolKind::Connective,
+        SymbolKind::Modal,
+        SymbolKind::Predicate,
+        SymbolKind::Variable,
+        SymbolKind::Constant,
+        SymbolKind::Temporal,
+    ];
+
+    kinds
+        .iter()
+        .filter_map(|&kind| {
+            let entries: Vec<&SymbolEntry> = symbols
+                .iter()
+                .filter(|s| s.kind == kind)
+                .collect();
+
+            if entries.is_empty() {
+                None
+            } else {
+                Some((kind, entries))
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_humanize_predicate_single_letter() {
+        assert!(humanize_predicate("D").contains("dog"));
+        assert!(humanize_predicate("L").contains("loves"));
+    }
+
+    #[test]
+    fn test_humanize_predicate_word() {
+        assert!(humanize_predicate("Dog").contains("dog"));
+        assert!(humanize_predicate("Loves").contains("loves"));
+    }
+
+    #[test]
+    fn test_group_symbols_by_kind() {
+        let symbols = extract_symbols("∀x(D(x) ∧ B(x))");
+        let grouped = group_symbols_by_kind(&symbols);
+
+        assert!(!grouped.is_empty());
+
+        // Find quantifiers group
+        let quantifiers = grouped.iter()
+            .find(|(k, _)| *k == SymbolKind::Quantifier);
+        assert!(quantifiers.is_some());
+    }
+
+    #[test]
+    fn test_symbol_kind_labels() {
+        assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
+        assert_eq!(SymbolKind::Connective.label(), "Connective");
+        assert_eq!(SymbolKind::Modal.label(), "Modal");
+    }
+}
+
+```
+
+---
+
+### Module: unlock
+
+**File:** `src/unlock.rs`
+
+Additional source module.
+
+```rust
+//! Module unlock logic for the Logicaffeine curriculum.
+//!
+//! # Unlock Rules
+//!
+//! 1. **First module** in each era is always unlocked
+//! 2. **Sequential unlock**: A module unlocks when the previous module is completed
+//! 3. **Last two restriction**: The last 2 modules in each era remain locked until
+//!    at least one module in that era is 100% complete
+//!
+//! # Module States
+//!
+//! - `Locked`: Cannot access (prerequisites not met)
+//! - `Available`: Can start (unlocked but not started)
+//! - `Started`: In progress (some exercises done)
+//! - `Progressing`: 50-99% complete
+//! - `Mastered`: 100% complete
+//! - `Perfected`: 100% complete with 90%+ accuracy
+
+use crate::content::ContentEngine;
+use crate::progress::{ModuleProgress, UserProgress};
+
+/// The state of a module for display purposes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleState {
+    /// Cannot access - prerequisites not met
+    Locked,
+    /// Can start - unlocked but not started
+    Available,
+    /// In progress - some exercises done (1-49%)
+    Started,
+    /// Making good progress (50-99%)
+    Progressing,
+    /// 100% complete
+    Mastered,
+    /// 100% complete with 90%+ accuracy
+    Perfected,
+}
+
+impl ModuleState {
+    /// Get the icon for this state
+    pub fn icon(&self) -> &'static str {
+        match self {
+            ModuleState::Locked => "\u{1F512}",      // 🔒
+            ModuleState::Available => "\u{2591}\u{2591}\u{2591}", // ░░░
+            ModuleState::Started => "\u{2B50}\u{2591}\u{2591}",   // ⭐░░
+            ModuleState::Progressing => "\u{2B50}\u{2B50}\u{2591}", // ⭐⭐░
+            ModuleState::Mastered => "\u{2B50}\u{2B50}\u{2B50}",  // ⭐⭐⭐
+            ModuleState::Perfected => "\u{1F451}",   // 👑
+        }
+    }
+
+    /// Get a label for this state
+    pub fn label(&self) -> &'static str {
+        match self {
+            ModuleState::Locked => "locked",
+            ModuleState::Available => "not started",
+            ModuleState::Started => "in progress",
+            ModuleState::Progressing => "progressing",
+            ModuleState::Mastered => "mastered",
+            ModuleState::Perfected => "perfected",
+        }
+    }
+}
+
+/// Check if a specific module is unlocked for the user.
+///
+/// # Arguments
+/// * `progress` - The user's progress data
+/// * `engine` - The content engine with curriculum structure
+/// * `era_id` - The era identifier
+/// * `module_id` - The module identifier to check
+///
+/// # Returns
+/// `true` if the module is unlocked, `false` otherwise
+pub fn check_module_unlocked(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+    module_id: &str,
+) -> bool {
+    // Get the era
+    let era = match engine.get_era(era_id) {
+        Some(e) => e,
+        None => return false,
+    };
+
+    // Find the module index in this era
+    let module_index = match era
+        .modules
+        .iter()
+        .position(|m| m.meta.id == module_id)
+    {
+        Some(idx) => idx,
+        None => return false,
+    };
+
+    let module_count = era.modules.len();
+
+    // Rule 1: First module is always unlocked
+    if module_index == 0 {
+        return true;
+    }
+
+    // Rule 3: Check if this is one of the last 2 modules
+    let is_last_two = module_index >= module_count.saturating_sub(2);
+
+    if is_last_two {
+        // Last 2 modules require at least 1 completed module in the era
+        let has_any_complete = era
+            .modules
+            .iter()
+            .any(|m| is_module_complete(progress, &m.meta.id));
+
+        if !has_any_complete {
+            return false;
+        }
+    }
+
+    // Rule 2: Previous module must be complete
+    let prev_module_id = &era.modules[module_index - 1].meta.id;
+    is_module_complete(progress, prev_module_id)
+}
+
+/// Check if a module is marked as complete in user progress
+pub fn is_module_complete(progress: &UserProgress, module_id: &str) -> bool {
+    progress
+        .modules
+        .get(module_id)
+        .map(|m| m.completed)
+        .unwrap_or(false)
+}
+
+/// Get a list of all locked module IDs for a given era.
+///
+/// # Arguments
+/// * `progress` - The user's progress data
+/// * `engine` - The content engine with curriculum structure
+/// * `era_id` - The era identifier
+///
+/// # Returns
+/// A vector of module IDs that are currently locked
+pub fn get_locked_module_ids(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+) -> Vec<String> {
+    let era = match engine.get_era(era_id) {
+        Some(e) => e,
+        None => return vec![],
+    };
+
+    era.modules
+        .iter()
+        .filter(|m| !check_module_unlocked(progress, engine, era_id, &m.meta.id))
+        .map(|m| m.meta.id.clone())
+        .collect()
+}
+
+/// Get the display state for a module.
+///
+/// # Arguments
+/// * `progress` - The user's progress data
+/// * `engine` - The content engine with curriculum structure
+/// * `era_id` - The era identifier
+/// * `module_id` - The module identifier
+///
+/// # Returns
+/// The current state of the module for UI display
+pub fn get_module_state(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+    module_id: &str,
+) -> ModuleState {
+    // First check if unlocked
+    if !check_module_unlocked(progress, engine, era_id, module_id) {
+        return ModuleState::Locked;
+    }
+
+    // Check progress
+    match progress.modules.get(module_id) {
+        None => ModuleState::Available,
+        Some(mp) => {
+            if mp.completed {
+                // Check accuracy for perfected status
+                // For now, use stars as a proxy (3 stars = 90%+)
+                if mp.stars >= 3 && mp.best_score >= 90 {
+                    ModuleState::Perfected
+                } else {
+                    ModuleState::Mastered
+                }
+            } else if mp.best_score >= 50 {
+                ModuleState::Progressing
+            } else if mp.attempts > 0 || mp.best_score > 0 {
+                ModuleState::Started
+            } else {
+                ModuleState::Available
+            }
+        }
+    }
+}
+
+/// Count how many modules are completed in an era.
+pub fn count_completed_modules(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+) -> usize {
+    let era = match engine.get_era(era_id) {
+        Some(e) => e,
+        None => return 0,
+    };
+
+    era.modules
+        .iter()
+        .filter(|m| is_module_complete(progress, &m.meta.id))
+        .count()
+}
+
+/// Calculate the completion percentage for a module based on exercises.
+///
+/// # Arguments
+/// * `progress` - The user's progress data
+/// * `engine` - The content engine
+/// * `era_id` - The era identifier
+/// * `module_id` - The module identifier
+///
+/// # Returns
+/// Percentage complete (0-100)
+pub fn get_module_completion_percent(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+    module_id: &str,
+) -> u32 {
+    let module = match engine.get_module(era_id, module_id) {
+        Some(m) => m,
+        None => return 0,
+    };
+
+    let total_exercises = module.exercises.len();
+    if total_exercises == 0 {
+        return 0;
+    }
+
+    // Count exercises with at least one correct answer
+    let completed = module
+        .exercises
+        .iter()
+        .filter(|ex| {
+            progress
+                .exercises
+                .get(&ex.id)
+                .map(|p| p.correct_count > 0)
+                .unwrap_or(false)
+        })
+        .count();
+
+    ((completed as f64 / total_exercises as f64) * 100.0) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_module_state_icons() {
+        assert!(!ModuleState::Locked.icon().is_empty());
+        assert!(!ModuleState::Available.icon().is_empty());
+        assert!(!ModuleState::Mastered.icon().is_empty());
+    }
+
+    #[test]
+    fn test_module_state_labels() {
+        assert_eq!(ModuleState::Locked.label(), "locked");
+        assert_eq!(ModuleState::Available.label(), "not started");
+    }
+}
+
+```
+
+---
+
 ### Module: verification
 
 **File:** `src/verification.rs`
@@ -55938,7 +61994,9 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = [
     "Document", "Element", "HtmlElement", "Window", "History",
     "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
-    "Storage", "Navigator", "Clipboard", "UrlSearchParams"
+    "Storage", "Navigator", "Clipboard", "UrlSearchParams",
+    "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
+    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -57460,19 +63518,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-<<<<<<< Updated upstream
-- **Generated:** Mon Dec 29 15:08:15 CST 2025
-- **Repository:** /Users/tristen/logicaffeine/logicaffeine
-- **Git Branch:** main
-- **Git Commit:** 0ff47d6
-- **Documentation Size:** 1.9M
-=======
-- **Generated:** Sun Dec 28 15:36:22 CST 2025
+- **Generated:** Tue Dec 30 21:06:11 CST 2025
 - **Repository:** /Users/collinpounds/dev/logicaffeine
-- **Git Branch:** main
-- **Git Commit:** 216ddc7
-- **Documentation Size:** 2.0M
->>>>>>> Stashed changes
+- **Git Branch:** user-management
+- **Git Commit:** 15c28fe
+- **Documentation Size:** 3.1M
 
 ---
 
