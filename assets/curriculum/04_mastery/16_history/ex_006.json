@@ -1,0 +1,16 @@
+{
+  "id": "H_1.6",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Gödel's First Incompleteness Theorem (1931) proved what about formal systems?",
+  "options": [
+    "All mathematical statements can be proven true or false",
+    "Consistent systems strong enough for arithmetic contain unprovable truths",
+    "Logic is inconsistent with mathematics",
+    "Computers can solve all mathematical problems"
+  ],
+  "correct": 1,
+  "hint": "This shattered the hope of a complete formal foundation for mathematics.",
+  "explanation": "Gödel proved that any consistent formal system powerful enough to express arithmetic contains true statements that cannot be proven within that system. This fundamentally limited what formal logic could achieve, ending the dream of a complete axiomatic foundation for all math.",
+  "visual_concept": "No matter how many axioms you add, there will always be true statements your system can't prove. It's like a ladder that can never reach the ceiling."
+}

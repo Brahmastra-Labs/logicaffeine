@@ -1,0 +1,16 @@
+{
+  "id": "Q_1.8",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "\"Most dogs are friendly\" cannot be expressed in standard first-order logic. Why?",
+  "options": [
+    "\"Most\" is vague",
+    "First-order logic can't express proportional quantifiers",
+    "Dogs can't be friendly",
+    "\"Most\" requires modal logic"
+  ],
+  "correct": 1,
+  "hint": "Standard FOL has ∀ (all) and ∃ (some), but what about 'most', 'few', 'many'?",
+  "explanation": "Proportional quantifiers like 'most' (more than half), 'few', 'many' can't be expressed with just ∀ and ∃. They require counting or comparing set sizes, which standard FOL can't do. Extended logics (generalized quantifiers) can handle them.",
+  "visual_concept": "∀ = ALL of them. ∃ = At least ONE. 'Most' = More than half. Standard FOL can only see the first two."
+}

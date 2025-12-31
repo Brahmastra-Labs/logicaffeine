@@ -2,15 +2,18 @@ use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::learn_sidebar::{LearnSidebar, ModuleInfo};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
+use crate::ui::components::vocab_reference::VocabReference;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::pages::guide::content::ExampleMode;
 use crate::content::ContentEngine;
 use crate::generator::{Generator, AnswerType, Challenge};
 use crate::grader::check_answer;
-use crate::struggle::{StruggleDetector, StruggleReason};
+use crate::struggle::StruggleDetector;
+use crate::unlock::check_module_unlocked;
+use crate::progress::UserProgress;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 const LEARN_STYLE: &str = r#"
 .learn-page {
@@ -154,6 +157,43 @@ const LEARN_STYLE: &str = r#"
     border-color: rgba(255,255,255,0.12);
 }
 
+.learn-module-card.locked {
+    opacity: 0.6;
+    cursor: not-allowed;
+    position: relative;
+}
+
+.learn-module-card.locked:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.08);
+}
+
+.learn-module-card.locked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-xl);
+    pointer-events: none;
+}
+
+.locked-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: rgba(251, 146, 60, 0.15);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: #fb923c;
+}
+
+.locked-badge-icon {
+    font-size: 12px;
+}
+
 .learn-module-header {
     display: flex;
     justify-content: space-between;
@@ -292,6 +332,324 @@ const LEARN_STYLE: &str = r#"
     border-top: 1px solid rgba(255,255,255,0.08);
 }
 
+/* Mode selector inline card header */
+.mode-selector-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-lg);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+}
+
+.mode-selector-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.mode-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    border: 1px solid transparent;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-secondary);
+}
+
+.mode-tab-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-primary);
+}
+
+.mode-tab-btn.active {
+    background: linear-gradient(135deg, rgba(96,165,250,0.2), rgba(167,139,250,0.2));
+    border-color: rgba(96,165,250,0.3);
+    color: var(--color-accent-blue);
+}
+
+.mode-tab-btn.test {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+}
+
+.mode-stats {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+
+.mode-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-body-sm);
+}
+
+.mode-stat-value {
+    font-weight: 700;
+    color: var(--color-accent-blue);
+}
+
+.mode-stat-value.streak {
+    color: #fbbf24;
+}
+
+.mode-stat-label {
+    color: var(--text-tertiary);
+}
+
+.combo-multiplier {
+    font-weight: 700;
+    color: #4ade80;
+    margin-left: 2px;
+}
+
+.mode-stat.combo {
+    background: rgba(251, 191, 36, 0.1);
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+/* Content tab selector */
+.content-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xl);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: var(--spacing-md);
+}
+
+.content-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.content-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.content-tab-btn.active {
+    color: var(--color-accent-blue);
+    border-bottom-color: var(--color-accent-blue);
+}
+
+/* Lesson section styling */
+.lesson-section {
+    margin-bottom: var(--spacing-xxl);
+    padding-bottom: var(--spacing-xl);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.lesson-section:last-child {
+    border-bottom: none;
+}
+
+.lesson-section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.lesson-section-number {
+    font-size: 1rem;
+    color: var(--color-accent-blue);
+    font-weight: 600;
+}
+
+.lesson-paragraph {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.75;
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-definition {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-definition-term {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-accent-purple);
+    margin-bottom: var(--spacing-xs);
+}
+
+.lesson-definition-text {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.65;
+}
+
+.lesson-example {
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-example-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-accent-blue);
+    margin-bottom: var(--spacing-md);
+}
+
+.lesson-example-premise {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    padding-left: var(--spacing-lg);
+    margin-bottom: var(--spacing-xs);
+    line-height: 1.6;
+}
+
+.lesson-example-conclusion {
+    font-size: 1rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-top: var(--spacing-md);
+    padding-left: var(--spacing-lg);
+}
+
+.lesson-example-note {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* Symbol glossary block */
+.lesson-symbols {
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+.lesson-symbols-title {
+    font-weight: 700;
+    color: #60a5fa;
+    margin-bottom: var(--spacing-md);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.lesson-symbols-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.lesson-symbol-item {
+    display: flex;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm);
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-md);
+}
+
+.lesson-symbol-glyph {
+    font-size: 1.5rem;
+    font-family: var(--font-mono);
+    color: #60a5fa;
+    min-width: 40px;
+    text-align: center;
+}
+
+.lesson-symbol-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.lesson-symbol-meaning {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+}
+
+.lesson-symbol-example {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.8rem;
+    font-style: italic;
+    margin-top: 4px;
+}
+
+/* Quiz block */
+.lesson-quiz {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+.lesson-quiz-question {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    font-size: 1rem;
+}
+
+.lesson-quiz-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.lesson-quiz-option {
+    text-align: left;
+    padding: var(--spacing-md);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.lesson-quiz-option:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.2);
+    color: var(--text-primary);
+}
+
+.lesson-quiz-explanation {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    display: none;
+}
+
 .learn-module-close {
     position: absolute;
     top: var(--spacing-lg);
@@ -337,6 +695,50 @@ const LEARN_STYLE: &str = r#"
     color: var(--text-secondary);
 }
 
+/* Examples panel */
+.tab-panel-examples {
+    padding: var(--spacing-lg) 0;
+}
+
+.examples-intro {
+    margin-bottom: var(--spacing-xl);
+}
+
+.examples-intro h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.examples-intro p {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.6;
+}
+
+.examples-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.example-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+}
+
+.example-card .example-sentence {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .exercise-card {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
@@ -345,19 +747,12 @@ const LEARN_STYLE: &str = r#"
     margin-bottom: var(--spacing-lg);
 }
 
-.exercise-prompt {
-    font-size: var(--font-caption-md);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-tertiary);
-    margin-bottom: var(--spacing-sm);
-}
-
 .exercise-sentence {
-    font-size: var(--font-heading-sm);
+    font-size: 1.15rem;
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: var(--spacing-lg);
+    line-height: 1.5;
 }
 
 .exercise-input-row {
@@ -434,16 +829,6 @@ const LEARN_STYLE: &str = r#"
     border-radius: var(--radius-md);
     color: var(--color-accent-blue);
     margin: var(--spacing-lg) 0;
-}
-
-/* Focus mode - fade other eras */
-.learn-era.faded {
-    opacity: 0.3;
-    pointer-events: none;
-}
-
-.learn-era.faded .learn-module-card {
-    pointer-events: none;
 }
 
 /* Responsive */
@@ -703,6 +1088,10 @@ pub fn Learn() -> Element {
 
     let eras = get_curriculum_data();
 
+    // For module unlock checking
+    let content_engine = ContentEngine::new();
+    let user_progress = UserProgress::new(); // TODO: Load from storage
+
     // Build module info for sidebar
     let sidebar_modules: Vec<ModuleInfo> = eras.iter().flat_map(|era| {
         era.modules.iter().map(|m| ModuleInfo {
@@ -848,7 +1237,8 @@ pub fn Learn() -> Element {
                                 }
 
                                 // Era section
-                                section { class: "learn-era",
+                                section {
+                                    class: "learn-era",
                                     div { class: "learn-era-header",
                                         h2 { "{era.title}" }
                                         p { "{era.description}" }
@@ -861,15 +1251,18 @@ pub fn Learn() -> Element {
                                                 let module_id = module.id.to_string();
                                                 let module_number = idx + 1;
 
+                                                // Check if this module is locked
+                                                let is_unlocked = check_module_unlocked(&user_progress, &content_engine, &era_id, &module_id);
+
                                                 // Check if this module is expanded
                                                 let is_expanded = expanded_module.read().as_ref()
                                                     .map(|(e, m)| e == era.id && m == module.id)
                                                     .unwrap_or(false);
 
-                                                let card_class = if is_expanded {
-                                                    "learn-module-card expanded"
-                                                } else {
-                                                    "learn-module-card"
+                                                let card_class = match (is_expanded, is_unlocked) {
+                                                    (true, _) => "learn-module-card expanded",
+                                                    (false, true) => "learn-module-card",
+                                                    (false, false) => "learn-module-card locked",
                                                 };
 
                                                 rsx! {
@@ -912,30 +1305,40 @@ pub fn Learn() -> Element {
 
                                                         // Show preview only when collapsed
                                                         if !is_expanded {
-                                                            if let Some(preview) = module.preview_code {
-                                                                div { class: "learn-module-preview",
-                                                                    div { class: "learn-preview-label", "Try an Example" }
-                                                                    GuideCodeBlock {
-                                                                        id: format!("preview-{}", module.id),
-                                                                        label: "Example".to_string(),
-                                                                        mode: ExampleMode::Logic,
-                                                                        initial_code: preview.to_string(),
+                                                            if is_unlocked {
+                                                                if let Some(preview) = module.preview_code {
+                                                                    div { class: "learn-module-preview",
+                                                                        div { class: "learn-preview-label", "Try an Example" }
+                                                                        GuideCodeBlock {
+                                                                            id: format!("preview-{}", module.id),
+                                                                            label: "Example".to_string(),
+                                                                            mode: ExampleMode::Logic,
+                                                                            initial_code: preview.to_string(),
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
 
-                                                            // Action buttons (only when collapsed)
-                                                            div { class: "learn-module-actions",
-                                                                button {
-                                                                    class: "learn-action-btn primary",
-                                                                    onclick: {
-                                                                        let era = era_id.clone();
-                                                                        let module = module_id.clone();
-                                                                        move |_| {
-                                                                            expanded_module.set(Some((era.clone(), module.clone())));
-                                                                        }
-                                                                    },
-                                                                    "Start Learning"
+                                                                // Action buttons (only when collapsed and unlocked)
+                                                                div { class: "learn-module-actions",
+                                                                    button {
+                                                                        class: "learn-action-btn primary",
+                                                                        onclick: {
+                                                                            let era = era_id.clone();
+                                                                            let module = module_id.clone();
+                                                                            move |_| {
+                                                                                expanded_module.set(Some((era.clone(), module.clone())));
+                                                                            }
+                                                                        },
+                                                                        "Start Learning"
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                // Locked module - show lock badge
+                                                                div { class: "learn-module-actions",
+                                                                    div { class: "locked-badge",
+                                                                        span { class: "locked-badge-icon", "\u{1F512}" }
+                                                                        "Complete previous module to unlock"
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -960,6 +1363,9 @@ pub fn Learn() -> Element {
                     }
                 }
             }
+
+            // Floating vocab reference panel
+            VocabReference {}
         }
     }
 }
@@ -988,11 +1394,26 @@ enum PracticeMode {
     Test,
 }
 
+/// Content view tab state - corresponds to the 4 tabs
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum ContentView {
+    #[default]
+    Lesson,
+    Examples,
+    Practice,
+    Test,
+}
+
 /// Interactive exercise panel with reveal buttons instead of tabs
 #[component]
 fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
+    use crate::content::{ContentBlock, Section};
+
     let engine = ContentEngine::new();
     let generator = Generator::new();
+
+    // Content view state (Lesson vs Practice)
+    let mut content_view = use_signal(ContentView::default);
 
     // Exercise state
     let mut current_exercise_idx = use_signal(|| 0usize);
@@ -1008,6 +1429,14 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let mut exercise_attempts = use_signal(|| std::collections::HashMap::<usize, u32>::new());
     // Track which exercises have been completed (earned XP) - prevents double XP
     let mut completed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+    // Track which exercises have had their answer revealed (forfeits XP)
+    let mut answer_revealed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+
+    // Priority queue for wrong answers - re-queue at position +3
+    // When wrong, insert exercise index to be shown again after 3 more exercises
+    let mut retry_queue = use_signal(|| std::collections::VecDeque::<usize>::new());
+    // Count exercises since last retry to trigger queue pop after 3
+    let mut exercises_since_retry = use_signal(|| 0usize);
 
     // Test mode state
     let mut test_question = use_signal(|| 0usize);
@@ -1067,8 +1496,226 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let is_test_mode = *practice_mode.read() == PracticeMode::Test;
     let current_test_q = *test_question.read();
 
+    // Get sections for lesson content
+    let sections: Vec<Section> = module_opt.as_ref()
+        .map(|m| m.sections.clone())
+        .unwrap_or_default();
+    let has_sections = !sections.is_empty();
+    let current_view = *content_view.read();
+
     rsx! {
         div { class: "interactive-exercise-panel",
+            // Content tabs (Lesson | Examples | Practice | Test)
+            div { class: "content-tabs",
+                button {
+                    class: if current_view == ContentView::Lesson { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| content_view.set(ContentView::Lesson),
+                    "Lesson"
+                }
+                button {
+                    class: if current_view == ContentView::Examples { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| content_view.set(ContentView::Examples),
+                    "Examples"
+                }
+                button {
+                    class: if current_view == ContentView::Practice { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Practice);
+                        practice_mode.set(PracticeMode::Practice);
+                    },
+                    "Practice"
+                }
+                button {
+                    class: if current_view == ContentView::Test { "content-tab-btn active test" } else { "content-tab-btn" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Test);
+                        practice_mode.set(PracticeMode::Test);
+                        test_question.set(0);
+                        test_answers.set(Vec::new());
+                        test_complete.set(false);
+                        user_answer.set(String::new());
+                        feedback.set(None);
+                    },
+                    "Test"
+                }
+            }
+
+            // Lesson content view
+            if current_view == ContentView::Lesson {
+                div { class: "tab-panel-lesson",
+                    if has_sections {
+                        for section in sections.iter() {
+                            div { class: "lesson-section",
+                                h3 { class: "lesson-section-title",
+                                    span { class: "lesson-section-number", "{section.id}" }
+                                    "{section.title}"
+                                }
+
+                                // Render content blocks
+                                for block in section.content.iter() {
+                                    match block {
+                                        ContentBlock::Paragraph { text } => rsx! {
+                                            p { class: "lesson-paragraph",
+                                                dangerous_inner_html: text.replace("**", "<strong>").replace("**", "</strong>").replace("*", "<em>").replace("*", "</em>")
+                                            }
+                                        },
+                                        ContentBlock::Definition { term, definition } => rsx! {
+                                            div { class: "lesson-definition",
+                                                div { class: "lesson-definition-term", "{term}" }
+                                                div { class: "lesson-definition-text", "{definition}" }
+                                            }
+                                        },
+                                        ContentBlock::Example { title, premises, conclusion, note } => rsx! {
+                                            div { class: "lesson-example",
+                                                div { class: "lesson-example-title", "{title}" }
+                                                for premise in premises.iter() {
+                                                    div { class: "lesson-example-premise", "• {premise}" }
+                                                }
+                                                if let Some(concl) = conclusion {
+                                                    div { class: "lesson-example-conclusion", "{concl}" }
+                                                }
+                                                if let Some(n) = note {
+                                                    div { class: "lesson-example-note", "{n}" }
+                                                }
+                                            }
+                                        },
+                                        ContentBlock::Symbols { title, symbols } => rsx! {
+                                            div { class: "lesson-symbols",
+                                                div { class: "lesson-symbols-title", "{title}" }
+                                                div { class: "lesson-symbols-grid",
+                                                    for sym in symbols.iter() {
+                                                        div { class: "lesson-symbol-item",
+                                                            span { class: "lesson-symbol-glyph", "{sym.symbol}" }
+                                                            div { class: "lesson-symbol-info",
+                                                                div { class: "lesson-symbol-name", "{sym.name}" }
+                                                                div { class: "lesson-symbol-meaning", "{sym.meaning}" }
+                                                                if let Some(example) = &sym.example {
+                                                                    div { class: "lesson-symbol-example", "Example: {example}" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        ContentBlock::Quiz { question, options, correct, explanation } => rsx! {
+                                            div { class: "lesson-quiz",
+                                                div { class: "lesson-quiz-question", "{question}" }
+                                                div { class: "lesson-quiz-options",
+                                                    for (i, opt) in options.iter().enumerate() {
+                                                        button {
+                                                            class: "lesson-quiz-option",
+                                                            "data-correct": if i == *correct { "true" } else { "false" },
+                                                            "{opt}"
+                                                        }
+                                                    }
+                                                }
+                                                if let Some(expl) = explanation {
+                                                    div { class: "lesson-quiz-explanation", "{expl}" }
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+
+                            }
+                        }
+
+                        // Start practicing button
+                        div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                            button {
+                                class: "learn-action-btn primary",
+                                onclick: move |_| content_view.set(ContentView::Examples),
+                                "Try Examples →"
+                            }
+                        }
+                    } else {
+                        p { style: "color: var(--text-tertiary); text-align: center; padding: var(--spacing-xl);",
+                            "Lesson content coming soon. Click Examples to see interactive demos."
+                        }
+                    }
+                }
+            } else if current_view == ContentView::Examples {
+                // Examples view - Interactive code execution
+                div { class: "tab-panel-examples",
+                    div { class: "examples-intro",
+                        h3 { "Interactive Examples" }
+                        p { "Try translating sentences and see how logic notation works. The symbol dictionary will explain each symbol used." }
+                    }
+
+                    // Example sentences to try
+                    div { class: "examples-list",
+                        {
+                            let examples: Vec<(&str, &str)> = vec![
+                                ("ex1", "All cats are mammals."),
+                                ("ex2", "Socrates is mortal."),
+                                ("ex3", "If it rains, the ground is wet."),
+                                ("ex4", "Some birds can fly."),
+                                ("ex5", "No reptiles are mammals."),
+                            ];
+
+                            rsx! {
+                                for (id, sentence) in examples {
+                                    div { class: "example-card",
+                                        key: "{id}",
+                                        div { class: "example-sentence", "{sentence}" }
+                                        GuideCodeBlock {
+                                            id: id.to_string(),
+                                            label: "Try it".to_string(),
+                                            mode: ExampleMode::Logic,
+                                            initial_code: sentence.to_string(),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Navigation to Practice
+                    div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                        button {
+                            class: "learn-action-btn primary",
+                            onclick: move |_| {
+                                content_view.set(ContentView::Practice);
+                                practice_mode.set(PracticeMode::Practice);
+                            },
+                            "Start Practice →"
+                        }
+                    }
+                }
+            } else {
+                // Practice/Test view
+                // Stats header
+                div { class: "mode-stats",
+                    div { class: "mode-stat",
+                        span { class: "mode-stat-value", "{score}" }
+                        span { class: "mode-stat-label", " XP" }
+                    }
+                    if *streak.read() > 0 {
+                        {
+                            let s = *streak.read();
+                            let mult = match s {
+                                0 => "1x",
+                                1 => "1.25x",
+                                2 => "1.5x",
+                                3 => "1.75x",
+                                _ => "2x",
+                            };
+                            rsx! {
+                                div { class: "mode-stat combo",
+                                    span { class: "mode-stat-value streak", "{s}" }
+                                    span { class: "mode-stat-label", " streak " }
+                                    span { class: "combo-multiplier", "({mult})" }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "mode-stat",
+                        span { class: "mode-stat-value", "{correct_count}" }
+                        span { class: "mode-stat-label", " correct" }
+                    }
+                }
+
             // Test mode header
             if is_test_mode {
                 if *test_complete.read() {
@@ -1150,8 +1797,6 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
             if !(is_test_mode && *test_complete.read()) {
             if let Some(challenge) = current_challenge.as_ref() {
                 div { class: "exercise-card",
-                    // Exercise prompt
-                    div { class: "exercise-prompt", "{challenge.prompt}" }
                     div { class: "exercise-sentence", "{challenge.sentence}" }
 
                     // Answer input based on exercise type
@@ -1165,13 +1810,79 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                         None => "exercise-input",
                                     },
                                     r#type: "text",
-                                    placeholder: "Enter your logic translation...",
+                                    placeholder: "Enter your logic translation... (Enter to submit)",
                                     value: "{user_answer}",
                                     oninput: {
                                         move |e: Event<FormData>| {
                                             user_answer.set(e.value());
                                             // Record activity to reset inactivity timer
                                             struggle_detector.write().record_activity();
+                                        }
+                                    },
+                                    onkeydown: {
+                                        let golden = golden_answer.clone();
+                                        move |e: Event<KeyboardData>| {
+                                            if e.key() == Key::Enter {
+                                                e.prevent_default();
+                                                // Trigger submit logic - same as Check button
+                                                let answer = user_answer.read().clone();
+                                                if !answer.is_empty() {
+                                                    if let Some(ref expected) = golden {
+                                                        let result = check_answer(&answer, expected);
+                                                        if result.correct {
+                                                            // Handle correct answer
+                                                            let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+                                                            let already_completed = if is_test_mode { false } else { completed_exercises.read().contains(&current_idx) };
+
+                                                            if answer_was_revealed {
+                                                                let cc = *correct_count.read();
+                                                                correct_count.set(cc + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                            } else if !already_completed {
+                                                                let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
+                                                                let base_xp = 10u32.saturating_sub(wrong_count * 5);
+                                                                if base_xp > 0 {
+                                                                    let cs = *streak.read();
+                                                                    let sc = *score.read();
+                                                                    let cc = *correct_count.read();
+                                                                    let multiplier = match cs { 0 => 1.0, 1 => 1.25, 2 => 1.5, 3 => 1.75, _ => 2.0 };
+                                                                    let xp = ((base_xp as f64) * multiplier).round() as u32;
+                                                                    score.set(sc + xp);
+                                                                    streak.set(cs + 1);
+                                                                    correct_count.set(cc + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    let msg = if multiplier > 1.0 { format!("Correct! +{} XP ({}x combo)", xp, multiplier) } else { format!("Correct! +{} XP", xp) };
+                                                                    feedback.set(Some((true, msg)));
+                                                                } else {
+                                                                    let cc = *correct_count.read();
+                                                                    correct_count.set(cc + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    feedback.set(Some((true, "Correct! (no XP - too many attempts)".to_string())));
+                                                                }
+                                                            } else {
+                                                                feedback.set(Some((true, "Correct! (already completed)".to_string())));
+                                                            }
+                                                            struggle_detector.write().record_correct_attempt();
+                                                            show_socratic_hint.set(false);
+                                                        } else {
+                                                            // Wrong answer
+                                                            let attempts = exercise_attempts.read().get(&current_idx).copied().unwrap_or(0);
+                                                            exercise_attempts.write().insert(current_idx, attempts + 1);
+                                                            let remaining = 10u32.saturating_sub((attempts + 1) * 5);
+                                                            let penalty_msg = if remaining > 0 { format!(" (-5 XP, {} remaining)", remaining) } else { " (no XP remaining)".to_string() };
+                                                            feedback.set(Some((false, format!("{}{}", result.feedback, penalty_msg))));
+                                                            struggle_detector.write().record_wrong_attempt();
+                                                            show_socratic_hint.set(true);
+                                                            streak.set(0);
+                                                            if !is_test_mode {
+                                                                let mut queue = retry_queue.write();
+                                                                if !queue.contains(&current_idx) { queue.push_back(current_idx); }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     },
                                 }
@@ -1186,9 +1897,23 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                     // Use the real grader
                                                     let result = check_answer(&answer, expected);
                                                     if result.correct {
-                                                        // Only award XP if this exercise hasn't been completed yet
-                                                        let already_completed = completed_exercises.read().contains(&current_idx);
-                                                        if !already_completed {
+                                                        // Check if answer was revealed (forfeits XP)
+                                                        let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+
+                                                        // Only check completed_exercises in practice mode, not test mode
+                                                        let already_completed = if is_test_mode {
+                                                            false // Test mode always gives fresh XP
+                                                        } else {
+                                                            completed_exercises.read().contains(&current_idx)
+                                                        };
+
+                                                        if answer_was_revealed {
+                                                            // Answer was revealed - no XP
+                                                            let current_correct = *correct_count.read();
+                                                            correct_count.set(current_correct + 1);
+                                                            completed_exercises.write().insert(current_idx);
+                                                            feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                        } else if !already_completed {
                                                             // Calculate XP based on wrong attempts (each wrong costs 5 XP)
                                                             let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
                                                             let base_xp = 10u32.saturating_sub(wrong_count * 5);
@@ -1197,13 +1922,28 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                                 let current_streak = *streak.read();
                                                                 let current_score = *score.read();
                                                                 let current_correct = *correct_count.read();
-                                                                let bonus = (current_streak as u32).min(5);
-                                                                let xp = base_xp + bonus;
+
+                                                                // Combo multiplier: 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+                                                                let multiplier = match current_streak {
+                                                                    0 => 1.0,
+                                                                    1 => 1.25,
+                                                                    2 => 1.5,
+                                                                    3 => 1.75,
+                                                                    _ => 2.0, // Max 2x
+                                                                };
+                                                                let xp = ((base_xp as f64) * multiplier).round() as u32;
+
                                                                 score.set(current_score + xp);
                                                                 streak.set(current_streak + 1);
                                                                 correct_count.set(current_correct + 1);
                                                                 completed_exercises.write().insert(current_idx);
-                                                                feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+
+                                                                let msg = if multiplier > 1.0 {
+                                                                    format!("Correct! +{} XP ({}x combo)", xp, multiplier)
+                                                                } else {
+                                                                    format!("Correct! +{} XP", xp)
+                                                                };
+                                                                feedback.set(Some((true, msg)));
                                                             } else {
                                                                 // Too many wrong attempts - no XP but still mark complete
                                                                 let current_correct = *correct_count.read();
@@ -1233,6 +1973,15 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                         struggle_detector.write().record_wrong_attempt();
                                                         show_socratic_hint.set(true);
                                                         streak.set(0);
+
+                                                        // In practice mode, add wrong exercise to retry queue (at +3 position)
+                                                        if !is_test_mode {
+                                                            let mut queue = retry_queue.write();
+                                                            // Only add if not already in queue
+                                                            if !queue.contains(&current_idx) {
+                                                                queue.push_back(current_idx);
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1268,9 +2017,23 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                     move |_| {
                                                         user_answer.set(opt.clone());
                                                         if correct {
-                                                            // Only award XP if this exercise hasn't been completed yet
-                                                            let already_completed = completed_exercises.read().contains(&current_idx);
-                                                            if !already_completed {
+                                                            // Check if answer was revealed (forfeits XP)
+                                                            let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+
+                                                            // Only check completed_exercises in practice mode, not test mode
+                                                            let already_completed = if is_test_mode {
+                                                                false // Test mode always gives fresh XP
+                                                            } else {
+                                                                completed_exercises.read().contains(&current_idx)
+                                                            };
+
+                                                            if answer_was_revealed {
+                                                                // Answer was revealed - no XP
+                                                                let current_correct = *correct_count.read();
+                                                                correct_count.set(current_correct + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                            } else if !already_completed {
                                                                 // Calculate XP based on wrong attempts (each wrong costs 5 XP)
                                                                 let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
                                                                 let base_xp = 10u32.saturating_sub(wrong_count * 5);
@@ -1279,13 +2042,28 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                                     let current_streak = *streak.read();
                                                                     let current_score = *score.read();
                                                                     let current_correct = *correct_count.read();
-                                                                    let bonus = (current_streak as u32).min(5);
-                                                                    let xp = base_xp + bonus;
+
+                                                                    // Combo multiplier: 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+                                                                    let multiplier = match current_streak {
+                                                                        0 => 1.0,
+                                                                        1 => 1.25,
+                                                                        2 => 1.5,
+                                                                        3 => 1.75,
+                                                                        _ => 2.0, // Max 2x
+                                                                    };
+                                                                    let xp = ((base_xp as f64) * multiplier).round() as u32;
+
                                                                     score.set(current_score + xp);
                                                                     streak.set(current_streak + 1);
                                                                     correct_count.set(current_correct + 1);
                                                                     completed_exercises.write().insert(current_idx);
-                                                                    feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+
+                                                                    let msg = if multiplier > 1.0 {
+                                                                        format!("Correct! +{} XP ({}x combo)", xp, multiplier)
+                                                                    } else {
+                                                                        format!("Correct! +{} XP", xp)
+                                                                    };
+                                                                    feedback.set(Some((true, msg)));
                                                                 } else {
                                                                     // Too many wrong attempts - no XP but still mark complete
                                                                     let current_correct = *correct_count.read();
@@ -1314,6 +2092,14 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                             struggle_detector.write().record_wrong_attempt();
                                                             show_socratic_hint.set(true);
                                                             streak.set(0);
+
+                                                            // In practice mode, add wrong exercise to retry queue
+                                                            if !is_test_mode {
+                                                                let mut queue = retry_queue.write();
+                                                                if !queue.contains(&current_idx) {
+                                                                    queue.push_back(current_idx);
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 },
@@ -1376,14 +2162,18 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 "💡 Show Hint"
                             }
 
-                            // Show Answer button - toggles independently
+                            // Show Answer button - toggles independently, forfeits XP when revealed
                             button {
                                 class: if reveal_state.read().answer { "reveal-btn active" } else { "reveal-btn" },
                                 onclick: move |_| {
                                     let current = reveal_state.read().answer;
+                                    if !current {
+                                        // Revealing answer for first time - forfeit XP for this exercise
+                                        answer_revealed_exercises.write().insert(current_idx);
+                                    }
                                     reveal_state.write().answer = !current;
                                 },
-                                "✓ Show Answer"
+                                "✓ Show Answer (No XP)"
                             }
 
                             // Symbol Dictionary button (only for FreeForm/Ambiguity) - toggles independently
@@ -1488,12 +2278,25 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                             class: "learn-action-btn secondary",
                             onclick: {
                                 move |_| {
-                                    // Move to next exercise
-                                    let next = current_idx + 1;
-                                    if next < total_exercises {
-                                        current_exercise_idx.set(next);
+                                    // Check retry queue - pop after 3 exercises since last retry
+                                    let since_retry = *exercises_since_retry.read();
+                                    let has_retry = !retry_queue.read().is_empty();
+
+                                    if has_retry && since_retry >= 3 {
+                                        // Pop from retry queue
+                                        if let Some(retry_idx) = retry_queue.write().pop_front() {
+                                            current_exercise_idx.set(retry_idx);
+                                            exercises_since_retry.set(0);
+                                        }
                                     } else {
-                                        current_exercise_idx.set(0); // Loop back
+                                        // Normal next exercise
+                                        let next = current_idx + 1;
+                                        if next < total_exercises {
+                                            current_exercise_idx.set(next);
+                                        } else {
+                                            current_exercise_idx.set(0); // Loop back
+                                        }
+                                        exercises_since_retry.set(since_retry + 1);
                                     }
                                     // Reset state
                                     user_answer.set(String::new());
@@ -1511,11 +2314,25 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 class: "learn-action-btn primary",
                                 onclick: {
                                     move |_| {
-                                        let next = current_idx + 1;
-                                        if next < total_exercises {
-                                            current_exercise_idx.set(next);
+                                        // Check retry queue - pop after 3 exercises since last retry
+                                        let since_retry = *exercises_since_retry.read();
+                                        let has_retry = !retry_queue.read().is_empty();
+
+                                        if has_retry && since_retry >= 3 {
+                                            // Pop from retry queue
+                                            if let Some(retry_idx) = retry_queue.write().pop_front() {
+                                                current_exercise_idx.set(retry_idx);
+                                                exercises_since_retry.set(0);
+                                            }
                                         } else {
-                                            current_exercise_idx.set(0);
+                                            // Normal next exercise
+                                            let next = current_idx + 1;
+                                            if next < total_exercises {
+                                                current_exercise_idx.set(next);
+                                            } else {
+                                                current_exercise_idx.set(0);
+                                            }
+                                            exercises_since_retry.set(since_retry + 1);
                                         }
                                         user_answer.set(String::new());
                                         feedback.set(None);
@@ -1552,6 +2369,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                 p { "Loading exercises..." }
             }
             } // end if !(is_test_mode && test_complete)
+            } // end else (Practice view)
         }
     }
 }

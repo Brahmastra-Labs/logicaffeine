@@ -1,0 +1,16 @@
+{
+  "id": "R_1.5",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "According to Leibniz's Law, a = b if and only if:",
+  "options": [
+    "a and b look the same",
+    "a and b have all the same properties",
+    "a and b have the same name",
+    "a and b are in the same location"
+  ],
+  "correct": 1,
+  "hint": "Identity of Indiscernibles: things sharing all properties are identical.",
+  "explanation": "Leibniz's Law (Identity of Indiscernibles): a = b iff for every property P, P(a) ↔ P(b). Two things are identical if and only if they share ALL properties. This is the logical foundation of identity.",
+  "visual_concept": "If you can't find ANY difference between a and b - not one property different - then a and b must be the very same thing."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "P_1.7",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "Which equivalence rule shows that (P → Q) ≡ (¬P ∨ Q)?",
+  "options": [
+    "De Morgan's Law",
+    "Material Implication",
+    "Double Negation",
+    "Contraposition"
+  ],
+  "correct": 1,
+  "hint": "This rule defines implication in terms of disjunction and negation.",
+  "explanation": "Material Implication: (P → Q) is logically equivalent to (¬P ∨ Q). 'If P then Q' means the same as 'Either not-P or Q'. Both are false only when P is true and Q is false.",
+  "visual_concept": "Two ways to say the same thing: 'If it rains, I'll bring an umbrella' = 'Either it won't rain, or I'll bring an umbrella'."
+}

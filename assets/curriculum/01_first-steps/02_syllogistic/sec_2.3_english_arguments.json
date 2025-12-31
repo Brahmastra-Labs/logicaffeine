@@ -1,0 +1,97 @@
+{
+  "id": "2.3",
+  "title": "English Arguments",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Most arguments you'll encounter are in English. Work them out in a **dual manner**: First use intuition - does it seem valid? Then translate and apply the star test. If they agree, great! If they disagree, recheck your work."
+    },
+    {
+      "type": "paragraph",
+      "text": "When translating, use the **same letter for the same idea** and **different letters for different ideas**. The same idea may be phrased differently throughout an argument."
+    },
+    {
+      "type": "definition",
+      "term": "Singular vs General Terms",
+      "definition": "Singular terms (specific individuals) → lowercase letters. General terms (categories) → CAPITAL letters. This distinction can affect validity!"
+    },
+    {
+      "type": "example",
+      "title": "Invalid - Using General Term",
+      "premises": [
+        "Al is a man. → a is M",
+        "My father is a man. → f is M"
+      ],
+      "conclusion": "∴ Al is my father. → ∴ a* is f*",
+      "note": "INVALID! M (man) is a category that includes many people. Al and my father could both be men without being the same person."
+    },
+    {
+      "type": "example",
+      "title": "Valid - Using Singular Term",
+      "premises": [
+        "Al is the NY mayor. → a is m",
+        "My father is the NY mayor. → f is m"
+      ],
+      "conclusion": "∴ Al is my father. → ∴ a* is f*",
+      "note": "VALID! Here 'm' is a specific individual (the unique NY mayor). If both Al and my father are that same person, they must be identical."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Translation Tips:** If you have trouble tracking letters, underline phrases in the English argument and write the corresponding letter above. This prevents confusion about which phrase corresponds to which letter."
+    },
+    {
+      "type": "example",
+      "title": "A Famous Philosophical Argument",
+      "premises": [
+        "All segregation laws degrade human personality. → all S is D",
+        "All laws that degrade human personality are unjust. → all D is U"
+      ],
+      "conclusion": "∴ All segregation laws are unjust. → ∴ all S is U",
+      "note": "This valid argument is from Dr. Martin Luther King Jr. The star test: S*-D, D-U, S-U* = each capital once, one right star. VALID!"
+    },
+    {
+      "type": "symbols",
+      "title": "Common Translation Patterns",
+      "symbols": [
+        {
+          "symbol": "All X are Y",
+          "name": "Universal",
+          "meaning": "all X is Y",
+          "example": "All dogs are mammals → all D is M"
+        },
+        {
+          "symbol": "No X is Y",
+          "name": "Universal Negative",
+          "meaning": "no X is Y",
+          "example": "No reptiles are mammals → no R is M"
+        },
+        {
+          "symbol": "Some X are Y",
+          "name": "Particular",
+          "meaning": "some X is Y",
+          "example": "Some birds fly → some B is F"
+        },
+        {
+          "symbol": "X isn't Y",
+          "name": "Singular Negative",
+          "meaning": "x is not Y",
+          "example": "Socrates isn't immortal → s is not I"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "'The president' should be translated as:",
+      "options": [
+        "A capital letter P (it's a category)",
+        "A lowercase letter p (it's a specific person)",
+        "Either works",
+        "Neither - use a word instead"
+      ],
+      "correct": 1,
+      "explanation": "'The president' refers to a specific individual (whoever holds that unique position), so use lowercase 'p'. A category would be 'presidents' (any person who has been president)."
+    }
+  ],
+  "key_symbols": ["all", "no", "some", "is", "not"]
+}

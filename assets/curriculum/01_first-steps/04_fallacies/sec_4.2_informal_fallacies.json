@@ -1,8 +1,100 @@
 {
   "id": "4.2",
-  "section": "Informal Fallacies",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["ad hominem", "straw man", "appeal to authority", "red herring", "false dilemma", "slippery slope", "begging the question", "equivocation"],
-  "status": "planned"
+  "title": "Informal Fallacies",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Informal fallacies** are errors in reasoning that arise from content or context rather than logical form. Unlike invalid argument forms (formal fallacies), these require judgment to identify."
+    },
+    {
+      "type": "definition",
+      "term": "Ad Hominem",
+      "definition": "Attacking the person making an argument rather than the argument itself. The character or circumstances of an arguer don't determine whether their argument is good."
+    },
+    {
+      "type": "example",
+      "title": "Ad Hominem Fallacy",
+      "premises": [
+        "Dr. Smith argues that smoking causes cancer.",
+        "But Dr. Smith is funded by a health organization."
+      ],
+      "conclusion": "Therefore, smoking probably doesn't cause cancer.",
+      "note": "The funding source doesn't refute the scientific evidence. Attack the argument, not the arguer."
+    },
+    {
+      "type": "definition",
+      "term": "Straw Man",
+      "definition": "Misrepresenting someone's argument to make it easier to attack. You 'defeat' a weaker version of what they actually said."
+    },
+    {
+      "type": "example",
+      "title": "Straw Man Fallacy",
+      "premises": [
+        "Person A: 'We should have stricter environmental regulations.'",
+        "Person B: 'So you want to destroy all businesses and jobs?'"
+      ],
+      "conclusion": "Person B has distorted Person A's position.",
+      "note": "Stricter regulations ≠ destroying businesses. This is an unfair characterization."
+    },
+    {
+      "type": "symbols",
+      "title": "Common Informal Fallacies",
+      "symbols": [
+        {
+          "symbol": "Ad Hominem",
+          "name": "Attack the Person",
+          "meaning": "Discrediting arguer instead of argument",
+          "example": "You're just saying that because..."
+        },
+        {
+          "symbol": "Straw Man",
+          "name": "Misrepresent Position",
+          "meaning": "Attack a distorted version of the view",
+          "example": "So you think we should just..."
+        },
+        {
+          "symbol": "Red Herring",
+          "name": "Change the Subject",
+          "meaning": "Introduce irrelevant distracting points",
+          "example": "But what about..."
+        },
+        {
+          "symbol": "False Dilemma",
+          "name": "Only Two Options",
+          "meaning": "Present limited choices when more exist",
+          "example": "Either you're with us or against us"
+        },
+        {
+          "symbol": "Slippery Slope",
+          "name": "Chain of Doom",
+          "meaning": "Claim small step leads to disaster",
+          "example": "If we allow X, then Y, then Z..."
+        },
+        {
+          "symbol": "Appeal to Authority",
+          "name": "Expert Says So",
+          "meaning": "Misusing authority as sole evidence",
+          "example": "Einstein believed in God, so..."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Not all appeals to authority are fallacious. It's reasonable to trust experts in their field. The fallacy occurs when the authority isn't relevant (Einstein on religion) or when expert opinion replaces evidence."
+    },
+    {
+      "type": "quiz",
+      "question": "\"You can't trust John's argument for recycling - he drives an SUV!\" This is an example of:",
+      "options": [
+        "Straw man - misrepresenting John's position",
+        "Ad hominem - attacking John instead of his argument",
+        "Red herring - changing the subject",
+        "False dilemma - presenting only two options"
+      ],
+      "correct": 1,
+      "explanation": "This is ad hominem because it attacks John's character (he drives an SUV) rather than addressing his actual argument for recycling. John's vehicle choice doesn't affect whether his argument about recycling is good or bad."
+    }
+  ],
+  "key_symbols": []
 }

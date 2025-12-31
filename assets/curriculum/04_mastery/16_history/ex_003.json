@@ -1,0 +1,16 @@
+{
+  "id": "H_1.3",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Who developed the first modern symbolic logic in the 19th century?",
+  "options": [
+    "Bertrand Russell",
+    "Gottlob Frege",
+    "George Boole",
+    "Kurt Gödel"
+  ],
+  "correct": 2,
+  "hint": "This mathematician created Boolean algebra, foundational to digital computing.",
+  "explanation": "George Boole (1815-1864) published 'The Laws of Thought' (1854), creating Boolean algebra - the first mathematical treatment of logic using symbols and equations. This became the foundation for digital circuits and computer science.",
+  "visual_concept": "Boole turned logical reasoning into math: AND became multiplication, OR became addition. Your computer runs on Boolean logic!"
+}

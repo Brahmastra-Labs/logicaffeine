@@ -1,0 +1,11 @@
+{
+  "id": "Q_1.9",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this nested quantifier statement:",
+  "template": "Every {Noun:Singular} {Verb:Transitive} some {Noun2:Singular}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "Nested quantifiers: ∀x(A(x) → ∃y(B(y) ∧ R(x,y))). Order matters! Every... some... = ∀∃"
+}

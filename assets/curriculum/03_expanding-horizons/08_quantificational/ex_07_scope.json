@@ -1,0 +1,16 @@
+{
+  "id": "Q_2.1",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "∀x∃y(Loves(x,y)) means:",
+  "options": [
+    "There is someone who everyone loves",
+    "Everyone loves someone (possibly different people)",
+    "Someone loves everyone",
+    "No one loves anyone"
+  ],
+  "correct": 1,
+  "hint": "Read left to right: For ALL x, there EXISTS a y such that x loves y.",
+  "explanation": "∀x∃y(Loves(x,y)): For every person x, there's some person y that x loves. Each person might love a different person. Compare to ∃y∀x(Loves(x,y)): There's ONE person y that everyone loves (same person).",
+  "visual_concept": "∀∃: Every arrow starts from a different source, each pointing to some target. ∃∀: All arrows point to the same single target."
+}

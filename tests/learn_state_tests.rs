@@ -41,7 +41,7 @@ fn test_initial_tab_is_lesson() {
 #[test]
 fn test_tab_switch() {
     let mut state = ModuleTabState::new("introduction");
-    state.set_tab(TabMode::Practice);
+    state.switch_tab(TabMode::Practice);
     assert_eq!(state.current_tab, TabMode::Practice);
 }
 
@@ -49,7 +49,7 @@ fn test_tab_switch() {
 fn test_tab_switch_resets_exercise_index() {
     let mut state = ModuleTabState::new("introduction");
     state.exercise_index = 5;
-    state.set_tab(TabMode::Test);
+    state.switch_tab(TabMode::Test);
     assert_eq!(state.exercise_index, 0, "Exercise index should reset on tab change");
 }
 
@@ -57,24 +57,26 @@ fn test_tab_switch_resets_exercise_index() {
 fn test_tab_switch_resets_submitted() {
     let mut state = ModuleTabState::new("introduction");
     state.submitted = true;
-    state.set_tab(TabMode::Practice);
+    state.switch_tab(TabMode::Practice);
     assert!(!state.submitted, "Submitted flag should reset on tab change");
-}
-
-#[test]
-fn test_same_tab_no_reset() {
-    let mut state = ModuleTabState::new("introduction");
-    state.exercise_index = 5;
-    state.submitted = true;
-    state.set_tab(TabMode::Lesson); // Same as current
-    assert_eq!(state.exercise_index, 5, "Same tab should not reset index");
-    assert!(state.submitted, "Same tab should not reset submitted");
 }
 
 #[test]
 fn test_module_tab_state_module_id() {
     let state = ModuleTabState::new("syllogistic");
     assert_eq!(state.module_id, "syllogistic");
+}
+
+#[test]
+fn test_reset_exercise() {
+    let mut state = ModuleTabState::new("introduction");
+    state.exercise_index = 5;
+    state.submitted = true;
+    state.reset_exercise();
+    assert_eq!(state.exercise_index, 0);
+    assert!(!state.submitted);
+    // Tab should remain unchanged
+    assert_eq!(state.current_tab, TabMode::Lesson);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -85,31 +87,22 @@ fn test_module_tab_state_module_id() {
 fn test_initial_focus_is_none() {
     let focus = FocusState::new();
     assert!(focus.focused_era.is_none());
-    assert!(!focus.is_focused());
+    assert!(focus.expanded_module.is_none());
 }
 
 #[test]
 fn test_focus_era() {
     let mut focus = FocusState::new();
-    focus.set_focus("logic-caffeine");
+    focus.focus_era("logic-caffeine");
     assert_eq!(focus.focused_era, Some("logic-caffeine".to_string()));
-    assert!(focus.is_focused());
 }
 
 #[test]
-fn test_toggle_focus_same_era_clears() {
+fn test_unfocus_clears_focus() {
     let mut focus = FocusState::new();
-    focus.set_focus("logic-caffeine");
-    focus.toggle_focus("logic-caffeine");
+    focus.focus_era("logic-caffeine");
+    focus.unfocus();
     assert!(focus.focused_era.is_none());
-}
-
-#[test]
-fn test_toggle_focus_different_era_switches() {
-    let mut focus = FocusState::new();
-    focus.set_focus("logic-caffeine");
-    focus.toggle_focus("other-era");
-    assert_eq!(focus.focused_era, Some("other-era".to_string()));
 }
 
 #[test]
@@ -123,17 +116,9 @@ fn test_is_era_visible_when_no_focus() {
 #[test]
 fn test_is_era_visible_when_focused() {
     let mut focus = FocusState::new();
-    focus.set_focus("logic-caffeine");
+    focus.focus_era("logic-caffeine");
     assert!(focus.is_era_visible("logic-caffeine"));
     assert!(!focus.is_era_visible("other-era"));
-}
-
-#[test]
-fn test_clear_focus() {
-    let mut focus = FocusState::new();
-    focus.set_focus("logic-caffeine");
-    focus.clear_focus();
-    assert!(focus.focused_era.is_none());
 }
 
 #[test]
@@ -147,26 +132,35 @@ fn test_focus_state_default() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_focus_module() {
+fn test_expand_module() {
     let mut focus = FocusState::new();
-    focus.set_focus_module("logic-caffeine", "introduction");
-    assert!(focus.is_module_focused("logic-caffeine", "introduction"));
-    assert!(!focus.is_module_focused("logic-caffeine", "syllogistic"));
+    focus.expand_module("logic-caffeine", "introduction");
+    assert!(focus.is_module_expanded("logic-caffeine", "introduction"));
+    assert!(!focus.is_module_expanded("logic-caffeine", "syllogistic"));
 }
 
 #[test]
-fn test_toggle_focus_module_same_clears() {
+fn test_expand_module_also_focuses_era() {
     let mut focus = FocusState::new();
-    focus.set_focus_module("logic-caffeine", "introduction");
-    focus.toggle_focus_module("logic-caffeine", "introduction");
-    assert!(!focus.is_module_focused("logic-caffeine", "introduction"));
+    focus.expand_module("logic-caffeine", "introduction");
+    assert_eq!(focus.focused_era, Some("logic-caffeine".to_string()));
 }
 
 #[test]
-fn test_toggle_focus_module_different_switches() {
+fn test_collapse_module() {
     let mut focus = FocusState::new();
-    focus.set_focus_module("logic-caffeine", "introduction");
-    focus.toggle_focus_module("logic-caffeine", "syllogistic");
-    assert!(!focus.is_module_focused("logic-caffeine", "introduction"));
-    assert!(focus.is_module_focused("logic-caffeine", "syllogistic"));
+    focus.expand_module("logic-caffeine", "introduction");
+    focus.collapse_module();
+    assert!(!focus.is_module_expanded("logic-caffeine", "introduction"));
+    // Era should still be focused
+    assert!(focus.is_era_visible("logic-caffeine"));
+}
+
+#[test]
+fn test_unfocus_clears_expanded_module() {
+    let mut focus = FocusState::new();
+    focus.expand_module("logic-caffeine", "introduction");
+    focus.unfocus();
+    assert!(focus.focused_era.is_none());
+    assert!(focus.expanded_module.is_none());
 }

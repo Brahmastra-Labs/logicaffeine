@@ -1,0 +1,16 @@
+{
+  "id": "M_1.3",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Gödel's First Incompleteness Theorem (1931) states that:",
+  "options": [
+    "All mathematical systems are inconsistent",
+    "Any consistent system strong enough for arithmetic contains unprovable true statements",
+    "First-order logic is incomplete",
+    "Mathematics cannot be axiomatized"
+  ],
+  "correct": 1,
+  "hint": "This applies specifically to systems that can express arithmetic.",
+  "explanation": "Gödel showed that in any consistent formal system capable of expressing basic arithmetic, there exist true statements that cannot be proven within the system. The system is necessarily incomplete. This was a revolutionary result that ended Hilbert's program.",
+  "visual_concept": "In any sufficiently powerful, consistent system, there's a sentence G that says 'I am not provable' - and G is TRUE but UNPROVABLE."
+}

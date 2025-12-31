@@ -1,0 +1,16 @@
+{
+  "id": "F_1.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Why are we discussing tax policy when there are children starving in Africa?\"",
+  "options": [
+    "False Dilemma",
+    "Red Herring",
+    "Slippery Slope",
+    "Equivocation"
+  ],
+  "correct": 1,
+  "hint": "This argument tries to change the subject to something emotionally compelling but unrelated.",
+  "explanation": "This is a Red Herring fallacy - diverting attention away from the actual topic (tax policy) by introducing an emotionally charged but irrelevant issue (world hunger). Both topics may be important, but one doesn't invalidate discussing the other.",
+  "visual_concept": "Red Herring: A smelly fish dragged across the trail to throw tracking dogs off the scent of the real target."
+}

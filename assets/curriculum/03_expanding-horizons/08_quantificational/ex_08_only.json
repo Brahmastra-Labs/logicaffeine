@@ -1,0 +1,11 @@
+{
+  "id": "Q_2.2",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this \"only\" statement (tricky!):",
+  "template": "Only {Noun:Plural} are {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "\"Only A are B\" ≠ \"All A are B\"! It means \"All B are A\" = ∀x(B(x) → A(x)). The conditional is reversed!"
+}

@@ -256,6 +256,8 @@ pub fn SymbolDictionary(props: SymbolDictionaryProps) -> Element {
                                 SymbolKind::Variable => "variable",
                                 SymbolKind::Constant => "constant",
                                 SymbolKind::Temporal => "temporal",
+                                SymbolKind::Identity => "connective",
+                                SymbolKind::Punctuation => "variable",
                             };
 
                             rsx! {

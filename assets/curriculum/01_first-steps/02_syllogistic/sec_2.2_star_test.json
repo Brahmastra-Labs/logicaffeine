@@ -1,0 +1,98 @@
+{
+  "id": "2.2",
+  "title": "The Star Test",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Syllogisms** are arguments using syllogistic wffs where each letter occurs twice and the letters 'form a chain.' The last wff is the conclusion; other wffs are premises."
+    },
+    {
+      "type": "example",
+      "title": "A Valid Syllogism",
+      "premises": [
+        "No pure water is burnable. → no P is B",
+        "Some Cuyahoga River water is burnable. → some C is B"
+      ],
+      "conclusion": "∴ Some Cuyahoga River water isn't pure water. → some C is not P",
+      "note": "Notice how letters form a chain: P-B, C-B, C-P. Each letter appears exactly twice."
+    },
+    {
+      "type": "definition",
+      "term": "Distributed",
+      "definition": "A letter is distributed in a wff if it occurs just after 'all' or anywhere after 'no' or 'not.' Distributed terms cover their entire category."
+    },
+    {
+      "type": "symbols",
+      "title": "Distribution Rules",
+      "symbols": [
+        {
+          "symbol": "all A is B",
+          "name": "A distributed",
+          "meaning": "First letter after 'all' is distributed",
+          "example": "A* is distributed, B is not"
+        },
+        {
+          "symbol": "no A is B",
+          "name": "Both distributed",
+          "meaning": "Both letters after 'no' are distributed",
+          "example": "A* and B* both distributed"
+        },
+        {
+          "symbol": "some A is not B",
+          "name": "B distributed",
+          "meaning": "Letter after 'not' is distributed",
+          "example": "Only B* is distributed"
+        },
+        {
+          "symbol": "x is not A",
+          "name": "A distributed",
+          "meaning": "Letter after 'not' is distributed",
+          "example": "A* is distributed"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The **star test** is a quick method to check if a syllogism is valid. It takes about 5 seconds once you've mastered it!"
+    },
+    {
+      "type": "definition",
+      "term": "The Star Test",
+      "definition": "Star premise letters that ARE distributed and conclusion letters that are NOT distributed. Valid if: (1) every capital letter is starred exactly once, and (2) there is exactly one star on the right-hand side (after 'is' or 'is not')."
+    },
+    {
+      "type": "example",
+      "title": "Star Test Example - VALID",
+      "premises": [
+        "all A* is B (A is distributed, so star it)",
+        "some C is A (nothing distributed in premises)"
+      ],
+      "conclusion": "∴ some C* is B* (C and B not distributed, so star them)",
+      "note": "Each capital starred once ✓ One right-hand star (B*) ✓ = VALID"
+    },
+    {
+      "type": "example",
+      "title": "Star Test Example - INVALID",
+      "premises": [
+        "no A* is B* (both distributed after 'no')",
+        "no C* is A* (both distributed after 'no')"
+      ],
+      "conclusion": "∴ no C is B (both distributed - don't star!)",
+      "note": "A starred twice ✗ Two right-hand stars ✗ = INVALID"
+    },
+    {
+      "type": "quiz",
+      "question": "In 'all A is B', which letter is distributed?",
+      "options": [
+        "Both A and B",
+        "Only A (the first letter after 'all')",
+        "Only B",
+        "Neither"
+      ],
+      "correct": 1,
+      "explanation": "Only the first letter after 'all' is distributed. In 'all A is B', A is distributed (covers all of category A) but B is not (we only know some B's are A's)."
+    }
+  ],
+  "key_symbols": ["*", "all", "no", "some", "not"]
+}

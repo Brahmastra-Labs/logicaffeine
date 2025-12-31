@@ -1,0 +1,16 @@
+{
+  "id": "H_1.4",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Frege's Begriffsschrift (1879) introduced which major innovation to logic?",
+  "options": [
+    "Truth tables",
+    "Quantifiers and predicate logic",
+    "Modal operators",
+    "Set theory notation"
+  ],
+  "correct": 1,
+  "hint": "This innovation allowed us to express 'all' and 'some' within a formal system.",
+  "explanation": "Frege's Begriffsschrift ('concept-script') introduced the quantifiers ∀ and ∃, creating predicate logic. This was a revolutionary leap beyond Aristotle's syllogisms, allowing the formalization of mathematics itself. It's the foundation of modern logic.",
+  "visual_concept": "Before Frege: 'All men are mortal' was analyzed as a special form. After Frege: ∀x(Man(x) → Mortal(x)) - a precise formula."
+}

@@ -1,8 +1,95 @@
 {
   "id": "4.4",
-  "section": "Constructing Arguments",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["building arguments", "supporting premises", "argument structure"],
-  "status": "planned"
+  "title": "Constructing Arguments",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Now that we know what makes an argument good or bad, let's learn how to **build** good arguments. A well-constructed argument is clear, organized, and anticipates objections."
+    },
+    {
+      "type": "definition",
+      "term": "Argument Construction",
+      "definition": "The process of building a case for a conclusion by identifying premises, organizing them logically, and ensuring the conclusion follows from the evidence."
+    },
+    {
+      "type": "symbols",
+      "title": "Steps to Build an Argument",
+      "symbols": [
+        {
+          "symbol": "1",
+          "name": "State Your Conclusion",
+          "meaning": "Know exactly what you're trying to prove",
+          "example": "\"Capital punishment should be abolished\""
+        },
+        {
+          "symbol": "2",
+          "name": "Gather Supporting Premises",
+          "meaning": "Find reasons that support your conclusion",
+          "example": "Evidence, examples, principles"
+        },
+        {
+          "symbol": "3",
+          "name": "Check the Logic",
+          "meaning": "Does the conclusion follow from premises?",
+          "example": "Valid or strongly supported"
+        },
+        {
+          "symbol": "4",
+          "name": "Consider Objections",
+          "meaning": "What would opponents say?",
+          "example": "Address counterarguments"
+        },
+        {
+          "symbol": "5",
+          "name": "Refine and Clarify",
+          "meaning": "Remove ambiguity and weak points",
+          "example": "Define key terms precisely"
+        }
+      ]
+    },
+    {
+      "type": "definition",
+      "term": "Linked vs. Convergent Arguments",
+      "definition": "In linked arguments, premises work together (each is necessary). In convergent arguments, each premise independently supports the conclusion."
+    },
+    {
+      "type": "example",
+      "title": "Linked Argument",
+      "premises": [
+        "All dogs are mammals.",
+        "Rex is a dog."
+      ],
+      "conclusion": "Therefore, Rex is a mammal.",
+      "note": "Both premises are needed - neither alone proves the conclusion. This is a linked structure."
+    },
+    {
+      "type": "example",
+      "title": "Convergent Argument",
+      "premises": [
+        "Exercise improves physical health.",
+        "Exercise reduces stress.",
+        "Exercise improves sleep quality."
+      ],
+      "conclusion": "Therefore, you should exercise regularly.",
+      "note": "Each premise independently supports the conclusion. Losing one doesn't destroy the argument."
+    },
+    {
+      "type": "paragraph",
+      "text": "Strong arguments often combine linked and convergent structures. Use linked reasoning when you need logical certainty, and convergent reasoning when building cumulative support."
+    },
+    {
+      "type": "quiz",
+      "question": "In a linked argument, what happens if one premise is removed?",
+      "options": [
+        "The argument becomes stronger",
+        "The argument still works fine",
+        "The argument no longer supports its conclusion",
+        "The argument becomes convergent"
+      ],
+      "correct": 2,
+      "explanation": "In linked arguments, premises work together like links in a chain. If you remove one link, the chain breaks - the remaining premises no longer support the conclusion. Compare this to convergent arguments where each premise provides independent support."
+    }
+  ],
+  "key_symbols": []
 }

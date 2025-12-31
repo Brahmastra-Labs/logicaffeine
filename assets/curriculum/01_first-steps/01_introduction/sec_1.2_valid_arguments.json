@@ -1,8 +1,82 @@
 {
   "id": "1.2",
-  "section": "Valid Arguments",
-  "type": "placeholder",
-  "difficulty": 1,
-  "topics": ["validity", "invalid arguments", "form vs content"],
-  "status": "planned"
+  "title": "Valid Arguments",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "An argument is **valid** if it would be contradictory (impossible) to have the premises all true and conclusion false. Validity doesn't say the premises *are* true, but only that the conclusion follows from them."
+    },
+    {
+      "type": "definition",
+      "term": "Valid Argument",
+      "definition": "An argument where, if the premises were all true, then the conclusion would have to be true. The form of the argument guarantees this relationship."
+    },
+    {
+      "type": "example",
+      "title": "A Valid Argument (Modus Tollens)",
+      "premises": [
+        "If you overslept, you'll be late.",
+        "You aren't late."
+      ],
+      "conclusion": "Therefore, you didn't oversleep.",
+      "note": "This argument is valid because of its form: If A then B, Not-B, therefore Not-A."
+    },
+    {
+      "type": "paragraph",
+      "text": "Our argument is valid because of its **logical form**: how it arranges logical notions like 'if-then' and content like 'You overslept.' We can display the form using symbols:"
+    },
+    {
+      "type": "symbols",
+      "title": "Argument Forms",
+      "symbols": [
+        {
+          "symbol": "A → B",
+          "name": "Conditional",
+          "meaning": "If A then B",
+          "example": "If you overslept → you'll be late"
+        },
+        {
+          "symbol": "¬B",
+          "name": "Negation",
+          "meaning": "Not B (B is false)",
+          "example": "You aren't late"
+        },
+        {
+          "symbol": "∴ ¬A",
+          "name": "Conclusion",
+          "meaning": "Therefore, not A",
+          "example": "You didn't oversleep"
+        }
+      ]
+    },
+    {
+      "type": "example",
+      "title": "An Invalid Argument (Affirming the Consequent)",
+      "premises": [
+        "If you overslept, you'll be late.",
+        "You are late."
+      ],
+      "conclusion": "Therefore, you overslept.",
+      "note": "INVALID! You might be late for another reason (car trouble, traffic, etc.). This fallacy is called 'affirming the consequent.'"
+    },
+    {
+      "type": "definition",
+      "term": "Logical Form",
+      "definition": "The abstract structure of an argument, ignoring the specific content. Replacing A and B with other content yields another valid (or invalid) argument of the same form."
+    },
+    {
+      "type": "quiz",
+      "question": "Which argument form is this: 'If A then B. Not B. Therefore, not A.'",
+      "options": [
+        "Modus Ponens (valid)",
+        "Modus Tollens (valid)",
+        "Affirming the Consequent (invalid)",
+        "Denying the Antecedent (invalid)"
+      ],
+      "correct": 1,
+      "explanation": "This is Modus Tollens - a valid argument form. If the conditional is true and the consequent is false, the antecedent must also be false."
+    }
+  ],
+  "key_symbols": ["→", "¬", "∴"]
 }

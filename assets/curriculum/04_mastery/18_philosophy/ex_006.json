@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.6",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Psychologism about logic holds that logical laws are:",
+  "options": [
+    "Abstract objects in a Platonic realm",
+    "Descriptions of how humans actually think",
+    "Divine commands about reasoning",
+    "Formal rules with no content"
+  ],
+  "correct": 1,
+  "hint": "This view was influentially criticized by Frege and Husserl.",
+  "explanation": "Psychologism claims logical laws are psychological generalizations about human reasoning. Frege and Husserl argued this confuses logic's normative force (how we SHOULD reason) with descriptive psychology (how we DO reason). Humans often reason illogically - that doesn't change logical truth.",
+  "visual_concept": "We commit fallacies all the time. If logic were just psychology, those fallacies would be 'logical' for us. But they're not - logic judges our reasoning."
+}

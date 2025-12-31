@@ -18,3 +18,4 @@ pub mod learn_sidebar;
 pub mod main_nav;
 pub mod module_tabs;
 pub mod symbol_dictionary;
+pub mod vocab_reference;

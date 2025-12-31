@@ -1,0 +1,16 @@
+{
+  "id": "D_1.5",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Three-valued logic adds what to the classical true/false?",
+  "options": [
+    "Probably true",
+    "Unknown/indeterminate",
+    "Partially true",
+    "Necessarily true"
+  ],
+  "correct": 1,
+  "hint": "Łukasiewicz introduced this to handle future contingents.",
+  "explanation": "Three-valued logics (like Łukasiewicz's) add a third value, often interpreted as 'unknown' or 'indeterminate'. This addresses puzzles like future contingents: 'There will be a sea battle tomorrow' is neither true nor false now - it's indeterminate until tomorrow arrives.",
+  "visual_concept": "True, False, and...? The third value captures statements that aren't yet determined or knowable."
+}

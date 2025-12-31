@@ -1,0 +1,16 @@
+{
+  "id": "F_1.16",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "\"If you really loved me, you would agree with me.\"",
+  "options": [
+    "Red Herring",
+    "Appeal to Emotion",
+    "False Dilemma",
+    "Circular Reasoning"
+  ],
+  "correct": 1,
+  "hint": "This argument uses emotional manipulation instead of logical reasoning.",
+  "explanation": "This is an Appeal to Emotion - using emotional manipulation (guilt, in this case) instead of providing logical reasons. Love and agreement are independent things; you can love someone while disagreeing with them. The argument bypasses reason entirely.",
+  "visual_concept": "Appeal to Emotion: Using a sad puppy face to win an argument instead of actual reasons. The heart is being targeted, not the brain."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "Q_1.7",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this negative universal claim:",
+  "template": "No {Noun:Plural} are {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "\"No A are B\" = \"All A are not-B\" = ∀x(A(x) → ¬B(x)). Universal with negated consequent."
+}

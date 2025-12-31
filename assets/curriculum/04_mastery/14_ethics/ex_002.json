@@ -1,0 +1,16 @@
+{
+  "id": "E_1.2",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "In standard deontic logic, O(p) → P(p) means:",
+  "options": [
+    "If something is possible, it's obligatory",
+    "If something is obligatory, it's permitted",
+    "If something is permitted, it's obligatory",
+    "Obligations can be impossible"
+  ],
+  "correct": 1,
+  "hint": "'Ought implies can' - you can't be obligated to do what's not allowed.",
+  "explanation": "O(p) → P(p) captures the intuition that obligations entail permissions. If you're obligated to do something, it must at least be permitted. You can't be required to do what's forbidden - that would be an incoherent normative system.",
+  "visual_concept": "If you MUST pay taxes, then paying taxes must be ALLOWED. Obligation is a stronger requirement than mere permission."
+}

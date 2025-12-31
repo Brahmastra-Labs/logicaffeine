@@ -1,8 +1,90 @@
 {
   "id": "4.3",
-  "section": "Inconsistency",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["logical consistency", "contradictions", "self-defeating arguments"],
-  "status": "planned"
+  "title": "Inconsistency",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A set of beliefs is **inconsistent** if they can't all be true together. Inconsistency is a serious problem in reasoning - if your beliefs contradict, at least one must be false."
+    },
+    {
+      "type": "definition",
+      "term": "Inconsistency",
+      "definition": "A set of statements is inconsistent if it's impossible for all of them to be true at the same time. Accepting all of them leads to a contradiction."
+    },
+    {
+      "type": "example",
+      "title": "An Inconsistent Set",
+      "premises": [
+        "All humans are mortal.",
+        "Socrates is human.",
+        "Socrates is not mortal."
+      ],
+      "conclusion": "These three statements cannot all be true together.",
+      "note": "If the first two are true, the third must be false. This is a logical inconsistency."
+    },
+    {
+      "type": "definition",
+      "term": "Self-Defeating Statement",
+      "definition": "A statement that undermines itself or makes itself false. The very act of stating it creates a contradiction."
+    },
+    {
+      "type": "example",
+      "title": "Self-Defeating Statements",
+      "premises": [
+        "\"I know that no one can know anything.\"",
+        "\"There is no truth.\"",
+        "\"You should never make generalizations.\""
+      ],
+      "conclusion": "Each statement contradicts itself when you apply it to itself.",
+      "note": "These are self-referentially inconsistent - they refute their own claims."
+    },
+    {
+      "type": "symbols",
+      "title": "Types of Inconsistency",
+      "symbols": [
+        {
+          "symbol": "Direct",
+          "name": "Explicit Contradiction",
+          "meaning": "P and not-P stated together",
+          "example": "\"It's raining\" and \"It's not raining\""
+        },
+        {
+          "symbol": "Implicit",
+          "name": "Hidden Contradiction",
+          "meaning": "Statements that imply a contradiction",
+          "example": "\"All ravens are black\" and \"My raven is white\""
+        },
+        {
+          "symbol": "Self-Refuting",
+          "name": "Statement Undermines Itself",
+          "meaning": "Applying statement to itself yields contradiction",
+          "example": "\"This sentence is false\""
+        },
+        {
+          "symbol": "Practical",
+          "name": "Action Contradicts Belief",
+          "meaning": "Behavior conflicts with stated views",
+          "example": "Saying \"lying is wrong\" while lying"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "When you discover inconsistency in your beliefs, you must revise. But which belief should you change? Usually, give up the one that's least well-supported by evidence or least central to your other beliefs."
+    },
+    {
+      "type": "quiz",
+      "question": "\"All generalizations are false.\" What's wrong with this statement?",
+      "options": [
+        "It's too vague to be meaningful",
+        "It's self-defeating - it's itself a generalization",
+        "It lacks supporting evidence",
+        "It commits the ad hominem fallacy"
+      ],
+      "correct": 1,
+      "explanation": "The statement 'All generalizations are false' is itself a generalization. If it's true, then it's false (because it's a generalization that would have to be false). This makes it self-defeating - it refutes itself."
+    }
+  ],
+  "key_symbols": []
 }

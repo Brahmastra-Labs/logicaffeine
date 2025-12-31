@@ -1,0 +1,16 @@
+{
+  "id": "D_1.8",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What is the 'sorites paradox' that motivates fuzzy logic?",
+  "options": [
+    "Self-referential statements cause contradictions",
+    "Adding one grain doesn't make a heap, yet many grains do",
+    "Some truths cannot be proven",
+    "Time creates logical paradoxes"
+  ],
+  "correct": 1,
+  "hint": "It involves vague predicates and seemingly valid reasoning that leads to absurdity.",
+  "explanation": "The sorites (heap) paradox: 1 grain isn't a heap. Adding 1 grain to a non-heap doesn't make a heap. Therefore, no number of grains is a heap! The problem is vagueness - 'heap' has no sharp boundary. Fuzzy logic models this gradual transition.",
+  "visual_concept": "1 grain: not a heap. 2 grains: not a heap. ... 1 million grains: still not a heap? The logic seems valid but the conclusion is absurd."
+}

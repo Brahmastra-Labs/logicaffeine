@@ -1,0 +1,16 @@
+{
+  "id": "H_1.5",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What was the goal of Russell and Whitehead's Principia Mathematica (1910-1913)?",
+  "options": [
+    "To prove all mathematical truths are undecidable",
+    "To derive all mathematics from pure logic",
+    "To create a new theory of relativity",
+    "To formalize quantum mechanics"
+  ],
+  "correct": 1,
+  "hint": "They attempted to show that mathematics is really just logic in disguise.",
+  "explanation": "Principia Mathematica attempted logicism - deriving all of mathematics from logical axioms alone. It famously took 362 pages to prove 1+1=2. Though Gödel later showed the complete program was impossible, it advanced logic and foundations of mathematics enormously.",
+  "visual_concept": "Imagine building all of arithmetic, algebra, and calculus from just a few logical rules. That was the dream of Principia Mathematica."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.7",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "The liar paradox ('This sentence is false') poses a problem for:",
+  "options": [
+    "The law of identity",
+    "Classical bivalence (true/false only)",
+    "The law of double negation",
+    "Modal logic"
+  ],
+  "correct": 1,
+  "hint": "If it's true, it's false; if it's false, it's true. What third option exists?",
+  "explanation": "The liar paradox challenges bivalence: if 'This sentence is false' is true, then it's false; if false, then true. Some responses: it's neither true nor false (gaps), it's both (gluts), or it's meaningless. This has driven development of non-classical logics.",
+  "visual_concept": "Classical logic: every proposition is true or false. The liar seems to be neither - or both. A crack in the foundation?"
+}

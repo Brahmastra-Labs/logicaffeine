@@ -1,0 +1,16 @@
+{
+  "id": "P_1.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "What rule allows us to derive Q from P and (P → Q)?",
+  "options": [
+    "Modus Tollens",
+    "Modus Ponens",
+    "Hypothetical Syllogism",
+    "Disjunctive Syllogism"
+  ],
+  "correct": 1,
+  "hint": "This is the most basic rule for conditionals - 'affirming the antecedent'.",
+  "explanation": "Modus Ponens (MP): From P and (P → Q), derive Q. If we have P (the antecedent is true) and P implies Q, then Q must be true. This is the foundation of logical inference.",
+  "visual_concept": "If it rains (P), the ground gets wet (Q). It's raining (P). Therefore? The ground is wet (Q)."
+}

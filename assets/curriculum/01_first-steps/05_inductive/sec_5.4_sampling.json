@@ -1,8 +1,84 @@
 {
   "id": "5.4",
-  "section": "Reasoning from a Sample",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["sampling", "generalization", "representativeness"],
-  "status": "planned"
+  "title": "Reasoning from Samples",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "We often need to draw conclusions about a whole **population** based on a **sample**. Polls, scientific studies, and quality control all rely on sampling. But samples can mislead if not done properly."
+    },
+    {
+      "type": "definition",
+      "term": "Inductive Generalization",
+      "definition": "An argument that reasons from a sample to a conclusion about the whole population. From 'X% of the sample has property P', we conclude 'approximately X% of the population has P'."
+    },
+    {
+      "type": "example",
+      "title": "Inductive Generalization",
+      "premises": [
+        "We survey 1,000 randomly selected voters.",
+        "62% say they support the policy."
+      ],
+      "conclusion": "Therefore, approximately 62% of all voters support the policy.",
+      "note": "The conclusion is probable, not certain. The actual population percentage might differ."
+    },
+    {
+      "type": "symbols",
+      "title": "Criteria for Good Samples",
+      "symbols": [
+        {
+          "symbol": "Random",
+          "name": "Each Has Equal Chance",
+          "meaning": "Every member equally likely to be selected",
+          "example": "Names drawn from a hat"
+        },
+        {
+          "symbol": "Large",
+          "name": "Sufficient Size",
+          "meaning": "Bigger samples reduce random error",
+          "example": "1000 is better than 100"
+        },
+        {
+          "symbol": "Representative",
+          "name": "Reflects Population",
+          "meaning": "Sample mirrors population diversity",
+          "example": "Includes all relevant subgroups"
+        },
+        {
+          "symbol": "Unbiased",
+          "name": "No Systematic Error",
+          "meaning": "Selection doesn't favor certain outcomes",
+          "example": "Not just interviewing friends"
+        }
+      ]
+    },
+    {
+      "type": "definition",
+      "term": "Selection Bias",
+      "definition": "A systematic error that occurs when the sample is not randomly selected, making it unrepresentative of the population."
+    },
+    {
+      "type": "example",
+      "title": "Selection Bias",
+      "premises": [
+        "A magazine surveys its readers about a policy.",
+        "75% of respondents oppose the policy."
+      ],
+      "conclusion": "We CANNOT conclude 75% of the general public opposes it.",
+      "note": "Magazine readers are self-selected and may not represent the general population."
+    },
+    {
+      "type": "quiz",
+      "question": "A website poll shows 80% support for a candidate. Why might this be unreliable?",
+      "options": [
+        "80% is too high to be accurate",
+        "Websites can't conduct polls",
+        "Website visitors are self-selected and may not represent all voters",
+        "The sample size is too small"
+      ],
+      "correct": 2,
+      "explanation": "Website visitors choose to visit (self-selection) and may share characteristics that differ from the general population. They might skew younger, more tech-savvy, or have particular interests. This creates selection bias that can make the sample unrepresentative."
+    }
+  ],
+  "key_symbols": []
 }

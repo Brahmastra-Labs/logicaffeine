@@ -1,0 +1,16 @@
+{
+  "id": "I_1.10",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "To survey student opinions, you only ask students in the library at 2am. What problem affects your sample?",
+  "options": [
+    "Sample is too large",
+    "Selection bias",
+    "Confirmation bias",
+    "Circular reasoning"
+  ],
+  "correct": 1,
+  "hint": "Who studies in the library at 2am? Are they representative of all students?",
+  "explanation": "This is selection bias - your sample isn't representative. Students at the library at 2am are probably more studious, more stressed about exams, or have different schedules than average students. A good sample should represent the whole population you're studying.",
+  "visual_concept": "Sampling: Trying to learn about fish in a pond but only fishing at the surface. You'll miss all the bottom-dwellers!"
+}

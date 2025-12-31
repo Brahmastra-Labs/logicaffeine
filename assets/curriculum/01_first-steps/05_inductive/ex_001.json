@@ -1,0 +1,16 @@
+{
+  "id": "I_1.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "What is the key difference between deductive and inductive reasoning?",
+  "options": [
+    "Deductive reasoning is always correct; inductive is always wrong",
+    "Deductive conclusions follow necessarily; inductive conclusions are probable",
+    "Deductive uses numbers; inductive uses words",
+    "Deductive is used in science; inductive is used in law"
+  ],
+  "correct": 1,
+  "hint": "Think about the strength of the connection between premises and conclusion.",
+  "explanation": "In deductive reasoning, if the premises are true, the conclusion MUST be true. In inductive reasoning, true premises make the conclusion PROBABLE but not certain. Both are valuable, but they offer different levels of certainty.",
+  "visual_concept": "Deductive: A locked door - if the key fits (premises true), it WILL open. Inductive: An umbrella - if it's cloudy, rain is LIKELY but not guaranteed."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "E_1.1",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Deontic logic is the logic of:",
+  "options": [
+    "Time and tense",
+    "Obligation, permission, and prohibition",
+    "Knowledge and belief",
+    "Possibility and necessity"
+  ],
+  "correct": 1,
+  "hint": "The Greek 'deon' means 'that which is binding' - duty.",
+  "explanation": "Deontic logic formalizes normative concepts: Obligatory (O), Permitted (P), Forbidden (F). Just as modal logic has □ for necessity, deontic logic has O for 'it ought to be that'. This allows rigorous analysis of moral and legal reasoning.",
+  "visual_concept": "O(p) = it's obligatory that p. P(p) = it's permitted that p. F(p) = it's forbidden that p. Ethics becomes formal!"
+}

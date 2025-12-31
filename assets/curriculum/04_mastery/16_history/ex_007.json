@@ -1,0 +1,16 @@
+{
+  "id": "H_1.7",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "The Stoics (3rd century BCE) developed which type of logic?",
+  "options": [
+    "Syllogistic logic",
+    "Propositional logic",
+    "Modal logic",
+    "Fuzzy logic"
+  ],
+  "correct": 1,
+  "hint": "Unlike Aristotle's term logic, they focused on whole propositions and connectives.",
+  "explanation": "The Stoics developed propositional logic, studying how whole statements combine with connectives like 'if...then', 'and', 'or'. While Aristotle focused on terms (subjects and predicates), Stoics analyzed the logical relationships between complete propositions.",
+  "visual_concept": "Aristotle: 'All S are P'. Stoics: 'If P then Q, P, therefore Q'. Two different ways to analyze arguments!"
+}

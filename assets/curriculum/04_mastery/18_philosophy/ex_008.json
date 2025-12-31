@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.8",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "What is the 'normativity' of logic?",
+  "options": [
+    "Logic tells us what we SHOULD believe and infer",
+    "Logic describes normal human reasoning patterns",
+    "Logic creates social norms",
+    "Logic is only valid in normal conditions"
+  ],
+  "correct": 1,
+  "hint": "Logic doesn't just describe - it prescribes and evaluates our reasoning.",
+  "explanation": "Logic's normativity means it provides standards for how we OUGHT to reason, not just descriptions of how we do reason. If you believe P and P→Q, you SHOULD believe Q - logic evaluates and guides reasoning. How logic gets this authority is a deep philosophical puzzle.",
+  "visual_concept": "Logic as a judge: 'Your reasoning is valid' or 'That's a fallacy.' Not just observing thought, but evaluating it."
+}

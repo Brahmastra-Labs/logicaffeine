@@ -1,0 +1,16 @@
+{
+  "id": "R_1.7",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "An equivalence relation must be:",
+  "options": [
+    "Reflexive, symmetric, and transitive",
+    "Reflexive and symmetric only",
+    "Symmetric and transitive only",
+    "Transitive only"
+  ],
+  "correct": 0,
+  "hint": "Equivalence relations partition a set into equivalence classes.",
+  "explanation": "An equivalence relation requires all three properties: Reflexive (∀x Rxx), Symmetric (∀x∀y(Rxy → Ryx)), and Transitive (∀x∀y∀z((Rxy ∧ Ryz) → Rxz)). Examples: 'same age as', 'same color as', equality itself.",
+  "visual_concept": "Equivalence relation divides things into groups. Everything in the same group is equivalent. = is the canonical example."
+}

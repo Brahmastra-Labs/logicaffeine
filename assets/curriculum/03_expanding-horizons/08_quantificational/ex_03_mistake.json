@@ -1,5 +1,5 @@
 {
-  "id": "ex_03",
+  "id": "Q_1.6",
   "type": "multiple_choice",
   "difficulty": 3,
   "prompt": "Why is ∀x(Dog(x) ∧ Barks(x)) WRONG for 'All dogs bark'?",

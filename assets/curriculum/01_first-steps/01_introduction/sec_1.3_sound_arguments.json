@@ -1,8 +1,77 @@
 {
   "id": "1.3",
-  "section": "Sound Arguments",
-  "type": "placeholder",
-  "difficulty": 1,
-  "topics": ["soundness", "truth of premises", "valid + true premises"],
-  "status": "planned"
+  "title": "Sound Arguments",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **sound** argument is one that is both valid AND has true premises. Soundness guarantees that the conclusion is actually true - it's the gold standard for arguments."
+    },
+    {
+      "type": "definition",
+      "term": "Sound Argument",
+      "definition": "An argument that is (1) valid (the conclusion follows from the premises) AND (2) has all true premises. A sound argument guarantees a true conclusion."
+    },
+    {
+      "type": "example",
+      "title": "A Sound Argument",
+      "premises": [
+        "All humans are mortal. (TRUE - empirically verified)",
+        "Socrates was a human. (TRUE - historically verified)"
+      ],
+      "conclusion": "Therefore, Socrates was mortal. (TRUE - guaranteed!)",
+      "note": "This argument is sound because: (1) The form is valid (All A are B, X is A, therefore X is B), and (2) both premises are actually true."
+    },
+    {
+      "type": "example",
+      "title": "Valid but Unsound",
+      "premises": [
+        "All birds can fly. (FALSE - penguins, ostriches, kiwis can't)",
+        "Tweety is a bird. (TRUE)"
+      ],
+      "conclusion": "Therefore, Tweety can fly. (UNCERTAIN)",
+      "note": "The form is valid, but the first premise is false, making the argument unsound. We can't trust the conclusion."
+    },
+    {
+      "type": "paragraph",
+      "text": "Logic focuses primarily on **validity** because we can analyze argument structure without knowing whether premises are actually true. Determining truth often requires empirical investigation - science, history, observation."
+    },
+    {
+      "type": "symbols",
+      "title": "Validity vs Soundness",
+      "symbols": [
+        {
+          "symbol": "✓",
+          "name": "Valid Form",
+          "meaning": "Conclusion follows from premises",
+          "example": "Structural correctness"
+        },
+        {
+          "symbol": "✓✓",
+          "name": "Sound",
+          "meaning": "Valid + True premises",
+          "example": "Guaranteed true conclusion"
+        },
+        {
+          "symbol": "✗",
+          "name": "Invalid",
+          "meaning": "Conclusion doesn't follow",
+          "example": "Bad argument structure"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "An argument has a valid form but one false premise. What do we call this argument?",
+      "options": [
+        "Sound",
+        "Valid but unsound",
+        "Invalid",
+        "Contradictory"
+      ],
+      "correct": 1,
+      "explanation": "A valid argument with at least one false premise is called 'valid but unsound.' The conclusion may or may not be true - we just can't trust the argument to guarantee it."
+    }
+  ],
+  "key_symbols": ["→", "∧"]
 }

@@ -1,0 +1,16 @@
+{
+  "id": "M_1.6",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "The Löwenheim-Skolem theorem tells us that:",
+  "options": [
+    "All logics are equivalent",
+    "If a first-order theory has an infinite model, it has models of all infinite cardinalities",
+    "Every theory is complete",
+    "Every finite set of axioms is consistent"
+  ],
+  "correct": 1,
+  "hint": "This theorem reveals surprising facts about the sizes of models.",
+  "explanation": "Löwenheim-Skolem: If a first-order theory has an infinite model, it has models of every infinite cardinality (both larger and smaller). This creates Skolem's Paradox: set theory, which talks about uncountable sets, has a countable model!",
+  "visual_concept": "FOL can't pin down the 'size' of infinite models. A theory might 'intend' to describe the real numbers but has models the size of the integers."
+}

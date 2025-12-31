@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.2",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Logical realism holds that logical truths are:",
+  "options": [
+    "Human conventions that could be different",
+    "Objective facts independent of human thought",
+    "Psychological generalizations about reasoning",
+    "Useful fictions with no real basis"
+  ],
+  "correct": 1,
+  "hint": "Realists think we discover logical truths, not invent them.",
+  "explanation": "Logical realism holds that logical truths are objective, mind-independent facts. We discover that 'P ∨ ¬P' is true; we don't make it true by convention. Plato's theory of Forms is an early version - logical truths exist in an abstract realm we access through reason.",
+  "visual_concept": "Mathematical/logical truths as eternal: 2+2=4 was true before humans, and would be true if we never existed."
+}

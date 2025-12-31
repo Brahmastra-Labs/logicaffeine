@@ -1,0 +1,90 @@
+{
+  "id": "3.2",
+  "title": "Lexical Definitions",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **definition** is a rule of paraphrase intended to explain meaning. It tells us how to replace one word or phrase with another that means the same thing."
+    },
+    {
+      "type": "definition",
+      "term": "Lexical Definition",
+      "definition": "A definition that explains the current, commonly accepted usage of a word. It describes how people actually use the term."
+    },
+    {
+      "type": "example",
+      "title": "A Correct Lexical Definition",
+      "premises": [
+        "'Bachelor' means 'unmarried man'",
+        "We can interchange these in sentences:"
+      ],
+      "conclusion": "'Al is a bachelor' = 'Al is an unmarried man'",
+      "note": "These mean the same thing, so the definition is correct."
+    },
+    {
+      "type": "definition",
+      "term": "Interchange Test",
+      "definition": "To test a lexical definition claiming A means B: try switching A and B in various sentences. If any resulting pair doesn't mean the same thing, the definition is incorrect."
+    },
+    {
+      "type": "example",
+      "title": "An Incorrect Definition",
+      "premises": [
+        "Proposed: 'Bachelor' means 'happy man'",
+        "Testing: 'Al is a bachelor' vs 'Al is a happy man'"
+      ],
+      "conclusion": "These don't mean the same thing - Al could be an unhappy bachelor!",
+      "note": "The definition fails the interchange test and is therefore incorrect."
+    },
+    {
+      "type": "symbols",
+      "title": "Rules for Good Lexical Definitions",
+      "symbols": [
+        {
+          "symbol": "1",
+          "name": "Not too broad/narrow",
+          "meaning": "Must cover exactly the right cases",
+          "example": "'man' is too broad for 'bachelor'"
+        },
+        {
+          "symbol": "2",
+          "name": "Avoid circularity",
+          "meaning": "Don't use the word in its own definition",
+          "example": "'true' = 'known to be true' is circular"
+        },
+        {
+          "symbol": "3",
+          "name": "Match vagueness",
+          "meaning": "Don't be more precise than the original",
+          "example": "'over 18' is too precise for 'man'"
+        },
+        {
+          "symbol": "4",
+          "name": "Match emotional tone",
+          "meaning": "Keep neutral if original is neutral",
+          "example": "Don't add 'fortunate' or 'unfortunate'"
+        },
+        {
+          "symbol": "5",
+          "name": "Essential properties only",
+          "meaning": "Include only what's necessary to the meaning",
+          "example": "Don't add 'lives on Earth'"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "What's wrong with defining 'game' as 'competition between two parties with winning and losing'?",
+      "options": [
+        "It's too vague",
+        "It's too broad (includes wars) and too narrow (excludes solitaire)",
+        "It's circular",
+        "It has the wrong emotional tone"
+      ],
+      "correct": 1,
+      "explanation": "This definition is both too broad (a military battle would count as a 'game') and too narrow (solitaire is a game but has no competitor). A good definition must cover exactly the right cases."
+    }
+  ],
+  "key_symbols": []
+}

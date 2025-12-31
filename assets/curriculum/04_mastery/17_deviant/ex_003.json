@@ -1,0 +1,16 @@
+{
+  "id": "D_1.3",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "In fuzzy logic, what values can a proposition have?",
+  "options": [
+    "Only true (1) or false (0)",
+    "Any real number between 0 and 1",
+    "True, false, or unknown",
+    "Necessary, possible, or impossible"
+  ],
+  "correct": 1,
+  "hint": "Think about vague predicates like 'tall' - is someone exactly tall or not tall?",
+  "explanation": "Fuzzy logic allows truth values anywhere in [0,1], modeling vagueness. 'John is tall' might be 0.7 true if John is fairly tall but not extremely so. This better captures natural language predicates that have no sharp boundary.",
+  "visual_concept": "Classical: the glass is full (1) or not full (0). Fuzzy: the glass is 0.6 full - partial truth!"
+}

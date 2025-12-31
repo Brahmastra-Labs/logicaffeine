@@ -1,0 +1,16 @@
+{
+  "id": "F_1.15",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "\"You can't prove that ghosts don't exist, therefore they must exist.\"",
+  "options": [
+    "Circular Reasoning",
+    "Appeal to Ignorance",
+    "False Cause",
+    "Hasty Generalization"
+  ],
+  "correct": 1,
+  "hint": "The argument claims something is true because it hasn't been proven false.",
+  "explanation": "This is an Appeal to Ignorance (argumentum ad ignorantiam) - claiming something is true because it hasn't been proven false (or vice versa). The absence of evidence against something is not the same as evidence for it. The burden of proof lies with whoever makes the positive claim.",
+  "visual_concept": "Appeal to Ignorance: 'You can't prove there ISN'T an invisible dragon in my garage, so there must be one!' Lack of disproof ≠ proof."
+}

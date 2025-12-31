@@ -1,0 +1,16 @@
+{
+  "id": "H_1.8",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Who invented truth tables as we know them today?",
+  "options": [
+    "Aristotle",
+    "George Boole",
+    "Ludwig Wittgenstein and Emil Post",
+    "Bertrand Russell"
+  ],
+  "correct": 2,
+  "hint": "They independently developed this method around 1920-1921.",
+  "explanation": "Ludwig Wittgenstein (in Tractatus Logico-Philosophicus) and Emil Post independently developed the modern truth table method around 1920-1921. This provided a mechanical way to determine whether any propositional formula is a tautology, contradiction, or contingent.",
+  "visual_concept": "Before truth tables, you had to reason about validity. After: just fill in a table systematically. Logic became more mechanical."
+}

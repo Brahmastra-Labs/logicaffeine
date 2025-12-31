@@ -1,0 +1,16 @@
+{
+  "id": "M_1.1",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What does it mean for a logical system to be SOUND?",
+  "options": [
+    "Every valid argument can be proven",
+    "Every provable argument is valid",
+    "The system has no contradictions",
+    "The system is complete"
+  ],
+  "correct": 1,
+  "hint": "Soundness is about the proof system not proving false things.",
+  "explanation": "Soundness: If ⊢ φ (φ is provable) then ⊨ φ (φ is valid). The proof system never lies - it only proves things that are actually true. Sound systems are trustworthy: a proof guarantees truth.",
+  "visual_concept": "Soundness: Everything inside the 'provable' circle is also inside the 'true' circle. We never prove false things."
+}

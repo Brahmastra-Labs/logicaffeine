@@ -1,0 +1,16 @@
+{
+  "id": "P_1.9",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "In a truth tree, if a branch contains both P and ¬P, the branch is:",
+  "options": [
+    "Complete",
+    "Open",
+    "Closed",
+    "Valid"
+  ],
+  "correct": 2,
+  "hint": "A contradiction on a branch means that path is impossible.",
+  "explanation": "A branch with a contradiction (P and ¬P) is CLOSED, marked with ×. This shows that particular combination of assumptions leads to impossibility. If ALL branches close, the original argument is valid.",
+  "visual_concept": "Truth tree branches are paths. A contradiction is a dead end - mark it with × and stop exploring that path."
+}

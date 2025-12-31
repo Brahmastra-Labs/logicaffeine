@@ -1,0 +1,16 @@
+{
+  "id": "Q_2.3",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "\"There is exactly one king of France\" requires which additional logical concept beyond ∃?",
+  "options": [
+    "Modal necessity",
+    "Identity (=)",
+    "Temporal operators",
+    "Second-order quantification"
+  ],
+  "correct": 1,
+  "hint": "To say there's EXACTLY one, we need to say any two things with that property are the same thing.",
+  "explanation": "Unique existence ∃!x requires identity: ∃x(King(x) ∧ ∀y(King(y) → y=x)). There exists an x that's a king, AND any y that's a king is identical to x. Russell's famous definite descriptions use this pattern.",
+  "visual_concept": "∃ = at least one circle exists. ∃! = exactly one circle, and if you find another, it's the same circle."
+}

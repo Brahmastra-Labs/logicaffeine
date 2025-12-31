@@ -1,0 +1,16 @@
+{
+  "id": "E_1.5",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What is the relationship between F(p) and O(¬p)?",
+  "options": [
+    "They are contradictory",
+    "They are equivalent",
+    "F(p) implies O(¬p) but not vice versa",
+    "They are unrelated concepts"
+  ],
+  "correct": 1,
+  "hint": "Forbidden means obligated not to do.",
+  "explanation": "F(p) ≡ O(¬p): Something being forbidden is equivalent to its negation being obligatory. If lying is forbidden, then not-lying is obligatory. Similarly, P(p) ≡ ¬O(¬p): permission is absence of obligation to the contrary.",
+  "visual_concept": "Forbidden = must not. Obligatory = must. So forbidden(p) = must(not-p). Different words, same logical content."
+}

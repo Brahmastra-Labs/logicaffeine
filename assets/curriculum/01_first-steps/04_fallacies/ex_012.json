@@ -1,0 +1,16 @@
+{
+  "id": "F_1.12",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"I met two rude people from that city, so everyone from there must be rude.\"",
+  "options": [
+    "Hasty Generalization",
+    "Ad Hominem",
+    "False Dilemma",
+    "Appeal to Common Belief"
+  ],
+  "correct": 0,
+  "hint": "The conclusion is based on too small a sample size.",
+  "explanation": "This is a Hasty Generalization - drawing a broad conclusion from insufficient evidence. Two people is far too small a sample to make claims about an entire city's population. We'd need much more data to draw such a conclusion.",
+  "visual_concept": "Hasty Generalization: Tasting one grape from a vineyard and declaring you know exactly how every grape in the field tastes."
+}

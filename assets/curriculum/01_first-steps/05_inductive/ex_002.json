@@ -1,0 +1,16 @@
+{
+  "id": "I_1.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Every swan I've ever seen is white. Therefore, all swans are white.\" What type of reasoning is this?",
+  "options": [
+    "Deductive reasoning",
+    "Inductive generalization",
+    "Analogical reasoning",
+    "Abductive reasoning"
+  ],
+  "correct": 1,
+  "hint": "We're going from specific observations to a general conclusion.",
+  "explanation": "This is inductive generalization - drawing a general conclusion from specific observations. Note: This was a famous example of how induction can fail! Black swans were eventually discovered in Australia, proving the conclusion wrong despite many observations.",
+  "visual_concept": "Inductive Generalization: Seeing many white dots and concluding ALL dots must be white, even those you haven't seen yet."
+}

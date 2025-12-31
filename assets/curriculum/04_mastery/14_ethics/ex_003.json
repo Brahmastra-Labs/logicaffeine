@@ -1,0 +1,16 @@
+{
+  "id": "E_1.3",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What is a 'contrary-to-duty obligation'?",
+  "options": [
+    "An obligation that contradicts another obligation",
+    "An obligation that applies when you've violated a primary duty",
+    "An obligation that is impossible to fulfill",
+    "An obligation that you can choose to ignore"
+  ],
+  "correct": 1,
+  "hint": "If you fail your primary duty, what should you do then?",
+  "explanation": "Contrary-to-duty (CTD) obligations specify what you ought to do when you've already violated a primary duty. Example: You ought not steal. But IF you steal, you ought to return what you stole. CTD obligations pose challenges for deontic logic's formalization.",
+  "visual_concept": "Primary: Don't break promises. CTD: If you break a promise, apologize. Second-level duties for when first-level fails."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "F_1.13",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "\"You say we should have stricter gun laws. But Hitler also supported gun control. Do you want to be like Hitler?\"",
+  "options": [
+    "Straw Man",
+    "Guilt by Association",
+    "False Dilemma",
+    "Red Herring"
+  ],
+  "correct": 1,
+  "hint": "The argument tries to discredit a position by associating it with a disliked person.",
+  "explanation": "This is Guilt by Association (a form of Ad Hominem) - attempting to discredit an idea by associating it with a negative figure. The quality of an argument doesn't depend on who else held similar views. Even bad people can occasionally have reasonable positions.",
+  "visual_concept": "Guilt by Association: 'Hitler also drank water, so drinking water must be evil!' The connection is irrelevant."
+}

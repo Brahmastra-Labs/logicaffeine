@@ -1,0 +1,16 @@
+{
+  "id": "D_1.4",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Paraconsistent logic modifies which classical principle?",
+  "options": [
+    "Law of identity",
+    "Law of non-contradiction",
+    "Law of excluded middle",
+    "Transitivity"
+  ],
+  "correct": 1,
+  "hint": "These logics allow contradictions without everything becoming provable.",
+  "explanation": "Paraconsistent logics reject ex falso quodlibet (from a contradiction, anything follows). They allow inconsistent but non-trivial theories - useful for reasoning with contradictory information, like legal databases or evolving scientific theories where contradictions exist but we still need to reason.",
+  "visual_concept": "Classical: one contradiction, and EVERYTHING is true (explosion). Paraconsistent: contradictions are contained, reasoning continues."
+}

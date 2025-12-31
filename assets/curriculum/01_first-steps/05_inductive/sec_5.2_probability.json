@@ -1,8 +1,79 @@
 {
   "id": "5.2",
-  "section": "Probability Calculations",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["basic probability", "conditional probability", "Bayes theorem"],
-  "status": "planned"
+  "title": "Probability Calculations",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "To evaluate inductive arguments precisely, we need to understand **probability**. Probabilities range from 0 (impossible) to 1 (certain), and follow specific mathematical rules."
+    },
+    {
+      "type": "definition",
+      "term": "Probability",
+      "definition": "A number from 0 to 1 representing how likely an event is. P(A) = 0 means A is impossible; P(A) = 1 means A is certain; P(A) = 0.5 means A is equally likely to happen or not."
+    },
+    {
+      "type": "symbols",
+      "title": "Basic Probability Rules",
+      "symbols": [
+        {
+          "symbol": "P(A or B)",
+          "name": "Addition Rule",
+          "meaning": "P(A) + P(B) - P(A and B)",
+          "example": "Dice: P(2 or even) = 1/6 + 3/6 - 1/6 = 3/6"
+        },
+        {
+          "symbol": "P(A and B)",
+          "name": "Multiplication Rule",
+          "meaning": "P(A) × P(B|A)",
+          "example": "Cards: P(two hearts) = 13/52 × 12/51"
+        },
+        {
+          "symbol": "P(not A)",
+          "name": "Complement Rule",
+          "meaning": "1 - P(A)",
+          "example": "P(not heads) = 1 - 0.5 = 0.5"
+        },
+        {
+          "symbol": "P(B|A)",
+          "name": "Conditional Probability",
+          "meaning": "Probability of B given that A occurred",
+          "example": "P(rain|clouds) is higher than P(rain)"
+        }
+      ]
+    },
+    {
+      "type": "definition",
+      "term": "Conditional Probability",
+      "definition": "P(B|A) is the probability of B given that A has occurred. It equals P(A and B) / P(A). This is crucial for updating beliefs based on new evidence."
+    },
+    {
+      "type": "example",
+      "title": "Conditional Probability",
+      "premises": [
+        "A bag has 3 red and 2 blue marbles.",
+        "You draw one marble and it's red (A).",
+        "What's the probability the next draw is red (B)?"
+      ],
+      "conclusion": "P(B|A) = 2/4 = 0.5 (now 2 red out of 4 remaining)",
+      "note": "The first draw changes the probabilities for the second draw."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Independent events** don't affect each other's probabilities. Coin flips are independent - getting heads doesn't change the probability of the next flip. Many real-world events are NOT independent."
+    },
+    {
+      "type": "quiz",
+      "question": "If P(rain) = 0.3, what is P(no rain)?",
+      "options": [
+        "0.3",
+        "0.7",
+        "0.6",
+        "Cannot be determined"
+      ],
+      "correct": 1,
+      "explanation": "By the complement rule, P(not A) = 1 - P(A). So P(no rain) = 1 - 0.3 = 0.7. The probabilities of an event and its negation must sum to 1."
+    }
+  ],
+  "key_symbols": []
 }

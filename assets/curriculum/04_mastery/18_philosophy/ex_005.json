@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.5",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What is logical pluralism?",
+  "options": [
+    "The view that different people have different logics",
+    "The view that multiple logics can be equally correct",
+    "The view that logic changes over time",
+    "The view that logic is subjective"
+  ],
+  "correct": 1,
+  "hint": "It's about whether there's ONE true logic or several legitimate alternatives.",
+  "explanation": "Logical pluralism holds that there's more than one correct logic - classical, intuitionistic, and relevance logic might all be valid for different purposes or domains. There's no single 'true' logic; different logics capture different aspects of valid reasoning.",
+  "visual_concept": "Not 'which logic is THE right one?' but 'which logic is right FOR THIS PURPOSE?' - like different tools for different jobs."
+}

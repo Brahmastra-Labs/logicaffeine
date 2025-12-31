@@ -1,0 +1,16 @@
+{
+  "id": "I_1.11",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "\"I know other people have minds because they behave like me, and I have a mind.\" What type of argument is this?",
+  "options": [
+    "Inductive generalization",
+    "Statistical syllogism",
+    "Argument from analogy for other minds",
+    "Abductive reasoning"
+  ],
+  "correct": 2,
+  "hint": "We're inferring something about others based on similarity to ourselves.",
+  "explanation": "This is the classic argument from analogy for other minds. We observe that others behave similarly to us, and since we know our similar behavior is caused by having a mind, we infer they probably have minds too. It's philosophically significant but not deductively certain.",
+  "visual_concept": "Looking in a mirror: If I wince when hurt and so do you, and MY wincing comes from feeling pain, YOUR wincing probably does too."
+}

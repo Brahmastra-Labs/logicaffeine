@@ -1,8 +1,87 @@
 {
   "id": "5.7",
-  "section": "Mill's Methods",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["method of agreement", "method of difference", "joint method", "method of residues", "method of concomitant variation"],
-  "status": "planned"
+  "title": "Mill's Methods",
+  "order": 7,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "John Stuart Mill formalized five methods for discovering causal connections. These are still used in scientific reasoning today."
+    },
+    {
+      "type": "definition",
+      "term": "Mill's Methods",
+      "definition": "Five systematic methods for identifying causes: Agreement, Difference, Joint Method, Residues, and Concomitant Variation."
+    },
+    {
+      "type": "symbols",
+      "title": "The Five Methods",
+      "symbols": [
+        {
+          "symbol": "Agreement",
+          "name": "Common Factor",
+          "meaning": "If A is present whenever effect E occurs, A may cause E",
+          "example": "All sick patients ate the salad"
+        },
+        {
+          "symbol": "Difference",
+          "name": "Absent Factor",
+          "meaning": "If A is the only difference between E occurring and not, A causes E",
+          "example": "Control group without treatment didn't improve"
+        },
+        {
+          "symbol": "Joint",
+          "name": "Agreement + Difference",
+          "meaning": "Combine both methods for stronger evidence",
+          "example": "Present when E, absent when not-E"
+        },
+        {
+          "symbol": "Residues",
+          "name": "Remaining Cause",
+          "meaning": "Subtract known causes; remainder explains the rest",
+          "example": "Planet's orbit differs from prediction - unknown mass?"
+        },
+        {
+          "symbol": "Variation",
+          "name": "Proportional Change",
+          "meaning": "If A varies with E, A probably causes E",
+          "example": "More fertilizer → more growth"
+        }
+      ]
+    },
+    {
+      "type": "example",
+      "title": "Method of Difference",
+      "premises": [
+        "Two groups are identical in all respects.",
+        "One group receives treatment A; the other doesn't.",
+        "Only the treated group shows effect E."
+      ],
+      "conclusion": "Treatment A causes effect E.",
+      "note": "This is the logic behind controlled experiments and clinical trials."
+    },
+    {
+      "type": "example",
+      "title": "Method of Agreement",
+      "premises": [
+        "Five people got food poisoning at a party.",
+        "They ate different main courses, different desserts.",
+        "But they ALL ate the Caesar salad."
+      ],
+      "conclusion": "The Caesar salad probably caused the food poisoning.",
+      "note": "The common factor in all cases points to the cause."
+    },
+    {
+      "type": "quiz",
+      "question": "You want to test if a new drug works. You give it to one group and not another, keeping everything else the same. Which method is this?",
+      "options": [
+        "Method of Agreement",
+        "Method of Difference",
+        "Method of Residues",
+        "Method of Concomitant Variation"
+      ],
+      "correct": 1,
+      "explanation": "This is the Method of Difference. The only difference between the groups is whether they receive the drug. If only the drug group improves, the drug is the likely cause. This is the foundation of controlled experiments."
+    }
+  ],
+  "key_symbols": []
 }

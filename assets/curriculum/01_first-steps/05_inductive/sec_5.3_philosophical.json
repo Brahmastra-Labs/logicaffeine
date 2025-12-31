@@ -1,8 +1,79 @@
 {
   "id": "5.3",
-  "section": "Philosophical Questions",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["nature of probability", "frequentist vs subjective", "philosophical foundations"],
-  "status": "planned"
+  "title": "What is Probability?",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "We know how to calculate probabilities, but what does it **mean** to say something has probability 0.7? There are several philosophical interpretations."
+    },
+    {
+      "type": "definition",
+      "term": "Frequentist Probability",
+      "definition": "Probability is the long-run relative frequency of an event. If a coin comes up heads 50% of the time over many flips, its probability of heads is 0.5."
+    },
+    {
+      "type": "example",
+      "title": "Frequentist View",
+      "premises": [
+        "We flip a coin 10,000 times.",
+        "It lands heads 4,998 times.",
+        "The relative frequency is 4998/10000 = 0.4998"
+      ],
+      "conclusion": "The probability of heads is approximately 0.5",
+      "note": "Frequentists say probability IS this long-run frequency."
+    },
+    {
+      "type": "definition",
+      "term": "Subjective (Bayesian) Probability",
+      "definition": "Probability measures degree of belief. Your probability for an event is how strongly you believe it will occur, calibrated by the evidence you have."
+    },
+    {
+      "type": "symbols",
+      "title": "Interpretations of Probability",
+      "symbols": [
+        {
+          "symbol": "Frequentist",
+          "name": "Long-Run Frequency",
+          "meaning": "How often it happens in repeated trials",
+          "example": "Die shows 6 in 1/6 of rolls"
+        },
+        {
+          "symbol": "Subjective",
+          "name": "Degree of Belief",
+          "meaning": "How confident you are",
+          "example": "I'm 70% sure it will rain"
+        },
+        {
+          "symbol": "Propensity",
+          "name": "Physical Tendency",
+          "meaning": "Object's disposition to produce outcome",
+          "example": "Coin has 0.5 propensity for heads"
+        },
+        {
+          "symbol": "Classical",
+          "name": "Ratio of Favorable",
+          "meaning": "Favorable outcomes / total outcomes",
+          "example": "3 of 6 die faces are even"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The frequentist view has trouble with single events (What's the probability THIS particular surgery succeeds?). The subjective view handles these but faces questions about objectivity. Each interpretation has strengths and weaknesses."
+    },
+    {
+      "type": "quiz",
+      "question": "According to the frequentist view, what would it mean to say 'the probability of rain tomorrow is 0.7'?",
+      "options": [
+        "I'm 70% confident it will rain",
+        "In similar conditions, it rains about 70% of the time",
+        "70% of the sky will be covered in rain clouds",
+        "The weather prediction is 70% accurate"
+      ],
+      "correct": 1,
+      "explanation": "Frequentists interpret probability as long-run frequency. So 0.7 probability of rain means that in the long run, under similar conditions, it rains about 70% of the time. This is different from the subjective view, which would interpret it as a degree of belief."
+    }
+  ],
+  "key_symbols": []
 }
