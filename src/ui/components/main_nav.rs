@@ -38,8 +38,6 @@ impl ActivePage {
             Route::Home {} => ActivePage::Home,
             Route::Guide {} => ActivePage::Guide,
             Route::Learn {} => ActivePage::Learn,
-            Route::Lesson { .. } => ActivePage::Learn,
-            Route::Review {} => ActivePage::Learn,
             Route::Studio {} => ActivePage::Studio,
             Route::Workspace { .. } => ActivePage::Studio,
             Route::Roadmap {} => ActivePage::Roadmap,
@@ -66,24 +64,24 @@ const MAIN_NAV_STYLE: &str = r#"
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
+    padding: var(--spacing-lg) var(--spacing-xl);
     max-width: 1280px;
     margin: 0 auto;
-    gap: 16px;
+    gap: var(--spacing-lg);
 }
 
 .main-nav-brand {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--spacing-md);
     text-decoration: none;
-    color: #e5e7eb;
+    color: var(--text-primary);
 }
 
 .main-nav-logo {
     width: 36px;
     height: 36px;
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     background:
         radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
         radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
@@ -101,17 +99,17 @@ const MAIN_NAV_STYLE: &str = r#"
 .main-nav-brand-name {
     font-weight: 800;
     letter-spacing: -0.5px;
-    font-size: 14px;
+    font-size: var(--font-body-md);
 }
 
 .main-nav-brand-subtitle {
-    font-size: 12px;
-    color: rgba(229,231,235,0.56);
+    font-size: var(--font-caption-sm);
+    color: var(--text-tertiary);
 }
 
 .main-nav-links {
     display: flex;
-    gap: 4px;
+    gap: var(--spacing-xs);
     align-items: center;
 }
 
@@ -119,15 +117,15 @@ const MAIN_NAV_STYLE: &str = r#"
     position: relative;
     text-decoration: none;
     padding: 10px 14px;
-    font-size: 14px;
+    font-size: var(--font-body-md);
     font-weight: 500;
-    color: rgba(229,231,235,0.72);
+    color: var(--text-secondary);
     transition: color 0.18s ease;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
 }
 
 .main-nav-link:hover {
-    color: rgba(255,255,255,0.95);
+    color: var(--text-primary);
     background: rgba(255,255,255,0.04);
 }
 
@@ -139,7 +137,7 @@ const MAIN_NAV_STYLE: &str = r#"
     left: 14px;
     right: 14px;
     height: 2px;
-    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    background: linear-gradient(90deg, var(--color-accent-blue), var(--color-accent-purple));
     border-radius: 2px;
     opacity: 0;
     transform: scaleX(0);
@@ -147,7 +145,7 @@ const MAIN_NAV_STYLE: &str = r#"
 }
 
 .main-nav-link.active {
-    color: rgba(255,255,255,0.98);
+    color: var(--text-primary);
 }
 
 .main-nav-link.active::after {
@@ -165,15 +163,15 @@ const MAIN_NAV_STYLE: &str = r#"
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-radius: 12px;
+    gap: var(--spacing-sm);
+    padding: 10px var(--spacing-lg);
+    border-radius: var(--radius-lg);
     border: 1px solid rgba(255,255,255,0.10);
     background: rgba(255,255,255,0.05);
     text-decoration: none;
     font-weight: 600;
-    font-size: 14px;
-    color: #e5e7eb;
+    font-size: var(--font-body-md);
+    color: var(--text-primary);
     transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
 }
 
@@ -221,11 +219,11 @@ const MAIN_NAV_STYLE: &str = r#"
 
 @media (max-width: 640px) {
     .main-nav-inner {
-        padding: 12px 16px;
+        padding: var(--spacing-md) var(--spacing-lg);
     }
     .main-nav-btn {
-        padding: 8px 12px;
-        font-size: 13px;
+        padding: var(--spacing-sm) var(--spacing-md);
+        font-size: var(--font-caption-md);
     }
 }
 "#;

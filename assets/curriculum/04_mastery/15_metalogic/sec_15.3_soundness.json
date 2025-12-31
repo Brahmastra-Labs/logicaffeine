@@ -1,0 +1,8 @@
+{
+  "id": "15.3",
+  "section": "Soundness",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["soundness theorem", "if provable then valid", "semantic correctness"],
+  "status": "planned"
+}

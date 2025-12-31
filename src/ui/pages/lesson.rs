@@ -63,13 +63,13 @@ const LESSON_STYLE: &str = r#"
 .lesson-container {
     min-height: 100vh;
     background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #e8e8e8;
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
 }
 
 .lesson-header {
-    padding: 16px 24px;
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(0, 0, 0, 0.2);
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     display: flex;
@@ -80,45 +80,45 @@ const LESSON_STYLE: &str = r#"
 .breadcrumb {
     display: flex;
     align-items: center;
-    gap: 8px;
-    color: #888;
-    font-size: 14px;
+    gap: var(--spacing-sm);
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
 }
 
 .breadcrumb a {
-    color: #667eea;
+    color: var(--color-primary-blue);
     text-decoration: none;
 }
 
 .progress-info {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--spacing-lg);
 }
 
 .progress-bar {
     width: 200px;
     height: 8px;
     background: rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
 }
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #667eea, #764ba2);
+    background: linear-gradient(90deg, var(--color-primary-blue), var(--color-primary-purple));
     transition: width 0.3s ease;
 }
 
 .score-display {
-    color: #667eea;
+    color: var(--color-primary-blue);
     font-weight: 600;
 }
 
 .xp-display {
-    color: #4ade80;
+    color: var(--color-success);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--font-body-md);
 }
 
 .lesson-main {
@@ -127,13 +127,13 @@ const LESSON_STYLE: &str = r#"
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 40px 20px;
+    padding: 40px var(--spacing-xl);
 }
 
 .problem-card {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
+    border-radius: var(--radius-xl);
     padding: 40px;
     max-width: 700px;
     width: 100%;
@@ -148,61 +148,61 @@ const LESSON_STYLE: &str = r#"
 }
 
 .problem-prompt {
-    color: #888;
-    font-size: 14px;
-    margin-bottom: 16px;
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
+    margin-bottom: var(--spacing-lg);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 .problem-sentence {
-    font-size: 28px;
+    font-size: var(--font-heading-lg);
     font-weight: 500;
-    color: #fff;
-    margin-bottom: 32px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xxl);
     line-height: 1.4;
 }
 
 .answer-input {
     width: 100%;
-    padding: 16px 20px;
-    font-size: 18px;
-    font-family: 'SF Mono', 'Fira Code', monospace;
+    padding: var(--spacing-lg) var(--spacing-xl);
+    font-size: var(--font-body-lg);
+    font-family: var(--font-mono);
     background: rgba(255, 255, 255, 0.08);
     border: 2px solid rgba(255, 255, 255, 0.15);
-    border-radius: 12px;
-    color: #e8e8e8;
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
     outline: none;
     transition: border-color 0.2s ease;
 }
 
 .answer-input:focus {
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
 }
 
 .answer-input.correct {
-    border-color: #4ade80;
+    border-color: var(--color-success);
     background: rgba(74, 222, 128, 0.1);
 }
 
 .answer-input.incorrect {
-    border-color: #f87171;
+    border-color: var(--color-error);
     background: rgba(248, 113, 113, 0.1);
 }
 
 .multiple-choice {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--spacing-md);
 }
 
 .choice-btn {
-    padding: 16px 20px;
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(255, 255, 255, 0.05);
     border: 2px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    color: #e8e8e8;
-    font-size: 16px;
+    border-radius: var(--radius-lg);
+    color: var(--text-primary);
+    font-size: var(--font-body-md);
     text-align: left;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -210,53 +210,53 @@ const LESSON_STYLE: &str = r#"
 
 .choice-btn:hover {
     background: rgba(255, 255, 255, 0.08);
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
 }
 
 .choice-btn.selected {
     background: rgba(102, 126, 234, 0.2);
-    border-color: #667eea;
+    border-color: var(--color-primary-blue);
 }
 
 .choice-btn.correct {
     background: rgba(74, 222, 128, 0.2);
-    border-color: #4ade80;
+    border-color: var(--color-success);
 }
 
 .choice-btn.incorrect {
     background: rgba(248, 113, 113, 0.2);
-    border-color: #f87171;
+    border-color: var(--color-error);
 }
 
 .action-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-top: 24px;
+    margin-top: var(--spacing-xl);
 }
 
 .hint-btn {
-    padding: 10px 20px;
+    padding: 10px var(--spacing-xl);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: #888;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .hint-btn:hover {
-    border-color: #667eea;
-    color: #667eea;
+    border-color: var(--color-primary-blue);
+    color: var(--color-primary-blue);
 }
 
 .submit-btn {
-    padding: 12px 32px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: var(--spacing-md) var(--spacing-xxl);
+    background: linear-gradient(135deg, var(--color-primary-blue) 0%, var(--color-primary-purple) 100%);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: white;
-    font-size: 16px;
+    font-size: var(--font-body-md);
     font-weight: 600;
     cursor: pointer;
     transition: transform 0.2s ease;
@@ -272,63 +272,63 @@ const LESSON_STYLE: &str = r#"
 }
 
 .feedback-box {
-    margin-top: 20px;
-    padding: 16px 20px;
-    border-radius: 12px;
-    font-size: 15px;
+    margin-top: var(--spacing-xl);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-body-sm);
 }
 
 .feedback-correct {
     background: rgba(74, 222, 128, 0.15);
     border: 1px solid rgba(74, 222, 128, 0.3);
-    color: #4ade80;
+    color: var(--color-success);
 }
 
 .feedback-incorrect {
     background: rgba(248, 113, 113, 0.15);
     border: 1px solid rgba(248, 113, 113, 0.3);
-    color: #f87171;
+    color: var(--color-error);
 }
 
 .feedback-partial {
     background: rgba(251, 191, 36, 0.15);
     border: 1px solid rgba(251, 191, 36, 0.3);
-    color: #fbbf24;
+    color: var(--color-warning);
 }
 
 .hint-box {
-    margin-top: 16px;
-    padding: 16px 20px;
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(102, 126, 234, 0.1);
     border: 1px solid rgba(102, 126, 234, 0.2);
-    border-radius: 12px;
-    color: #a5b4fc;
-    font-size: 14px;
+    border-radius: var(--radius-lg);
+    color: var(--color-info);
+    font-size: var(--font-body-md);
 }
 
 .explanation-box {
-    margin-top: 16px;
-    padding: 16px 20px;
+    margin-top: var(--spacing-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
     background: rgba(248, 113, 113, 0.08);
     border: 1px solid rgba(248, 113, 113, 0.2);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     color: #fca5a5;
-    font-size: 14px;
+    font-size: var(--font-body-md);
     line-height: 1.6;
 }
 
 .explanation-box strong {
-    color: #f87171;
+    color: var(--color-error);
     font-weight: 600;
 }
 
 .next-btn {
-    padding: 12px 32px;
-    background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+    padding: var(--spacing-md) var(--spacing-xxl);
+    background: linear-gradient(135deg, var(--color-success) 0%, #22c55e 100%);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: white;
-    font-size: 16px;
+    font-size: var(--font-body-md);
     font-weight: 600;
     cursor: pointer;
 }
@@ -338,36 +338,36 @@ const LESSON_STYLE: &str = r#"
 }
 
 .complete-message h2 {
-    font-size: 32px;
-    color: #4ade80;
-    margin-bottom: 16px;
+    font-size: var(--font-display-md);
+    color: var(--color-success);
+    margin-bottom: var(--spacing-lg);
 }
 
 .complete-message p {
-    color: #888;
-    margin-bottom: 24px;
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-xl);
 }
 
 .reading-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--spacing-sm);
 }
 
 .reading-item {
-    padding: 12px 16px;
+    padding: var(--spacing-md) var(--spacing-lg);
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 8px;
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 14px;
-    color: #a5b4fc;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--font-body-md);
+    color: var(--color-info);
 }
 
 .mode-badge {
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 12px;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-lg);
+    font-size: var(--font-caption-sm);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -375,45 +375,45 @@ const LESSON_STYLE: &str = r#"
 
 .mode-badge.learning {
     background: rgba(74, 222, 128, 0.2);
-    color: #4ade80;
+    color: var(--color-success);
     border: 1px solid rgba(74, 222, 128, 0.3);
 }
 
 .mode-badge.testing {
     background: rgba(251, 146, 60, 0.2);
-    color: #fb923c;
+    color: var(--color-warning);
     border: 1px solid rgba(251, 146, 60, 0.3);
 }
 
 .mode-badge.textbook {
     background: rgba(96, 165, 250, 0.2);
-    color: #60a5fa;
+    color: var(--color-accent-blue);
     border: 1px solid rgba(96, 165, 250, 0.3);
 }
 
 .test-summary {
-    margin-top: 24px;
-    padding: 20px;
+    margin-top: var(--spacing-xl);
+    padding: var(--spacing-xl);
     background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .test-summary h3 {
-    margin-bottom: 16px;
-    color: #888;
-    font-size: 14px;
+    margin-bottom: var(--spacing-lg);
+    color: var(--text-secondary);
+    font-size: var(--font-body-md);
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 .result-item {
-    padding: 12px;
-    margin-bottom: 8px;
-    border-radius: 8px;
+    padding: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
+    border-radius: var(--radius-md);
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--spacing-md);
 }
 
 .result-item.correct {
@@ -427,7 +427,7 @@ const LESSON_STYLE: &str = r#"
 }
 
 .result-icon {
-    font-size: 18px;
+    font-size: var(--font-body-lg);
 }
 
 .result-content {
@@ -435,13 +435,13 @@ const LESSON_STYLE: &str = r#"
 }
 
 .result-question {
-    color: #e8e8e8;
-    margin-bottom: 4px;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xs);
 }
 
 .result-explanation {
-    color: #888;
-    font-size: 13px;
+    color: var(--text-secondary);
+    font-size: var(--font-caption-md);
 }
 
 .textbook-container {
@@ -452,82 +452,82 @@ const LESSON_STYLE: &str = r#"
 .textbook-card {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 20px;
-    padding: 32px;
-    margin-bottom: 20px;
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-xxl);
+    margin-bottom: var(--spacing-xl);
 }
 
 .textbook-card h2 {
-    color: #fff;
-    font-size: 24px;
-    margin-bottom: 16px;
+    color: var(--text-primary);
+    font-size: var(--font-heading-lg);
+    margin-bottom: var(--spacing-lg);
 }
 
 .textbook-intro {
-    color: #aaa;
-    font-size: 16px;
+    color: var(--text-muted);
+    font-size: var(--font-body-md);
     line-height: 1.6;
-    margin-bottom: 24px;
+    margin-bottom: var(--spacing-xl);
 }
 
 .example-section {
-    margin-top: 24px;
+    margin-top: var(--spacing-xl);
 }
 
 .example-section h3 {
-    color: #667eea;
-    font-size: 14px;
+    color: var(--color-primary-blue);
+    font-size: var(--font-caption-lg);
     text-transform: uppercase;
     letter-spacing: 1px;
-    margin-bottom: 16px;
+    margin-bottom: var(--spacing-lg);
 }
 
 .example-item {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 12px;
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
 }
 
 .example-sentence {
-    color: #e8e8e8;
-    font-size: 18px;
-    margin-bottom: 12px;
+    color: var(--text-primary);
+    font-size: var(--font-body-lg);
+    margin-bottom: var(--spacing-md);
 }
 
 .example-explanation {
-    color: #888;
-    font-size: 14px;
+    color: var(--text-secondary);
+    font-size: var(--font-caption-lg);
     line-height: 1.5;
-    padding-left: 16px;
+    padding-left: var(--spacing-lg);
     border-left: 2px solid rgba(102, 126, 234, 0.3);
 }
 
 .textbook-nav {
     display: flex;
     justify-content: space-between;
-    margin-top: 24px;
+    margin-top: var(--spacing-xl);
 }
 
 .textbook-nav-btn {
-    padding: 12px 24px;
+    padding: var(--spacing-md) var(--spacing-xl);
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: #888;
-    font-size: 14px;
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-caption-lg);
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .textbook-nav-btn:hover {
-    border-color: #667eea;
-    color: #667eea;
+    border-color: var(--color-primary-blue);
+    color: var(--color-primary-blue);
 }
 
 .textbook-nav-btn.primary {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, var(--color-primary-blue) 0%, var(--color-primary-purple) 100%);
     border: none;
     color: white;
 }
@@ -537,8 +537,8 @@ const LESSON_STYLE: &str = r#"
 }
 
 .page-indicator {
-    color: #666;
-    font-size: 14px;
+    color: var(--text-tertiary);
+    font-size: var(--font-caption-lg);
     align-self: center;
 }
 "#;
@@ -592,11 +592,17 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
 
     let module_title = module_data.map(|m| m.meta.title.clone()).unwrap_or_default();
     let era_title = match era.as_str() {
+        "first-steps" => "First Steps",
+        "building-blocks" => "Building Blocks",
+        "expanding-horizons" => "Expanding Horizons",
+        "mastery" => "Mastery",
+        // Legacy era mappings (deprecated)
+        "logic-caffeine" => "Introduction to Logic",
         "trivium" => "Basics",
         "quadrivium" => "Quantifiers",
         "metaphysics" => "Modality & Time",
         "logicaffeine" => "Practice",
-        _ => "Training",
+        _ => "Logic",
     };
 
     let progress_style = format!("width: {}%", progress_pct);

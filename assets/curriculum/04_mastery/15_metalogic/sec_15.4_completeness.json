@@ -1,0 +1,8 @@
+{
+  "id": "15.4",
+  "section": "Completeness",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["completeness theorem", "if valid then provable", "Godel completeness"],
+  "status": "planned"
+}

@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio, Guide};
+use crate::ui::pages::{Home, Landing, Learn, Pricing, Privacy, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
@@ -31,14 +31,10 @@ pub enum Route {
     #[route("/studio")]
     Studio {},
 
+    // Integrated Learn page - all learning happens here
+    // Replaces: /lesson/:era/:module/:mode and /review
     #[route("/learn")]
     Learn {},
-
-    #[route("/review")]
-    Review {},
-
-    #[route("/lesson/:era/:module/:mode")]
-    Lesson { era: String, module: String, mode: String },
 
     #[route("/workspace/:subject")]
     Workspace { subject: String },

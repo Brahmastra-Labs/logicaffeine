@@ -1,0 +1,8 @@
+{
+  "id": "7.3",
+  "section": "Harder Proofs",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["complex proofs", "nested subproofs", "conditional proof", "indirect proof"],
+  "status": "planned"
+}

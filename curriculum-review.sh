@@ -1,7 +1,8 @@
 OUTPUT="curriculum_bundle.txt"
 > "$OUTPUT"
 
-for era in 00_logicaffeine 01_trivium 02_quadrivium 03_metaphysics; do
+for era in assets/curriculum/*/; do
+    era=$(basename "$era")
     echo "=== ERA: $era ===" >> "$OUTPUT"
     cat "assets/curriculum/$era/meta.json" >> "$OUTPUT"
     echo "" >> "$OUTPUT"

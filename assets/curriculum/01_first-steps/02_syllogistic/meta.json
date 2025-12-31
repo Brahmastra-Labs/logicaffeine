@@ -1,0 +1,6 @@
+{
+  "id": "syllogistic",
+  "title": "Syllogistic Logic",
+  "pedagogy": "Translate English sentences into syllogistic notation. Lowercase letters denote individuals; capitals denote classes. Master the forms: all/some/no X is Y.",
+  "order": 2
+}

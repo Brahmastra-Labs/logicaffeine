@@ -16,3 +16,5 @@ pub mod guide_code_block;
 pub mod guide_sidebar;
 pub mod learn_sidebar;
 pub mod main_nav;
+pub mod module_tabs;
+pub mod symbol_dictionary;
