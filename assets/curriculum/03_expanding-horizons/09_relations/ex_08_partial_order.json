@@ -1,0 +1,16 @@
+{
+  "id": "R_1.8",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Which is an example of a partial order relation?",
+  "options": [
+    "\"is friends with\"",
+    "\"is a subset of\"",
+    "\"is married to\"",
+    "\"is different from\""
+  ],
+  "correct": 1,
+  "hint": "Partial orders are reflexive, antisymmetric, and transitive.",
+  "explanation": "A partial order is reflexive (A ⊆ A), antisymmetric (if A ⊆ B and B ⊆ A, then A = B), and transitive (if A ⊆ B and B ⊆ C, then A ⊆ C). 'Is a subset of' is the classic example. Not every pair is comparable (partial, not total).",
+  "visual_concept": "Partial order: A hierarchy or tree structure where some things are 'above' others, but not everything is comparable."
+}

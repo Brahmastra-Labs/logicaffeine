@@ -1,0 +1,16 @@
+{
+  "id": "F_1.6",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"If we allow students to redo one test, soon they'll expect to redo every test, then every assignment, and eventually they won't have to do any work at all!\"",
+  "options": [
+    "Straw Man",
+    "False Cause",
+    "Slippery Slope",
+    "Hasty Generalization"
+  ],
+  "correct": 2,
+  "hint": "This argument claims that one small step will inevitably lead to extreme consequences.",
+  "explanation": "This is a Slippery Slope fallacy - assuming that one action will trigger a chain of events leading to an extreme outcome, without providing evidence for why each step necessarily follows. Allowing one redo doesn't automatically lead to eliminating all work.",
+  "visual_concept": "Slippery Slope: Standing at the top of a slide, claiming if you take one step you'll slide all the way down (ignoring friction, handrails, and choice)."
+}

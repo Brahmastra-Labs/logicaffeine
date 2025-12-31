@@ -1,0 +1,16 @@
+{
+  "id": "M_1.2",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "What does it mean for a logical system to be COMPLETE?",
+  "options": [
+    "Every provable argument is valid",
+    "Every valid argument can be proven",
+    "The system has all possible rules",
+    "The system can express everything"
+  ],
+  "correct": 1,
+  "hint": "Completeness is about the proof system being able to prove all true things.",
+  "explanation": "Completeness: If ⊨ φ (φ is valid) then ⊢ φ (φ is provable). Every truth can be proven. Complete systems miss nothing - if it's true, you can prove it. First-order logic is complete (Gödel 1929).",
+  "visual_concept": "Completeness: Everything inside the 'true' circle is also inside the 'provable' circle. No truths escape our proof system."
+}

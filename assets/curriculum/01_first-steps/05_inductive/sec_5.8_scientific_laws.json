@@ -1,8 +1,79 @@
 {
   "id": "5.8",
-  "section": "Scientific Laws",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["laws of nature", "universal generalizations", "confirmation"],
-  "status": "planned"
+  "title": "Scientific Laws",
+  "order": 8,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Science seeks to discover **laws of nature** - universal generalizations that hold across all times and places. But how do we get from observing particular cases to believing universal laws?"
+    },
+    {
+      "type": "definition",
+      "term": "Universal Generalization",
+      "definition": "A statement claiming that ALL members of a class have some property. Example: 'All metals expand when heated.' Scientific laws are universal generalizations."
+    },
+    {
+      "type": "example",
+      "title": "From Observations to Law",
+      "premises": [
+        "This piece of copper expanded when heated.",
+        "That piece of iron expanded when heated.",
+        "Every metal we've tested expanded when heated."
+      ],
+      "conclusion": "Therefore, ALL metals expand when heated.",
+      "note": "This is inductive: we've only observed some metals, but conclude about all metals."
+    },
+    {
+      "type": "definition",
+      "term": "Confirmation",
+      "definition": "Evidence that supports a hypothesis or law. Each positive instance (observing a metal that expands) confirms the generalization to some degree."
+    },
+    {
+      "type": "symbols",
+      "title": "Laws vs. Accidental Generalizations",
+      "symbols": [
+        {
+          "symbol": "Law",
+          "name": "Necessary Connection",
+          "meaning": "Holds because of underlying nature",
+          "example": "All copper conducts electricity"
+        },
+        {
+          "symbol": "Accidental",
+          "name": "Just Happens to Be True",
+          "meaning": "Could have been otherwise",
+          "example": "All coins in my pocket are quarters"
+        },
+        {
+          "symbol": "Counterfactual",
+          "name": "Would-Be Truths",
+          "meaning": "Laws support counterfactuals",
+          "example": "If this WERE copper, it WOULD conduct"
+        },
+        {
+          "symbol": "Explanation",
+          "name": "Explanatory Power",
+          "meaning": "Laws explain why things happen",
+          "example": "It conducts BECAUSE it's copper"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The difference between laws and accidents is important. 'All ravens are black' (if true) is a law - it supports 'If this were a raven, it would be black.' But 'All coins in my pocket are quarters' doesn't support 'If this coin were in my pocket, it would be a quarter.'"
+    },
+    {
+      "type": "quiz",
+      "question": "What distinguishes a law of nature from an accidental generalization?",
+      "options": [
+        "Laws are written in textbooks",
+        "Laws support counterfactual reasoning",
+        "Accidental generalizations have more exceptions",
+        "Laws are simpler to state"
+      ],
+      "correct": 1,
+      "explanation": "Laws of nature support counterfactual reasoning - they tell us what WOULD happen in hypothetical cases. 'All copper conducts' supports 'If this were copper, it would conduct.' Accidental generalizations like 'All my pets are cats' don't support 'If this were my pet, it would be a cat.'"
+    }
+  ],
+  "key_symbols": []
 }

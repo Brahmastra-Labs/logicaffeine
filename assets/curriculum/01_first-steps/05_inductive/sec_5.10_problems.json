@@ -1,8 +1,88 @@
 {
   "id": "5.10",
-  "section": "Problems with Induction",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["problem of induction", "Hume", "justification of induction"],
-  "status": "planned"
+  "title": "The Problem of Induction",
+  "order": 10,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "David Hume raised a disturbing challenge: **How can induction be justified?** Past regularities don't logically guarantee future ones. The sun has risen every day, but can we prove it will rise tomorrow?"
+    },
+    {
+      "type": "definition",
+      "term": "The Problem of Induction",
+      "definition": "The philosophical problem of justifying inductive reasoning. Since induction isn't deductively valid, what grounds do we have for trusting it?"
+    },
+    {
+      "type": "example",
+      "title": "Hume's Challenge",
+      "premises": [
+        "Every day so far, the sun has risen.",
+        "Therefore, the sun will rise tomorrow."
+      ],
+      "conclusion": "But this isn't VALID - it's logically possible the sun won't rise!",
+      "note": "Past patterns don't logically guarantee future patterns."
+    },
+    {
+      "type": "paragraph",
+      "text": "Why can't we just say 'induction has worked in the past, so it will work in the future'? Because that's circular - it uses induction to justify induction!"
+    },
+    {
+      "type": "symbols",
+      "title": "Attempted Solutions",
+      "symbols": [
+        {
+          "symbol": "Pragmatic",
+          "name": "It Works",
+          "meaning": "Induction is the best method we have",
+          "example": "If anything will work, induction will"
+        },
+        {
+          "symbol": "Ordinary Language",
+          "name": "That's What 'Rational' Means",
+          "meaning": "Induction is constitutive of rationality",
+          "example": "To be rational is to use induction"
+        },
+        {
+          "symbol": "Probabilistic",
+          "name": "Updates Beliefs",
+          "meaning": "Bayesian confirmation theory",
+          "example": "Evidence raises probability"
+        },
+        {
+          "symbol": "Uniformity",
+          "name": "Nature Is Uniform",
+          "meaning": "Assume regularity of nature",
+          "example": "Same causes, same effects"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "No solution is universally accepted. But most philosophers agree we should keep using induction - the alternative is to give up on all empirical knowledge. We may not be able to justify induction to a skeptic, but that doesn't mean we're wrong to rely on it."
+    },
+    {
+      "type": "example",
+      "title": "The Pragmatic Response",
+      "premises": [
+        "If the future resembles the past, induction will work.",
+        "If the future doesn't resemble the past, nothing will work.",
+        "So induction is our best bet either way."
+      ],
+      "conclusion": "We should use induction even without proof it works.",
+      "note": "We're not guaranteed success, but induction is our best available strategy."
+    },
+    {
+      "type": "quiz",
+      "question": "Why is it circular to justify induction by saying 'it has worked in the past'?",
+      "options": [
+        "Because we don't know if it worked",
+        "Because past success doesn't prove future success - that's an inductive argument!",
+        "Because deduction is better than induction",
+        "Because the past doesn't exist"
+      ],
+      "correct": 1,
+      "explanation": "To argue 'induction worked before, so it will work again' is to use inductive reasoning to justify induction. The premise (past success) only supports the conclusion (future success) if we already accept that the past is a guide to the future - which is exactly what we're trying to prove!"
+    }
+  ],
+  "key_symbols": []
 }

@@ -1,8 +1,81 @@
 {
   "id": "1.1",
-  "section": "Logic",
-  "type": "placeholder",
-  "difficulty": 1,
-  "topics": ["definition of logic", "arguments", "premises", "conclusions"],
-  "status": "planned"
+  "title": "What is Logic?",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Logic** is the analysis and appraisal of arguments. It helps us examine reasoning on philosophical questions (like existence, free will, and morality) and everyday topics. Logic is a powerful tool to clarify and evaluate thinking."
+    },
+    {
+      "type": "paragraph",
+      "text": "Why study logic? First, logic builds analytical skills essential in law, politics, science, medicine, business, and most other fields. Second, logic deepens our understanding of philosophy. Third, logic can be fun - it will challenge your thinking in new ways."
+    },
+    {
+      "type": "definition",
+      "term": "Argument",
+      "definition": "A set of statements consisting of premises (supporting evidence) and a conclusion (based on this evidence). Arguments put reasoning into words."
+    },
+    {
+      "type": "definition",
+      "term": "Premise",
+      "definition": "A statement assumed to be true that provides evidence for the conclusion."
+    },
+    {
+      "type": "definition",
+      "term": "Conclusion",
+      "definition": "The statement we're trying to prove, which should follow from the premises."
+    },
+    {
+      "type": "example",
+      "title": "A Simple Argument",
+      "premises": [
+        "All humans are mortal.",
+        "Socrates is a human."
+      ],
+      "conclusion": "Therefore, Socrates is mortal.",
+      "note": "This is a valid argument because if the premises are true, the conclusion must be true."
+    },
+    {
+      "type": "paragraph",
+      "text": "In first-order logic, we translate natural language into precise symbolic notation. This allows us to check the *form* of arguments independently of their content."
+    },
+    {
+      "type": "symbols",
+      "title": "Key Symbols You'll Learn",
+      "symbols": [
+        {
+          "symbol": "∴",
+          "name": "Therefore",
+          "meaning": "Marks the conclusion of an argument",
+          "example": "P₁, P₂ ∴ C"
+        },
+        {
+          "symbol": "→",
+          "name": "Implication",
+          "meaning": "If...then (conditional)",
+          "example": "A → B means 'if A then B'"
+        },
+        {
+          "symbol": "¬",
+          "name": "Negation",
+          "meaning": "Not",
+          "example": "¬A means 'not A'"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "What is an argument in logic?",
+      "options": [
+        "A heated disagreement between people",
+        "A set of premises and a conclusion",
+        "A mathematical equation",
+        "A type of logical symbol"
+      ],
+      "correct": 1,
+      "explanation": "In logic, an argument is a structured set of statements: premises that provide evidence, and a conclusion that follows from them."
+    }
+  ],
+  "key_symbols": ["∴", "→", "¬"]
 }

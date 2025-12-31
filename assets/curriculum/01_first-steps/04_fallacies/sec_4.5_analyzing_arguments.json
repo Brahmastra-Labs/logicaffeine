@@ -1,8 +1,95 @@
 {
   "id": "4.5",
-  "section": "Analyzing Arguments",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["argument analysis", "identifying premises and conclusions", "evaluating strength"],
-  "status": "planned"
+  "title": "Analyzing Arguments",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Analyzing arguments is the skill of extracting the logical structure from natural language and evaluating it systematically. This is one of the most practical skills from studying logic."
+    },
+    {
+      "type": "definition",
+      "term": "Argument Analysis",
+      "definition": "The process of identifying the conclusion, finding the premises, exposing hidden assumptions, and evaluating whether the premises support the conclusion."
+    },
+    {
+      "type": "symbols",
+      "title": "Steps to Analyze an Argument",
+      "symbols": [
+        {
+          "symbol": "1",
+          "name": "Find the Conclusion",
+          "meaning": "What is the arguer trying to prove?",
+          "example": "Look for 'therefore', 'so', 'thus'"
+        },
+        {
+          "symbol": "2",
+          "name": "Identify Premises",
+          "meaning": "What reasons are given for the conclusion?",
+          "example": "Look for 'because', 'since', 'given that'"
+        },
+        {
+          "symbol": "3",
+          "name": "Expose Hidden Assumptions",
+          "meaning": "What unstated premises are required?",
+          "example": "Fill in logical gaps"
+        },
+        {
+          "symbol": "4",
+          "name": "Check Validity/Strength",
+          "meaning": "Does the conclusion follow?",
+          "example": "Could premises be true but conclusion false?"
+        },
+        {
+          "symbol": "5",
+          "name": "Evaluate Premises",
+          "meaning": "Are the premises actually true?",
+          "example": "Evidence, sources, plausibility"
+        }
+      ]
+    },
+    {
+      "type": "definition",
+      "term": "Indicator Words",
+      "definition": "Words that signal premises or conclusions. Premise indicators: 'because', 'since', 'given that', 'for'. Conclusion indicators: 'therefore', 'so', 'thus', 'hence', 'consequently'."
+    },
+    {
+      "type": "example",
+      "title": "Finding Hidden Premises",
+      "premises": [
+        "Stated: \"You shouldn't vote for Smith - he's a politician.\"",
+        "Hidden premise: \"Politicians are untrustworthy / undeserving of votes.\""
+      ],
+      "conclusion": "The full argument: (Politicians shouldn't be voted for) + (Smith is a politician) → (Don't vote for Smith)",
+      "note": "Exposing the hidden premise reveals an assumption we might question."
+    },
+    {
+      "type": "paragraph",
+      "text": "The **Principle of Charity** says we should interpret arguments in their strongest reasonable form before criticizing them. Don't attack strawmen - engage with the best version of the argument."
+    },
+    {
+      "type": "example",
+      "title": "Applying the Principle of Charity",
+      "premises": [
+        "Someone says: \"We should ban cars because accidents happen.\"",
+        "Uncharitable: \"They want to ban all transportation!\"",
+        "Charitable: \"Perhaps they mean we should reduce car dependency in cities.\""
+      ],
+      "conclusion": "The charitable interpretation engages with a more reasonable position.",
+      "note": "Defeating the strongest version of an argument is more intellectually honest."
+    },
+    {
+      "type": "quiz",
+      "question": "\"Since it rained last night, the ground is wet.\" What is the conclusion?",
+      "options": [
+        "It rained last night",
+        "The ground is wet",
+        "Rain makes things wet",
+        "There is no conclusion"
+      ],
+      "correct": 1,
+      "explanation": "'Since' is a premise indicator - it marks 'it rained last night' as the reason. 'The ground is wet' is the conclusion being supported. The argument assumes (as a hidden premise) that rain makes the ground wet."
+    }
+  ],
+  "key_symbols": []
 }

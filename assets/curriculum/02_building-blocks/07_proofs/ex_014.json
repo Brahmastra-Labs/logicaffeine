@@ -1,0 +1,16 @@
+{
+  "id": "P_1.14",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "The Contraposition equivalence shows that (P → Q) ≡ ?",
+  "options": [
+    "(Q → P)",
+    "(¬Q → ¬P)",
+    "(¬P → ¬Q)",
+    "(Q → ¬P)"
+  ],
+  "correct": 1,
+  "hint": "Flip both parts and negate them.",
+  "explanation": "Contraposition: (P → Q) ≡ (¬Q → ¬P). If P implies Q, then not-Q implies not-P. They are logically equivalent - if one is true, so is the other.",
+  "visual_concept": "If being human implies being mortal, then not being mortal implies not being human. Same logical content, different form."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "E_1.4",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "The 'Good Samaritan paradox' in deontic logic arises from:",
+  "options": [
+    "O(p) implying O(p ∨ q) for any q",
+    "Conflicting obligations to help and not interfere",
+    "The impossibility of altruism",
+    "Religious vs secular ethics"
+  ],
+  "correct": 0,
+  "hint": "If you ought to help the victim, do you thereby ought to (help or ignore)?",
+  "explanation": "If O(p), then classically O(p ∨ q) for any q. But then 'You ought to help the robbery victim' implies 'You ought to (help the victim or commit robbery)'. This seems wrong - the disjunction shouldn't be obligatory! This shows deontic logic needs careful treatment.",
+  "visual_concept": "Obligation seems to 'spread' illogically: O(help) → O(help ∨ rob). But surely you're not obligated to 'help or rob'!"
+}

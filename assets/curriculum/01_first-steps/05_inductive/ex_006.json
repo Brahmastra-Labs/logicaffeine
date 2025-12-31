@@ -1,0 +1,16 @@
+{
+  "id": "I_1.6",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "Which of Mill's Methods is used here? \"Every time I eat peanuts, I get hives. When I don't eat peanuts, I don't get hives. So peanuts cause my hives.\"",
+  "options": [
+    "Method of Agreement",
+    "Method of Difference",
+    "Joint Method of Agreement and Difference",
+    "Method of Residues"
+  ],
+  "correct": 2,
+  "hint": "We're using both the presence AND absence of the suspected cause.",
+  "explanation": "This is the Joint Method of Agreement and Difference. The Method of Agreement notes peanuts are always present when hives occur. The Method of Difference notes when peanuts are absent, hives are absent. Together, they provide stronger evidence for causation.",
+  "visual_concept": "On/Off switch: When the switch (peanuts) is ON, the light (hives) is on. When OFF, the light is off. The switch probably controls the light."
+}

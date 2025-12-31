@@ -1,0 +1,16 @@
+{
+  "id": "F_1.11",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"I wore my lucky socks and we won the game. My lucky socks caused us to win!\"",
+  "options": [
+    "Hasty Generalization",
+    "Post Hoc (False Cause)",
+    "Appeal to Tradition",
+    "Circular Reasoning"
+  ],
+  "correct": 1,
+  "hint": "Just because something happened after something else doesn't mean the first thing caused the second.",
+  "explanation": "This is a Post Hoc fallacy (short for 'post hoc ergo propter hoc' - after this, therefore because of this). Just because wearing the socks preceded the win doesn't mean they caused it. Correlation is not causation.",
+  "visual_concept": "Post Hoc: A rooster crowing before sunrise and claiming HE made the sun come up."
+}

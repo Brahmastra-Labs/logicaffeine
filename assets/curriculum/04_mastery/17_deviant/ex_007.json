@@ -1,0 +1,16 @@
+{
+  "id": "D_1.7",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Quantum logic was developed to model what phenomenon?",
+  "options": [
+    "Time travel",
+    "Measurement in quantum mechanics",
+    "Artificial intelligence",
+    "Economic decision-making"
+  ],
+  "correct": 1,
+  "hint": "The distributive law fails for quantum measurements.",
+  "explanation": "Quantum logic (Birkhoff & von Neumann, 1936) arose because classical logic's distributive law fails in quantum mechanics. Measuring one property can disturb another, so 'A and (B or C)' isn't equivalent to '(A and B) or (A and C)' for quantum measurements.",
+  "visual_concept": "Classical: checking position doesn't affect momentum. Quantum: measurement itself changes the system, breaking classical logical equivalences."
+}

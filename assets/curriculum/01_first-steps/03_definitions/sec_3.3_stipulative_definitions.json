@@ -1,0 +1,98 @@
+{
+  "id": "3.3",
+  "title": "Other Types of Definitions",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Beyond lexical definitions (which describe current usage), there are other types of definitions that serve different purposes. Understanding these helps us recognize when a definition is being used appropriately."
+    },
+    {
+      "type": "definition",
+      "term": "Stipulative Definition",
+      "definition": "A definition that assigns a new meaning to a word, or introduces a new term. It cannot be 'wrong' in the way lexical definitions can - it simply sets the rules for a discussion."
+    },
+    {
+      "type": "example",
+      "title": "A Stipulative Definition",
+      "premises": [
+        "\"Let 'gorp' mean 'the mixture of nuts and raisins'\"",
+        "This is a new term being introduced"
+      ],
+      "conclusion": "We cannot say this is 'incorrect' - it simply defines how we'll use the word.",
+      "note": "Stipulative definitions are neither true nor false, but they can be useful or confusing."
+    },
+    {
+      "type": "definition",
+      "term": "Precising Definition",
+      "definition": "A definition that makes a vague term more precise for a specific context. It goes beyond ordinary usage but is constrained by it."
+    },
+    {
+      "type": "example",
+      "title": "A Precising Definition",
+      "premises": [
+        "Context: For tax purposes...",
+        "\"Dependent\" means \"a person who receives more than half their financial support from the taxpayer\""
+      ],
+      "conclusion": "This makes the vague term 'dependent' precise enough for legal use.",
+      "note": "Precising definitions are common in law, science, and medicine."
+    },
+    {
+      "type": "symbols",
+      "title": "Types of Definitions",
+      "symbols": [
+        {
+          "symbol": "Lexical",
+          "name": "Reports Usage",
+          "meaning": "Describes how a word is actually used",
+          "example": "'Bachelor' = 'unmarried man'"
+        },
+        {
+          "symbol": "Stipulative",
+          "name": "Creates Usage",
+          "meaning": "Introduces new meaning or term",
+          "example": "'Gork' = 'a type of dance'"
+        },
+        {
+          "symbol": "Precising",
+          "name": "Clarifies Usage",
+          "meaning": "Makes vague terms more precise",
+          "example": "'Adult' = 'person 18 or older'"
+        },
+        {
+          "symbol": "Persuasive",
+          "name": "Influences Opinion",
+          "meaning": "Defines to sway emotions or beliefs",
+          "example": "'Taxation' = 'theft by government'"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "**Persuasive definitions** are particularly worth watching for. They disguise arguments as definitions by building controversial claims into the meaning of terms."
+    },
+    {
+      "type": "example",
+      "title": "A Persuasive Definition",
+      "premises": [
+        "\"Democracy means rule by the proletariat\"",
+        "This packs a political theory into a definition"
+      ],
+      "conclusion": "This isn't how 'democracy' is ordinarily used - it's persuasive, not lexical.",
+      "note": "Be alert to definitions that seem designed to win arguments rather than clarify meaning."
+    },
+    {
+      "type": "quiz",
+      "question": "Which type of definition is: 'For this study, heavy drinker means consuming more than 14 drinks per week'?",
+      "options": [
+        "Lexical - it describes common usage",
+        "Precising - it makes a vague term specific for a context",
+        "Stipulative - it creates a brand new term",
+        "Persuasive - it tries to influence opinion"
+      ],
+      "correct": 1,
+      "explanation": "This is a precising definition. 'Heavy drinker' is a vague term in ordinary language. For research purposes, the study makes it precise with a specific threshold. It's constrained by ordinary usage (it still refers to drinking a lot) but goes beyond it with exact numbers."
+    }
+  ],
+  "key_symbols": []
+}

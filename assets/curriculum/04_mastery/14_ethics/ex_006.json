@@ -1,0 +1,16 @@
+{
+  "id": "E_1.6",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "In deontic logic, what is the 'ought-can' principle?",
+  "options": [
+    "You can do whatever you ought to do",
+    "Impossible actions cannot be obligatory",
+    "Obligations create abilities",
+    "Permission implies possibility"
+  ],
+  "correct": 1,
+  "hint": "'Ought implies can' - a constraint on meaningful obligations.",
+  "explanation": "The ought-can principle states O(p) → ◇p (ought implies can/possible). You cannot be obligated to do the impossible. If flying unaided is impossible, you can't be obligated to fly. This constrains what counts as a genuine obligation.",
+  "visual_concept": "No one has a duty to turn lead into gold - it's impossible. Real obligations must be achievable."
+}

@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.4",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Quine's critique of the analytic/synthetic distinction challenges what?",
+  "options": [
+    "The existence of synthetic truths",
+    "The clear separation of logical from empirical truths",
+    "The use of symbols in logic",
+    "The validity of deductive reasoning"
+  ],
+  "correct": 1,
+  "hint": "Quine argued there's no sharp line between truths of meaning and truths of fact.",
+  "explanation": "Quine's 'Two Dogmas of Empiricism' (1951) attacked the idea that logical/analytic truths ('all bachelors are unmarried') are fundamentally different from empirical/synthetic truths. He argued all beliefs face experience as a web - even logical laws could be revised if doing so simplified our total theory.",
+  "visual_concept": "Instead of two types of truth, Quine saw a spectrum: some beliefs are more central to our web, but none are absolutely unrevisable."
+}

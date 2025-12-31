@@ -1,0 +1,16 @@
+{
+  "id": "R_1.6",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "According to Russell, \"The king of France is bald\" is:",
+  "options": [
+    "True",
+    "False",
+    "Neither true nor false",
+    "Meaningless"
+  ],
+  "correct": 1,
+  "hint": "Russell analyzed definite descriptions as existence claims. Does the king of France exist?",
+  "explanation": "Russell's Theory of Descriptions: 'The F is G' = ∃x(Fx ∧ ∀y(Fy → y=x) ∧ Gx). There exists exactly one F, and it is G. Since no king of France exists, the existence claim fails, making the whole sentence FALSE (not meaningless).",
+  "visual_concept": "\"The king of France is bald\" secretly claims: (1) There IS a king of France, (2) There's only ONE, (3) He's bald. Step 1 fails → whole thing false."
+}

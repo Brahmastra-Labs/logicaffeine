@@ -1,0 +1,16 @@
+{
+  "id": "E_1.8",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "How might we formalize 'Killing is wrong unless in self-defense'?",
+  "options": [
+    "F(kill)",
+    "¬SelfDefense → F(kill)",
+    "F(kill) ∧ SelfDefense",
+    "F(kill ∧ ¬SelfDefense)"
+  ],
+  "correct": 1,
+  "hint": "The prohibition has an exception clause - when self-defense doesn't apply.",
+  "explanation": "Conditional norms require careful formalization. 'Killing is forbidden unless in self-defense' = if NOT in self-defense context, then killing is forbidden: ¬SelfDefense → F(kill). Or equivalently: the prohibition is defeasible/overridden by self-defense.",
+  "visual_concept": "Default: killing forbidden. Exception: self-defense. The logic must capture both the rule and the exception."
+}

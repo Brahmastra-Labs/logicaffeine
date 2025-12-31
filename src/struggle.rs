@@ -1,163 +1,125 @@
-//! Struggle detection for triggering Socratic hints.
+//! Struggle Detection Logic
 //!
-//! The struggle detector monitors user activity and triggers hints when:
-//! - The user has been inactive for 5+ seconds (configurable)
-//! - The user submits a wrong answer
-//!
-//! This implements a gentle pedagogical approach: hints appear when
-//! students need them most, not as punishments but as support.
+//! Detects when a user is struggling with an exercise based on:
+//! - Inactivity (no answer attempt after threshold time)
+//! - Wrong attempts (incorrect answers)
 
-use std::time::Duration;
-
-/// Default inactivity threshold before triggering a hint
-const DEFAULT_INACTIVITY_THRESHOLD: Duration = Duration::from_secs(5);
-
-/// The reason why the user is struggling
+/// Reasons why a user might be struggling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StruggleReason {
-    /// User hasn't typed anything for a while
     Inactivity,
-    /// User submitted an incorrect answer
     WrongAttempt,
 }
 
 impl StruggleReason {
-    /// Get a human-readable message for this reason
+    /// Get a message describing the struggle reason
     pub fn message(&self) -> &'static str {
         match self {
-            StruggleReason::Inactivity => "Taking your time? Here's a hint.",
-            StruggleReason::WrongAttempt => "Not quite. Let me help you.",
+            StruggleReason::Inactivity => "Taking your time? Here's a hint to help you along.",
+            StruggleReason::WrongAttempt => "Not quite! Let me help you think through this.",
         }
     }
 }
 
-/// Detects when a user is struggling and should receive a hint.
-#[derive(Debug, Clone)]
+/// Configuration for struggle detection
+#[derive(Debug, Clone, Copy)]
+pub struct StruggleConfig {
+    /// Seconds of inactivity before considering the user stuck
+    pub inactivity_threshold_secs: u64,
+    /// Number of wrong attempts before showing help
+    pub wrong_attempt_threshold: u32,
+}
+
+impl Default for StruggleConfig {
+    fn default() -> Self {
+        Self {
+            inactivity_threshold_secs: 5,
+            wrong_attempt_threshold: 1,
+        }
+    }
+}
+
+/// Tracks struggle state for an exercise
+#[derive(Debug, Clone, Default)]
 pub struct StruggleDetector {
-    /// Inactivity threshold before triggering
-    threshold: Duration,
-    /// Whether the user is currently struggling
-    is_struggling: bool,
-    /// The reason for struggling (if any)
-    reason: Option<StruggleReason>,
-    /// Number of wrong attempts on current exercise
-    wrong_attempts: u32,
-    /// Whether a hint has been shown for this struggle
-    hint_shown: bool,
+    pub config: StruggleConfig,
+    pub is_struggling: bool,
+    pub reason: Option<StruggleReason>,
+    pub wrong_attempts: u32,
+    pub inactivity_triggered: bool,
 }
 
 impl StruggleDetector {
-    /// Create a new detector with default 5-second threshold
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_config(config: StruggleConfig) -> Self {
         Self {
-            threshold: DEFAULT_INACTIVITY_THRESHOLD,
-            is_struggling: false,
-            reason: None,
-            wrong_attempts: 0,
-            hint_shown: false,
+            config,
+            ..Default::default()
         }
     }
 
-    /// Create a detector with a custom inactivity threshold
-    pub fn with_threshold(threshold: Duration) -> Self {
-        Self {
-            threshold,
-            is_struggling: false,
-            reason: None,
-            wrong_attempts: 0,
-            hint_shown: false,
-        }
-    }
-
-    /// Get the current inactivity threshold
-    pub fn threshold(&self) -> Duration {
-        self.threshold
-    }
-
-    /// Check if the user is currently struggling
-    pub fn is_struggling(&self) -> bool {
-        self.is_struggling
-    }
-
-    /// Get the reason for struggling (if any)
-    pub fn reason(&self) -> Option<StruggleReason> {
-        self.reason
-    }
-
-    /// Get the number of wrong attempts on the current exercise
-    pub fn wrong_attempts(&self) -> u32 {
-        self.wrong_attempts
-    }
-
-    /// Check if a hint has been shown for this struggle
-    pub fn hint_shown(&self) -> bool {
-        self.hint_shown
-    }
-
-    /// Record a period of inactivity
-    ///
-    /// If the duration exceeds the threshold, triggers struggling state.
-    pub fn record_inactivity(&mut self, duration: Duration) {
-        if duration >= self.threshold {
-            self.is_struggling = true;
-            self.reason = Some(StruggleReason::Inactivity);
-        }
-    }
-
-    /// Record that the user did something (typed, clicked, etc.)
-    ///
-    /// This clears inactivity-based struggling but not wrong-attempt struggling.
-    pub fn record_activity(&mut self) {
-        if self.reason == Some(StruggleReason::Inactivity) {
-            self.is_struggling = false;
-            self.reason = None;
-            self.hint_shown = false;
-        }
-    }
-
-    /// Record a wrong answer attempt
+    /// Record a wrong attempt - may trigger struggle state
     pub fn record_wrong_attempt(&mut self) {
         self.wrong_attempts += 1;
-        self.is_struggling = true;
-        self.reason = Some(StruggleReason::WrongAttempt);
-        self.hint_shown = false;
+        if self.wrong_attempts >= self.config.wrong_attempt_threshold {
+            self.is_struggling = true;
+            self.reason = Some(StruggleReason::WrongAttempt);
+        }
     }
 
-    /// Record a correct answer attempt
-    ///
-    /// This clears the struggling state since the user succeeded.
+    /// Record a correct attempt - resets inactivity but keeps struggle state for hints
     pub fn record_correct_attempt(&mut self) {
-        // Correct answers clear struggling but we keep wrong_attempts
-        // for statistics purposes
+        // User got it right - they're no longer struggling
         self.is_struggling = false;
-        self.reason = None;
-        self.hint_shown = false;
+        self.inactivity_triggered = false;
     }
 
-    /// Mark that a hint has been shown to the user
-    pub fn mark_hint_shown(&mut self) {
-        self.hint_shown = true;
+    /// Record user activity (typing, clicking) - resets inactivity timer
+    pub fn record_activity(&mut self) {
+        // Activity resets inactivity detection
+        self.inactivity_triggered = false;
     }
 
-    /// Reset all state for a new exercise
+    /// Called when inactivity threshold is reached
+    pub fn trigger_inactivity(&mut self) {
+        if !self.inactivity_triggered {
+            self.inactivity_triggered = true;
+            self.is_struggling = true;
+            // Only set reason if not already struggling from wrong attempts
+            if self.reason.is_none() {
+                self.reason = Some(StruggleReason::Inactivity);
+            }
+        }
+    }
+
+    /// Reset struggle state (e.g., when moving to next exercise)
     pub fn reset(&mut self) {
         self.is_struggling = false;
         self.reason = None;
         self.wrong_attempts = 0;
-        self.hint_shown = false;
+        self.inactivity_triggered = false;
     }
 
-    /// Check if we should show a hint now
-    ///
-    /// Returns true if struggling and hint hasn't been shown yet.
-    pub fn should_show_hint(&self) -> bool {
-        self.is_struggling && !self.hint_shown
+    /// Check if we should show hints
+    pub fn should_show_hints(&self) -> bool {
+        self.is_struggling
     }
-}
 
-impl Default for StruggleDetector {
-    fn default() -> Self {
-        Self::new()
+    /// Get the current struggle reason
+    pub fn reason(&self) -> Option<StruggleReason> {
+        self.reason
+    }
+
+    /// Get the current struggle reason for display
+    pub fn struggle_message(&self) -> Option<&'static str> {
+        match self.reason {
+            Some(StruggleReason::Inactivity) => Some("Taking your time? Here's a hint to help you along."),
+            Some(StruggleReason::WrongAttempt) => Some("Not quite! Let me help you think through this."),
+            None => None,
+        }
     }
 }
 
@@ -166,37 +128,93 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_struggle_reason_messages() {
-        assert!(!StruggleReason::Inactivity.message().is_empty());
-        assert!(!StruggleReason::WrongAttempt.message().is_empty());
+    fn test_no_struggle_initially() {
+        let detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
     }
 
     #[test]
-    fn test_should_show_hint() {
+    fn test_struggle_after_5s_inactivity() {
         let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
 
-        // Initially: not struggling
-        assert!(!detector.should_show_hint());
+        detector.trigger_inactivity();
 
-        // After wrong attempt: should show
-        detector.record_wrong_attempt();
-        assert!(detector.should_show_hint());
-
-        // After hint shown: should not show again
-        detector.mark_hint_shown();
-        assert!(!detector.should_show_hint());
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::Inactivity));
     }
 
     #[test]
-    fn test_activity_only_clears_inactivity_struggle() {
+    fn test_struggle_after_wrong_attempt() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+
+        detector.record_wrong_attempt();
+
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::WrongAttempt));
+    }
+
+    #[test]
+    fn test_reset_clears_struggle() {
+        let mut detector = StruggleDetector::new();
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+
+        detector.reset();
+
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
+        assert_eq!(detector.wrong_attempts, 0);
+    }
+
+    #[test]
+    fn test_configurable_threshold() {
+        let config = StruggleConfig {
+            inactivity_threshold_secs: 10,
+            wrong_attempt_threshold: 2,
+        };
+        let mut detector = StruggleDetector::with_config(config);
+
+        // First wrong attempt shouldn't trigger with threshold of 2
+        detector.record_wrong_attempt();
+        assert!(!detector.is_struggling);
+
+        // Second wrong attempt should trigger
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+    }
+
+    #[test]
+    fn test_inactivity_only_triggers_once() {
         let mut detector = StruggleDetector::new();
 
-        // Wrong attempt struggle should NOT be cleared by activity
-        detector.record_wrong_attempt();
-        assert!(detector.is_struggling());
+        detector.trigger_inactivity();
+        assert!(detector.inactivity_triggered);
 
-        detector.record_activity();
-        // Still struggling because it was wrong-attempt, not inactivity
-        assert!(detector.is_struggling());
+        // Triggering again shouldn't change the reason
+        detector.reason = None;
+        detector.trigger_inactivity();
+        assert!(detector.reason.is_none()); // Didn't set it again
+    }
+
+    #[test]
+    fn test_should_show_hints() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.should_show_hints());
+
+        detector.record_wrong_attempt();
+        assert!(detector.should_show_hints());
+    }
+
+    #[test]
+    fn test_struggle_message() {
+        let mut detector = StruggleDetector::new();
+        assert!(detector.struggle_message().is_none());
+
+        detector.trigger_inactivity();
+        assert!(detector.struggle_message().is_some());
+        assert!(detector.struggle_message().unwrap().contains("hint"));
     }
 }

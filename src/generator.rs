@@ -240,8 +240,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // Use introduction module which has Translation exercises
-        let exercise = engine.get_exercise("first-steps", "introduction", "ex_01");
-        assert!(exercise.is_some(), "Exercise first-steps/introduction/ex_01 should exist");
+        let exercise = engine.get_exercise("first-steps", "introduction", "I_1.1");
+        assert!(exercise.is_some(), "Exercise first-steps/introduction/I_1.1 should exist");
         let exercise = exercise.unwrap();
         let challenge = generator.generate(exercise, &mut rng);
 

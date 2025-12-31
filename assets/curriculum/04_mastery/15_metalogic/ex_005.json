@@ -1,0 +1,16 @@
+{
+  "id": "M_1.5",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "A set of sentences is CONSISTENT if:",
+  "options": [
+    "All sentences are true",
+    "The sentences don't contradict each other",
+    "All sentences can be proven",
+    "The sentences are valid"
+  ],
+  "correct": 1,
+  "hint": "Consistency is about avoiding contradiction.",
+  "explanation": "A set Γ is consistent if there's no sentence φ such that Γ ⊢ φ and Γ ⊢ ¬φ. Equivalently, there exists a model satisfying all of Γ. Inconsistent sets prove everything (explosion principle).",
+  "visual_concept": "Consistent: The sentences can all be true together in at least one possible world. Inconsistent: No possible world makes them all true."
+}

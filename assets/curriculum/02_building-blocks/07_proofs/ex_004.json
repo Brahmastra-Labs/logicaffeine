@@ -1,0 +1,16 @@
+{
+  "id": "P_1.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "What rule allows us to derive P from (P ∨ Q) and ¬Q?",
+  "options": [
+    "Modus Tollens",
+    "Disjunctive Syllogism",
+    "Addition",
+    "Simplification"
+  ],
+  "correct": 1,
+  "hint": "If one option in an 'or' is false, what can we conclude?",
+  "explanation": "Disjunctive Syllogism (DS): From (P ∨ Q) and ¬Q, derive P. If 'P or Q' is true but Q is false, then P must be true. One of them has to be true!",
+  "visual_concept": "Two doors: One leads to P, one to Q. Door Q is locked (false). If you must go through one, you must go through P."
+}

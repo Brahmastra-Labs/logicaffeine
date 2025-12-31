@@ -1,0 +1,16 @@
+{
+  "id": "H_1.2",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "What was the name of Aristotle's collection of logical works?",
+  "options": [
+    "The Metaphysics",
+    "The Organon",
+    "The Republic",
+    "The Elements"
+  ],
+  "correct": 1,
+  "hint": "The Greek word means 'instrument' or 'tool' - logic as a tool for reasoning.",
+  "explanation": "The Organon ('instrument') is Aristotle's collection of six works on logic: Categories, On Interpretation, Prior Analytics, Posterior Analytics, Topics, and Sophistical Refutations. It dominated Western logic for over 2000 years.",
+  "visual_concept": "Logic as a tool - just as a hammer helps build things, the Organon was seen as the tool for building valid arguments."
+}

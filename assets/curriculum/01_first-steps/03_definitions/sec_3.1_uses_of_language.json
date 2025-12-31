@@ -1,0 +1,73 @@
+{
+  "id": "3.1",
+  "title": "Uses of Language",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Before we can appraise whether premises are true, we need to know what they **mean**. Language is essential for understanding and evaluating arguments."
+    },
+    {
+      "type": "example",
+      "title": "An Argument with Obscure Premises",
+      "premises": [
+        "If there's a cosmic force, then there's a God.",
+        "There's a cosmic force."
+      ],
+      "conclusion": "∴ There's a God.",
+      "note": "This argument is deductively valid, but what does 'cosmic force' mean? We can't agree or disagree with premises we don't understand!"
+    },
+    {
+      "type": "definition",
+      "term": "Four Uses of Language",
+      "definition": "Language can be used to make assertions (declarative), ask questions (interrogative), give commands (imperative), or express feelings (exclamatory)."
+    },
+    {
+      "type": "symbols",
+      "title": "Sentence Types",
+      "symbols": [
+        {
+          "symbol": "Declarative",
+          "name": "Assertions",
+          "meaning": "Makes a claim that can be true or false",
+          "example": "Michigan beat Ohio State."
+        },
+        {
+          "symbol": "Interrogative",
+          "name": "Questions",
+          "meaning": "Asks for information",
+          "example": "Did Michigan win?"
+        },
+        {
+          "symbol": "Imperative",
+          "name": "Commands",
+          "meaning": "Tells what to do",
+          "example": "Beat Ohio State."
+        },
+        {
+          "symbol": "Exclamatory",
+          "name": "Feelings",
+          "meaning": "Expresses emotions",
+          "example": "Hurrah for Michigan!"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "In logic, our focus narrows to **assertions and reasoning**. Expressing arguments clearly and directly, without emotional language, makes them easier to evaluate. This doesn't mean emotions are bad - just that clear thinking requires separating feeling from reasoning."
+    },
+    {
+      "type": "quiz",
+      "question": "Which sentence type is most important for logical arguments?",
+      "options": [
+        "Interrogative (questions)",
+        "Imperative (commands)",
+        "Declarative (assertions)",
+        "Exclamatory (feelings)"
+      ],
+      "correct": 2,
+      "explanation": "Declarative sentences make assertions that can be true or false. These are the building blocks of arguments - premises and conclusions are both declarative statements."
+    }
+  ],
+  "key_symbols": []
+}

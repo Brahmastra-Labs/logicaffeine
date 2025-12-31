@@ -1,0 +1,107 @@
+{
+  "id": "2.1",
+  "title": "Easier Translations",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Syllogistic logic** was invented by Aristotle, the first logician. It focuses on arguments using 'all,' 'no,' and 'some.' This ancient branch of logic provides a fine preliminary to modern symbolic logic."
+    },
+    {
+      "type": "paragraph",
+      "text": "We'll create a 'syllogistic language' with rules for constructing arguments and testing validity. Here's how an English argument translates into our language:"
+    },
+    {
+      "type": "example",
+      "title": "A Classic Syllogism",
+      "premises": [
+        "All logicians are charming → all L is C",
+        "Gensler is a logician → g is L"
+      ],
+      "conclusion": "Therefore, Gensler is charming → ∴ g is C",
+      "note": "Capital letters (L, C) represent general categories. Lowercase letters (g) represent specific individuals."
+    },
+    {
+      "type": "definition",
+      "term": "Wff (Well-Formed Formula)",
+      "definition": "A grammatically correct sentence in our syllogistic language. Pronounced 'woof' (as in 'wood')."
+    },
+    {
+      "type": "symbols",
+      "title": "The Eight Wff Forms",
+      "symbols": [
+        {
+          "symbol": "all A is B",
+          "name": "Universal Affirmative",
+          "meaning": "Everything in category A is also in B",
+          "example": "all Dogs are Mammals"
+        },
+        {
+          "symbol": "no A is B",
+          "name": "Universal Negative",
+          "meaning": "Nothing in A is in B",
+          "example": "no Cats are Dogs"
+        },
+        {
+          "symbol": "some A is B",
+          "name": "Particular Affirmative",
+          "meaning": "At least one A is a B",
+          "example": "some Birds are Flightless"
+        },
+        {
+          "symbol": "some A is not B",
+          "name": "Particular Negative",
+          "meaning": "At least one A is not a B",
+          "example": "some Animals are not Mammals"
+        }
+      ]
+    },
+    {
+      "type": "symbols",
+      "title": "Individual Statements",
+      "symbols": [
+        {
+          "symbol": "x is A",
+          "name": "Individual Affirmative",
+          "meaning": "Individual x is in category A",
+          "example": "s is H (Socrates is Human)"
+        },
+        {
+          "symbol": "x is not A",
+          "name": "Individual Negative",
+          "meaning": "Individual x is not in category A",
+          "example": "s is not I (Socrates is not Immortal)"
+        },
+        {
+          "symbol": "x is y",
+          "name": "Identity",
+          "meaning": "Individual x is the same as y",
+          "example": "m is t (Mark Twain is Samuel Clemens)"
+        },
+        {
+          "symbol": "x is not y",
+          "name": "Non-Identity",
+          "meaning": "Individual x is not the same as y",
+          "example": "a is not b (Alice is not Bob)"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "**Important:** Use CAPITAL letters for general terms (categories like 'Human', 'Mortal'). Use lowercase letters for specific individuals (like 'socrates', 'gensler')."
+    },
+    {
+      "type": "quiz",
+      "question": "How would you translate 'All cats are mammals' into syllogistic notation?",
+      "options": [
+        "some C is M",
+        "all C is M",
+        "c is M",
+        "all c is m"
+      ],
+      "correct": 1,
+      "explanation": "Use 'all' for universal statements, and capital letters for categories. 'all C is M' means everything in category C (Cats) is also in category M (Mammals)."
+    }
+  ],
+  "key_symbols": ["all", "no", "some", "is", "not"]
+}

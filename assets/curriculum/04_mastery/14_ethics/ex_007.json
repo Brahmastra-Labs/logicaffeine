@@ -1,0 +1,16 @@
+{
+  "id": "E_1.7",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Moral dilemmas pose what challenge to standard deontic logic?",
+  "options": [
+    "They show morality is irrational",
+    "They suggest O(p) and O(¬p) might both hold",
+    "They prove ethics cannot be formalized",
+    "They require temporal logic"
+  ],
+  "correct": 1,
+  "hint": "Sometimes we seem obligated to do incompatible things.",
+  "explanation": "Moral dilemmas suggest conflicting obligations: O(p) ∧ O(¬p). Sartre's student: obligated to stay with mother AND join resistance. Standard deontic logic often makes this inconsistent. Some argue for dilemma-tolerant deontic logics that accept genuine conflicts.",
+  "visual_concept": "You promised to meet a friend. An emergency requires you elsewhere. Two real obligations pointing opposite ways - logical conflict?"
+}

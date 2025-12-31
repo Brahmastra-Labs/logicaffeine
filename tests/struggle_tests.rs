@@ -1,11 +1,10 @@
 /// Tests for Struggle Detection Logic
 ///
 /// Struggle detection triggers Socratic hints when:
-/// 1. User is inactive for 5+ seconds
+/// 1. User is inactive for threshold time (trigger_inactivity called)
 /// 2. User submits a wrong answer
 
-use logos::struggle::{StruggleDetector, StruggleReason};
-use std::time::Duration;
+use logos::struggle::{StruggleDetector, StruggleReason, StruggleConfig};
 
 // ═══════════════════════════════════════════════════════════════════
 // Basic State Tests
@@ -14,14 +13,14 @@ use std::time::Duration;
 #[test]
 fn test_no_struggle_initially() {
     let detector = StruggleDetector::new();
-    assert!(!detector.is_struggling());
+    assert!(!detector.is_struggling);
     assert!(detector.reason().is_none());
 }
 
 #[test]
 fn test_default_threshold_is_5_seconds() {
     let detector = StruggleDetector::new();
-    assert_eq!(detector.threshold(), Duration::from_secs(5));
+    assert_eq!(detector.config.inactivity_threshold_secs, 5);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -29,34 +28,21 @@ fn test_default_threshold_is_5_seconds() {
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_struggle_after_inactivity_threshold() {
+fn test_struggle_after_inactivity_triggered() {
     let mut detector = StruggleDetector::new();
-    detector.record_inactivity(Duration::from_secs(6));
-    assert!(detector.is_struggling());
+    detector.trigger_inactivity();
+    assert!(detector.is_struggling);
     assert_eq!(detector.reason(), Some(StruggleReason::Inactivity));
 }
 
 #[test]
-fn test_no_struggle_under_threshold() {
-    let mut detector = StruggleDetector::new();
-    detector.record_inactivity(Duration::from_secs(4));
-    assert!(!detector.is_struggling());
-}
-
-#[test]
-fn test_struggle_at_exact_threshold() {
-    let mut detector = StruggleDetector::new();
-    detector.record_inactivity(Duration::from_secs(5));
-    assert!(detector.is_struggling());
-}
-
-#[test]
 fn test_inactivity_threshold_configurable() {
-    let mut detector = StruggleDetector::with_threshold(Duration::from_secs(3));
-    assert_eq!(detector.threshold(), Duration::from_secs(3));
-
-    detector.record_inactivity(Duration::from_secs(4));
-    assert!(detector.is_struggling());
+    let config = StruggleConfig {
+        inactivity_threshold_secs: 3,
+        wrong_attempt_threshold: 1,
+    };
+    let detector = StruggleDetector::with_config(config);
+    assert_eq!(detector.config.inactivity_threshold_secs, 3);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -67,7 +53,7 @@ fn test_inactivity_threshold_configurable() {
 fn test_struggle_after_wrong_attempt() {
     let mut detector = StruggleDetector::new();
     detector.record_wrong_attempt();
-    assert!(detector.is_struggling());
+    assert!(detector.is_struggling);
     assert_eq!(detector.reason(), Some(StruggleReason::WrongAttempt));
 }
 
@@ -75,7 +61,7 @@ fn test_struggle_after_wrong_attempt() {
 fn test_correct_attempt_not_struggling() {
     let mut detector = StruggleDetector::new();
     detector.record_correct_attempt();
-    assert!(!detector.is_struggling());
+    assert!(!detector.is_struggling);
 }
 
 #[test]
@@ -84,7 +70,7 @@ fn test_wrong_attempt_count_tracked() {
     detector.record_wrong_attempt();
     detector.record_wrong_attempt();
     detector.record_wrong_attempt();
-    assert_eq!(detector.wrong_attempts(), 3);
+    assert_eq!(detector.wrong_attempts, 3);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -95,10 +81,10 @@ fn test_wrong_attempt_count_tracked() {
 fn test_reset_clears_struggle() {
     let mut detector = StruggleDetector::new();
     detector.record_wrong_attempt();
-    assert!(detector.is_struggling());
+    assert!(detector.is_struggling);
 
     detector.reset();
-    assert!(!detector.is_struggling());
+    assert!(!detector.is_struggling);
     assert!(detector.reason().is_none());
 }
 
@@ -107,45 +93,43 @@ fn test_reset_clears_wrong_attempts() {
     let mut detector = StruggleDetector::new();
     detector.record_wrong_attempt();
     detector.record_wrong_attempt();
-    assert_eq!(detector.wrong_attempts(), 2);
+    assert_eq!(detector.wrong_attempts, 2);
 
     detector.reset();
-    assert_eq!(detector.wrong_attempts(), 0);
+    assert_eq!(detector.wrong_attempts, 0);
 }
 
 #[test]
-fn test_activity_resets_inactivity_struggle() {
+fn test_activity_resets_inactivity_flag() {
     let mut detector = StruggleDetector::new();
-    detector.record_inactivity(Duration::from_secs(10));
-    assert!(detector.is_struggling());
+    detector.trigger_inactivity();
+    assert!(detector.inactivity_triggered);
 
     detector.record_activity();
-    assert!(!detector.is_struggling());
+    assert!(!detector.inactivity_triggered);
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Hint Request Tracking
+// Hint Display Tests
 // ═══════════════════════════════════════════════════════════════════
 
 #[test]
-fn test_hint_shown_tracked() {
+fn test_should_show_hints() {
     let mut detector = StruggleDetector::new();
-    detector.record_wrong_attempt();
-    assert!(!detector.hint_shown());
+    assert!(!detector.should_show_hints());
 
-    detector.mark_hint_shown();
-    assert!(detector.hint_shown());
+    detector.record_wrong_attempt();
+    assert!(detector.should_show_hints());
 }
 
 #[test]
-fn test_hint_shown_resets_with_new_exercise() {
+fn test_struggle_message() {
     let mut detector = StruggleDetector::new();
-    detector.record_wrong_attempt();
-    detector.mark_hint_shown();
-    assert!(detector.hint_shown());
+    assert!(detector.struggle_message().is_none());
 
-    detector.reset();
-    assert!(!detector.hint_shown());
+    detector.trigger_inactivity();
+    assert!(detector.struggle_message().is_some());
+    assert!(detector.struggle_message().unwrap().contains("hint"));
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -157,7 +141,7 @@ fn test_multiple_struggle_reasons() {
     let mut detector = StruggleDetector::new();
 
     // First: inactivity
-    detector.record_inactivity(Duration::from_secs(6));
+    detector.trigger_inactivity();
     assert_eq!(detector.reason(), Some(StruggleReason::Inactivity));
 
     // Then: wrong attempt (should update reason)
@@ -166,14 +150,37 @@ fn test_multiple_struggle_reasons() {
 }
 
 #[test]
-fn test_zero_duration_not_struggling() {
+fn test_inactivity_only_triggers_once() {
     let mut detector = StruggleDetector::new();
-    detector.record_inactivity(Duration::from_secs(0));
-    assert!(!detector.is_struggling());
+
+    detector.trigger_inactivity();
+    assert!(detector.inactivity_triggered);
+
+    // Clear reason to test that triggering again doesn't set it
+    detector.reason = None;
+    detector.trigger_inactivity();
+    assert!(detector.reason.is_none()); // Didn't set it again
 }
 
 #[test]
 fn test_default_trait() {
     let detector = StruggleDetector::default();
-    assert!(!detector.is_struggling());
+    assert!(!detector.is_struggling);
+}
+
+#[test]
+fn test_configurable_wrong_attempt_threshold() {
+    let config = StruggleConfig {
+        inactivity_threshold_secs: 5,
+        wrong_attempt_threshold: 2,
+    };
+    let mut detector = StruggleDetector::with_config(config);
+
+    // First wrong attempt shouldn't trigger with threshold of 2
+    detector.record_wrong_attempt();
+    assert!(!detector.is_struggling);
+
+    // Second wrong attempt should trigger
+    detector.record_wrong_attempt();
+    assert!(detector.is_struggling);
 }

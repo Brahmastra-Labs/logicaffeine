@@ -1,0 +1,16 @@
+{
+  "id": "I_1.5",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"My car and your car are both Hondas, both made in 2020, and both red. My car gets 30 mpg. So your car probably gets around 30 mpg too.\" What type of reasoning is this?",
+  "options": [
+    "Statistical syllogism",
+    "Analogical reasoning",
+    "Inductive generalization",
+    "Causal inference"
+  ],
+  "correct": 1,
+  "hint": "We're drawing a conclusion about one thing based on its similarity to another.",
+  "explanation": "This is analogical reasoning - inferring that because two things are similar in some respects, they're probably similar in other respects. The more relevant similarities (same make, model, year), the stronger the analogy.",
+  "visual_concept": "Analogical reasoning: Two nearly identical twins. If one likes pizza, the other probably does too - but not certainly!"
+}

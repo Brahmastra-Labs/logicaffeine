@@ -1,8 +1,78 @@
 {
   "id": "5.1",
-  "section": "The Statistical Syllogism",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["statistical reasoning", "probability in arguments", "sample to population"],
-  "status": "planned"
+  "title": "The Statistical Syllogism",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "So far we've focused on **deductive** arguments, where valid forms guarantee the conclusion. **Inductive** arguments are different - they make the conclusion probable, not certain."
+    },
+    {
+      "type": "definition",
+      "term": "Inductive Argument",
+      "definition": "An argument where the premises, if true, make the conclusion probable but not certain. Even with true premises, the conclusion could still be false."
+    },
+    {
+      "type": "definition",
+      "term": "Statistical Syllogism",
+      "definition": "An inductive argument that applies a statistical generalization to a particular case. From 'Most Fs are G' and 'x is an F', we conclude 'x is probably G'."
+    },
+    {
+      "type": "example",
+      "title": "A Statistical Syllogism",
+      "premises": [
+        "90% of students who study regularly pass the exam.",
+        "Maria studies regularly."
+      ],
+      "conclusion": "Therefore, Maria will probably pass the exam.",
+      "note": "This is NOT deductively valid - Maria could be in the 10% who fail. But the argument is inductively strong."
+    },
+    {
+      "type": "symbols",
+      "title": "Deductive vs. Inductive",
+      "symbols": [
+        {
+          "symbol": "Deductive",
+          "name": "Certain Conclusion",
+          "meaning": "True premises guarantee true conclusion",
+          "example": "All A are B, x is A, so x is B"
+        },
+        {
+          "symbol": "Inductive",
+          "name": "Probable Conclusion",
+          "meaning": "True premises make conclusion likely",
+          "example": "Most A are B, x is A, so x is probably B"
+        },
+        {
+          "symbol": "Strong",
+          "name": "High Probability",
+          "meaning": "Premises make conclusion very likely",
+          "example": "95% of A are B..."
+        },
+        {
+          "symbol": "Weak",
+          "name": "Low Probability",
+          "meaning": "Premises provide little support",
+          "example": "55% of A are B..."
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Inductive strength is a matter of degree. An argument with 95% support is stronger than one with 60% support. We evaluate inductive arguments by how probable they make the conclusion."
+    },
+    {
+      "type": "quiz",
+      "question": "What makes an argument inductive rather than deductive?",
+      "options": [
+        "It uses statistics",
+        "The conclusion could be false even if all premises are true",
+        "It has more than two premises",
+        "It's about the future"
+      ],
+      "correct": 1,
+      "explanation": "The defining feature of inductive arguments is that the premises support but don't guarantee the conclusion. Even with perfectly true premises, the conclusion might still be false - it's just made probable, not certain."
+    }
+  ],
+  "key_symbols": []
 }

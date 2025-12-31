@@ -49,10 +49,68 @@ pub enum ExerciseType {
     Ambiguity,
 }
 
+/// A symbol definition for the glossary
+#[derive(Debug, Clone, Deserialize)]
+pub struct SymbolDef {
+    pub symbol: String,
+    pub name: String,
+    pub meaning: String,
+    #[serde(default)]
+    pub example: Option<String>,
+}
+
+/// A content block within a section (paragraph, definition, example, etc.)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Paragraph {
+        text: String,
+    },
+    Definition {
+        term: String,
+        definition: String,
+    },
+    Example {
+        title: String,
+        #[serde(default)]
+        premises: Vec<String>,
+        #[serde(default)]
+        conclusion: Option<String>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    /// Symbol glossary block - shows relevant symbols for this section
+    Symbols {
+        title: String,
+        symbols: Vec<SymbolDef>,
+    },
+    /// Quiz question embedded in the lesson
+    Quiz {
+        question: String,
+        options: Vec<String>,
+        correct: usize,
+        #[serde(default)]
+        explanation: Option<String>,
+    },
+}
+
+/// A lesson section with structured content
+#[derive(Debug, Clone, Deserialize)]
+pub struct Section {
+    pub id: String,
+    pub title: String,
+    pub order: u32,
+    #[serde(default)]
+    pub content: Vec<ContentBlock>,
+    #[serde(default)]
+    pub key_symbols: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Module {
     pub meta: ModuleMeta,
     pub exercises: Vec<ExerciseConfig>,
+    pub sections: Vec<Section>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,13 +175,23 @@ impl ContentEngine {
         let meta: ModuleMeta = serde_json::from_str(meta_content).ok()?;
 
         let mut exercises = Vec::new();
+        let mut sections = Vec::new();
+
         for file in module_dir.files() {
             if let Some(name) = file.path().file_name() {
                 let name_str = name.to_string_lossy();
                 if name_str.starts_with("ex_") && name_str.ends_with(".json") {
+                    // Load exercise
                     if let Some(content) = file.contents_utf8() {
                         if let Ok(exercise) = serde_json::from_str::<ExerciseConfig>(content) {
                             exercises.push(exercise);
+                        }
+                    }
+                } else if name_str.starts_with("sec_") && name_str.ends_with(".json") {
+                    // Load section
+                    if let Some(content) = file.contents_utf8() {
+                        if let Ok(section) = serde_json::from_str::<Section>(content) {
+                            sections.push(section);
                         }
                     }
                 }
@@ -131,7 +199,8 @@ impl ContentEngine {
         }
 
         exercises.sort_by(|a, b| a.id.cmp(&b.id));
-        Some(Module { meta, exercises })
+        sections.sort_by_key(|s| s.order);
+        Some(Module { meta, exercises, sections })
     }
 
     pub fn get_era(&self, era_id: &str) -> Option<&Era> {

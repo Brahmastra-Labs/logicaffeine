@@ -1,0 +1,16 @@
+{
+  "id": "D_1.2",
+  "type": "multiple_choice",
+  "difficulty": 4,
+  "prompt": "Intuitionistic logic rejects which classical principle?",
+  "options": [
+    "Law of non-contradiction",
+    "Law of excluded middle",
+    "Modus ponens",
+    "Double negation introduction"
+  ],
+  "correct": 1,
+  "hint": "Intuitionists require constructive proofs - you must build what you claim exists.",
+  "explanation": "Intuitionistic logic rejects the law of excluded middle (P ∨ ¬P). For intuitionists, a statement is only true if we can construct a proof; merely showing ¬P leads to contradiction doesn't prove P exists. This affects mathematics: you can't prove existence by contradiction alone.",
+  "visual_concept": "Classical: 'Either there's a solution or there isn't.' Intuitionist: 'Show me the solution, or show me why it can't exist.'"
+}

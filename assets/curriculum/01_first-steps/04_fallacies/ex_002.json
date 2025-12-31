@@ -1,0 +1,16 @@
+{
+  "id": "F_1.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"My opponent wants to reduce military spending. Clearly, he wants to leave our country completely defenseless!\"",
+  "options": [
+    "Slippery Slope",
+    "Straw Man",
+    "False Dilemma",
+    "Begging the Question"
+  ],
+  "correct": 1,
+  "hint": "The argument misrepresents the opponent's position to make it easier to attack.",
+  "explanation": "This is a Straw Man fallacy - the opponent's position (reduce spending) is exaggerated to an extreme version (leave defenseless) that wasn't actually claimed. Reducing spending doesn't equal eliminating it entirely.",
+  "visual_concept": "Straw Man: Building a weak scarecrow version of someone's argument, then knocking it down and claiming victory."
+}

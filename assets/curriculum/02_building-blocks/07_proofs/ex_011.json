@@ -1,0 +1,16 @@
+{
+  "id": "P_1.11",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "What is the Constructive Dilemma rule?",
+  "options": [
+    "From (P ∨ Q) and ¬P, derive Q",
+    "From (P → Q) and (R → S) and (P ∨ R), derive (Q ∨ S)",
+    "From (P → Q) and (Q → R), derive (P → R)",
+    "From P and Q, derive (P ∧ Q)"
+  ],
+  "correct": 1,
+  "hint": "This rule combines two conditionals with a disjunction.",
+  "explanation": "Constructive Dilemma (CD): From (P → Q), (R → S), and (P ∨ R), derive (Q ∨ S). If either P or R is true, and P leads to Q while R leads to S, then either Q or S must be true.",
+  "visual_concept": "Two roads diverge: Left path (P) leads to Q, right path (R) leads to S. If you must take one path (P ∨ R), you'll reach Q or S."
+}

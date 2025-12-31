@@ -1,0 +1,16 @@
+{
+  "id": "I_1.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"90% of students who study pass the exam. Sarah studies. Therefore, Sarah will probably pass.\" What is this type of reasoning?",
+  "options": [
+    "Statistical syllogism",
+    "Analogical reasoning",
+    "Causal inference",
+    "Deductive reasoning"
+  ],
+  "correct": 0,
+  "hint": "We're applying a statistical generalization to a specific case.",
+  "explanation": "This is a statistical syllogism - applying a statistical generalization (90% who study pass) to a particular case (Sarah). The conclusion is probable, not certain. Sarah is likely but not guaranteed to pass.",
+  "visual_concept": "Statistical Syllogism: A pie chart showing 90% green and 10% red. Sarah is placed randomly - she'll probably land in green, but might land in red."
+}

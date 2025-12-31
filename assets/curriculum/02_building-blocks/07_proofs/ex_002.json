@@ -1,0 +1,16 @@
+{
+  "id": "P_1.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "What rule allows us to derive ¬P from (P → Q) and ¬Q?",
+  "options": [
+    "Modus Ponens",
+    "Modus Tollens",
+    "Contraposition",
+    "Double Negation"
+  ],
+  "correct": 1,
+  "hint": "This rule 'denies the consequent' to deny the antecedent.",
+  "explanation": "Modus Tollens (MT): From (P → Q) and ¬Q, derive ¬P. If P implies Q, but Q is false, then P must be false too. This is the contrapositive of Modus Ponens.",
+  "visual_concept": "If it rains, the ground gets wet. The ground is NOT wet. Therefore? It's NOT raining."
+}

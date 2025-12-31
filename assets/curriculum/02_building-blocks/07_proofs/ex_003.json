@@ -1,0 +1,16 @@
+{
+  "id": "P_1.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "What rule allows us to derive R from (P → Q), (Q → R)?",
+  "options": [
+    "Modus Ponens",
+    "Disjunctive Syllogism",
+    "Hypothetical Syllogism",
+    "Conjunction"
+  ],
+  "correct": 2,
+  "hint": "We're 'chaining' two conditionals together.",
+  "explanation": "Hypothetical Syllogism (HS): From (P → Q) and (Q → R), derive (P → R). If P leads to Q and Q leads to R, then P leads to R. We can chain implications together.",
+  "visual_concept": "Dominoes: If A knocks down B, and B knocks down C, then A (ultimately) knocks down C."
+}

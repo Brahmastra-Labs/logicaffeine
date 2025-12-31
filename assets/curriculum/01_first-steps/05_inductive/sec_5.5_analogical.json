@@ -1,8 +1,83 @@
 {
   "id": "5.5",
-  "section": "Analogical Reasoning",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["analogy", "similarity", "relevance of properties"],
-  "status": "planned"
+  "title": "Analogical Reasoning",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Analogical reasoning** draws conclusions about one thing based on its similarity to another. If two things are alike in many respects, they're probably alike in other respects too."
+    },
+    {
+      "type": "definition",
+      "term": "Argument by Analogy",
+      "definition": "An argument that concludes something about a target case based on its similarity to a source case. If A and B are similar in respects 1, 2, 3, and A has property P, then B probably has P too."
+    },
+    {
+      "type": "example",
+      "title": "Analogical Argument",
+      "premises": [
+        "This drug worked on mice in clinical trials.",
+        "Mice are physiologically similar to humans in relevant respects."
+      ],
+      "conclusion": "Therefore, the drug will probably work on humans.",
+      "note": "The strength depends on how similar mice and humans are in the RELEVANT respects."
+    },
+    {
+      "type": "symbols",
+      "title": "Evaluating Analogies",
+      "symbols": [
+        {
+          "symbol": "Relevance",
+          "name": "Pertinent Similarities",
+          "meaning": "Shared properties must relate to the conclusion",
+          "example": "Mice metabolism relevant to drug testing"
+        },
+        {
+          "symbol": "Number",
+          "name": "Many Similarities",
+          "meaning": "More relevant similarities = stronger analogy",
+          "example": "Similar in 10 ways vs. 2 ways"
+        },
+        {
+          "symbol": "Disanalogies",
+          "name": "Relevant Differences",
+          "meaning": "Differences that weaken the argument",
+          "example": "Mice don't have human immune responses"
+        },
+        {
+          "symbol": "Instances",
+          "name": "Multiple Sources",
+          "meaning": "More source cases strengthen the analogy",
+          "example": "Drug worked on mice AND rats AND dogs"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The key to strong analogies is **relevant similarity**. Two things might be similar in many ways but different in the way that matters. A toy car looks like a real car but can't transport people."
+    },
+    {
+      "type": "example",
+      "title": "Weak Analogy",
+      "premises": [
+        "The human body is like a machine.",
+        "Machines need regular maintenance to function."
+      ],
+      "conclusion": "Therefore, humans need... oil changes?",
+      "note": "The analogy breaks down. Bodies and machines differ in crucial ways."
+    },
+    {
+      "type": "quiz",
+      "question": "What makes an analogical argument stronger?",
+      "options": [
+        "More total similarities between the compared things",
+        "More RELEVANT similarities between the compared things",
+        "The things being very different",
+        "Using more complex language"
+      ],
+      "correct": 1,
+      "explanation": "Analogical arguments are stronger when there are more RELEVANT similarities - similarities that bear on the property being inferred. Irrelevant similarities (both are blue, both were made on Tuesday) don't strengthen the argument at all."
+    }
+  ],
+  "key_symbols": []
 }

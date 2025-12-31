@@ -1,0 +1,16 @@
+{
+  "id": "F_1.10",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"The word 'bank' means the side of a river. Therefore, when you say you're going to the bank, you must be going fishing.\"",
+  "options": [
+    "Straw Man",
+    "Equivocation",
+    "Non Sequitur",
+    "False Analogy"
+  ],
+  "correct": 1,
+  "hint": "This argument exploits the fact that a word has multiple meanings.",
+  "explanation": "This is Equivocation - using a word with multiple meanings and shifting between them mid-argument. 'Bank' can mean a financial institution OR a riverbank. The argument sneakily switches definitions to reach an absurd conclusion.",
+  "visual_concept": "Equivocation: A shapeshifter word that looks like one thing at the start of a sentence and something different by the end."
+}

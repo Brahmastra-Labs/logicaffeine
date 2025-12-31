@@ -1,0 +1,90 @@
+{
+  "id": "3.4",
+  "title": "Analytic and Synthetic Statements",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Definitions help us understand the difference between statements that are true by virtue of meaning and those that require observation to verify. This is one of philosophy's most important distinctions."
+    },
+    {
+      "type": "definition",
+      "term": "Analytic Statement",
+      "definition": "A statement that is true (or false) solely by virtue of the meanings of its terms. No observation of the world is needed to determine its truth value."
+    },
+    {
+      "type": "example",
+      "title": "Analytic Truths",
+      "premises": [
+        "\"All bachelors are unmarried.\"",
+        "\"A triangle has three sides.\"",
+        "\"Nothing can be red all over and green all over at the same time.\""
+      ],
+      "conclusion": "These are true by definition - you don't need to go check.",
+      "note": "Denying an analytic truth is self-contradictory."
+    },
+    {
+      "type": "definition",
+      "term": "Synthetic Statement",
+      "definition": "A statement whose truth value depends on facts about the world, not just the meanings of words. Experience or observation is needed to verify it."
+    },
+    {
+      "type": "example",
+      "title": "Synthetic Truths",
+      "premises": [
+        "\"Water boils at 100°C at sea level.\"",
+        "\"There are more than 50 stars in the Milky Way.\"",
+        "\"Some swans are black.\""
+      ],
+      "conclusion": "These require looking at the world to verify.",
+      "note": "Synthetic statements are informative about reality beyond mere meaning."
+    },
+    {
+      "type": "symbols",
+      "title": "Key Distinctions",
+      "symbols": [
+        {
+          "symbol": "Analytic",
+          "name": "True by Definition",
+          "meaning": "Truth follows from meanings alone",
+          "example": "A square has four sides"
+        },
+        {
+          "symbol": "Synthetic",
+          "name": "True by Fact",
+          "meaning": "Truth requires worldly investigation",
+          "example": "The Earth is round"
+        },
+        {
+          "symbol": "A Priori",
+          "name": "Known Before Experience",
+          "meaning": "Can be known through reason alone",
+          "example": "2 + 2 = 4"
+        },
+        {
+          "symbol": "A Posteriori",
+          "name": "Known After Experience",
+          "meaning": "Must be learned through observation",
+          "example": "Fire is hot"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The analytic/synthetic distinction concerns the **source of truth** (meaning vs. fact), while a priori/a posteriori concerns the **source of knowledge** (reason vs. experience). These usually align, but some philosophers argue there are synthetic a priori truths (like 'every event has a cause')."
+    },
+    {
+      "type": "quiz",
+      "question": "Which statement is analytic (true by definition)?",
+      "options": [
+        "Gold is heavier than silver",
+        "All sisters are female siblings",
+        "Dogs are loyal animals",
+        "The sun rises in the east"
+      ],
+      "correct": 1,
+      "explanation": "'All sisters are female siblings' is analytic because it's true by the very meaning of 'sister' - a sister is defined as a female sibling. The other statements require observation to verify: gold's weight must be measured, dogs' loyalty must be observed, and the sun's rising direction must be experienced."
+    }
+  ],
+  "key_symbols": []
+}

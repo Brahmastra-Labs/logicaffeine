@@ -1,0 +1,16 @@
+{
+  "id": "P_1.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "What rule allows us to derive P from (P ∧ Q)?",
+  "options": [
+    "Addition",
+    "Simplification",
+    "Conjunction",
+    "Distribution"
+  ],
+  "correct": 1,
+  "hint": "We're extracting one part from a conjunction.",
+  "explanation": "Simplification (Simp): From (P ∧ Q), derive P (or Q). If both P and Q are true, then certainly P alone is true. We can 'simplify' by dropping one conjunct.",
+  "visual_concept": "A bag contains an apple AND an orange. You can certainly pull out just the apple."
+}

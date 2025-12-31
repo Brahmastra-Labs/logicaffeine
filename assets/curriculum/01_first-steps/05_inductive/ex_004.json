@@ -1,0 +1,16 @@
+{
+  "id": "I_1.4",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "If P(A) = 0.3 and P(B) = 0.4, and A and B are independent events, what is P(A and B)?",
+  "options": [
+    "0.7",
+    "0.12",
+    "0.1",
+    "0.35"
+  ],
+  "correct": 1,
+  "hint": "For independent events, multiply the probabilities.",
+  "explanation": "For independent events, P(A and B) = P(A) × P(B) = 0.3 × 0.4 = 0.12. Events are independent when the occurrence of one doesn't affect the probability of the other.",
+  "visual_concept": "Think of overlapping circles in a Venn diagram. The overlap (A AND B) is the product of the individual probabilities."
+}

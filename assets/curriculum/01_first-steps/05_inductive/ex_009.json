@@ -1,0 +1,16 @@
+{
+  "id": "I_1.9",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "What makes an inductive argument strong?",
+  "options": [
+    "The premises guarantee the conclusion",
+    "The premises make the conclusion highly probable",
+    "The argument uses formal logic symbols",
+    "The conclusion is definitely true"
+  ],
+  "correct": 1,
+  "hint": "Remember, inductive arguments never guarantee their conclusions.",
+  "explanation": "A strong inductive argument is one where the premises make the conclusion highly probable (though never certain). Unlike deductive validity, inductive strength is a matter of degree - arguments can be stronger or weaker depending on how much support the premises provide.",
+  "visual_concept": "Deductive: Steel bridge - if built right, it WILL hold. Inductive: Rope bridge - stronger ropes make it MORE likely to hold, but never guaranteed."
+}

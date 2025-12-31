@@ -1,0 +1,16 @@
+{
+  "id": "P_1.13",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "In a proof by indirect proof (reductio ad absurdum), to prove P we:",
+  "options": [
+    "Assume P and derive a contradiction",
+    "Assume ¬P and derive a contradiction",
+    "Assume P and derive Q",
+    "Derive P directly from the premises"
+  ],
+  "correct": 1,
+  "hint": "We show that assuming the opposite leads to impossibility.",
+  "explanation": "Indirect Proof (IP/RAA): To prove P, assume ¬P, derive a contradiction (Q ∧ ¬Q for some Q), then discharge the assumption to conclude P. If ¬P leads to absurdity, P must be true.",
+  "visual_concept": "Assume the opposite of what you want to prove. Follow that path until you hit a wall (contradiction). The opposite must have been wrong."
+}

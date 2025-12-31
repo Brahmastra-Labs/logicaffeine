@@ -1,0 +1,16 @@
+{
+  "id": "PH_1.1",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "What is the fundamental question in the philosophy of logic?",
+  "options": [
+    "Who invented logic?",
+    "What makes logical truths true?",
+    "How fast can computers process logic?",
+    "Which logic system is oldest?"
+  ],
+  "correct": 1,
+  "hint": "It's about the nature and basis of logical validity itself.",
+  "explanation": "Philosophy of logic asks: What is the source and nature of logical truth? Are logical laws discovered (realism) or invented (conventionalism)? Are they about language, thought, or reality? These foundational questions examine logic itself, not just its application.",
+  "visual_concept": "Logic tells us 'P ∨ ¬P' is true. Philosophy of logic asks: WHY is it true? What makes it true?"
+}

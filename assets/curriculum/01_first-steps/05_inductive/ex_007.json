@@ -1,0 +1,16 @@
+{
+  "id": "I_1.7",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"The lights are off, there's mail piling up, and the car hasn't moved in days. The best explanation is that the neighbors are on vacation.\" What type of reasoning is this?",
+  "options": [
+    "Inductive generalization",
+    "Abduction (Inference to the Best Explanation)",
+    "Statistical syllogism",
+    "Method of Agreement"
+  ],
+  "correct": 1,
+  "hint": "We're choosing the explanation that best accounts for all the observed facts.",
+  "explanation": "This is abduction or Inference to the Best Explanation (IBE). We observe multiple facts and infer the hypothesis that would best explain them all. 'Vacation' explains the dark house, mail, and unmoved car better than alternatives like 'they're just sleeping'.",
+  "visual_concept": "Detective work: Multiple clues point to one suspect. The best explanation is the one that ties all the clues together coherently."
+}

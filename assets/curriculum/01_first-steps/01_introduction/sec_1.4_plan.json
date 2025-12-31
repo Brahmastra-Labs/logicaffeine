@@ -1,8 +1,117 @@
 {
   "id": "1.4",
-  "section": "The Plan of This Book",
-  "type": "placeholder",
-  "difficulty": 1,
-  "topics": ["overview of logic", "types of logic", "course structure"],
-  "status": "planned"
+  "title": "First-Order Logic Notation",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In first-order logic (FOL), we translate English sentences into precise symbolic notation. This allows us to analyze arguments with mathematical rigor and avoid the ambiguity of natural language."
+    },
+    {
+      "type": "paragraph",
+      "text": "The basic building blocks of FOL are **predicates**, **constants**, **variables**, **connectives**, and **quantifiers**. Let's learn each one."
+    },
+    {
+      "type": "symbols",
+      "title": "Predicates & Constants",
+      "symbols": [
+        {
+          "symbol": "Happy(x)",
+          "name": "Predicate",
+          "meaning": "A property applied to something",
+          "example": "Happy(alice) = 'Alice is happy'"
+        },
+        {
+          "symbol": "alice",
+          "name": "Constant",
+          "meaning": "A name for a specific individual",
+          "example": "socrates, bob, earth"
+        },
+        {
+          "symbol": "x, y, z",
+          "name": "Variable",
+          "meaning": "A placeholder for any individual",
+          "example": "Used with quantifiers"
+        }
+      ]
+    },
+    {
+      "type": "symbols",
+      "title": "Logical Connectives",
+      "symbols": [
+        {
+          "symbol": "∧",
+          "name": "Conjunction",
+          "meaning": "AND - both must be true",
+          "example": "A ∧ B = 'A and B'"
+        },
+        {
+          "symbol": "∨",
+          "name": "Disjunction",
+          "meaning": "OR - at least one is true",
+          "example": "A ∨ B = 'A or B'"
+        },
+        {
+          "symbol": "→",
+          "name": "Implication",
+          "meaning": "IF...THEN",
+          "example": "A → B = 'If A then B'"
+        },
+        {
+          "symbol": "¬",
+          "name": "Negation",
+          "meaning": "NOT - opposite is true",
+          "example": "¬A = 'not A'"
+        },
+        {
+          "symbol": "↔",
+          "name": "Biconditional",
+          "meaning": "IF AND ONLY IF",
+          "example": "A ↔ B = 'A iff B'"
+        }
+      ]
+    },
+    {
+      "type": "symbols",
+      "title": "Quantifiers",
+      "symbols": [
+        {
+          "symbol": "∀x",
+          "name": "Universal",
+          "meaning": "FOR ALL x",
+          "example": "∀x.Human(x) → Mortal(x)"
+        },
+        {
+          "symbol": "∃x",
+          "name": "Existential",
+          "meaning": "THERE EXISTS an x",
+          "example": "∃x.Dog(x) ∧ Happy(x)"
+        }
+      ]
+    },
+    {
+      "type": "example",
+      "title": "Translation Examples",
+      "premises": [
+        "Alice is happy → Happy(alice)",
+        "All dogs bark → ∀x.Dog(x) → Barks(x)",
+        "Some cats are lazy → ∃x.Cat(x) ∧ Lazy(x)"
+      ],
+      "conclusion": "Notice how 'all' uses → but 'some' uses ∧",
+      "note": "This difference is crucial and will be explained in the Syllogistic Logic module."
+    },
+    {
+      "type": "quiz",
+      "question": "How would you translate 'Bob runs' into first-order logic?",
+      "options": [
+        "bob(Runs)",
+        "Runs(bob)",
+        "∀x.Runs(x)",
+        "bob ∧ Runs"
+      ],
+      "correct": 1,
+      "explanation": "The predicate 'Runs' is applied to the constant 'bob'. Predicates are capitalized, constants are lowercase, and the constant goes inside the parentheses."
+    }
+  ],
+  "key_symbols": ["∀", "∃", "→", "∧", "∨", "¬", "↔"]
 }

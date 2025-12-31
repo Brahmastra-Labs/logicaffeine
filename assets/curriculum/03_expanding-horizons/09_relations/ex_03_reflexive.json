@@ -1,0 +1,16 @@
+{
+  "id": "R_1.3",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Which of these relations is reflexive?",
+  "options": [
+    "\"is taller than\"",
+    "\"is the same age as\"",
+    "\"is the parent of\"",
+    "\"is different from\""
+  ],
+  "correct": 1,
+  "hint": "Reflexive means every element relates to itself: ∀x R(x,x)",
+  "explanation": "A relation R is reflexive if everything relates to itself: ∀x R(x,x). 'Is the same age as' is reflexive - everyone is the same age as themselves. 'Taller than', 'parent of', and 'different from' are all irreflexive - nothing stands in those relations to itself.",
+  "visual_concept": "Reflexive: Every node has a loop pointing to itself. Like 'equals' - everything = itself."
+}

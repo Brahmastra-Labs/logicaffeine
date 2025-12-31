@@ -1,8 +1,78 @@
 {
   "id": "5.6",
-  "section": "Analogy and Other Minds",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["problem of other minds", "argument from analogy", "consciousness"],
-  "status": "planned"
+  "title": "The Problem of Other Minds",
+  "order": 6,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A famous application of analogical reasoning is the **argument for other minds**. How do we know other people have conscious experiences like we do?"
+    },
+    {
+      "type": "definition",
+      "term": "The Problem of Other Minds",
+      "definition": "The philosophical question of how we can know that other people have minds and conscious experiences, given that we can only directly experience our own consciousness."
+    },
+    {
+      "type": "example",
+      "title": "The Argument from Analogy for Other Minds",
+      "premises": [
+        "When I am in pain, I behave in certain ways (grimacing, crying out).",
+        "Other people exhibit similar behaviors.",
+        "Other people are physically similar to me."
+      ],
+      "conclusion": "Therefore, other people probably experience pain like I do.",
+      "note": "This is an analogical argument - we infer mental states from physical similarity and behavior."
+    },
+    {
+      "type": "paragraph",
+      "text": "This argument faces challenges. We have only **one case** (ourselves) to generalize from. And physical similarity doesn't guarantee mental similarity - a sophisticated robot might behave like a person without having experiences."
+    },
+    {
+      "type": "symbols",
+      "title": "Challenges to the Argument",
+      "symbols": [
+        {
+          "symbol": "N = 1",
+          "name": "Single Case",
+          "meaning": "We generalize from only one known mind (our own)",
+          "example": "Weak inductive base"
+        },
+        {
+          "symbol": "Behavior Gap",
+          "name": "Behavior vs. Experience",
+          "meaning": "Same behavior could occur without consciousness",
+          "example": "Philosophical zombies, robots"
+        },
+        {
+          "symbol": "Access",
+          "name": "Private Experience",
+          "meaning": "We can't directly observe others' consciousness",
+          "example": "No way to verify the conclusion"
+        },
+        {
+          "symbol": "Relevance",
+          "name": "Physical vs. Mental",
+          "meaning": "Is physical similarity relevant to mental states?",
+          "example": "Bodies alike, minds alike?"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Despite these challenges, most philosophers accept that we're justified in believing others have minds. The alternative (solipsism - only my mind exists) seems absurd, and our shared behavior and communication suggest shared experiences."
+    },
+    {
+      "type": "quiz",
+      "question": "What is the main weakness of the analogical argument for other minds?",
+      "options": [
+        "Other people don't behave like us",
+        "We only have one case (ourselves) to generalize from",
+        "Pain doesn't really exist",
+        "Physical similarity is easy to observe"
+      ],
+      "correct": 1,
+      "explanation": "The argument generalizes from a single case - my own mind is the only mind I can directly observe. Usually inductive generalizations require many cases to be strong. With N=1, the sample is as small as possible, making the inference weaker than typical analogies."
+    }
+  ],
+  "key_symbols": []
 }

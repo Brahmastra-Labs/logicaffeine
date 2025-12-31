@@ -1,0 +1,16 @@
+{
+  "id": "I_1.8",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "A medical test is 95% accurate. If you test positive, what's the probability you have the disease?",
+  "options": [
+    "95%",
+    "It depends on how common the disease is",
+    "5%",
+    "100%"
+  ],
+  "correct": 1,
+  "hint": "This is a common trap! Think about base rates.",
+  "explanation": "This is the base rate fallacy trap! The answer depends on the disease's prevalence (base rate). If the disease is rare (1 in 10,000), most positives will be false positives. Bayes' theorem is needed to calculate the true probability.",
+  "visual_concept": "10,000 people tested. If 1 has disease and tests positive, but 500 healthy people also test positive (false positives), then P(disease|positive) = 1/501 ≈ 0.2%!"
+}

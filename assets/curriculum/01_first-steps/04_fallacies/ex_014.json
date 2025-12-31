@@ -1,0 +1,16 @@
+{
+  "id": "F_1.14",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "\"We've always done it this way. There's no need to change.\"",
+  "options": [
+    "Appeal to Tradition",
+    "Appeal to Authority",
+    "Status Quo Bias",
+    "Both A and C"
+  ],
+  "correct": 3,
+  "hint": "This combines resistance to change with the assumption that tradition equals correctness.",
+  "explanation": "This combines Appeal to Tradition (assuming old ways are correct) with Status Quo Bias (preferring the current state simply because it's current). Neither provides actual reasons why the current approach is better than alternatives.",
+  "visual_concept": "Like refusing to upgrade from a horse and buggy because 'we've always traveled this way' - ignoring whether the alternative might be better."
+}

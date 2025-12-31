@@ -1,0 +1,16 @@
+{
+  "id": "F_1.7",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "\"We should trust this medicine because it's been used for centuries.\"",
+  "options": [
+    "Appeal to Tradition",
+    "Appeal to Authority",
+    "Bandwagon",
+    "False Cause"
+  ],
+  "correct": 0,
+  "hint": "The argument assumes something is good simply because it's old or traditional.",
+  "explanation": "This is an Appeal to Tradition fallacy - assuming that because something has been done a certain way for a long time, it must be correct or beneficial. Age alone doesn't prove effectiveness; many traditional practices have been shown to be ineffective or harmful.",
+  "visual_concept": "Appeal to Tradition: 'My grandfather smoked and lived to 90!' while ignoring everyone else's grandfather who didn't."
+}

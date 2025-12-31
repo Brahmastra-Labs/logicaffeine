@@ -1,0 +1,16 @@
+{
+  "id": "F_1.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Dr. Smith, a famous physicist, says this diet will help you lose weight. So it must be effective!\"",
+  "options": [
+    "Ad Hominem",
+    "Appeal to Authority",
+    "Bandwagon",
+    "False Cause"
+  ],
+  "correct": 1,
+  "hint": "The argument relies on someone's expertise, but is that expertise relevant here?",
+  "explanation": "This is an Appeal to Authority fallacy - specifically an appeal to irrelevant authority. Dr. Smith may be an expert in physics, but that doesn't make them qualified to give diet advice. Authority only matters when it's in the relevant field.",
+  "visual_concept": "Appeal to Authority: A rocket scientist wearing a chef's hat, claiming their recipe must be good because they're a 'doctor'."
+}

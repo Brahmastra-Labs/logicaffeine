@@ -1,0 +1,16 @@
+{
+  "id": "D_1.6",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "Relevance logic addresses what problem in classical logic?",
+  "options": [
+    "Classical logic is too complex",
+    "Classical implication allows irrelevant premises",
+    "Classical logic can't handle time",
+    "Classical negation is ambiguous"
+  ],
+  "correct": 1,
+  "hint": "In classical logic, 'If the moon is cheese, then 2+2=4' is valid.",
+  "explanation": "Relevance logic rejects paradoxes of material implication. Classically, P → Q is true whenever P is false - even if P and Q are completely unrelated! Relevance logic requires the antecedent to be actually relevant to the consequent for the implication to hold.",
+  "visual_concept": "Classical: 'If pigs fly, then grass is green' is TRUE (false antecedent). Relevance logic: that's nonsense, they're unconnected!"
+}

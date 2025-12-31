@@ -1,0 +1,16 @@
+{
+  "id": "M_1.4",
+  "type": "multiple_choice",
+  "difficulty": 5,
+  "prompt": "What is the semantic value 'true in all models' called?",
+  "options": [
+    "Soundness",
+    "Validity",
+    "Consistency",
+    "Provability"
+  ],
+  "correct": 1,
+  "hint": "This is a semantic notion - about truth in interpretations, not about proofs.",
+  "explanation": "Validity (⊨): A formula is valid if it's true in every possible model/interpretation. Validity is a semantic notion. Compare: Provability (⊢) is a syntactic notion - derivable using inference rules.",
+  "visual_concept": "Validity: Try every possible world. If the formula is true in ALL of them, it's valid. Like 'P ∨ ¬P' - true no matter what P means."
+}

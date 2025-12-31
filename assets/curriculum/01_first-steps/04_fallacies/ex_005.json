@@ -1,0 +1,16 @@
+{
+  "id": "F_1.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"You're either with us or against us.\"",
+  "options": [
+    "Ad Hominem",
+    "Straw Man",
+    "False Dilemma",
+    "Begging the Question"
+  ],
+  "correct": 2,
+  "hint": "This argument presents only two options when more possibilities exist.",
+  "explanation": "This is a False Dilemma (also called Black-and-White thinking) - presenting only two options as if they're the only possibilities. In reality, someone might be neutral, partially supportive, or have a more nuanced position.",
+  "visual_concept": "False Dilemma: Showing someone only doors A and B, while hiding doors C, D, and E behind a curtain."
+}

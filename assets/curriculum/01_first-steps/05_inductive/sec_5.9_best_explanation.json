@@ -1,8 +1,86 @@
 {
   "id": "5.9",
-  "section": "Best-Explanation Reasoning",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["inference to best explanation", "abduction", "explanatory virtues"],
-  "status": "planned"
+  "title": "Inference to the Best Explanation",
+  "order": 9,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Often we reason not from frequency or analogy, but by asking: **What would explain the evidence?** This is called inference to the best explanation, or abduction."
+    },
+    {
+      "type": "definition",
+      "term": "Inference to the Best Explanation (IBE)",
+      "definition": "A form of reasoning where we accept a hypothesis because it best explains the observed evidence. Also called abduction."
+    },
+    {
+      "type": "example",
+      "title": "Abductive Reasoning",
+      "premises": [
+        "The ground is wet this morning.",
+        "If it rained last night, that would explain the wet ground.",
+        "Rain is a better explanation than alternatives (sprinklers, flood, etc.)."
+      ],
+      "conclusion": "Therefore, it probably rained last night.",
+      "note": "We infer the probable cause from its explanatory power."
+    },
+    {
+      "type": "definition",
+      "term": "Explanatory Virtues",
+      "definition": "Criteria for evaluating explanations: simplicity (fewer assumptions), breadth (explains more phenomena), coherence (fits other knowledge), and fertility (predicts new observations)."
+    },
+    {
+      "type": "symbols",
+      "title": "What Makes an Explanation Good?",
+      "symbols": [
+        {
+          "symbol": "Simplicity",
+          "name": "Occam's Razor",
+          "meaning": "Fewer assumptions are better",
+          "example": "One cause vs. conspiracy of factors"
+        },
+        {
+          "symbol": "Breadth",
+          "name": "Explanatory Scope",
+          "meaning": "Explains many phenomena",
+          "example": "Evolution explains diverse species"
+        },
+        {
+          "symbol": "Coherence",
+          "name": "Fits Background Knowledge",
+          "meaning": "Consistent with what we know",
+          "example": "Doesn't require new physics"
+        },
+        {
+          "symbol": "Fertility",
+          "name": "Makes Predictions",
+          "meaning": "Leads to testable new claims",
+          "example": "Theory predicts unknown phenomenon"
+        }
+      ]
+    },
+    {
+      "type": "example",
+      "title": "Scientific IBE",
+      "premises": [
+        "Fossils appear in specific geological layers.",
+        "Similar species cluster geographically.",
+        "DNA shows patterns of relatedness."
+      ],
+      "conclusion": "The theory of evolution best explains all this evidence.",
+      "note": "Evolution is accepted not because we observed it directly, but because it explains so much so well."
+    },
+    {
+      "type": "quiz",
+      "question": "According to 'Occam's Razor,' which explanation is preferable?",
+      "options": [
+        "The one with the most detail",
+        "The one with the fewest assumptions",
+        "The one that's most surprising",
+        "The one that scientists agree on"
+      ],
+      "correct": 1,
+      "explanation": "Occam's Razor (or the principle of parsimony) says we should prefer simpler explanations - those that make fewer assumptions. If two explanations fit the evidence equally well, the simpler one is more likely to be true."
+    }
+  ],
+  "key_symbols": []
 }

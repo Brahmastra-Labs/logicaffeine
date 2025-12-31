@@ -1,0 +1,16 @@
+{
+  "id": "D_1.1",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "What characterizes a 'deviant' logic?",
+  "options": [
+    "It uses different symbols than standard logic",
+    "It rejects or modifies core principles of classical logic",
+    "It was developed by non-Western philosophers",
+    "It only applies to mathematical reasoning"
+  ],
+  "correct": 1,
+  "hint": "These logics challenge fundamental assumptions like the law of excluded middle.",
+  "explanation": "Deviant logics reject or modify core classical principles like bivalence, excluded middle, or non-contradiction. They aren't 'wrong' - they explore what happens when we change fundamental assumptions, often better modeling certain domains like vagueness or quantum phenomena.",
+  "visual_concept": "Classical logic: every statement is true or false, period. Deviant logics ask: what if that's not always the case?"
+}

@@ -1,32 +1,25 @@
-//! Symbol Dictionary extraction from First-Order Logic output.
+//! Symbol Dictionary Extraction
 //!
-//! This module parses FOL strings and extracts symbols with their meanings,
-//! allowing the UI to display a "Symbol Dictionary" that helps students
-//! understand the notation.
+//! Extracts logical symbols from FOL strings for display in a symbol dictionary.
+//! Groups symbols by kind and provides descriptions.
 
 use std::collections::HashSet;
 
-/// The category of a logical symbol
+/// Categories of logical symbols
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
-    /// ∀, ∃ - quantifiers
     Quantifier,
-    /// ∧, ∨, →, ↔, ¬ - logical connectives
     Connective,
-    /// x, y, z - bound variables
     Variable,
-    /// Dog, Bark, Loves - predicate symbols
     Predicate,
-    /// J, M, S - individual constants (named entities)
     Constant,
-    /// □, ◇ - modal necessity/possibility
     Modal,
-    /// ○, G, F, H, P - temporal operators (future, past, etc.)
+    Identity,
+    Punctuation,
     Temporal,
 }
 
 impl SymbolKind {
-    /// Get a display label for this kind
     pub fn label(&self) -> &'static str {
         match self {
             SymbolKind::Quantifier => "Quantifier",
@@ -35,215 +28,245 @@ impl SymbolKind {
             SymbolKind::Predicate => "Predicate",
             SymbolKind::Constant => "Constant",
             SymbolKind::Modal => "Modal",
+            SymbolKind::Identity => "Identity",
+            SymbolKind::Punctuation => "Punctuation",
             SymbolKind::Temporal => "Temporal",
         }
     }
 }
 
-/// A single entry in the symbol dictionary
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A single symbol entry in the dictionary
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolEntry {
-    /// The symbol itself (e.g., "∀", "Dog", "x")
     pub symbol: String,
-    /// The category of the symbol
     pub kind: SymbolKind,
-    /// Human-readable description of what it means
     pub description: String,
 }
 
-/// Extract all unique symbols from a First-Order Logic string.
-///
-/// # Arguments
-/// * `logic` - A FOL formula string (e.g., "∀x(Dog(x) → Bark(x))")
-///
-/// # Returns
-/// A vector of `SymbolEntry` items, one for each unique symbol found.
-/// Duplicates are automatically removed.
+/// Extract symbols from a FOL logic string
 pub fn extract_symbols(logic: &str) -> Vec<SymbolEntry> {
+    let mut entries = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    let mut symbols: Vec<SymbolEntry> = Vec::new();
 
-    let mut chars = logic.chars().peekable();
+    // Quantifiers
+    if logic.contains("∀") && seen.insert("∀".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∀".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Universal quantifier: \"for all\"".to_string(),
+        });
+    }
+    if logic.contains("∃") && seen.insert("∃".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Existential quantifier: \"there exists\"".to_string(),
+        });
+    }
+    if logic.contains("∃!") && seen.insert("∃!".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃!".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Unique existence: \"there exists exactly one\"".to_string(),
+        });
+    }
+    if logic.contains("MOST") && seen.insert("MOST".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "MOST".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"most\"".to_string(),
+        });
+    }
+    if logic.contains("FEW") && seen.insert("FEW".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "FEW".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"few\"".to_string(),
+        });
+    }
 
-    while let Some(c) = chars.next() {
-        let entry = match c {
-            // ═══════════════════════════════════════════════════════════════
-            // Quantifiers
-            // ═══════════════════════════════════════════════════════════════
-            '∀' | '\u{2200}' => Some(SymbolEntry {
-                symbol: "∀".to_string(),
-                kind: SymbolKind::Quantifier,
-                description: "Universal quantifier: \"for all\"".to_string(),
-            }),
-            '∃' | '\u{2203}' => Some(SymbolEntry {
-                symbol: "∃".to_string(),
-                kind: SymbolKind::Quantifier,
-                description: "Existential quantifier: \"there exists\"".to_string(),
-            }),
+    // Connectives
+    if logic.contains("∧") && seen.insert("∧".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∧".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Conjunction: \"and\"".to_string(),
+        });
+    }
+    if logic.contains("∨") && seen.insert("∨".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∨".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Disjunction: \"or\"".to_string(),
+        });
+    }
+    if logic.contains("→") && seen.insert("→".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "→".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Implication: \"if...then\"".to_string(),
+        });
+    }
+    if logic.contains("↔") && seen.insert("↔".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "↔".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Biconditional: \"if and only if\"".to_string(),
+        });
+    }
+    if logic.contains("¬") && seen.insert("¬".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "¬".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Negation: \"not\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Connectives
-            // ═══════════════════════════════════════════════════════════════
-            '¬' | '\u{00AC}' => Some(SymbolEntry {
-                symbol: "¬".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Negation: \"not\"".to_string(),
-            }),
-            '∧' | '\u{2227}' => Some(SymbolEntry {
-                symbol: "∧".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Conjunction: \"and\"".to_string(),
-            }),
-            '∨' | '\u{2228}' => Some(SymbolEntry {
-                symbol: "∨".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Disjunction: \"or\"".to_string(),
-            }),
-            '→' | '\u{2192}' => Some(SymbolEntry {
-                symbol: "→".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Implication: \"if...then\"".to_string(),
-            }),
-            '↔' | '\u{2194}' => Some(SymbolEntry {
-                symbol: "↔".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Biconditional: \"if and only if\"".to_string(),
-            }),
-            '⊃' | '\u{2283}' => Some(SymbolEntry {
-                symbol: "⊃".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Material conditional: \"if...then\" (horseshoe)".to_string(),
-            }),
-            '≡' | '\u{2261}' => Some(SymbolEntry {
-                symbol: "≡".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Material equivalence: \"if and only if\"".to_string(),
-            }),
+    // Modal operators
+    if logic.contains("□") && seen.insert("□".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "□".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Necessity: \"it is necessary that\"".to_string(),
+        });
+    }
+    if logic.contains("◇") && seen.insert("◇".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "◇".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Possibility: \"it is possible that\"".to_string(),
+        });
+    }
+    if logic.contains("O_") && seen.insert("O".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "O".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Deontic obligation: \"it ought to be that\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Modal Operators
-            // ═══════════════════════════════════════════════════════════════
-            '□' | '\u{25A1}' | '\u{25FB}' => Some(SymbolEntry {
-                symbol: "□".to_string(),
-                kind: SymbolKind::Modal,
-                description: "Necessity: \"necessarily\" or \"it must be that\"".to_string(),
-            }),
-            '◇' | '\u{25C7}' | '\u{25CA}' => Some(SymbolEntry {
-                symbol: "◇".to_string(),
-                kind: SymbolKind::Modal,
-                description: "Possibility: \"possibly\" or \"it might be that\"".to_string(),
-            }),
+    // Identity
+    if logic.contains(" = ") && seen.insert("=".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "=".to_string(),
+            kind: SymbolKind::Identity,
+            description: "Identity: \"is identical to\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Variables (lowercase single letters)
-            // ═══════════════════════════════════════════════════════════════
-            c if c.is_ascii_lowercase() => {
-                // Check if standalone variable (not part of a word)
-                let is_standalone = chars.peek().map_or(true, |next| {
-                    !next.is_alphanumeric()
-                });
+    // Extract predicates (uppercase letters followed by parenthesis)
+    extract_predicates(logic, &mut entries, &mut seen);
 
-                if is_standalone {
-                    Some(SymbolEntry {
-                        symbol: c.to_string(),
-                        kind: SymbolKind::Variable,
-                        description: format!("Variable: bound by a quantifier"),
-                    })
-                } else {
-                    None
-                }
+    // Extract variables (lowercase x, y, z, etc.)
+    extract_variables(logic, &mut entries, &mut seen);
+
+    // Extract constants (uppercase single letters not followed by parenthesis)
+    extract_constants(logic, &mut entries, &mut seen);
+
+    entries
+}
+
+fn extract_predicates(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Match patterns like "Dog(", "Mortal(", "Loves("
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
             }
-
-            // ═══════════════════════════════════════════════════════════════
-            // Predicates and Constants (uppercase)
-            // ═══════════════════════════════════════════════════════════════
-            c if c.is_ascii_uppercase() => {
-                // Collect the full word
-                let mut word = String::from(c);
-                while let Some(&next) = chars.peek() {
-                    if next.is_alphanumeric() || next == '_' {
-                        word.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-
-                // Check if followed by parenthesis (predicate) or not (constant)
-                let is_predicate = chars.peek() == Some(&'(');
-
-                if is_predicate {
-                    Some(SymbolEntry {
-                        symbol: word.clone(),
+            if i < chars.len() && chars[i] == '(' {
+                let predicate: String = chars[start..i].iter().collect();
+                if seen.insert(format!("pred_{}", predicate)) {
+                    entries.push(SymbolEntry {
+                        symbol: predicate.clone(),
                         kind: SymbolKind::Predicate,
-                        description: format!("Predicate: {}", humanize_predicate(&word)),
-                    })
-                } else {
-                    // Single uppercase letter is typically a constant
-                    Some(SymbolEntry {
-                        symbol: word.clone(),
-                        kind: SymbolKind::Constant,
-                        description: format!("Constant: individual named \"{}\"", word),
-                    })
+                        description: format!("Predicate: {}", predicate),
+                    });
                 }
             }
+        }
+        i += 1;
+    }
+}
 
-            _ => None,
-        };
-
-        if let Some(e) = entry {
-            if !seen.contains(&e.symbol) {
-                seen.insert(e.symbol.clone());
-                symbols.push(e);
+fn extract_variables(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Variables are lowercase letters typically x, y, z, w
+    for var in ['x', 'y', 'z', 'w', 'e'] {
+        let var_str = var.to_string();
+        // Check if variable appears in context (not as part of a word)
+        if logic.contains(&format!("({})", var))
+            || logic.contains(&format!("({},", var))
+            || logic.contains(&format!(", {})", var))
+            || logic.contains(&format!("{}.", var))
+            || logic.contains(&format!(" {}", var))
+        {
+            if seen.insert(format!("var_{}", var)) {
+                entries.push(SymbolEntry {
+                    symbol: var_str,
+                    kind: SymbolKind::Variable,
+                    description: "Bound variable".to_string(),
+                });
             }
         }
     }
-
-    symbols
 }
 
-/// Convert a predicate name to a more human-readable form
-fn humanize_predicate(name: &str) -> String {
-    // Handle common patterns
-    match name {
-        "D" => "is a dog".to_string(),
-        "C" => "is a cat".to_string(),
-        "B" => "barks".to_string(),
-        "M" => "is a man / is mortal".to_string(),
-        "W" => "is a woman / walks".to_string(),
-        "L" => "loves".to_string(),
-        "R" => "runs".to_string(),
-        "S" => "sleeps / is a student".to_string(),
-        "P" => "is a property".to_string(),
-        "Q" => "is a property".to_string(),
-        _ if name.len() == 1 => format!("property {}", name),
-        _ => format!("\"{}\"", name.to_lowercase()),
+fn extract_constants(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Constants are uppercase letters like J (John), M (Mary), etc.
+    // But not predicates (followed by parenthesis)
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            // Collect the full name (may have numbers like J2)
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric()) {
+                i += 1;
+            }
+            // Check if NOT followed by parenthesis (would be predicate)
+            if i >= chars.len() || chars[i] != '(' {
+                let constant: String = chars[start..i].iter().collect();
+                // Skip very long names (likely predicates) and known quantifiers
+                if constant.len() <= 3
+                    && !["MOST", "FEW", "ALL", "THE"].contains(&constant.as_str())
+                    && seen.insert(format!("const_{}", constant))
+                {
+                    entries.push(SymbolEntry {
+                        symbol: constant.clone(),
+                        kind: SymbolKind::Constant,
+                        description: format!("Constant: {}", constant),
+                    });
+                }
+            }
+        }
+        i += 1;
     }
 }
 
-/// Group symbols by their kind for display
-pub fn group_symbols_by_kind(symbols: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
+/// Get symbols grouped by kind for display
+pub fn group_symbols_by_kind(entries: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
     let kinds = [
         SymbolKind::Quantifier,
         SymbolKind::Connective,
         SymbolKind::Modal,
+        SymbolKind::Identity,
         SymbolKind::Predicate,
         SymbolKind::Variable,
         SymbolKind::Constant,
-        SymbolKind::Temporal,
     ];
 
     kinds
         .iter()
         .filter_map(|&kind| {
-            let entries: Vec<&SymbolEntry> = symbols
-                .iter()
-                .filter(|s| s.kind == kind)
-                .collect();
-
-            if entries.is_empty() {
+            let matching: Vec<_> = entries.iter().filter(|e| e.kind == kind).collect();
+            if matching.is_empty() {
                 None
             } else {
-                Some((kind, entries))
+                Some((kind, matching))
             }
         })
         .collect()
@@ -254,34 +277,90 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_humanize_predicate_single_letter() {
-        assert!(humanize_predicate("D").contains("dog"));
-        assert!(humanize_predicate("L").contains("loves"));
+    fn test_extract_quantifier_symbols() {
+        let logic = "∀x(Dog(x) → Mortal(x))";
+        let symbols = extract_symbols(logic);
+
+        let quantifiers: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Quantifier).collect();
+        assert!(quantifiers.iter().any(|s| s.symbol == "∀"), "Should find universal quantifier");
     }
 
     #[test]
-    fn test_humanize_predicate_word() {
-        assert!(humanize_predicate("Dog").contains("dog"));
-        assert!(humanize_predicate("Loves").contains("loves"));
+    fn test_extract_existential() {
+        let logic = "∃x(Cat(x) ∧ Black(x))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "∃"), "Should find existential quantifier");
+    }
+
+    #[test]
+    fn test_extract_connective_symbols() {
+        let logic = "∀x(Dog(x) → (Loyal(x) ∧ Friendly(x)))";
+        let symbols = extract_symbols(logic);
+
+        let connectives: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Connective).collect();
+        assert!(connectives.iter().any(|s| s.symbol == "∧"), "Should find conjunction");
+        assert!(connectives.iter().any(|s| s.symbol == "→"), "Should find implication");
+    }
+
+    #[test]
+    fn test_extract_predicate_names() {
+        let logic = "∀x(Dog(x) → Mammal(x))";
+        let symbols = extract_symbols(logic);
+
+        let predicates: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Predicate).collect();
+        assert!(predicates.iter().any(|s| s.symbol == "Dog"), "Should find Dog predicate");
+        assert!(predicates.iter().any(|s| s.symbol == "Mammal"), "Should find Mammal predicate");
+    }
+
+    #[test]
+    fn test_extract_variable_names() {
+        let logic = "∀x∃y(Loves(x, y))";
+        let symbols = extract_symbols(logic);
+
+        let variables: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Variable).collect();
+        assert!(variables.iter().any(|s| s.symbol == "x"), "Should find variable x");
+        assert!(variables.iter().any(|s| s.symbol == "y"), "Should find variable y");
+    }
+
+    #[test]
+    fn test_no_duplicate_symbols() {
+        let logic = "∀x(Dog(x) → Dog(x))";
+        let symbols = extract_symbols(logic);
+
+        let dog_count = symbols.iter().filter(|s| s.symbol == "Dog").count();
+        assert_eq!(dog_count, 1, "Should not have duplicate predicates");
+    }
+
+    #[test]
+    fn test_symbol_has_description() {
+        let logic = "∀x(P(x))";
+        let symbols = extract_symbols(logic);
+
+        for symbol in &symbols {
+            assert!(!symbol.description.is_empty(), "Every symbol should have a description");
+        }
+    }
+
+    #[test]
+    fn test_modal_symbols() {
+        let logic = "□(P(x)) ∧ ◇(Q(y))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "□"), "Should find necessity operator");
+        assert!(symbols.iter().any(|s| s.symbol == "◇"), "Should find possibility operator");
     }
 
     #[test]
     fn test_group_symbols_by_kind() {
-        let symbols = extract_symbols("∀x(D(x) ∧ B(x))");
+        let logic = "∀x(Dog(x) → ∃y(Loves(x, y)))";
+        let symbols = extract_symbols(logic);
         let grouped = group_symbols_by_kind(&symbols);
 
-        assert!(!grouped.is_empty());
+        // Should have multiple groups
+        assert!(!grouped.is_empty(), "Should have grouped symbols");
 
-        // Find quantifiers group
-        let quantifiers = grouped.iter()
-            .find(|(k, _)| *k == SymbolKind::Quantifier);
-        assert!(quantifiers.is_some());
-    }
-
-    #[test]
-    fn test_symbol_kind_labels() {
-        assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
-        assert_eq!(SymbolKind::Connective.label(), "Connective");
-        assert_eq!(SymbolKind::Modal.label(), "Modal");
+        // Check quantifiers group exists
+        assert!(grouped.iter().any(|(k, _)| *k == SymbolKind::Quantifier), "Should have quantifier group");
     }
 }
