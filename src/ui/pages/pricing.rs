@@ -3,34 +3,20 @@ use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 
 const PRICING_STYLE: &str = r#"
-:root {
-  --bg0: #070a12;
-  --bg1: #0b1022;
-  --card: rgba(255,255,255,0.06);
-  --border: rgba(255,255,255,0.10);
-  --border2: rgba(255,255,255,0.14);
-  --text: #e5e7eb;
-  --muted: rgba(229,231,235,0.72);
-  --muted2: rgba(229,231,235,0.56);
-  --brand: #a78bfa;
-  --brand2: #60a5fa;
-  --ok: #22c55e;
-}
-
 * { box-sizing: border-box; }
 a { color: inherit; }
 
 .pricing {
   height: 100vh;
-  color: var(--text);
+  color: var(--text-primary);
   background:
     radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.18), transparent 60%),
     radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.18), transparent 60%),
     radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.10), transparent 62%),
-    linear-gradient(180deg, var(--bg0), var(--bg1) 55%, #070a12);
+    linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
   overflow-x: hidden;
   overflow-y: auto;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans";
+  font-family: var(--font-sans);
   position: relative;
 }
 
@@ -39,14 +25,14 @@ a { color: inherit; }
   inset: auto;
   width: 520px;
   height: 520px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   filter: blur(42px);
   opacity: 0.22;
   pointer-events: none;
   animation: float 14s ease-in-out infinite, pulse-glow 10s ease-in-out infinite;
 }
-.orb1 { top: -220px; left: -160px; background: radial-gradient(circle at 30% 30%, var(--brand2), transparent 60%); animation-delay: 0s; }
-.orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--brand), transparent 60%); animation-delay: -5s; }
+.orb1 { top: -220px; left: -160px; background: radial-gradient(circle at 30% 30%, var(--color-accent-blue), transparent 60%); animation-delay: 0s; }
+.orb2 { top: 120px; right: -200px; background: radial-gradient(circle at 40% 35%, var(--color-accent-purple), transparent 60%); animation-delay: -5s; }
 .orb3 { bottom: -260px; left: 20%; background: radial-gradient(circle at 40% 35%, rgba(34,197,94,0.9), transparent 60%); animation-delay: -10s; }
 
 @keyframes float {
@@ -69,7 +55,7 @@ a { color: inherit; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 60px 20px;
+  padding: 60px var(--spacing-xl);
   max-width: 1000px;
   margin: 0 auto;
 }
@@ -81,25 +67,25 @@ a { color: inherit; }
 }
 
 .pricing-header h1 {
-  font-size: 48px;
+  font-size: var(--font-display-lg);
   font-weight: 900;
   letter-spacing: -2px;
   background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.78) 65%, rgba(229,231,235,0.62) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .pricing-header p {
-  color: var(--muted);
-  font-size: 18px;
+  color: var(--text-secondary);
+  font-size: var(--font-body-lg);
   line-height: 1.65;
 }
 
 .pricing-tiers {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 24px;
+  gap: var(--spacing-xl);
   width: 100%;
   margin-bottom: 40px;
 }
@@ -107,9 +93,9 @@ a { color: inherit; }
 .tier-card {
   position: relative;
   background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 32px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(18px);
@@ -128,7 +114,7 @@ a { color: inherit; }
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(135deg, rgba(96,165,250,0.12), rgba(167,139,250,0.12));
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -158,7 +144,7 @@ a { color: inherit; }
 
 .tier-card.disabled:hover {
   transform: none;
-  border-color: var(--border);
+  border-color: rgba(255,255,255,0.10);
   background: rgba(255,255,255,0.04);
 }
 
@@ -177,9 +163,9 @@ a { color: inherit; }
 .free-license-banner {
   position: relative;
   background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 32px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
   margin-bottom: 40px;
   width: 100%;
   text-align: center;
@@ -194,15 +180,15 @@ a { color: inherit; }
 }
 
 .free-license-banner h2 {
-  color: var(--text);
-  font-size: 24px;
-  margin-bottom: 12px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
+  margin-bottom: var(--spacing-md);
   font-weight: 700;
 }
 
 .free-license-banner p {
-  color: var(--muted);
-  margin-bottom: 20px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
   line-height: 1.65;
 }
 
@@ -210,9 +196,9 @@ a { color: inherit; }
   display: inline-block;
   background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
   color: #060814;
-  padding: 14px 32px;
-  border-radius: 14px;
-  font-size: 16px;
+  padding: var(--spacing-md) var(--spacing-xxl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
   font-weight: 650;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -226,13 +212,13 @@ a { color: inherit; }
 
 .tier-badge {
   display: inline-block;
-  background: linear-gradient(135deg, var(--brand2), var(--brand));
+  background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
   color: #060814;
-  font-size: 11px;
+  font-size: var(--font-caption-md);
   font-weight: 700;
-  padding: 5px 12px;
-  border-radius: 999px;
-  margin-bottom: 16px;
+  padding: 5px var(--spacing-md);
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-lg);
   align-self: flex-start;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -240,13 +226,13 @@ a { color: inherit; }
 
 .early-access-badge {
   display: inline-block;
-  background: linear-gradient(135deg, var(--ok), #16a34a);
+  background: linear-gradient(135deg, var(--color-success), #16a34a);
   color: #060814;
-  font-size: 10px;
+  font-size: var(--font-caption-sm);
   font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 12px;
+  padding: var(--spacing-xs) 10px;
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-md);
   align-self: flex-start;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -255,63 +241,63 @@ a { color: inherit; }
 .coming-soon-badge {
   display: inline-block;
   background: rgba(255,255,255,0.12);
-  color: var(--muted);
-  font-size: 10px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-sm);
   font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 12px;
+  padding: var(--spacing-xs) 10px;
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-md);
   align-self: flex-start;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .tier-name {
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .tier-revenue {
-  color: var(--muted);
-  font-size: 14px;
-  margin-bottom: 20px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  margin-bottom: var(--spacing-xl);
 }
 
 .tier-price {
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .tier-price .amount {
-  color: var(--text);
-  font-size: 36px;
+  color: var(--text-primary);
+  font-size: var(--font-display-md);
   font-weight: 800;
 }
 
 .tier-price .period {
-  color: var(--muted);
-  font-size: 16px;
+  color: var(--text-secondary);
+  font-size: var(--font-body-md);
 }
 
 .tier-annual {
-  color: var(--brand);
-  font-size: 14px;
-  margin-bottom: 24px;
+  color: var(--color-accent-purple);
+  font-size: var(--font-caption-lg);
+  margin-bottom: var(--spacing-xl);
 }
 
 .tier-features {
   list-style: none;
   padding: 0;
-  margin: 0 0 24px 0;
+  margin: 0 0 var(--spacing-xl) 0;
   flex-grow: 1;
 }
 
 .tier-features li {
-  color: var(--muted);
-  font-size: 14px;
-  padding: 8px 0;
-  padding-left: 24px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  padding: var(--spacing-sm) 0;
+  padding-left: var(--spacing-xl);
   position: relative;
   line-height: 1.5;
 }
@@ -320,22 +306,22 @@ a { color: inherit; }
   content: "✓";
   position: absolute;
   left: 0;
-  color: var(--brand);
+  color: var(--color-accent-purple);
 }
 
 .tier-buttons {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--spacing-md);
 }
 
 .btn-primary {
   display: block;
   background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
   color: #060814;
-  padding: 14px 24px;
-  border-radius: 14px;
-  font-size: 16px;
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
   font-weight: 650;
   text-decoration: none;
   text-align: center;
@@ -351,11 +337,11 @@ a { color: inherit; }
 .btn-secondary {
   display: block;
   background: rgba(255,255,255,0.05);
-  color: var(--brand);
-  padding: 14px 24px;
+  color: var(--color-accent-purple);
+  padding: var(--spacing-md) var(--spacing-xl);
   border: 1px solid rgba(167,139,250,0.3);
-  border-radius: 14px;
-  font-size: 14px;
+  border-radius: var(--radius-lg);
+  font-size: var(--font-caption-lg);
   font-weight: 600;
   text-decoration: none;
   text-align: center;
@@ -370,11 +356,11 @@ a { color: inherit; }
 .btn-contact {
   display: block;
   background: rgba(255,255,255,0.06);
-  color: var(--text);
-  padding: 14px 24px;
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  font-size: 16px;
+  color: var(--text-primary);
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255,255,255,0.10);
+  font-size: var(--font-body-md);
   font-weight: 600;
   text-decoration: none;
   text-align: center;
@@ -383,14 +369,14 @@ a { color: inherit; }
 
 .btn-contact:hover {
   background: rgba(255,255,255,0.10);
-  border-color: var(--border2);
+  border-color: rgba(255,255,255,0.14);
 }
 
 .lifetime-section {
   position: relative;
   background: linear-gradient(135deg, rgba(167,139,250,0.12) 0%, rgba(96,165,250,0.08) 100%);
   border: 1px solid rgba(167,139,250,0.3);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 40px;
   text-align: center;
   width: 100%;
@@ -410,31 +396,31 @@ a { color: inherit; }
 
 .lifetime-section h2 {
   position: relative;
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 12px;
+  margin-bottom: var(--spacing-md);
 }
 
 .lifetime-section .price {
   position: relative;
-  color: var(--brand);
+  color: var(--color-accent-purple);
   font-size: 42px;
   font-weight: 800;
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .lifetime-section .subtext {
   position: relative;
-  color: var(--muted);
-  font-size: 14px;
-  margin-bottom: 24px;
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  margin-bottom: var(--spacing-xl);
 }
 
 .license-section {
   background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border);
-  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
   padding: 40px;
   margin-bottom: 40px;
   width: 100%;
@@ -443,41 +429,41 @@ a { color: inherit; }
 }
 
 .license-section h2 {
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 20px;
+  margin-bottom: var(--spacing-xl);
 }
 
 .license-section h3 {
-  color: var(--brand);
-  font-size: 18px;
+  color: var(--color-accent-purple);
+  font-size: var(--font-body-lg);
   font-weight: 600;
-  margin: 24px 0 12px 0;
+  margin: var(--spacing-xl) 0 var(--spacing-md) 0;
 }
 
 .license-section p {
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.8;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .license-section ul {
-  color: var(--muted);
+  color: var(--text-secondary);
   line-height: 1.8;
-  margin-left: 24px;
-  margin-bottom: 16px;
+  margin-left: var(--spacing-xl);
+  margin-bottom: var(--spacing-lg);
 }
 
 .license-section li {
-  margin-bottom: 8px;
+  margin-bottom: var(--spacing-sm);
 }
 
 .manage-section {
   background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 32px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
   text-align: center;
   width: 100%;
   margin-bottom: 40px;
@@ -486,15 +472,15 @@ a { color: inherit; }
 }
 
 .manage-section p {
-  color: var(--muted);
-  margin-bottom: 16px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-lg);
   line-height: 1.65;
 }
 
 .contact-section {
   background: linear-gradient(135deg, rgba(96,165,250,0.08) 0%, rgba(167,139,250,0.08) 100%);
   border: 1px solid rgba(167,139,250,0.25);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   padding: 40px;
   text-align: center;
   width: 100%;
@@ -503,21 +489,21 @@ a { color: inherit; }
 }
 
 .contact-section h2 {
-  color: var(--text);
-  font-size: 24px;
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: var(--spacing-lg);
 }
 
 .contact-section p {
-  color: var(--muted);
-  margin-bottom: 24px;
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
   line-height: 1.65;
 }
 
 .contact-links {
   display: flex;
-  gap: 16px;
+  gap: var(--spacing-lg);
   justify-content: center;
   flex-wrap: wrap;
 }
@@ -526,9 +512,9 @@ a { color: inherit; }
   display: inline-block;
   background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
   color: #060814;
-  padding: 14px 32px;
-  border-radius: 14px;
-  font-size: 16px;
+  padding: var(--spacing-md) var(--spacing-xxl);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-body-md);
   font-weight: 650;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -543,11 +529,11 @@ a { color: inherit; }
 .back-link {
   margin-top: 40px;
   background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 24px;
-  color: var(--muted);
-  font-size: 15px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-body-sm);
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -555,13 +541,13 @@ a { color: inherit; }
 
 .back-link:hover {
   background: rgba(255,255,255,0.08);
-  color: var(--text);
-  border-color: var(--border2);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.14);
 }
 
 .pricing-footer-links {
   display: flex;
-  gap: 12px;
+  gap: var(--spacing-md);
   align-items: center;
   margin-top: 40px;
 }
@@ -570,13 +556,13 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--spacing-sm);
   background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 12px 20px;
-  color: var(--muted);
-  font-size: 15px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-xl);
+  color: var(--text-secondary);
+  font-size: var(--font-body-sm);
   font-weight: 600;
   text-decoration: none;
   transition: all 0.2s ease;
@@ -584,8 +570,8 @@ a { color: inherit; }
 
 .github-btn:hover {
   background: rgba(255,255,255,0.08);
-  color: var(--text);
-  border-color: var(--border2);
+  color: var(--text-primary);
+  border-color: rgba(255,255,255,0.14);
 }
 
 .github-btn svg {
@@ -596,7 +582,7 @@ a { color: inherit; }
 
 @media (max-width: 700px) {
   .pricing-header h1 {
-    font-size: 36px;
+    font-size: var(--font-display-md);
   }
   .pricing-tiers {
     grid-template-columns: 1fr;

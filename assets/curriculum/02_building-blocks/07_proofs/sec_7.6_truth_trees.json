@@ -1,0 +1,8 @@
+{
+  "id": "7.6",
+  "section": "Truth Trees",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["semantic tableaux", "tree construction", "branch closure"],
+  "status": "planned"
+}

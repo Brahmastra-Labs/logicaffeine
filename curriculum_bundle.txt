@@ -1,17 +1,125 @@
-=== ERA: 00_logicaffeine ===
+=== ERA: 00_logic-caffeine ===
 {
-  "id": "logicaffeine",
-  "title": "Practice",
-  "description": "Classic logic exercises from Gensler's Introduction to Logic.",
+  "id": "logic-caffeine",
+  "title": "Introduction to Logic",
+  "description": "A comprehensive logic curriculum covering classical and modern techniques.",
   "order": 0
 }
 
---- MODULE: 01_syllogistic ---
+--- MODULE: 01_introduction ---
+{
+  "id": "introduction",
+  "title": "Introduction",
+  "pedagogy": "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound vs. unsound arguments.",
+  "order": 1
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 1,
+  "prompt": "Translate this observation:",
+  "template": "{ProperName} is {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Apply the adjective as a predicate to the constant."
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negation:",
+  "template": "{ProperName} is not {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Negation wraps the entire predication: ¬P(x)."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this negated action:",
+  "template": "{ProperName} does not {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Negation of an action: ¬V(subject)."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 1,
+  "prompt": "Translate this action:",
+  "template": "{ProperName} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "An intransitive verb takes only one argument: the subject."
+}
+
+{
+  "id": "ex_03",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Which logical form represents 'Alice runs'?",
+  "options": [
+    "Runs(Alice)",
+    "Alice(Runs)",
+    "∀x(Runs(x))",
+    "Runs ∧ Alice"
+  ],
+  "correct": 0,
+  "hint": "Think of it like a function call in programming: which is the function (action), and which is the input (person)?",
+  "explanation": "In logic, predicates work like functions: Runs(Alice) means 'apply the RUNS predicate to ALICE'. The predicate (action/property) comes first, then the subject goes in parentheses. Alice(Runs) would mean 'apply Alice to Runs' — but Alice isn't a predicate! And 'Runs ∧ Alice' treats them as separate propositions, losing the connection between Alice and running."
+}
+
+{
+  "id": "1.1",
+  "section": "Logic",
+  "type": "placeholder",
+  "difficulty": 1,
+  "topics": ["definition of logic", "arguments", "premises", "conclusions"],
+  "status": "planned"
+}
+
+{
+  "id": "1.2",
+  "section": "Valid Arguments",
+  "type": "placeholder",
+  "difficulty": 1,
+  "topics": ["validity", "invalid arguments", "form vs content"],
+  "status": "planned"
+}
+
+{
+  "id": "1.3",
+  "section": "Sound Arguments",
+  "type": "placeholder",
+  "difficulty": 1,
+  "topics": ["soundness", "truth of premises", "valid + true premises"],
+  "status": "planned"
+}
+
+{
+  "id": "1.4",
+  "section": "The Plan of This Book",
+  "type": "placeholder",
+  "difficulty": 1,
+  "topics": ["overview of logic", "types of logic", "course structure"],
+  "status": "planned"
+}
+
+--- MODULE: 02_syllogistic ---
 {
   "id": "syllogistic",
-  "title": "The Syllogism",
+  "title": "Syllogistic Logic",
   "pedagogy": "Translate English sentences into syllogistic notation. Lowercase letters denote individuals; capitals denote classes. Master the forms: all/some/no X is Y.",
-  "order": 1
+  "order": 2
 }
 
 {
@@ -1583,12 +1691,1084 @@
   "explanation": "\"All\" indicates a universal statement about every member of a class. \"G\" refers to a class of things, so use uppercase. The predicate \"C\" refers to a class/property, so use uppercase."
 }
 
---- MODULE: 02_propositional ---
+--- MODULE: 03_definitions ---
+{
+  "id": "definitions",
+  "title": "Meaning and Definitions",
+  "pedagogy": "Understand uses of language, types of definitions (lexical, stipulative), and the distinction between analytic/synthetic and a priori/a posteriori.",
+  "order": 3
+}
+
+{
+  "id": "Q_3.1",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Science is that cold and empty worship of experiments.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe Science neutrally, or does it judge Science? Would a scientist agree this captures what they do?",
+  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!",
+  "visual_concept": "A balance scale: the neutral word 'Science' on one side, the definition dripping with negative words (cold, empty) on the other. The scale tips because the emotional weights don't match."
+}
+
+{
+  "id": "Q_3.2",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A tent is a movable dwelling made of canvas.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine tent that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 (tents might be made of nylon)"
+}
+
+{
+  "id": "Q_3.3",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Philosophy is the study of the human condition.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Philosophy?",
+  "explanation": "This violates 1."
+}
+
+{
+  "id": "Q_3.4",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Logic is that dreadful discipline that analyses reasoning.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.5",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An old person is anyone over seventy.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.6",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A game is an amusing competition between various players.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine game that this definition would wrongly EXCLUDE?",
+  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+}
+
+{
+  "id": "Q_3.7",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A logician is an obnoxious hair-splitter.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.8",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A fish is an animal that lives mainly in the water.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of any water-dwelling animals that AREN'T fish? Would this definition accidentally include them?",
+  "explanation": "This definition captures TOO MUCH. Whales, dolphins, and otters all 'live mainly in water' but aren't fish. The definition fails to exclude things that shouldn't be included. A better definition would specify what MAKES something a fish (cold-blooded, gills, scales) rather than just where it lives."
+}
+
+{
+  "id": "Q_3.9",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A male is whatever has male reproductive organs.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine male that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 3 (and 2, if we consider castration)."
+}
+
+{
+  "id": "Q_3.10",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A police officer is a mere cop.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.11",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Uncle\" means \"brother of a parent\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine Uncle that this definition would wrongly EXCLUDE?",
+  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+}
+
+{
+  "id": "Q_3.12",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is a true belief that is absolutely certain.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine Knowledge that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 (most knowledge is not absolutely certain)."
+}
+
+{
+  "id": "Q_3.13",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A bachelor is an unmarried man who weighs over 50 pounds.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 6,
+  "hint": "Does this definition include features that are common but not ESSENTIAL to being a bachelor?",
+  "explanation": "This violates 7."
+}
+
+{
+  "id": "Q_3.14",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Triangles are what you study in geometry.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Triangles?",
+  "explanation": "This violates 1 (you study other things too)."
+}
+
+{
+  "id": "Q_3.15",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Architecture is frozen music.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": "Would an average person understand all the words in this definition?",
+  "explanation": "This violates 4."
+}
+
+{
+  "id": "Q_3.16",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An apple is a red fruit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a apple?",
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.17",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A warm day is one that is over 86 degrees Fahrenheit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.19",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A university instructor is just an egghead.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.20",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"True\" means \"proved to be true\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine True that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 and especially 3."
+}
+
+{
+  "id": "Q_3.21",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A chair is whatever is used as a chair.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 2,
+  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
+  "explanation": "This violates 3."
+}
+
+{
+  "id": "Q_3.22",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A teacher is one who instructs children.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine teacher that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2."
+}
+
+{
+  "id": "Q_3.23",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A net is anything with interstitial vacuities.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": "Would an average person understand all the words in this definition?",
+  "explanation": "This violates 4."
+}
+
+{
+  "id": "Q_3.24",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Cars are vehicles powered by gasoline.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Cars?",
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.26",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"God\" means \"object of ultimate concern\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Could someone's 'object of ultimate concern' be something other than God? What about career, family, or money?",
+  "explanation": "This definition is TOO BROAD. Many people's 'object of ultimate concern' might be their family, their nation, or even their career — but we wouldn't call those things 'God'. The definition captures too many things that don't fit the term. It fails to pick out what's distinctive about the concept of God."
+}
+
+{
+  "id": "Q_3.29",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A man is a featherless biped.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a man?",
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.30",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Punishment is anything unpleasant done to a person.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Punishment?",
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.31",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A king is the ruler of a country.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a king?",
+  "explanation": "This violates 1 (consider presidents and dictators)."
+}
+
+{
+  "id": "Q_3.33",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is true belief.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Knowledge?",
+  "explanation": "This violates 1 (a true belief might be a lucky guess)."
+}
+
+{
+  "id": "Q_3.35",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A politician is a scoundrel involved in politics.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine politician that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 (some are honest) and 6."
+}
+
+{
+  "id": "Q_3.37",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A doctor is a man who is licensed to practice medicine.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine doctor that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 (many doctors are women)."
+}
+
+{
+  "id": "Q_3.40",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A lie is a falsehood that you assert to be true.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a lie?",
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.42",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An adolescent is a person between 9 and 19 years-old.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.43",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An adult is anyone over 17.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.44",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Philosophy is what you study in philosophy classes.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 2,
+  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
+  "explanation": "This violates 3."
+}
+
+{
+  "id": "Q_3.45",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A cold day is one that is under 20 degrees Fahrenheit.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.46",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "An honest person is one who doesn't steal.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine this that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 (consider liars who don"
+}
+
+{
+  "id": "Q_3.47",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Murder\" means \"killing of a human being.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Murder?",
+  "explanation": "This violates 1 (consider accidental killing)."
+}
+
+{
+  "id": "Q_3.48",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A liberal is a permissive do-gooder who knows nothing.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a liberal?",
+  "explanation": "This violates 1, 2 and especially 6."
+}
+
+{
+  "id": "Q_3.49",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Logic is that wonderful discipline that analyses reasoning.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 5,
+  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
+  "explanation": "This violates 6."
+}
+
+{
+  "id": "Q_3.50",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Chair\" means \"what you sit on.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Chair?",
+  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
+}
+
+{
+  "id": "Q_3.51",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A conservative is an inflexible person who never thinks.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a conservative?",
+  "explanation": "This violates 1, 2 and especially 6."
+}
+
+{
+  "id": "Q_3.52",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A wrong action is one that is against the law.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a this?",
+  "explanation": "This violates 1 and 2."
+}
+
+{
+  "id": "Q_3.53",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A child is anyone between 2 and 12 years old.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+{
+  "id": "Q_3.55",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A kitten is a young female cat.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 1,
+  "hint": "Can you think of a genuine kitten that this definition would wrongly EXCLUDE?",
+  "explanation": "This violates 2 (kittens can be male)."
+}
+
+{
+  "id": "Q_3.57",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "Knowledge is the cognizance of a reality by an intellect.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 3,
+  "hint": "Would an average person understand all the words in this definition?",
+  "explanation": "This violates 4."
+}
+
+{
+  "id": "Q_3.58",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "A bird is an animal that can fly.",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a bird?",
+  "explanation": "This violates 1 (consider ostriches) and 2 (consider bats)."
+}
+
+{
+  "id": "Q_3.59",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Metaphysics\" means \"any sleep-inducing subject\".",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 0,
+  "hint": "Can you think of something that fits this definition but ISN'T actually a Metaphysics?",
+  "explanation": "This violates 1, 2 and 6."
+}
+
+{
+  "id": "Q_3.60",
+  "type": "multiple_choice",
+  "difficulty": 1,
+  "prompt": "\"Tall person\" means \"person over 6 feet tall.\"",
+  "options": [
+    "Too broad",
+    "Too narrow",
+    "Circular",
+    "Uses poorly understood terms",
+    "Poor match in vagueness",
+    "Poor match in emotional tone",
+    "Has non-essential properties"
+  ],
+  "correct": 4,
+  "hint": "Is the original term vague while the definition is precise, or vice versa?",
+  "explanation": "This violates 5."
+}
+
+--- MODULE: 04_fallacies ---
+{
+  "id": "fallacies",
+  "title": "Fallacies and Argumentation",
+  "pedagogy": "Identify good arguments vs. fallacious reasoning. Learn informal fallacies, inconsistency, and techniques for constructing and analyzing arguments.",
+  "order": 4
+}
+
+{
+  "id": "4.1",
+  "section": "Good Arguments",
+  "type": "placeholder",
+  "difficulty": 1,
+  "topics": ["criteria for good arguments", "cogent reasoning", "persuasion vs proof"],
+  "status": "planned"
+}
+
+{
+  "id": "4.2",
+  "section": "Informal Fallacies",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["ad hominem", "straw man", "appeal to authority", "red herring", "false dilemma", "slippery slope", "begging the question", "equivocation"],
+  "status": "planned"
+}
+
+{
+  "id": "4.3",
+  "section": "Inconsistency",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["logical consistency", "contradictions", "self-defeating arguments"],
+  "status": "planned"
+}
+
+{
+  "id": "4.4",
+  "section": "Constructing Arguments",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["building arguments", "supporting premises", "argument structure"],
+  "status": "planned"
+}
+
+{
+  "id": "4.5",
+  "section": "Analyzing Arguments",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["argument analysis", "identifying premises and conclusions", "evaluating strength"],
+  "status": "planned"
+}
+
+--- MODULE: 05_inductive ---
+{
+  "id": "inductive",
+  "title": "Inductive Reasoning",
+  "pedagogy": "Master probability, statistical syllogisms, analogical reasoning, Mill's methods, and best-explanation reasoning.",
+  "order": 5
+}
+
+{
+  "id": "5.1",
+  "section": "The Statistical Syllogism",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["statistical reasoning", "probability in arguments", "sample to population"],
+  "status": "planned"
+}
+
+{
+  "id": "5.10",
+  "section": "Problems with Induction",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["problem of induction", "Hume", "justification of induction"],
+  "status": "planned"
+}
+
+{
+  "id": "5.2",
+  "section": "Probability Calculations",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["basic probability", "conditional probability", "Bayes theorem"],
+  "status": "planned"
+}
+
+{
+  "id": "5.3",
+  "section": "Philosophical Questions",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["nature of probability", "frequentist vs subjective", "philosophical foundations"],
+  "status": "planned"
+}
+
+{
+  "id": "5.4",
+  "section": "Reasoning from a Sample",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["sampling", "generalization", "representativeness"],
+  "status": "planned"
+}
+
+{
+  "id": "5.5",
+  "section": "Analogical Reasoning",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["analogy", "similarity", "relevance of properties"],
+  "status": "planned"
+}
+
+{
+  "id": "5.6",
+  "section": "Analogy and Other Minds",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["problem of other minds", "argument from analogy", "consciousness"],
+  "status": "planned"
+}
+
+{
+  "id": "5.7",
+  "section": "Mill's Methods",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["method of agreement", "method of difference", "joint method", "method of residues", "method of concomitant variation"],
+  "status": "planned"
+}
+
+{
+  "id": "5.8",
+  "section": "Scientific Laws",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["laws of nature", "universal generalizations", "confirmation"],
+  "status": "planned"
+}
+
+{
+  "id": "5.9",
+  "section": "Best-Explanation Reasoning",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["inference to best explanation", "abduction", "explanatory virtues"],
+  "status": "planned"
+}
+
+--- MODULE: 06_propositional ---
 {
   "id": "propositional",
-  "title": "Propositional Logic",
-  "pedagogy": "Learn to translate English into propositional logic using connectives like AND, OR, NOT, and IF-THEN.",
-  "order": 2
+  "title": "Basic Propositional Logic",
+  "pedagogy": "Learn to translate English into propositional logic using connectives (AND, OR, NOT, IF-THEN). Master truth tables, S-rules, and I-rules.",
+  "order": 6
 }
 
 {
@@ -3416,12 +4596,193 @@
   "explanation": "In propositional logic: 'and' is represented by \u00b7 (conjunction). 'if...then' is represented by \u2283 (conditional). Pay attention to the scope of operators - parentheses matter!"
 }
 
---- MODULE: 03_modal ---
+--- MODULE: 07_proofs ---
+{
+  "id": "proofs",
+  "title": "Propositional Proofs",
+  "pedagogy": "Construct formal proofs and refutations in propositional logic. Learn Copi proofs and truth trees.",
+  "order": 7
+}
+
+{
+  "id": "7.1",
+  "section": "Easier Proofs",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["basic proof construction", "direct proofs", "simple inferences"],
+  "status": "planned"
+}
+
+{
+  "id": "7.2",
+  "section": "Easier Refutations",
+  "type": "placeholder",
+  "difficulty": 2,
+  "topics": ["refutation by counterexample", "showing invalidity", "countermodels"],
+  "status": "planned"
+}
+
+{
+  "id": "7.3",
+  "section": "Harder Proofs",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["complex proofs", "nested subproofs", "conditional proof", "indirect proof"],
+  "status": "planned"
+}
+
+{
+  "id": "7.4",
+  "section": "Harder Refutations",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["complex counterexamples", "semantic tableaux", "model construction"],
+  "status": "planned"
+}
+
+{
+  "id": "7.5",
+  "section": "Copi Proofs",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["Copi proof system", "natural deduction", "inference rules"],
+  "status": "planned"
+}
+
+{
+  "id": "7.6",
+  "section": "Truth Trees",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["semantic tableaux", "tree construction", "branch closure"],
+  "status": "planned"
+}
+
+--- MODULE: 08_quantificational ---
+{
+  "id": "quantificational",
+  "title": "Basic Quantificational Logic",
+  "pedagogy": "Master universal (all) and existential (some) quantifiers. Learn translations, proofs, and refutations in predicate logic.",
+  "order": 8
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this universal claim:",
+  "template": "All {Noun:Plural} are {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Universal: ∀x(Restrictor(x) → Scope(x)). Use → not ∧."
+}
+
+{
+  "id": "ex_01",
+  "type": "ambiguity",
+  "difficulty": 4,
+  "prompt": "This sentence has two readings. Identify both:",
+  "template": "Every {Noun} {Verb} a {Noun}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "Think about 'Every person has a mother' vs 'Every citizen has a President.' In one case, each person has their OWN mother (narrow scope). In the other, everyone shares the SAME President (wide scope). Which reading applies here?"
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this existential claim:",
+  "template": "Some {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Existential: ∃x(Restrictor(x) ∧ Scope(x)). Use ∧ not →."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this indefinite:",
+  "template": "A {Noun} is {Adjective}.",
+  "constraints": {
+    "Adjective": ["Intersective"]
+  },
+  "hint": "Indefinite 'a' introduces existential quantification."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 3,
+  "prompt": "Translate this universal statement:",
+  "template": "Every {Noun} {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Every N V = ∀x(N(x) → V(x))."
+}
+
+{
+  "id": "ex_03",
+  "type": "multiple_choice",
+  "difficulty": 3,
+  "prompt": "Why is ∀x(Dog(x) ∧ Barks(x)) WRONG for 'All dogs bark'?",
+  "options": [
+    "It claims everything is a barking dog",
+    "It uses the wrong quantifier",
+    "Dog should be lowercase",
+    "Barks should come before Dog"
+  ],
+  "correct": 0,
+  "hint": "If this logic were true, would a Cat exist in this world? Would a Table? Or would everything — cats, tables, numbers — ALL have to be barking dogs?",
+  "explanation": "The bug is using ∧ (AND) instead of → (IMPLIES). ∀x(Dog(x) ∧ Barks(x)) says 'For ALL things x: x is a Dog AND x Barks.' This forces EVERYTHING to be a barking dog — cats, tables, even you! The fix: ∀x(Dog(x) → Barks(x)) says 'For all x: IF x is a Dog, THEN x Barks.' Now cats can exist peacefully."
+}
+
+--- MODULE: 09_relations ---
+{
+  "id": "relations",
+  "title": "Relations and Identity",
+  "pedagogy": "Extend predicate logic with identity and relations. Handle definite descriptions and relational proofs.",
+  "order": 9
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 2,
+  "prompt": "Translate this relationship:",
+  "template": "{ProperName} {Verb} {ProperName}.",
+  "constraints": {
+    "Verb": ["Transitive"]
+  },
+  "hint": "A transitive verb creates a two-place relation: R(subject, object)."
+}
+
+{
+  "id": "ex_02",
+  "type": "multiple_choice",
+  "difficulty": 2,
+  "prompt": "If 'John loves Mary' is Loves(John, Mary), what is 'Mary loves John'?",
+  "options": [
+    "Loves(Mary, John)",
+    "Loves(John, Mary)",
+    "John(Loves, Mary)",
+    "Loves(Mary) ∧ Loves(John)"
+  ],
+  "correct": 0,
+  "hint": "Argument order matters in relations. The subject comes first."
+}
+
+--- MODULE: 10_modal ---
 {
   "id": "modal",
-  "title": "Modal Logic",
-  "pedagogy": "Learn to translate statements about possibility and necessity using modal operators.",
-  "order": 3
+  "title": "Basic Modal Logic",
+  "pedagogy": "Learn to translate statements about possibility and necessity using modal operators. Master modal translations, proofs, and refutations.",
+  "order": 10
 }
 
 {
@@ -3567,6 +4928,18 @@
   "correct": 2,
   "hint": "Think about what world(s) this statement is claiming something about. Is it all worlds, some worlds, or the actual world?",
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this possibility:",
+  "template": "{ProperName} might {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Possibility uses ◇ (diamond): ◇P means P is true in some possible world."
 }
 
 {
@@ -3727,6 +5100,18 @@
   "correct": 3,
   "hint": "Is the necessity wrapping the ENTIRE if-then, or just part of it?",
   "explanation": "When 'necessarily' comes before 'if...then', the whole conditional is necessary: \u25a1(A \u2283 B). This means: in EVERY possible world, if A is true then B is true. The implication itself is a necessary truth."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this necessity:",
+  "template": "{ProperName} must {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Necessity uses □ (box): □P means P is true in all possible worlds."
 }
 
 {
@@ -3969,12 +5354,44 @@
   "explanation": "In modal logic: The scope of modal operators affects meaning significantly."
 }
 
---- MODULE: 04_deontic ---
+--- MODULE: 11_further_modal ---
+{
+  "id": "further_modal",
+  "title": "Further Modal Systems",
+  "pedagogy": "Explore advanced modal systems including quantified modal logic, temporal logic, and sophisticated modal frameworks.",
+  "order": 11
+}
+
+{
+  "id": "ex_01",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this past event:",
+  "template": "{ProperName} {Verb:Past}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Past tense uses P operator: P(V(x)) means V(x) was true at some past time."
+}
+
+{
+  "id": "ex_02",
+  "type": "translation",
+  "difficulty": 4,
+  "prompt": "Translate this future event:",
+  "template": "{ProperName} will {Verb}.",
+  "constraints": {
+    "Verb": ["Intransitive"]
+  },
+  "hint": "Future tense uses F operator: F(V(x)) means V(x) will be true at some future time."
+}
+
+--- MODULE: 12_deontic ---
 {
   "id": "deontic",
-  "title": "Deontic Logic",
-  "pedagogy": "Learn to translate statements about obligation, permission, and prohibition.",
-  "order": 4
+  "title": "Deontic and Imperative Logic",
+  "pedagogy": "Learn to translate statements about obligation, permission, and prohibition. Master imperative and deontic translations and proofs.",
+  "order": 12
 }
 
 {
@@ -4586,12 +6003,12 @@
   "explanation": "Permission uses R (sometimes P for 'permitted'). 'It's permissible for you to sell' means you're ALLOWED to sell \u2014 not that you must. The agent (you, underlined) has the permission."
 }
 
---- MODULE: 05_belief ---
+--- MODULE: 13_belief ---
 {
   "id": "belief",
   "title": "Belief Logic",
-  "pedagogy": "Learn to translate statements about beliefs, knowledge, and propositional attitudes.",
-  "order": 5
+  "pedagogy": "Learn to translate statements about beliefs, knowledge, willing, and rationality. Master propositional attitude logic.",
+  "order": 13
 }
 
 {
@@ -4835,1227 +6252,277 @@
   "explanation": "Evidentiality uses O (for 'obvious/evident'). 'It's evident to you that P' becomes Ou:P. 'NOT evident' becomes ~Ou:P \u2014 the evidence operator is negated, not the content."
 }
 
---- MODULE: 06_informal ---
+--- MODULE: 14_ethics ---
 {
-  "id": "informal",
-  "title": "Definitions & Meanings",
-  "pedagogy": "Learn to identify problems with definitions: too broad, too narrow, circular, and more.",
-  "order": 6
+  "id": "ethics",
+  "title": "A Formalized Ethical Theory",
+  "pedagogy": "Apply logic to ethics: practical reason, consistency, and the golden rule formalized in logical notation.",
+  "order": 14
 }
 
 {
-  "id": "Q_3.1",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Science is that cold and empty worship of experiments.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 5,
-  "hint": "Does this definition describe Science neutrally, or does it judge Science? Would a scientist agree this captures what they do?",
-  "explanation": "The words 'cold', 'empty', and 'worship' carry strong negative emotional connotations. A good definition should describe what something IS, not how someone FEELS about it. Rule 6 states: A definition should match the emotional tone of the term being defined. Science itself is a neutral term, but this definition drips with disdain — that's a mismatch!",
-  "visual_concept": "A balance scale: the neutral word 'Science' on one side, the definition dripping with negative words (cold, empty) on the other. The scale tips because the emotional weights don't match."
+  "id": "14.1",
+  "section": "Practical Reason",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["practical vs theoretical reason", "ends and means", "imperatives"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.2",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A tent is a movable dwelling made of canvas.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine tent that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (tents might be made of nylon)"
+  "id": "14.2",
+  "section": "Consistency",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["moral consistency", "universalizability", "treating similar cases similarly"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.3",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Philosophy is the study of the human condition.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Philosophy?",
-  "explanation": "This violates 1."
+  "id": "14.3",
+  "section": "The Golden Rule",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["golden rule", "reciprocity", "formal ethics"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.4",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Logic is that dreadful discipline that analyses reasoning.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "This violates 6."
+  "id": "14.4",
+  "section": "Starting the GR Proof",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["formal proof of golden rule", "logical foundations of ethics"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.5",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "An old person is anyone over seventy.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
+  "id": "14.5",
+  "section": "GR Logical Machinery",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["deontic operators in ethics", "formal ethical reasoning"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.6",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A game is an amusing competition between various players.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine game that this definition would wrongly EXCLUDE?",
-  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+  "id": "14.6",
+  "section": "The Symbolic GR Proof",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["complete formal proof", "symbolic ethics"],
+  "status": "planned"
+}
+
+--- MODULE: 15_metalogic ---
+{
+  "id": "metalogic",
+  "title": "Metalogic",
+  "pedagogy": "Study logic about logic: soundness, completeness, axiomatic systems, and Godel's incompleteness theorem.",
+  "order": 15
 }
 
 {
-  "id": "Q_3.7",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A logician is an obnoxious hair-splitter.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "This violates 6."
+  "id": "15.1",
+  "section": "Metalogical Questions",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["logic about logic", "object language vs metalanguage", "formal systems"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.8",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A fish is an animal that lives mainly in the water.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of any water-dwelling animals that AREN'T fish? Would this definition accidentally include them?",
-  "explanation": "This definition captures TOO MUCH. Whales, dolphins, and otters all 'live mainly in water' but aren't fish. The definition fails to exclude things that shouldn't be included. A better definition would specify what MAKES something a fish (cold-blooded, gills, scales) rather than just where it lives."
+  "id": "15.2",
+  "section": "Symbols",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["formal languages", "syntax", "well-formed formulas"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.9",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A male is whatever has male reproductive organs.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine male that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 3 (and 2, if we consider castration)."
+  "id": "15.3",
+  "section": "Soundness",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["soundness theorem", "if provable then valid", "semantic correctness"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.10",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A police officer is a mere cop.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "This violates 6."
+  "id": "15.4",
+  "section": "Completeness",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["completeness theorem", "if valid then provable", "Godel completeness"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.11",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"Uncle\" means \"brother of a parent\".",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine Uncle that this definition would wrongly EXCLUDE?",
-  "explanation": "A definition is TOO NARROW when it excludes things that should be included."
+  "id": "15.5",
+  "section": "An Axiomatic System",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["axiom systems", "Hilbert systems", "axioms and rules"],
+  "status": "planned"
 }
 
 {
-  "id": "Q_3.12",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Knowledge is a true belief that is absolutely certain.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine Knowledge that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (most knowledge is not absolutely certain)."
+  "id": "15.6",
+  "section": "Godel's Theorem",
+  "type": "placeholder",
+  "difficulty": 4,
+  "topics": ["incompleteness theorems", "limits of formal systems", "self-reference"],
+  "status": "planned"
+}
+
+--- MODULE: 16_history ---
+{
+  "id": "history",
+  "title": "History of Logic",
+  "pedagogy": "Trace logic's development from ancient Greece through medieval, Enlightenment, and modern periods including Frege, Russell, and beyond.",
+  "order": 16
 }
 
 {
-  "id": "Q_3.13",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A bachelor is an unmarried man who weighs over 50 pounds.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 6,
-  "hint": "Does this definition include features that are common but not ESSENTIAL to being a bachelor?",
-  "explanation": "This violates 7."
-}
-
-{
-  "id": "Q_3.14",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Triangles are what you study in geometry.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Triangles?",
-  "explanation": "This violates 1 (you study other things too)."
-}
-
-{
-  "id": "Q_3.15",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Architecture is frozen music.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 3,
-  "hint": "Would an average person understand all the words in this definition?",
-  "explanation": "This violates 4."
-}
-
-{
-  "id": "Q_3.16",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "An apple is a red fruit.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a apple?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
-}
-
-{
-  "id": "Q_3.17",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A warm day is one that is over 86 degrees Fahrenheit.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
-}
-
-{
-  "id": "Q_3.19",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A university instructor is just an egghead.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "This violates 6."
-}
-
-{
-  "id": "Q_3.20",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"True\" means \"proved to be true\".",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine True that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 and especially 3."
-}
-
-{
-  "id": "Q_3.21",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A chair is whatever is used as a chair.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 2,
-  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
-  "explanation": "This violates 3."
-}
-
-{
-  "id": "Q_3.22",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A teacher is one who instructs children.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine teacher that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2."
-}
-
-{
-  "id": "Q_3.23",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A net is anything with interstitial vacuities.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 3,
-  "hint": "Would an average person understand all the words in this definition?",
-  "explanation": "This violates 4."
-}
-
-{
-  "id": "Q_3.24",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Cars are vehicles powered by gasoline.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Cars?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
-}
-
-{
-  "id": "Q_3.26",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"God\" means \"object of ultimate concern\".",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Could someone's 'object of ultimate concern' be something other than God? What about career, family, or money?",
-  "explanation": "This definition is TOO BROAD. Many people's 'object of ultimate concern' might be their family, their nation, or even their career — but we wouldn't call those things 'God'. The definition captures too many things that don't fit the term. It fails to pick out what's distinctive about the concept of God."
-}
-
-{
-  "id": "Q_3.29",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A man is a featherless biped.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a man?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
-}
-
-{
-  "id": "Q_3.30",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Punishment is anything unpleasant done to a person.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Punishment?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
-}
-
-{
-  "id": "Q_3.31",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A king is the ruler of a country.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a king?",
-  "explanation": "This violates 1 (consider presidents and dictators)."
-}
-
-{
-  "id": "Q_3.33",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Knowledge is true belief.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Knowledge?",
-  "explanation": "This violates 1 (a true belief might be a lucky guess)."
-}
-
-{
-  "id": "Q_3.35",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A politician is a scoundrel involved in politics.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine politician that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (some are honest) and 6."
-}
-
-{
-  "id": "Q_3.37",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A doctor is a man who is licensed to practice medicine.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine doctor that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (many doctors are women)."
-}
-
-{
-  "id": "Q_3.40",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A lie is a falsehood that you assert to be true.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a lie?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
-}
-
-{
-  "id": "Q_3.42",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "An adolescent is a person between 9 and 19 years-old.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
-}
-
-{
-  "id": "Q_3.43",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "An adult is anyone over 17.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
-}
-
-{
-  "id": "Q_3.44",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Philosophy is what you study in philosophy classes.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 2,
-  "hint": "Does this definition use the word it's trying to define, or something equivalent?",
-  "explanation": "This violates 3."
-}
-
-{
-  "id": "Q_3.45",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A cold day is one that is under 20 degrees Fahrenheit.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
-}
-
-{
-  "id": "Q_3.46",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "An honest person is one who doesn't steal.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine this that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (consider liars who don"
-}
-
-{
-  "id": "Q_3.47",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"Murder\" means \"killing of a human being.\"",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Murder?",
-  "explanation": "This violates 1 (consider accidental killing)."
-}
-
-{
-  "id": "Q_3.48",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A liberal is a permissive do-gooder who knows nothing.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a liberal?",
-  "explanation": "This violates 1, 2 and especially 6."
-}
-
-{
-  "id": "Q_3.49",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Logic is that wonderful discipline that analyses reasoning.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 5,
-  "hint": "Does this definition describe neutrally, or does it judge/evaluate?",
-  "explanation": "This violates 6."
-}
-
-{
-  "id": "Q_3.50",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"Chair\" means \"what you sit on.\"",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Chair?",
-  "explanation": "A definition is TOO BROAD when it includes things that shouldn't be included."
-}
-
-{
-  "id": "Q_3.51",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A conservative is an inflexible person who never thinks.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a conservative?",
-  "explanation": "This violates 1, 2 and especially 6."
-}
-
-{
-  "id": "Q_3.52",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A wrong action is one that is against the law.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a this?",
-  "explanation": "This violates 1 and 2."
-}
-
-{
-  "id": "Q_3.53",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A child is anyone between 2 and 12 years old.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
-}
-
-{
-  "id": "Q_3.55",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A kitten is a young female cat.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 1,
-  "hint": "Can you think of a genuine kitten that this definition would wrongly EXCLUDE?",
-  "explanation": "This violates 2 (kittens can be male)."
-}
-
-{
-  "id": "Q_3.57",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Knowledge is the cognizance of a reality by an intellect.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 3,
-  "hint": "Would an average person understand all the words in this definition?",
-  "explanation": "This violates 4."
-}
-
-{
-  "id": "Q_3.58",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "A bird is an animal that can fly.",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a bird?",
-  "explanation": "This violates 1 (consider ostriches) and 2 (consider bats)."
-}
-
-{
-  "id": "Q_3.59",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"Metaphysics\" means \"any sleep-inducing subject\".",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 0,
-  "hint": "Can you think of something that fits this definition but ISN'T actually a Metaphysics?",
-  "explanation": "This violates 1, 2 and 6."
-}
-
-{
-  "id": "Q_3.60",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "\"Tall person\" means \"person over 6 feet tall.\"",
-  "options": [
-    "Too broad",
-    "Too narrow",
-    "Circular",
-    "Uses poorly understood terms",
-    "Poor match in vagueness",
-    "Poor match in emotional tone",
-    "Has non-essential properties"
-  ],
-  "correct": 4,
-  "hint": "Is the original term vague while the definition is precise, or vice versa?",
-  "explanation": "This violates 5."
-}
-
-=== ERA: 01_trivium ===
-{
-  "id": "trivium",
-  "title": "Basics",
-  "description": "Learn to name objects, describe properties, and express relationships.",
-  "order": 1
-}
-
---- MODULE: 01_atomic ---
-{
-  "id": "atomic",
-  "title": "The Atomic World",
-  "pedagogy": "Properties are functions mapping individuals to Truth. A predicate applied to a constant yields a proposition.",
-  "order": 1
-}
-
-{
-  "id": "ex_01",
-  "type": "translation",
-  "difficulty": 1,
-  "prompt": "Translate this observation:",
-  "template": "{ProperName} is {Adjective}.",
-  "constraints": {
-    "Adjective": ["Intersective"]
-  },
-  "hint": "Apply the adjective as a predicate to the constant."
-}
-
-{
-  "id": "ex_02",
-  "type": "translation",
-  "difficulty": 1,
-  "prompt": "Translate this action:",
-  "template": "{ProperName} {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "An intransitive verb takes only one argument: the subject."
-}
-
-{
-  "id": "ex_03",
-  "type": "multiple_choice",
-  "difficulty": 1,
-  "prompt": "Which logical form represents 'Alice runs'?",
-  "options": [
-    "Runs(Alice)",
-    "Alice(Runs)",
-    "∀x(Runs(x))",
-    "Runs ∧ Alice"
-  ],
-  "correct": 0,
-  "hint": "Think of it like a function call in programming: which is the function (action), and which is the input (person)?",
-  "explanation": "In logic, predicates work like functions: Runs(Alice) means 'apply the RUNS predicate to ALICE'. The predicate (action/property) comes first, then the subject goes in parentheses. Alice(Runs) would mean 'apply Alice to Runs' — but Alice isn't a predicate! And 'Runs ∧ Alice' treats them as separate propositions, losing the connection between Alice and running."
-}
-
---- MODULE: 02_relations ---
-{
-  "id": "relations",
-  "title": "Connections",
-  "pedagogy": "Relations bind multiple individuals. Argument order matters: Loves(a,b) differs from Loves(b,a).",
-  "order": 2
-}
-
-{
-  "id": "ex_01",
-  "type": "translation",
+  "id": "16.1",
+  "section": "Ancient Logic",
+  "type": "placeholder",
   "difficulty": 2,
-  "prompt": "Translate this relationship:",
-  "template": "{ProperName} {Verb} {ProperName}.",
-  "constraints": {
-    "Verb": ["Transitive"]
-  },
-  "hint": "A transitive verb creates a two-place relation: R(subject, object)."
+  "topics": ["Aristotle", "Stoic logic", "Greek logic", "syllogistic origins"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_02",
-  "type": "multiple_choice",
+  "id": "16.2",
+  "section": "Medieval Logic",
+  "type": "placeholder",
   "difficulty": 2,
-  "prompt": "If 'John loves Mary' is Loves(John, Mary), what is 'Mary loves John'?",
-  "options": [
-    "Loves(Mary, John)",
-    "Loves(John, Mary)",
-    "John(Loves, Mary)",
-    "Loves(Mary) ∧ Loves(John)"
-  ],
-  "correct": 0,
-  "hint": "Argument order matters in relations. The subject comes first."
-}
-
---- MODULE: 03_negation ---
-{
-  "id": "negation",
-  "title": "Negation",
-  "pedagogy": "Negation flips truth values. Learn where the ¬ operator belongs in logical structure.",
-  "order": 3
+  "topics": ["scholastic logic", "supposition theory", "Ockham", "Aquinas"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_01",
-  "type": "translation",
+  "id": "16.3",
+  "section": "Enlightenment Logic",
+  "type": "placeholder",
   "difficulty": 2,
-  "prompt": "Translate this negation:",
-  "template": "{ProperName} is not {Adjective}.",
-  "constraints": {
-    "Adjective": ["Intersective"]
-  },
-  "hint": "Negation wraps the entire predication: ¬P(x)."
+  "topics": ["Leibniz", "Kant", "Port-Royal logic", "traditional logic"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_02",
-  "type": "translation",
-  "difficulty": 2,
-  "prompt": "Translate this negated action:",
-  "template": "{ProperName} does not {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Negation of an action: ¬V(subject)."
-}
-
-=== ERA: 02_quadrivium ===
-{
-  "id": "quadrivium",
-  "title": "Quantifiers",
-  "description": "Master universal and existential quantifiers that give logic its power.",
-  "order": 2
-}
-
---- MODULE: 01_universal ---
-{
-  "id": "universal",
-  "title": "Universal Quantification",
-  "pedagogy": "The universal quantifier ∀ expresses claims about ALL members of a domain. Universal statements use → to connect restrictor and scope.",
-  "order": 1
-}
-
-{
-  "id": "ex_01",
-  "type": "translation",
+  "id": "16.4",
+  "section": "Frege and Russell",
+  "type": "placeholder",
   "difficulty": 3,
-  "prompt": "Translate this universal claim:",
-  "template": "All {Noun:Plural} are {Adjective}.",
-  "constraints": {
-    "Adjective": ["Intersective"]
-  },
-  "hint": "Universal: ∀x(Restrictor(x) → Scope(x)). Use → not ∧."
+  "topics": ["Frege", "Russell", "Principia Mathematica", "logicism", "modern logic birth"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_02",
-  "type": "translation",
+  "id": "16.5",
+  "section": "After Principia",
+  "type": "placeholder",
   "difficulty": 3,
-  "prompt": "Translate this universal statement:",
-  "template": "Every {Noun} {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Every N V = ∀x(N(x) → V(x))."
+  "topics": ["Godel", "Tarski", "model theory", "proof theory", "20th century developments"],
+  "status": "planned"
+}
+
+--- MODULE: 17_deviant ---
+{
+  "id": "deviant",
+  "title": "Deviant Logics",
+  "pedagogy": "Explore non-classical logics: many-valued, paraconsistent, intuitionist, and relevance logic.",
+  "order": 17
 }
 
 {
-  "id": "ex_03",
-  "type": "multiple_choice",
+  "id": "17.1",
+  "section": "Many-Valued Logic",
+  "type": "placeholder",
   "difficulty": 3,
-  "prompt": "Why is ∀x(Dog(x) ∧ Barks(x)) WRONG for 'All dogs bark'?",
-  "options": [
-    "It claims everything is a barking dog",
-    "It uses the wrong quantifier",
-    "Dog should be lowercase",
-    "Barks should come before Dog"
-  ],
-  "correct": 0,
-  "hint": "If this logic were true, would a Cat exist in this world? Would a Table? Or would everything — cats, tables, numbers — ALL have to be barking dogs?",
-  "explanation": "The bug is using ∧ (AND) instead of → (IMPLIES). ∀x(Dog(x) ∧ Barks(x)) says 'For ALL things x: x is a Dog AND x Barks.' This forces EVERYTHING to be a barking dog — cats, tables, even you! The fix: ∀x(Dog(x) → Barks(x)) says 'For all x: IF x is a Dog, THEN x Barks.' Now cats can exist peacefully."
-}
-
---- MODULE: 02_existential ---
-{
-  "id": "existential",
-  "title": "Existential Quantification",
-  "pedagogy": "The existential quantifier ∃ asserts that SOME member exists. Existential statements use ∧ to conjoin restrictor and scope.",
-  "order": 2
+  "topics": ["three-valued logic", "fuzzy logic", "degrees of truth", "Lukasiewicz"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_01",
-  "type": "translation",
+  "id": "17.2",
+  "section": "Paraconsistent Logic",
+  "type": "placeholder",
   "difficulty": 3,
-  "prompt": "Translate this existential claim:",
-  "template": "Some {Noun} {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Existential: ∃x(Restrictor(x) ∧ Scope(x)). Use ∧ not →."
+  "topics": ["contradictions", "explosion principle", "dialethism", "reasoning with inconsistency"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_02",
-  "type": "translation",
+  "id": "17.3",
+  "section": "Intuitionist Logic",
+  "type": "placeholder",
   "difficulty": 3,
-  "prompt": "Translate this indefinite:",
-  "template": "A {Noun} is {Adjective}.",
-  "constraints": {
-    "Adjective": ["Intersective"]
-  },
-  "hint": "Indefinite 'a' introduces existential quantification."
-}
-
---- MODULE: 03_scope ---
-{
-  "id": "scope",
-  "title": "Scope Ambiguity",
-  "pedagogy": "When multiple quantifiers appear, their relative scope creates ambiguity. Different scopings yield different truth conditions.",
-  "order": 3
+  "topics": ["constructive logic", "Brouwer", "excluded middle rejection", "proof-theoretic semantics"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_01",
-  "type": "ambiguity",
+  "id": "17.4",
+  "section": "Relevance Logic",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["relevance", "variable sharing", "paradoxes of implication", "Anderson and Belnap"],
+  "status": "planned"
+}
+
+--- MODULE: 18_philosophy ---
+{
+  "id": "philosophy",
+  "title": "Philosophy of Logic",
+  "pedagogy": "Examine philosophical foundations: abstract entities, metaphysical structures, the basis for logical laws, truth, paradoxes, and logic's scope.",
+  "order": 18
+}
+
+{
+  "id": "18.1",
+  "section": "Abstract Entities",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["Platonism", "nominalism", "abstract objects", "logical objects"],
+  "status": "planned"
+}
+
+{
+  "id": "18.2",
+  "section": "Metaphysical Structures",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["logical form", "structure of reality", "logical atomism"],
+  "status": "planned"
+}
+
+{
+  "id": "18.3",
+  "section": "The Basis for Logical Laws",
+  "type": "placeholder",
   "difficulty": 4,
-  "prompt": "This sentence has two readings. Identify both:",
-  "template": "Every {Noun} {Verb} a {Noun}.",
-  "constraints": {
-    "Verb": ["Transitive"]
-  },
-  "hint": "Think about 'Every person has a mother' vs 'Every citizen has a President.' In one case, each person has their OWN mother (narrow scope). In the other, everyone shares the SAME President (wide scope). Which reading applies here?"
-}
-
-=== ERA: 03_metaphysics ===
-{
-  "id": "metaphysics",
-  "title": "Modality & Time",
-  "description": "Express possibility, necessity, and temporal relationships.",
-  "order": 3
-}
-
---- MODULE: 01_modality ---
-{
-  "id": "modality",
-  "title": "Modal Logic",
-  "pedagogy": "Possibility (◇) and necessity (□) extend logic beyond actual truth to possible truth across worlds.",
-  "order": 1
+  "topics": ["logical necessity", "analyticity", "conventionalism", "psychologism"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_01",
-  "type": "translation",
+  "id": "18.4",
+  "section": "Truth and Paradoxes",
+  "type": "placeholder",
   "difficulty": 4,
-  "prompt": "Translate this possibility:",
-  "template": "{ProperName} might {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Possibility uses ◇ (diamond): ◇P means P is true in some possible world."
+  "topics": ["theories of truth", "liar paradox", "Tarski", "semantic paradoxes"],
+  "status": "planned"
 }
 
 {
-  "id": "ex_02",
-  "type": "translation",
-  "difficulty": 4,
-  "prompt": "Translate this necessity:",
-  "template": "{ProperName} must {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Necessity uses □ (box): □P means P is true in all possible worlds."
-}
-
---- MODULE: 02_time ---
-{
-  "id": "time",
-  "title": "Temporal Logic",
-  "pedagogy": "Past (P) and Future (F) operators locate propositions in time, enabling reasoning about change.",
-  "order": 2
-}
-
-{
-  "id": "ex_01",
-  "type": "translation",
-  "difficulty": 4,
-  "prompt": "Translate this past event:",
-  "template": "{ProperName} {Verb:Past}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Past tense uses P operator: P(V(x)) means V(x) was true at some past time."
-}
-
-{
-  "id": "ex_02",
-  "type": "translation",
-  "difficulty": 4,
-  "prompt": "Translate this future event:",
-  "template": "{ProperName} will {Verb}.",
-  "constraints": {
-    "Verb": ["Intransitive"]
-  },
-  "hint": "Future tense uses F operator: F(V(x)) means V(x) will be true at some future time."
+  "id": "18.5",
+  "section": "Logic's Scope",
+  "type": "placeholder",
+  "difficulty": 3,
+  "topics": ["limits of logic", "logic and language", "logic and thought", "universal logic"],
+  "status": "planned"
 }
 

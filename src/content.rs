@@ -207,66 +207,113 @@ mod tests {
     #[test]
     fn test_curriculum_loads() {
         let engine = ContentEngine::new();
-        assert!(engine.era_count() >= 3, "Should have at least 3 eras (got {})", engine.era_count());
+        assert!(engine.era_count() >= 4, "Should have at least 4 eras (got {})", engine.era_count());
     }
 
     #[test]
-    fn test_era_trivium_exists() {
+    fn test_first_steps_era_exists() {
         let engine = ContentEngine::new();
-        let trivium = engine.get_era("trivium");
-        assert!(trivium.is_some(), "Trivium era should exist");
-        assert_eq!(trivium.unwrap().meta.title, "Basics");
+        let era = engine.get_era("first-steps");
+        assert!(era.is_some(), "First Steps era should exist");
+        assert_eq!(era.unwrap().meta.title, "First Steps");
     }
 
     #[test]
-    fn test_module_atomic_exists() {
+    fn test_building_blocks_era_exists() {
         let engine = ContentEngine::new();
-        let atomic = engine.get_module("trivium", "atomic");
-        assert!(atomic.is_some(), "Atomic module should exist");
-        assert_eq!(atomic.unwrap().meta.title, "The Atomic World");
+        let era = engine.get_era("building-blocks");
+        assert!(era.is_some(), "Building Blocks era should exist");
+        assert_eq!(era.unwrap().meta.title, "Building Blocks");
+    }
+
+    #[test]
+    fn test_expanding_horizons_era_exists() {
+        let engine = ContentEngine::new();
+        let era = engine.get_era("expanding-horizons");
+        assert!(era.is_some(), "Expanding Horizons era should exist");
+        assert_eq!(era.unwrap().meta.title, "Expanding Horizons");
+    }
+
+    #[test]
+    fn test_mastery_era_exists() {
+        let engine = ContentEngine::new();
+        let era = engine.get_era("mastery");
+        assert!(era.is_some(), "Mastery era should exist");
+        assert_eq!(era.unwrap().meta.title, "Mastery");
+    }
+
+    #[test]
+    fn test_introduction_module_exists() {
+        let engine = ContentEngine::new();
+        let module = engine.get_module("first-steps", "introduction");
+        assert!(module.is_some(), "Introduction module should exist");
+        assert_eq!(module.unwrap().meta.title, "Introduction");
+    }
+
+    #[test]
+    fn test_syllogistic_module_exists() {
+        let engine = ContentEngine::new();
+        let module = engine.get_module("first-steps", "syllogistic");
+        assert!(module.is_some(), "Syllogistic module should exist");
+        let m = module.unwrap();
+        assert_eq!(m.meta.title, "Syllogistic Logic");
+        assert!(m.exercises.len() >= 90, "Should have at least 90 exercises (got {})", m.exercises.len());
+    }
+
+    #[test]
+    fn test_propositional_module_exists() {
+        let engine = ContentEngine::new();
+        let module = engine.get_module("building-blocks", "propositional");
+        assert!(module.is_some(), "Propositional module should exist");
+        let m = module.unwrap();
+        assert_eq!(m.meta.title, "Basic Propositional Logic");
+        assert!(m.exercises.len() >= 100, "Should have at least 100 exercises (got {})", m.exercises.len());
     }
 
     #[test]
     fn test_exercises_load() {
         let engine = ContentEngine::new();
-        let count = engine.exercise_count("trivium", "atomic");
-        assert!(count >= 2, "Atomic module should have at least 2 exercises");
+        let count = engine.exercise_count("first-steps", "syllogistic");
+        assert!(count >= 90, "Syllogistic module should have at least 90 exercises");
     }
 
     #[test]
-    fn test_exercise_has_template() {
+    fn test_exercise_has_explanation() {
         let engine = ContentEngine::new();
-        let ex = engine.get_exercise("trivium", "atomic", "ex_01");
-        assert!(ex.is_some(), "Exercise ex_01 should exist");
-        assert!(ex.unwrap().template.is_some(), "Exercise should have template");
-    }
-
-    #[test]
-    fn test_logicaffeine_era_exists() {
-        let engine = ContentEngine::new();
-        let logicaffeine = engine.get_era("logicaffeine");
-        assert!(logicaffeine.is_some(), "Logicaffeine era should exist");
-        assert_eq!(logicaffeine.unwrap().meta.title, "Practice");
-    }
-
-    #[test]
-    fn test_logicaffeine_syllogistic_module() {
-        let engine = ContentEngine::new();
-        let module = engine.get_module("logicaffeine", "syllogistic");
-        assert!(module.is_some(), "Syllogistic module should exist");
-        let m = module.unwrap();
-        assert_eq!(m.meta.title, "The Syllogism");
-        assert!(m.exercises.len() >= 90, "Should have at least 90 exercises (got {})", m.exercises.len());
-    }
-
-    #[test]
-    fn test_logicaffeine_exercise_has_explanation() {
-        let engine = ContentEngine::new();
-        let ex = engine.get_exercise("logicaffeine", "syllogistic", "A_1.1");
+        let ex = engine.get_exercise("first-steps", "syllogistic", "A_1.1");
         assert!(ex.is_some(), "Exercise A_1.1 should exist");
         let exercise = ex.unwrap();
         assert!(exercise.explanation.is_some(), "Exercise should have explanation");
         assert!(exercise.options.is_some(), "Exercise should have options");
         assert_eq!(exercise.exercise_type, ExerciseType::MultipleChoice);
+    }
+
+    #[test]
+    fn test_all_eras_have_modules() {
+        let engine = ContentEngine::new();
+
+        // First Steps: 5 modules
+        let first_steps_modules = ["introduction", "syllogistic", "definitions", "fallacies", "inductive"];
+        for module in first_steps_modules {
+            assert!(engine.get_module("first-steps", module).is_some(), "first-steps/{} should exist", module);
+        }
+
+        // Building Blocks: 2 modules
+        let building_blocks_modules = ["propositional", "proofs"];
+        for module in building_blocks_modules {
+            assert!(engine.get_module("building-blocks", module).is_some(), "building-blocks/{} should exist", module);
+        }
+
+        // Expanding Horizons: 6 modules
+        let expanding_modules = ["quantificational", "relations", "modal", "further_modal", "deontic", "belief"];
+        for module in expanding_modules {
+            assert!(engine.get_module("expanding-horizons", module).is_some(), "expanding-horizons/{} should exist", module);
+        }
+
+        // Mastery: 5 modules
+        let mastery_modules = ["ethics", "metalogic", "history", "deviant", "philosophy"];
+        for module in mastery_modules {
+            assert!(engine.get_module("mastery", module).is_some(), "mastery/{} should exist", module);
+        }
     }
 }

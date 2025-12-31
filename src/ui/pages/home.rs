@@ -386,7 +386,7 @@ pub fn Home() -> Element {
                 }
 
                 Link {
-                    to: Route::Review {},
+                    to: Route::Learn {},
                     class: "portal-card",
                     div { class: "icon", "🔄" }
                     h2 { "Daily Review" }

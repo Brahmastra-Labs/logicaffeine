@@ -1,0 +1,6 @@
+{
+  "id": "metalogic",
+  "title": "Metalogic",
+  "pedagogy": "Study logic about logic: soundness, completeness, axiomatic systems, and Godel's incompleteness theorem.",
+  "order": 2
+}

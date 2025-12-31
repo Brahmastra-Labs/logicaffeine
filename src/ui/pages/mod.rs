@@ -1,11 +1,13 @@
 pub mod home;
 pub mod landing;
 pub mod learn;
-pub mod lesson;
+// Lesson and Review pages are deprecated - functionality moved to Learn page
+// Keeping files for reference during Step 9 refactoring
+// pub mod lesson;
+// pub mod review;
 pub mod pricing;
 pub mod privacy;
 pub mod registry;
-pub mod review;
 pub mod roadmap;
 pub mod success;
 pub mod terms;
@@ -16,10 +18,8 @@ pub mod guide;
 pub use home::Home;
 pub use landing::Landing;
 pub use learn::Learn;
-pub use lesson::Lesson;
 pub use pricing::Pricing;
 pub use privacy::Privacy;
-pub use review::Review;
 pub use roadmap::Roadmap;
 pub use success::Success;
 pub use terms::Terms;

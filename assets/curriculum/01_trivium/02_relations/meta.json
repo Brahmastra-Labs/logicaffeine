@@ -1,6 +1,0 @@
-{
-  "id": "relations",
-  "title": "Connections",
-  "pedagogy": "Relations bind multiple individuals. Argument order matters: Loves(a,b) differs from Loves(b,a).",
-  "order": 2
-}

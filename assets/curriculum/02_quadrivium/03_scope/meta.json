@@ -1,6 +1,0 @@
-{
-  "id": "scope",
-  "title": "Scope Ambiguity",
-  "pedagogy": "When multiple quantifiers appear, their relative scope creates ambiguity. Different scopings yield different truth conditions.",
-  "order": 3
-}
