@@ -1,8 +1,52 @@
 {
   "id": "16.4",
-  "section": "Frege and Russell",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["Frege", "Russell", "Principia Mathematica", "logicism", "modern logic birth"],
-  "status": "planned"
+  "title": "Frege and Russell",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Gottlob Frege** (1848-1925) revolutionized logic with his Begriffsschrift (1879) — a 'concept-script' that created modern predicate logic. He invented quantifiers (∀, ∃) and showed how to analyze the logical structure of statements with unprecedented precision."
+    },
+    {
+      "type": "definition",
+      "term": "Frege's Innovation",
+      "definition": "The invention of quantified predicate logic, using variables, predicates, and quantifiers to express logical form. This went far beyond Aristotelian syllogistics in expressive power."
+    },
+    {
+      "type": "paragraph",
+      "text": "Frege's goal was **logicism**: proving that mathematics (especially arithmetic) could be derived from pure logic. He developed a formal system for deriving mathematical truths from logical axioms alone."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Bertrand Russell** (1872-1970) discovered a paradox in Frege's system: consider the set of all sets that don't contain themselves. Does it contain itself? Either answer leads to contradiction."
+    },
+    {
+      "type": "example",
+      "title": "Russell's Paradox",
+      "premises": [
+        "Let R = the set of all sets that don't contain themselves",
+        "Is R ∈ R? (Does R contain itself?)",
+        "If yes: R contains itself, so by definition R ∉ R — contradiction!",
+        "If no: R doesn't contain itself, so by definition R ∈ R — contradiction!"
+      ],
+      "note": "This paradox forced logicians to be more careful about set formation."
+    },
+    {
+      "type": "paragraph",
+      "text": "Russell and Whitehead's Principia Mathematica (1910-1913) attempted to rescue logicism by adding 'type theory' to prevent self-reference. It became the foundation of 20th-century logic, though the system was enormously complex."
+    },
+    {
+      "type": "quiz",
+      "question": "What did Frege invent that went beyond Aristotelian logic?",
+      "options": [
+        "The syllogism",
+        "Quantified predicate logic with ∀ and ∃",
+        "Proof by contradiction",
+        "Modal operators"
+      ],
+      "correct": 1,
+      "explanation": "Frege invented modern predicate logic with quantifiers (∀ 'for all' and ∃ 'there exists'), variables, and predicates. This vastly exceeded the expressive power of Aristotelian syllogistics."
+    }
+  ],
+  "key_symbols": ["∀", "∃", "→"]
 }

@@ -1,8 +1,33 @@
 {
   "id": "15.3",
-  "section": "Soundness",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["soundness theorem", "if provable then valid", "semantic correctness"],
-  "status": "planned"
+  "title": "Soundness",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Soundness** is the property that a proof system never proves anything false. If our system proves φ, then φ is actually valid. Soundness means our proofs are trustworthy."
+    },
+    {
+      "type": "definition",
+      "term": "Soundness",
+      "definition": "A proof system is sound if: whenever ⊢ φ (φ is provable), then ⊨ φ (φ is valid). Provability implies truth."
+    },
+    {
+      "type": "paragraph",
+      "text": "Soundness is proven by showing that each inference rule preserves validity. If the premises are valid and we apply a valid rule, the conclusion must be valid."
+    },
+    {
+      "type": "quiz",
+      "question": "What does it mean for a proof system to be sound?",
+      "options": [
+        "It can prove every true statement",
+        "It never proves false statements",
+        "It uses correct notation",
+        "It has no contradictions"
+      ],
+      "correct": 1,
+      "explanation": "Soundness means provability implies validity: if we can prove φ, then φ is actually true. The system never lies."
+    }
+  ],
+  "key_symbols": ["⊢", "⊨"]
 }

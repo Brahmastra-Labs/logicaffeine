@@ -1,8 +1,52 @@
 {
   "id": "18.2",
-  "section": "Metaphysical Structures",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["logical form", "structure of reality", "logical atomism"],
-  "status": "planned"
+  "title": "Metaphysical Structures",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Does logic reflect the structure of reality, or just the structure of our language and thought? **Logical atomism** (Russell, early Wittgenstein) held that the world has a logical structure that our language mirrors."
+    },
+    {
+      "type": "definition",
+      "term": "Logical Atomism",
+      "definition": "The view that reality consists of simple, independent 'atomic facts' that combine like logical propositions. A perfect language would have its structure match the world's structure."
+    },
+    {
+      "type": "paragraph",
+      "text": "On this view, logical connectives (and, or, not) reflect real relations in the world. When we say 'A and B,' there's a complex fact in reality combining the facts A and B."
+    },
+    {
+      "type": "example",
+      "title": "Logical Form and Reality",
+      "premises": [
+        "'The cat is on the mat' has logical form: On(cat, mat)",
+        "This form reflects a real relation in the world",
+        "Predicates like 'On' correspond to real properties/relations",
+        "Names like 'cat' refer to real objects"
+      ],
+      "note": "Logical atomists believed language, properly analyzed, mirrors metaphysical structure."
+    },
+    {
+      "type": "paragraph",
+      "text": "Critics question whether reality has 'logical joints' — maybe we impose logical structure through language, rather than discovering it. The later Wittgenstein rejected his earlier atomism."
+    },
+    {
+      "type": "paragraph",
+      "text": "The debate continues: are predicates like 'red' natural kinds in reality, or arbitrary ways we've carved up experience? Does the world have a unique correct logical description?"
+    },
+    {
+      "type": "quiz",
+      "question": "What did logical atomism claim about logic and reality?",
+      "options": [
+        "Logic is purely conventional",
+        "Logic reflects the structure of reality",
+        "Logic is impossible to understand",
+        "Reality has no structure"
+      ],
+      "correct": 1,
+      "explanation": "Logical atomists (Russell, early Wittgenstein) believed that a properly analyzed language would mirror the logical structure of reality itself."
+    }
+  ],
+  "key_symbols": ["∧", "→"]
 }

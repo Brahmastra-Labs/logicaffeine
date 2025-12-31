@@ -1,0 +1,60 @@
+{
+  "id": "10.1",
+  "title": "Introduction to Modal Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Modal logic** extends classical logic with operators for **possibility** and **necessity**. While classical logic deals with what IS true, modal logic lets us reason about what COULD be true or what MUST be true."
+    },
+    {
+      "type": "paragraph",
+      "text": "Consider: 'It is raining' vs 'It might be raining' vs 'It must be raining'. These express different levels of certainty. Modal logic gives us the tools to formalize and reason about these distinctions."
+    },
+    {
+      "type": "definition",
+      "term": "Possibility Operator (◇)",
+      "definition": "Read as 'possibly' or 'it is possible that'. ◇P means 'it is possible that P is true' — P is true in at least one possible world."
+    },
+    {
+      "type": "definition",
+      "term": "Necessity Operator (□)",
+      "definition": "Read as 'necessarily' or 'it must be that'. □P means 'it is necessarily true that P' — P is true in all possible worlds."
+    },
+    {
+      "type": "symbols",
+      "title": "Modal Operators",
+      "symbols": [
+        {
+          "symbol": "◇",
+          "name": "Possibility",
+          "meaning": "It is possible that, might, could",
+          "example": "◇(Rains) — It might rain"
+        },
+        {
+          "symbol": "□",
+          "name": "Necessity",
+          "meaning": "It is necessary that, must, has to",
+          "example": "□(2+2=4) — Necessarily 2+2=4"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The operators are interdefinable: ◇P ≡ ¬□¬P ('possibly P' means 'not necessarily not-P'), and □P ≡ ¬◇¬P ('necessarily P' means 'not possibly not-P')."
+    },
+    {
+      "type": "quiz",
+      "question": "What does □P mean?",
+      "options": [
+        "P is possibly true",
+        "P is false",
+        "P is necessarily true (true in all possible worlds)",
+        "P is true in some possible worlds"
+      ],
+      "correct": 2,
+      "explanation": "The necessity operator □ means 'it is necessarily true that'. □P says P is true in all possible worlds — there's no way P could be false."
+    }
+  ],
+  "key_symbols": ["◇", "□"]
+}

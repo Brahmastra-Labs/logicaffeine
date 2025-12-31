@@ -1,0 +1,58 @@
+{
+  "id": "8.2",
+  "title": "Translating 'All' and 'Some'",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The most common quantified statements in English use words like 'all', 'every', 'each', 'some', 'a', and 'any'. Learning to translate these correctly is the core skill of quantificational logic."
+    },
+    {
+      "type": "definition",
+      "term": "Universal Statements",
+      "definition": "Statements with 'all', 'every', 'each', 'any' typically use ∀ with a conditional (→). For example, 'All birds fly' becomes ∀x(Bird(x) → Flies(x))."
+    },
+    {
+      "type": "example",
+      "title": "Translating 'All'",
+      "premises": [
+        "All birds fly → ∀x(Bird(x) → Flies(x))",
+        "Every student studies → ∀x(Student(x) → Studies(x))",
+        "Each cat is furry → ∀x(Cat(x) → Furry(x))"
+      ],
+      "note": "Notice the pattern: 'All A are B' becomes ∀x(A(x) → B(x)). We use an implication because we're saying: IF something is an A, THEN it is a B."
+    },
+    {
+      "type": "definition",
+      "term": "Existential Statements",
+      "definition": "Statements with 'some', 'a', 'there is' typically use ∃ with a conjunction (∧). For example, 'Some birds fly' becomes ∃x(Bird(x) ∧ Flies(x))."
+    },
+    {
+      "type": "example",
+      "title": "Translating 'Some'",
+      "premises": [
+        "Some birds fly → ∃x(Bird(x) ∧ Flies(x))",
+        "A student is tired → ∃x(Student(x) ∧ Tired(x))",
+        "There is a happy cat → ∃x(Cat(x) ∧ Happy(x))"
+      ],
+      "note": "Notice: 'Some A are B' becomes ∃x(A(x) ∧ B(x)). We use conjunction because we're saying there exists something that is BOTH an A AND a B."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Critical distinction**: Universal uses →, existential uses ∧. This is one of the most common mistakes in quantificational logic! Think about why: 'All cats are animals' doesn't say anything about non-cats, so we use implication. But 'Some cat is sleeping' asserts the existence of something that is both a cat AND sleeping."
+    },
+    {
+      "type": "quiz",
+      "question": "How do you translate 'Some dogs bark'?",
+      "options": [
+        "∀x(Dog(x) → Barks(x))",
+        "∃x(Dog(x) → Barks(x))",
+        "∃x(Dog(x) ∧ Barks(x))",
+        "∀x(Dog(x) ∧ Barks(x))"
+      ],
+      "correct": 2,
+      "explanation": "'Some dogs bark' is an existential claim: there exists at least one thing that is both a dog AND barks. We use ∃ with ∧ (conjunction), not →."
+    }
+  ],
+  "key_symbols": ["∀", "∃", "→", "∧"]
+}

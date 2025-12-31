@@ -1,0 +1,43 @@
+{
+  "id": "11.1",
+  "title": "Advanced Modal Systems",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Beyond basic modal logic, there are many **modal systems** that add different axioms about how possibility and necessity behave. The most common are named after C.I. Lewis: K, T, S4, and S5."
+    },
+    {
+      "type": "definition",
+      "term": "System K",
+      "definition": "The minimal normal modal logic. Only requires the K axiom: □(P → Q) → (□P → □Q). If necessarily P implies Q, then necessarily P implies necessarily Q."
+    },
+    {
+      "type": "definition",
+      "term": "System T",
+      "definition": "Adds the T axiom (reflexivity): □P → P. What is necessarily true is actually true. This seems obvious but isn't in all contexts!"
+    },
+    {
+      "type": "definition",
+      "term": "System S5",
+      "definition": "The strongest common system. Adds: what is possibly necessary is necessary (◇□P → □P). All possible worlds can 'see' all other possible worlds."
+    },
+    {
+      "type": "paragraph",
+      "text": "Different systems are appropriate for different kinds of necessity. **Logical necessity** (mathematical truths) often uses S5. **Physical necessity** (laws of nature) might use weaker systems. **Epistemic necessity** (what we know) uses different axioms entirely."
+    },
+    {
+      "type": "quiz",
+      "question": "What does the T axiom (□P → P) say?",
+      "options": [
+        "What is possible is necessary",
+        "What is true is necessarily true",
+        "What is necessarily true is actually true",
+        "Necessity and possibility are the same"
+      ],
+      "correct": 2,
+      "explanation": "The T axiom says □P → P: if something is necessarily true, then it is actually true. This captures the intuition that necessity implies truth."
+    }
+  ],
+  "key_symbols": ["◇", "□"]
+}

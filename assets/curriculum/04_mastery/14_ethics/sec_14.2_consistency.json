@@ -1,8 +1,47 @@
 {
   "id": "14.2",
-  "section": "Consistency",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["moral consistency", "universalizability", "treating similar cases similarly"],
-  "status": "planned"
+  "title": "Consistency in Ethics",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A fundamental requirement of rational ethics is **consistency**. If you judge that action A is wrong in situation S, you must judge that the same action is wrong in any situation that is relevantly similar to S. This is the basis of moral reasoning."
+    },
+    {
+      "type": "paragraph",
+      "text": "Inconsistency in moral judgments is a form of irrationality. If I say 'It's wrong for you to lie to me' but 'It's fine for me to lie to you,' I'm being inconsistent unless I can point to a relevant difference between the cases."
+    },
+    {
+      "type": "definition",
+      "term": "Universalizability",
+      "definition": "A moral principle is universalizable if it can be consistently applied to all relevantly similar cases, including when you're on the receiving end."
+    },
+    {
+      "type": "example",
+      "title": "Testing for Consistency",
+      "premises": [
+        "Claim: 'It's okay for me to cut in line because I'm in a hurry.'",
+        "Test: Would I accept this if everyone in a hurry cut in front of ME?",
+        "Result: If no, the principle fails the consistency test."
+      ],
+      "note": "Consistency requires that we accept our principles even when they work against our immediate interests."
+    },
+    {
+      "type": "paragraph",
+      "text": "In formal terms: If Wrong(a, s) for some action a in situation s, and situation s' is relevantly similar to s, then Wrong(a, s'). The key question is always: what counts as 'relevantly similar'?"
+    },
+    {
+      "type": "quiz",
+      "question": "What does consistency in ethics require?",
+      "options": [
+        "Always doing the same action",
+        "Applying the same standards to similar cases",
+        "Never changing your mind",
+        "Agreeing with everyone"
+      ],
+      "correct": 1,
+      "explanation": "Ethical consistency means applying the same moral standards to relevantly similar cases. If lying is wrong when others do it, it's wrong when you do it too (unless there's a relevant difference)."
+    }
+  ],
+  "key_symbols": ["→", "↔"]
 }

@@ -1,0 +1,51 @@
+{
+  "id": "8.4",
+  "title": "Scope and Multiple Quantifiers",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "When a sentence contains multiple quantifiers, their **scope** — the order in which they appear — can dramatically change the meaning. This is one of the trickiest aspects of quantificational logic."
+    },
+    {
+      "type": "definition",
+      "term": "Scope",
+      "definition": "The scope of a quantifier is the part of the formula it governs. In ∀x(P(x) → Q(x)), the universal quantifier has scope over the entire conditional."
+    },
+    {
+      "type": "example",
+      "title": "Scope Ambiguity: Everyone Loves Someone",
+      "premises": [
+        "Reading 1: ∀x∃y(Loves(x,y)) — Each person loves at least one person (possibly different for each)",
+        "Reading 2: ∃y∀x(Loves(x,y)) — There is someone whom everyone loves (the same person)"
+      ],
+      "note": "The sentence 'Everyone loves someone' is ambiguous! Reading 1 is true if Alice loves Bob, Carol loves Dave, etc. Reading 2 requires one specific person loved by all."
+    },
+    {
+      "type": "paragraph",
+      "text": "The quantifier that appears first (leftmost) has **wide scope** and controls the interpretation. In ∀x∃y(...), for each x we can pick a different y. In ∃y∀x(...), we pick one y that works for all x."
+    },
+    {
+      "type": "example",
+      "title": "Another Example: A Number Greater Than All",
+      "premises": [
+        "∀x∃y(y > x) — For every number, there's a greater one (TRUE for natural numbers)",
+        "∃y∀x(y > x) — There's a number greater than all numbers (FALSE — no largest number)"
+      ],
+      "note": "Same words, opposite truth values! Scope matters enormously."
+    },
+    {
+      "type": "quiz",
+      "question": "What does ∃y∀x(Loves(x,y)) mean?",
+      "options": [
+        "Everyone loves everyone",
+        "Someone loves everyone",
+        "Everyone loves someone (possibly different)",
+        "There is someone whom everyone loves"
+      ],
+      "correct": 3,
+      "explanation": "∃y∀x(Loves(x,y)) says: there exists a y such that for all x, x loves y. In other words, there's one specific person (y) who is loved by everyone."
+    }
+  ],
+  "key_symbols": ["∀", "∃"]
+}

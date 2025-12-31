@@ -1,8 +1,54 @@
 {
   "id": "14.1",
-  "section": "Practical Reason",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["practical vs theoretical reason", "ends and means", "imperatives"],
-  "status": "planned"
+  "title": "Practical Reason",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Practical reason** is reasoning about what to DO, as opposed to theoretical reason which is about what to BELIEVE. While logic traditionally focuses on theoretical reasoning ('All humans are mortal, Socrates is human, therefore...'), we can also formalize practical reasoning about actions, goals, and obligations."
+    },
+    {
+      "type": "paragraph",
+      "text": "The fundamental structure of practical reasoning involves **ends** (goals we want to achieve) and **means** (actions that achieve those goals). If I want coffee and the café is open, I should go to the café. This is a practical syllogism."
+    },
+    {
+      "type": "definition",
+      "term": "Practical Syllogism",
+      "definition": "An argument with a goal-premise ('I want X'), a means-premise ('Doing Y achieves X'), and an action-conclusion ('Therefore, I should do Y')."
+    },
+    {
+      "type": "example",
+      "title": "A Practical Syllogism",
+      "premises": [
+        "I want to stay dry. (Goal)",
+        "Using an umbrella keeps me dry when it rains. (Means)",
+        "It is raining. (Circumstance)"
+      ],
+      "conclusion": "Therefore, I should use an umbrella.",
+      "note": "This combines a goal, knowledge about means, and facts about the situation to derive an action."
+    },
+    {
+      "type": "definition",
+      "term": "Hypothetical Imperative",
+      "definition": "A command that applies IF you have a certain goal. 'If you want X, do Y.' These are conditional on your desires."
+    },
+    {
+      "type": "definition",
+      "term": "Categorical Imperative",
+      "definition": "A command that applies unconditionally, regardless of your desires. 'Do not lie' — not 'if you want to be trusted, don't lie.'"
+    },
+    {
+      "type": "quiz",
+      "question": "What distinguishes practical reason from theoretical reason?",
+      "options": [
+        "Practical reason is about what to believe",
+        "Practical reason is about what to do",
+        "Practical reason doesn't use logic",
+        "There is no difference"
+      ],
+      "correct": 1,
+      "explanation": "Practical reason concerns actions and decisions (what to DO), while theoretical reason concerns beliefs and knowledge (what to BELIEVE). Both can be formalized logically."
+    }
+  ],
+  "key_symbols": ["O", "→"]
 }

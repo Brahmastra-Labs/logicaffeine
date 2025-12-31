@@ -1,0 +1,56 @@
+{
+  "id": "8.1",
+  "title": "Introduction to Quantifiers",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Quantificational logic** (also called predicate logic or first-order logic) extends propositional logic by adding the ability to talk about *quantities* of things. Instead of just saying 'P is true', we can now say 'All things have property P' or 'Some things have property P'."
+    },
+    {
+      "type": "paragraph",
+      "text": "This is a major leap in expressive power. Consider the classic syllogism: 'All humans are mortal. Socrates is human. Therefore, Socrates is mortal.' Propositional logic can't capture the internal structure of 'All humans are mortal' — it would just be a single proposition P. But quantificational logic can express the *generality* of this claim."
+    },
+    {
+      "type": "definition",
+      "term": "Universal Quantifier (∀)",
+      "definition": "Read as 'for all' or 'for every'. The statement ∀x(P(x)) means 'for all x, P(x) is true' — in other words, everything has property P."
+    },
+    {
+      "type": "definition",
+      "term": "Existential Quantifier (∃)",
+      "definition": "Read as 'there exists' or 'for some'. The statement ∃x(P(x)) means 'there exists an x such that P(x) is true' — at least one thing has property P."
+    },
+    {
+      "type": "symbols",
+      "title": "The Two Quantifiers",
+      "symbols": [
+        {
+          "symbol": "∀",
+          "name": "Universal",
+          "meaning": "For all, for every, for each",
+          "example": "∀x(Human(x) → Mortal(x))"
+        },
+        {
+          "symbol": "∃",
+          "name": "Existential",
+          "meaning": "There exists, for some, at least one",
+          "example": "∃x(Bird(x) ∧ CanFly(x))"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "What does ∀x(P(x)) mean?",
+      "options": [
+        "Nothing has property P",
+        "Something has property P",
+        "Everything has property P",
+        "Exactly one thing has property P"
+      ],
+      "correct": 2,
+      "explanation": "The universal quantifier ∀ means 'for all'. So ∀x(P(x)) says that for every x in our domain, P(x) is true — everything has property P."
+    }
+  ],
+  "key_symbols": ["∀", "∃"]
+}

@@ -1,0 +1,49 @@
+{
+  "id": "8.3",
+  "title": "Negating Quantifiers",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "One of the most important skills in quantificational logic is understanding how negation interacts with quantifiers. The key insight: negating a universal gives you an existential, and vice versa."
+    },
+    {
+      "type": "definition",
+      "term": "Negation of Universal",
+      "definition": "¬∀x(P(x)) is equivalent to ∃x(¬P(x)). 'Not everything has P' means the same as 'Something lacks P'."
+    },
+    {
+      "type": "definition",
+      "term": "Negation of Existential",
+      "definition": "¬∃x(P(x)) is equivalent to ∀x(¬P(x)). 'Nothing has P' means the same as 'Everything lacks P'."
+    },
+    {
+      "type": "example",
+      "title": "Quantifier Negation Examples",
+      "premises": [
+        "Not all students passed → Some student didn't pass",
+        "¬∀x(Student(x) → Passed(x)) ≡ ∃x(Student(x) ∧ ¬Passed(x))",
+        "No dogs fly → All dogs don't fly",
+        "¬∃x(Dog(x) ∧ Flies(x)) ≡ ∀x(Dog(x) → ¬Flies(x))"
+      ],
+      "note": "These equivalences are fundamental. When you push negation past a quantifier, the quantifier flips (∀ ↔ ∃) and the negation moves inside."
+    },
+    {
+      "type": "paragraph",
+      "text": "**'No' statements**: 'No A is B' means 'It's not the case that some A is B', which translates as ¬∃x(A(x) ∧ B(x)), or equivalently ∀x(A(x) → ¬B(x))."
+    },
+    {
+      "type": "quiz",
+      "question": "What is ¬∀x(P(x)) equivalent to?",
+      "options": [
+        "∀x(¬P(x))",
+        "∃x(¬P(x))",
+        "¬∃x(P(x))",
+        "∃x(P(x))"
+      ],
+      "correct": 1,
+      "explanation": "Negating a universal quantifier flips it to existential and moves the negation inside: ¬∀x(P(x)) ≡ ∃x(¬P(x)). 'Not everything is P' means 'Something is not P'."
+    }
+  ],
+  "key_symbols": ["¬", "∀", "∃"]
+}

@@ -1,8 +1,53 @@
 {
   "id": "7.2",
-  "section": "Easier Refutations",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["refutation by counterexample", "showing invalidity", "countermodels"],
-  "status": "planned"
+  "title": "Easier Refutations",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Not every argument is valid. To show an argument is **invalid**, we find a counterexample: a situation where the premises are true but the conclusion is false."
+    },
+    {
+      "type": "definition",
+      "term": "Counterexample",
+      "definition": "A truth-value assignment (or interpretation) that makes all premises true while making the conclusion false. One counterexample proves an argument invalid."
+    },
+    {
+      "type": "paragraph",
+      "text": "Strategy: assume the conclusion is false, then try to make all premises true. If you succeed, you've found a counterexample."
+    },
+    {
+      "type": "example",
+      "title": "Finding a Counterexample",
+      "premises": [
+        "Argument: P → Q, Q ∴ P",
+        "Set P = False, Q = True",
+        "Check P → Q: F → T = T ✓",
+        "Check Q: T ✓",
+        "Check P: F (conclusion is false!) ✓"
+      ],
+      "note": "This assignment makes premises true and conclusion false — the argument is INVALID."
+    },
+    {
+      "type": "paragraph",
+      "text": "This argument commits the fallacy of **affirming the consequent**. Just because Q is true and P → Q is true doesn't mean P must be true."
+    },
+    {
+      "type": "paragraph",
+      "text": "For propositional logic, you can use truth tables systematically: check every row. If any row has true premises and false conclusion, the argument is invalid."
+    },
+    {
+      "type": "quiz",
+      "question": "How do you show an argument is invalid?",
+      "options": [
+        "Prove the conclusion",
+        "Show the premises are false",
+        "Find a counterexample with true premises and false conclusion",
+        "Use Modus Ponens"
+      ],
+      "correct": 2,
+      "explanation": "To show invalidity, find a counterexample: a situation where all premises are true but the conclusion is false. This demonstrates the conclusion doesn't follow from the premises."
+    }
+  ],
+  "key_symbols": ["→", "⊭", "∴"]
 }

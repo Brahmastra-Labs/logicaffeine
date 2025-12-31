@@ -1,8 +1,51 @@
 {
   "id": "16.3",
-  "section": "Enlightenment Logic",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["Leibniz", "Kant", "Port-Royal logic", "traditional logic"],
-  "status": "planned"
+  "title": "Enlightenment Logic",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The 17th and 18th centuries saw logic treated as part of epistemology — the study of knowledge. The **Port-Royal Logic** (1662) combined logic with psychology and rhetoric, becoming hugely influential."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Gottfried Leibniz** (1646-1716) dreamed of a 'universal characteristic' — a perfect logical language in which all reasoning could be reduced to calculation. This vision would later inspire the development of modern symbolic logic."
+    },
+    {
+      "type": "definition",
+      "term": "Leibniz's Dream",
+      "definition": "The vision of reducing all reasoning to symbolic calculation. Disputes would be settled by saying 'Let us calculate!' rather than arguing. This anticipated modern formal logic and computation."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Immanuel Kant** (1724-1804) famously declared that logic was complete and needed no further development. He distinguished between 'general logic' (pure formal principles) and 'transcendental logic' (conditions for experience)."
+    },
+    {
+      "type": "example",
+      "title": "Kant's Assessment of Logic",
+      "premises": [
+        "Logic, since Aristotle, 'has not been able to advance a single step'",
+        "It appears 'finished and complete'",
+        "This was written in 1781"
+      ],
+      "note": "Within 100 years of Kant's declaration, Frege would revolutionize logic beyond recognition."
+    },
+    {
+      "type": "paragraph",
+      "text": "George Boole (1815-1864) and Augustus De Morgan made logic algebraic, treating propositions like mathematical equations. Boole's Laws of Thought (1854) showed logical reasoning could be expressed in algebraic form."
+    },
+    {
+      "type": "quiz",
+      "question": "What was Leibniz's vision for logic?",
+      "options": [
+        "To keep logic purely philosophical",
+        "To reduce all reasoning to symbolic calculation",
+        "To eliminate logic from science",
+        "To prove logic was impossible"
+      ],
+      "correct": 1,
+      "explanation": "Leibniz envisioned a 'universal characteristic' — a symbolic language in which reasoning could be reduced to calculation. This anticipated modern formal logic and computer science."
+    }
+  ],
+  "key_symbols": ["∧", "∨", "¬"]
 }

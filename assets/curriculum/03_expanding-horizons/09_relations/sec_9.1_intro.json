@@ -1,0 +1,49 @@
+{
+  "id": "9.1",
+  "title": "Relations and Multiple Arguments",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "So far, our predicates have taken one argument: 'Runs(x)', 'Happy(alice)'. But many statements involve **relations** between two or more things: 'Alice loves Bob', 'Paris is between London and Berlin', '3 is less than 5'."
+    },
+    {
+      "type": "definition",
+      "term": "Relation (n-ary Predicate)",
+      "definition": "A predicate that takes two or more arguments. A binary relation takes 2 arguments, a ternary relation takes 3, and so on."
+    },
+    {
+      "type": "example",
+      "title": "Common Relations",
+      "premises": [
+        "Loves(alice, bob) — Alice loves Bob",
+        "GreaterThan(5, 3) — 5 is greater than 3",
+        "Between(paris, london, berlin) — Paris is between London and Berlin",
+        "Gave(alice, book, bob) — Alice gave a book to Bob"
+      ],
+      "note": "The order of arguments matters! Loves(alice, bob) and Loves(bob, alice) are different claims."
+    },
+    {
+      "type": "definition",
+      "term": "Identity (=)",
+      "definition": "A special relation that holds when two terms refer to the same thing. Written as a = b or =(a,b)."
+    },
+    {
+      "type": "paragraph",
+      "text": "With relations and quantifiers together, we can express complex statements: 'Everyone loves someone' becomes ∀x∃y(Loves(x,y)), and 'Someone is loved by everyone' becomes ∃y∀x(Loves(x,y))."
+    },
+    {
+      "type": "quiz",
+      "question": "How would you translate 'John is taller than Mary'?",
+      "options": [
+        "Taller(john) ∧ Taller(mary)",
+        "TallerThan(john, mary)",
+        "TallerThan(mary, john)",
+        "Taller(john, mary, height)"
+      ],
+      "correct": 1,
+      "explanation": "'Taller than' is a binary relation between two people. TallerThan(john, mary) captures 'John is taller than Mary' with John as the first argument."
+    }
+  ],
+  "key_symbols": ["="]
+}

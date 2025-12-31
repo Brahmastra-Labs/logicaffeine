@@ -1,8 +1,48 @@
 {
   "id": "14.3",
-  "section": "The Golden Rule",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["golden rule", "reciprocity", "formal ethics"],
-  "status": "planned"
+  "title": "The Golden Rule",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The **Golden Rule** — 'Do unto others as you would have them do unto you' — appears in virtually every ethical tradition. It captures a deep insight about moral reasoning: your own desires and interests aren't special just because they're yours."
+    },
+    {
+      "type": "paragraph",
+      "text": "The Golden Rule combines consistency (treat similar cases similarly) with empathy (consider things from the other person's perspective). If an action would be unwelcome to you, that's evidence it may be wrong to do it to others."
+    },
+    {
+      "type": "definition",
+      "term": "The Golden Rule",
+      "definition": "Treat others as you would want to be treated. More precisely: if you would not consent to having action A done to you, don't do A to others."
+    },
+    {
+      "type": "example",
+      "title": "Applying the Golden Rule",
+      "premises": [
+        "I am considering lying to get what I want.",
+        "Would I consent to others lying to me to get what they want?",
+        "No — I would be harmed and deceived.",
+        "Therefore, I should not lie to get what I want."
+      ],
+      "note": "The Golden Rule uses your own reactions as a guide to what's acceptable to do to others."
+    },
+    {
+      "type": "paragraph",
+      "text": "The Golden Rule has limitations: a masochist might 'want' harm done to them, but that doesn't justify harming others. A more refined version considers what a *reasonable person* would want, or focuses on consent rather than mere desire."
+    },
+    {
+      "type": "quiz",
+      "question": "What is the core insight of the Golden Rule?",
+      "options": [
+        "Always be nice to people",
+        "Your interests aren't special just because they're yours",
+        "Do whatever makes you happy",
+        "Obey authority figures"
+      ],
+      "correct": 1,
+      "explanation": "The Golden Rule recognizes that your perspective isn't privileged — if an action is wrong when done to you, it's wrong when you do it to others (all else being equal)."
+    }
+  ],
+  "key_symbols": ["O", "→"]
 }

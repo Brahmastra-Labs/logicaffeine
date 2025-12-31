@@ -1,0 +1,61 @@
+{
+  "id": "6.2",
+  "title": "Truth Tables",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **truth table** systematically shows all possible truth values for a compound proposition. By listing every combination of truth values for the atomic propositions, we can compute the truth value of any complex formula."
+    },
+    {
+      "type": "example",
+      "title": "Truth Table for Conjunction (∧)",
+      "premises": [
+        "P=T, Q=T → P∧Q = T",
+        "P=T, Q=F → P∧Q = F",
+        "P=F, Q=T → P∧Q = F",
+        "P=F, Q=F → P∧Q = F"
+      ],
+      "note": "Conjunction is true ONLY when both conjuncts are true."
+    },
+    {
+      "type": "example",
+      "title": "Truth Table for Disjunction (∨)",
+      "premises": [
+        "P=T, Q=T → P∨Q = T",
+        "P=T, Q=F → P∨Q = T",
+        "P=F, Q=T → P∨Q = T",
+        "P=F, Q=F → P∨Q = F"
+      ],
+      "note": "Disjunction is false ONLY when both disjuncts are false."
+    },
+    {
+      "type": "definition",
+      "term": "Tautology",
+      "definition": "A formula that is true in ALL rows of its truth table. Example: P ∨ ¬P (law of excluded middle)."
+    },
+    {
+      "type": "definition",
+      "term": "Contradiction",
+      "definition": "A formula that is false in ALL rows of its truth table. Example: P ∧ ¬P."
+    },
+    {
+      "type": "definition",
+      "term": "Contingency",
+      "definition": "A formula that is true in some rows and false in others. Most ordinary statements are contingent."
+    },
+    {
+      "type": "quiz",
+      "question": "What is a tautology?",
+      "options": [
+        "A statement that is always false",
+        "A statement that is sometimes true",
+        "A statement that is always true",
+        "A statement with no truth value"
+      ],
+      "correct": 2,
+      "explanation": "A tautology is a formula that is true in every row of its truth table — it's true regardless of the truth values of its component propositions."
+    }
+  ],
+  "key_symbols": ["∧", "∨", "¬"]
+}

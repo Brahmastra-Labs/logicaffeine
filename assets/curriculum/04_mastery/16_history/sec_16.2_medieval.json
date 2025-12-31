@@ -1,8 +1,51 @@
 {
   "id": "16.2",
-  "section": "Medieval Logic",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["scholastic logic", "supposition theory", "Ockham", "Aquinas"],
-  "status": "planned"
+  "title": "Medieval Logic",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Medieval logicians, working primarily in European universities, preserved and extended Aristotelian logic. They developed sophisticated theories of meaning, reference, and inference that would remain influential for centuries."
+    },
+    {
+      "type": "definition",
+      "term": "Supposition Theory",
+      "definition": "A medieval theory of reference explaining how terms in propositions 'stand for' (supposit for) things. Different contexts give terms different kinds of supposition."
+    },
+    {
+      "type": "paragraph",
+      "text": "**William of Ockham** (c.1287-1347) was a leading medieval logician. He refined supposition theory and is famous for 'Ockham's Razor': entities should not be multiplied beyond necessity — prefer simpler explanations."
+    },
+    {
+      "type": "example",
+      "title": "Types of Supposition",
+      "premises": [
+        "'Man is a species' — 'man' has simple supposition (refers to the concept)",
+        "'Man is a noun' — 'man' has material supposition (refers to the word itself)",
+        "'Man runs' — 'man' has personal supposition (refers to actual men)"
+      ],
+      "note": "The same word can 'stand for' different things depending on context."
+    },
+    {
+      "type": "paragraph",
+      "text": "Medieval logicians also developed the theory of **consequences** — rules for valid inference. They classified consequences as formal (valid by form alone) or material (valid due to the content of terms)."
+    },
+    {
+      "type": "paragraph",
+      "text": "Peter of Spain's Summulae Logicales became the standard logic textbook, used in universities for centuries. It systematized Aristotelian logic and medieval innovations."
+    },
+    {
+      "type": "quiz",
+      "question": "What was supposition theory about?",
+      "options": [
+        "How to make assumptions in proofs",
+        "How terms in propositions refer to things",
+        "Supposed truths versus actual truths",
+        "The structure of syllogisms"
+      ],
+      "correct": 1,
+      "explanation": "Supposition theory explained how terms 'stand for' or refer to things. The same term could have different reference depending on its context in the proposition."
+    }
+  ],
+  "key_symbols": ["→", "∀"]
 }

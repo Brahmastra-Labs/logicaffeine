@@ -1,8 +1,52 @@
 {
   "id": "16.1",
-  "section": "Ancient Logic",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["Aristotle", "Stoic logic", "Greek logic", "syllogistic origins"],
-  "status": "planned"
+  "title": "Ancient Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Logic as a formal discipline began with **Aristotle** (384-322 BCE) in ancient Greece. He created the first systematic study of valid inference patterns, founding logic as an independent field of inquiry."
+    },
+    {
+      "type": "definition",
+      "term": "Syllogism",
+      "definition": "Aristotle's basic argument form with two premises and a conclusion, each containing a subject and predicate term. Example: All M are P, All S are M, therefore All S are P."
+    },
+    {
+      "type": "paragraph",
+      "text": "Aristotle identified four types of categorical statements: 'All S are P' (universal affirmative), 'No S are P' (universal negative), 'Some S are P' (particular affirmative), and 'Some S are not P' (particular negative)."
+    },
+    {
+      "type": "example",
+      "title": "A Classic Syllogism",
+      "premises": [
+        "All humans are mortal. (Major premise)",
+        "Socrates is human. (Minor premise)"
+      ],
+      "conclusion": "Therefore, Socrates is mortal.",
+      "note": "This syllogism has been used for over 2,000 years as the paradigm of logical reasoning."
+    },
+    {
+      "type": "paragraph",
+      "text": "The **Stoics** developed a different approach: propositional logic. While Aristotle focused on terms (subjects and predicates), the Stoics analyzed whole propositions and their combinations using 'and,' 'or,' and 'if-then.'"
+    },
+    {
+      "type": "definition",
+      "term": "Stoic Logic",
+      "definition": "An ancient system focused on propositional connectives. The Stoics identified five basic argument forms (indemonstrables) from which others could be derived."
+    },
+    {
+      "type": "quiz",
+      "question": "Who is credited with founding formal logic as a discipline?",
+      "options": [
+        "Plato",
+        "Aristotle",
+        "Socrates",
+        "Euclid"
+      ],
+      "correct": 1,
+      "explanation": "Aristotle created the first systematic study of valid inference, developing syllogistic logic in works like the Prior Analytics. He founded logic as a formal discipline."
+    }
+  ],
+  "key_symbols": ["∀", "→"]
 }

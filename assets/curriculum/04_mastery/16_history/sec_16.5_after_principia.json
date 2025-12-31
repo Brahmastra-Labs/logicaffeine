@@ -1,8 +1,56 @@
 {
   "id": "16.5",
-  "section": "After Principia",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["Godel", "Tarski", "model theory", "proof theory", "20th century developments"],
-  "status": "planned"
+  "title": "After Principia",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The 20th century saw an explosion of new developments in logic. **Model theory** (Tarski), **proof theory** (Gentzen), **computability theory** (Turing), and Gödel's incompleteness theorems transformed the field."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Alfred Tarski** (1901-1983) created modern model theory and gave the first rigorous definition of truth. His work made precise what it means for a sentence to be 'true in a structure' — the foundation of semantics."
+    },
+    {
+      "type": "definition",
+      "term": "Model Theory",
+      "definition": "The study of the relationship between formal languages and their interpretations (models). It asks: which structures satisfy which sentences?"
+    },
+    {
+      "type": "paragraph",
+      "text": "**Gerhard Gentzen** (1909-1945) invented natural deduction and sequent calculus, showing how to analyze the structure of proofs themselves. His work founded modern proof theory."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Alan Turing** (1912-1954) defined computability using 'Turing machines' and proved that some problems are undecidable — no algorithm can solve them. Logic and computer science became deeply intertwined."
+    },
+    {
+      "type": "example",
+      "title": "Key 20th Century Results",
+      "premises": [
+        "1931: Gödel's incompleteness theorems (limits of formal systems)",
+        "1933: Tarski's definition of truth (semantic foundations)",
+        "1935: Gentzen's natural deduction (proof theory foundations)",
+        "1936: Turing's computability theory (algorithms and limits)"
+      ],
+      "note": "These results in a single decade reshaped our understanding of logic, mathematics, and computation."
+    },
+    {
+      "type": "paragraph",
+      "text": "Today logic thrives in many areas: mathematical logic, philosophical logic, computer science, linguistics, and artificial intelligence. The ancient Greek invention continues to evolve."
+    },
+    {
+      "type": "quiz",
+      "question": "What did Tarski contribute to logic?",
+      "options": [
+        "The first syllogisms",
+        "A rigorous definition of truth and model theory",
+        "The invention of quantifiers",
+        "Proof that logic is complete"
+      ],
+      "correct": 1,
+      "explanation": "Tarski gave the first rigorous definition of truth for formal languages and founded model theory — the study of how sentences relate to the structures that make them true."
+    }
+  ],
+  "key_symbols": ["⊨", "⊢", "∀"]
 }

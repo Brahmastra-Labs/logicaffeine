@@ -1,8 +1,47 @@
 {
   "id": "15.5",
-  "section": "An Axiomatic System",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["axiom systems", "Hilbert systems", "axioms and rules"],
-  "status": "planned"
+  "title": "Axiomatic Systems",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "An **axiomatic system** builds all theorems from a small set of self-evident axioms using rules of inference. This approach, pioneered by Euclid for geometry, was applied to logic by Frege, Russell, and Hilbert."
+    },
+    {
+      "type": "definition",
+      "term": "Axiomatic System",
+      "definition": "A formal system consisting of: (1) a set of axioms (formulas accepted without proof), and (2) rules of inference for deriving new theorems from axioms and previously proven theorems."
+    },
+    {
+      "type": "paragraph",
+      "text": "A key property we want is **independence**: no axiom should be derivable from the others. If an axiom can be proven from the rest, it's redundant. Logicians seek minimal axiom sets."
+    },
+    {
+      "type": "example",
+      "title": "Classical Axiom Schemas",
+      "premises": [
+        "A1: φ → (ψ → φ)",
+        "A2: (φ → (ψ → χ)) → ((φ → ψ) → (φ → χ))",
+        "A3: (¬φ → ¬ψ) → (ψ → φ)"
+      ],
+      "note": "These three schemas, with Modus Ponens, are sufficient to derive all propositional tautologies."
+    },
+    {
+      "type": "paragraph",
+      "text": "Natural deduction (which we've been using) is an alternative to axiomatic systems. It has more rules but no axioms, making proofs more intuitive. Both approaches are equivalent in power."
+    },
+    {
+      "type": "quiz",
+      "question": "What is an axiom in a formal system?",
+      "options": [
+        "A formula that must be proven first",
+        "A formula accepted without proof",
+        "The conclusion of every argument",
+        "A contradiction"
+      ],
+      "correct": 1,
+      "explanation": "Axioms are the starting points — formulas we accept as true without requiring proof. All other theorems are derived from them using inference rules."
+    }
+  ],
+  "key_symbols": ["→", "¬", "⊢"]
 }

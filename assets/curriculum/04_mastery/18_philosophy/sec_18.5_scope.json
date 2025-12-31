@@ -1,8 +1,52 @@
 {
   "id": "18.5",
-  "section": "Logic's Scope",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["limits of logic", "logic and language", "logic and thought", "universal logic"],
-  "status": "planned"
+  "title": "Logic's Scope",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "How far does logic extend? Does it govern all thought, all language, all reasoning? Or are there domains where logic doesn't apply? These questions define logic's philosophical scope."
+    },
+    {
+      "type": "paragraph",
+      "text": "Some argue logic is **universal** — any coherent thought must obey logical laws. You can't think a genuine contradiction. Others suggest some domains (art, emotion, religion) operate by different rules."
+    },
+    {
+      "type": "definition",
+      "term": "Logical Pluralism",
+      "definition": "The view that there are multiple, equally correct logics for different purposes or domains. Classical logic isn't the 'one true logic' — different contexts may require different logics."
+    },
+    {
+      "type": "example",
+      "title": "Logic and Natural Language",
+      "premises": [
+        "'If you mow the lawn, I'll pay you $10'",
+        "You don't mow the lawn",
+        "Classical logic: the conditional is trivially true",
+        "Natural language: the offer no longer applies"
+      ],
+      "note": "Natural language 'if-then' doesn't always match material implication."
+    },
+    {
+      "type": "paragraph",
+      "text": "Is logic about language (linguistic), about thought (psychological), about abstract structures (mathematical), or about reality (metaphysical)? Each answer shapes how we understand logic's role."
+    },
+    {
+      "type": "paragraph",
+      "text": "Perhaps logic is best understood as a **normative** discipline — not describing how we think, but prescribing how we should think if we want to reason well. Logic provides standards for good inference."
+    },
+    {
+      "type": "quiz",
+      "question": "What does logical pluralism claim?",
+      "options": [
+        "There is only one correct logic",
+        "Logic doesn't exist",
+        "Different contexts may require different logics",
+        "All logics are wrong"
+      ],
+      "correct": 2,
+      "explanation": "Logical pluralists hold that there isn't one 'true logic' — different purposes (mathematics, everyday reasoning, etc.) may legitimately use different logical systems."
+    }
+  ],
+  "key_symbols": ["→", "∨", "∧"]
 }
