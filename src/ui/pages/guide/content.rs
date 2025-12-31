@@ -1,6 +1,6 @@
 //! Embedded guide content for the Programmer's Guide page.
 //!
-//! Contains all 22 sections from PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
+//! Contains all 24 sections from PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
 //! WASM cannot read files at runtime, so we embed the content at compile time.
 
 /// Mode for code examples - determines how "Run" executes them
@@ -35,7 +35,7 @@ pub struct Section {
 /// All guide sections organized by part
 pub const SECTIONS: &[Section] = &[
     // ============================================================
-    // Part I: Programming in LOGOS (Sections 1-14)
+    // Part I: Programming in LOGOS (Sections 1-16)
     // ============================================================
 
     Section {
@@ -781,8 +781,184 @@ Show "- Await first success: for racing"."#,
     },
 
     Section {
-        id: "error-handling",
+        id: "crdt",
         number: 13,
+        title: "Distributed Types (CRDTs)",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### What are CRDTs?
+
+CRDTs (Conflict-free Replicated Data Types) are data structures that can be replicated across multiple computers and merged without coordination. No matter what order updates arrive, the final state converges to the same result.
+
+### Why CRDTs Matter
+
+| Challenge | Traditional Approach | CRDT Approach |
+|-----------|---------------------|---------------|
+| Network partition | Data loss or conflicts | Automatic merge |
+| Concurrent edits | Last-write-wins (data loss) | Semantic merge |
+| Offline support | Sync conflicts | Seamless reconciliation |
+
+### Shared Structs
+
+Mark a struct as `Shared` to enable automatic merge support. The compiler generates a `merge` method that combines two instances.
+
+### Built-in CRDT Types
+
+| Type | Description | Operations |
+|------|-------------|------------|
+| `ConvergentCount` | Counter that only grows | `Increase` |
+| `LastWriteWins of T` | Register with timestamp-based conflict resolution | Assignment |
+
+### ConvergentCount
+
+A grow-only counter. Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+
+### LastWriteWins
+
+A register that resolves conflicts by timestamp. The most recent write wins. Works with any type: `Text`, `Int`, `Bool`, etc.
+
+### Merge Operations
+
+Use `Merge source into target` to combine two CRDT instances. The target is updated in place with the merged state.
+"#,
+        examples: &[
+            CodeExample {
+                id: "crdt-basic",
+                label: "Basic Shared Struct",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+Let c be a new Counter.
+Increase c's points by 10.
+Show c's points."#,
+            },
+            CodeExample {
+                id: "crdt-lww",
+                label: "Last-Write-Wins Register",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Profile is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a score, which is LastWriteWins of Int.
+
+## Main
+Let p be a new Profile.
+Show "Profile created"."#,
+            },
+            CodeExample {
+                id: "crdt-merge",
+                label: "Merging Replicas",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Stats is Shared and has:
+    a views, which is ConvergentCount.
+
+## Main
+Let local be a new Stats.
+Increase local's views by 100.
+
+Let remote be a new Stats.
+Increase remote's views by 50.
+
+Merge remote into local.
+Show local's views."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "security",
+        number: 14,
+        title: "Policy-Based Security",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### Security in Natural Language
+
+LOGOS lets you express security policies as natural English sentences. These compile into efficient runtime checks that can never be optimized away.
+
+### Policy Blocks
+
+Define security rules in `## Policy` blocks. Policies define **predicates** (conditions on a single entity) and **capabilities** (permissions involving multiple entities).
+
+### Predicates
+
+A predicate is a boolean condition on a subject:
+
+`A User is admin if the user's role equals "admin".`
+
+This generates a method `is_admin()` on the User type.
+
+### Capabilities
+
+A capability defines what a subject can do with an object:
+
+`A User can publish the Document if the user is admin.`
+
+This generates a method `can_publish(&Document)` on the User type.
+
+### Check Statements
+
+Use `Check` to enforce security at runtime. **Unlike `Assert`, Check statements are mandatory and can never be optimized away.**
+
+| Statement | Debug Build | Release Build |
+|-----------|-------------|---------------|
+| `Assert` | Runs | Can be optimized out |
+| `Check` | Runs | **Always runs** |
+
+### Policy Composition
+
+Policies can use `AND` and `OR` to combine conditions, and can reference other predicates.
+"#,
+        examples: &[
+            CodeExample {
+                id: "security-predicate",
+                label: "Simple Predicate",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A User has:
+    a role: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+
+## Main
+Let u be a new User with role "admin".
+Check that u is admin.
+Show "Access granted"."#,
+            },
+            CodeExample {
+                id: "security-capability",
+                label: "Capability with Object",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A User has:
+    a name: Text.
+    a role: Text.
+
+A Document has:
+    an owner: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+A User can edit the Document if:
+    The user is admin, OR
+    The user's name equals the document's owner.
+
+## Main
+Let alice be a new User with name "Alice" and role "editor".
+Let doc be a new Document with owner "Alice".
+Check that alice can edit doc.
+Show "Edit permitted"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "error-handling",
+        number: 15,
         title: "Error Handling",
         part: "Part I: Programming in LOGOS",
         content: r#"
@@ -820,7 +996,7 @@ Show "- Socratic messages explain errors"."#,
 
     Section {
         id: "advanced-features",
-        number: 14,
+        number: 16,
         title: "Advanced Features",
         part: "Part I: Programming in LOGOS",
         content: r#"
@@ -867,12 +1043,12 @@ Show result."#,
     },
 
     // ============================================================
-    // Part II: Project Structure (Sections 15-17)
+    // Part II: Project Structure (Sections 17-19)
     // ============================================================
 
     Section {
         id: "modules",
-        number: 15,
+        number: 17,
         title: "Modules",
         part: "Part II: Project Structure",
         content: r#"
@@ -909,7 +1085,7 @@ Show "Let x be Math's square(5)."."#,
 
     Section {
         id: "cli-largo",
-        number: 16,
+        number: 18,
         title: "The CLI: largo",
         part: "Part II: Project Structure",
         content: r#"
@@ -952,7 +1128,7 @@ Show "- largo test"."#,
 
     Section {
         id: "stdlib",
-        number: 17,
+        number: 19,
         title: "Standard Library",
         part: "Part II: Project Structure",
         content: r#"
@@ -1000,12 +1176,12 @@ Show "max(10, 3) = " + format(max(10, 3))."#,
     },
 
     // ============================================================
-    // Part III: Logic Mode (Section 18)
+    // Part III: Logic Mode (Section 20)
     // ============================================================
 
     Section {
         id: "logic-mode",
-        number: 18,
+        number: 20,
         title: "Logic Mode",
         part: "Part III: Logic Mode",
         content: r#"
@@ -1078,12 +1254,12 @@ LOGOS can translate English sentences into First-Order Logic (FOL). This is usef
     },
 
     // ============================================================
-    // Part IV: Proofs and Verification (Sections 19-20)
+    // Part IV: Proofs and Verification (Sections 21-22)
     // ============================================================
 
     Section {
         id: "assertions-trust",
-        number: 19,
+        number: 21,
         title: "Assertions and Trust",
         part: "Part IV: Proofs and Verification",
         content: r#"
@@ -1140,7 +1316,7 @@ Show result."#,
 
     Section {
         id: "z3-verification",
-        number: 20,
+        number: 22,
         title: "Z3 Static Verification",
         part: "Part IV: Proofs and Verification",
         content: r#"
@@ -1195,12 +1371,12 @@ Show "Bounded: " + bounded."#,
     },
 
     // ============================================================
-    // Part V: Reference (Sections 21-22)
+    // Part V: Reference (Sections 23-24)
     // ============================================================
 
     Section {
         id: "complete-examples",
-        number: 21,
+        number: 23,
         title: "Complete Examples",
         part: "Part V: Reference",
         content: r#"
@@ -1271,7 +1447,7 @@ Show "Positives: " + positives."#,
 
     Section {
         id: "quick-reference",
-        number: 22,
+        number: 24,
         title: "Quick Reference",
         part: "Part V: Reference",
         content: r#"
@@ -1314,6 +1490,28 @@ Show "Positives: " + positives."#,
 | `Show x to f.` | Borrow (read) |
 | `Let f modify x.` | Mutable borrow |
 | `copy of x` | Clone |
+
+### Distributed Types (CRDTs)
+
+**Shared Structs:**
+- `A Counter is Shared and has:` — CRDT-enabled struct
+- `ConvergentCount` — Grow-only counter type
+- `LastWriteWins of T` — Timestamp-based register
+
+**CRDT Operations:**
+- `Increase x's field by amount.` — Increment a ConvergentCount
+- `Merge source into target.` — Combine two CRDT instances
+
+### Security
+
+**Policy Blocks:**
+- `## Policy` — Define security rules
+- `A User is admin if...` — Define a predicate
+- `A User can edit the Doc if...` — Define a capability
+
+**Security Enforcement:**
+- `Check that user is admin.` — Mandatory runtime check (never optimized out)
+- `Assert that x > 0.` — Debug-only assertion (can be optimized out)
 
 ### Logic Mode Symbols
 

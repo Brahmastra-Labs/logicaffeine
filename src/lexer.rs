@@ -1079,6 +1079,7 @@ impl<'a> Lexer<'a> {
                 "note" => BlockType::Note,
                 "to" => BlockType::Function,  // Phase 32: ## To blocks
                 "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
+                "policy" => BlockType::Policy,  // Phase 50: Security policy definitions
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -1319,6 +1320,7 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "check" => return TokenType::Check,  // Phase 50: Security check
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,

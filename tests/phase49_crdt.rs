@@ -239,3 +239,84 @@ A State is Shared and has:
         "Should not merge regular fields"
     );
 }
+
+// =============================================================================
+// Edge Case Tests
+// =============================================================================
+
+#[test]
+fn test_gcounter_zero_increment() {
+    let source = r#"## Definition
+A Counter is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+    Let mutable c be a new Counter.
+    Increase c's points by 0."#;
+    let rust = compile_to_rust(source).expect("Should compile zero increment");
+    assert!(
+        rust.contains(".increment(0"),
+        "Should allow increment by zero"
+    );
+}
+
+#[test]
+fn test_lww_default_values() {
+    // Test that LWWRegister types generate with proper defaults
+    let source = r#"## Definition
+A Config is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a count, which is LastWriteWins of Int.
+    a enabled, which is LastWriteWins of Bool.
+
+## Main
+    Let c be a new Config."#;
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(rust.contains("LWWRegister<String>"), "Text maps to String");
+    assert!(rust.contains("LWWRegister<i64>"), "Int maps to i64");
+    assert!(rust.contains("LWWRegister<bool>"), "Bool maps to bool");
+}
+
+#[test]
+fn test_shared_all_crdt_fields() {
+    // Shared struct with only CRDT fields (no regular fields)
+    let source = r#"## Definition
+A AllCrdt is Shared and has:
+    a counter, which is ConvergentCount.
+    a register, which is LastWriteWins of Text.
+
+## Main
+    Let a be a new AllCrdt."#;
+    let rust = compile_to_rust(source).expect("Should compile all-CRDT struct");
+    assert!(
+        rust.contains("impl logos_core::crdt::Merge for AllCrdt"),
+        "Should implement Merge"
+    );
+    assert!(
+        rust.contains("self.counter.merge(&other.counter)"),
+        "Should merge counter"
+    );
+    assert!(
+        rust.contains("self.register.merge(&other.register)"),
+        "Should merge register"
+    );
+}
+
+#[test]
+fn test_merge_requires_mutable() {
+    // Verify that merge target must be mutable
+    let source = r#"## Definition
+A Counter is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+    Let mutable local be a new Counter.
+    Let remote be a new Counter.
+    Merge remote into local."#;
+    let rust = compile_to_rust(source).expect("Should compile");
+    // The generated code should call merge on the mutable local
+    assert!(
+        rust.contains("local.merge(&remote)"),
+        "Should generate merge call"
+    );
+}

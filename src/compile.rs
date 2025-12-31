@@ -21,7 +21,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -40,13 +40,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -92,7 +94,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -107,13 +109,15 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -161,7 +165,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -178,13 +182,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -234,7 +240,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -383,7 +389,17 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
     let codegen_registry = type_registry.clone();
 
-    // Tokenize the main file
+    // Phase 50: Also discover policies from the main file
+    // (discover_with_imports doesn't handle policies yet, so we do a separate pass)
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+    let policy_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run_full().policies
+    };
+    let codegen_policies = policy_registry.clone();
+
+    // Re-tokenize for parsing (interner may have been modified)
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
@@ -413,7 +429,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     // Pass 2: Parse with type context (includes imported types)
     let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }

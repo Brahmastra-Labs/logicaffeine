@@ -296,6 +296,25 @@ pub enum Stmt<'a> {
         field: Symbol,
         amount: &'a Expr<'a>,
     },
+
+    /// Phase 50: Security check - mandatory runtime guard
+    /// `Check that user is admin.`
+    /// `Check that user can publish the document.`
+    /// Semantics: NEVER optimized out. Panics if condition is false.
+    Check {
+        /// The subject being checked (e.g., "user")
+        subject: Symbol,
+        /// The predicate name (e.g., "admin") or action (e.g., "publish")
+        predicate: Symbol,
+        /// True if this is a capability check (can [action])
+        is_capability: bool,
+        /// For capabilities: the object being acted on (e.g., "document")
+        object: Option<Symbol>,
+        /// Original English text for error message
+        source_text: String,
+        /// Source location for error reporting
+        span: crate::token::Span,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).

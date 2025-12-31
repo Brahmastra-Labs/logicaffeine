@@ -48,6 +48,7 @@ pub enum BlockType {
     Note,
     Function,  // Phase 32: ## To blocks
     TypeDef,   // Inline type definitions: ## A Point has:, ## A Color is one of:
+    Policy,    // Phase 50: ## Policy blocks for security rules
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +163,9 @@ pub enum TokenType {
     Shared,   // "A Counter is Shared and has:" -> CRDT struct
     Merge,    // "Merge remote into local" -> CRDT merge
     Increase, // "Increase x's count by 10" -> GCounter increment
+
+    // Phase 50: Security Keywords
+    Check,    // "Check that user is admin" -> mandatory runtime guard
 
     // Block Scoping
     Colon,

@@ -472,7 +472,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef => ParserMode::Declarative,
+                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
+                    BlockType::Policy => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -742,6 +743,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.skip_type_def_content();
                         continue;
                     }
+                    BlockType::Policy => {
+                        // Phase 50: Policy definitions are handled by DiscoveryPass
+                        // Skip content until next block header
+                        in_definition_block = true;  // Reuse flag to skip content
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
                     _ => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -781,6 +790,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        // Phase 32: Function definitions can appear inside Main block
+        // Handle both TokenType::To and Preposition("to")
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            return self.parse_function_def();
+        }
         if self.check(&TokenType::Let) {
             return self.parse_let_statement();
         }
@@ -799,6 +813,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 35: Trust statement
         if self.check(&TokenType::Trust) {
             return self.parse_trust_statement();
+        }
+        // Phase 50: Security Check statement
+        if self.check(&TokenType::Check) {
+            return self.parse_check_statement();
         }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
@@ -1281,6 +1299,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // "is not X" → NotEq
                 self.advance(); // consume "not"
                 Some(BinaryOpKind::NotEq)
+            } else if self.check_word("equal") {
+                // "is equal to X" → Eq
+                self.advance(); // consume "equal"
+                if self.check_preposition_is("to") {
+                    self.advance(); // consume "to"
+                    Some(BinaryOpKind::Eq)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
             } else {
                 self.current = saved_pos;
                 None
@@ -1542,6 +1570,138 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Trust { proposition, justification })
+    }
+
+    /// Phase 50: Parse Check statement - mandatory security guard
+    /// Syntax: Check that [subject] is [predicate].
+    /// Syntax: Check that [subject] can [action] the [object].
+    fn parse_check_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_span = self.current_span();
+        self.advance(); // consume "Check"
+
+        // Optionally consume "that"
+        if self.check(&TokenType::That) {
+            self.advance();
+        }
+
+        // Consume optional "the"
+        if matches!(self.peek().kind, TokenType::Article(_)) {
+            self.advance();
+        }
+
+        // Parse subject identifier (e.g., "user")
+        let subject = match &self.peek().kind {
+            TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                // Try to get an identifier
+                let tok = self.peek();
+                let s = tok.lexeme;
+                self.advance();
+                s
+            }
+        };
+
+        // Determine if this is a predicate check ("is admin") or capability check ("can publish")
+        let is_capability;
+        let predicate;
+        let object;
+
+        if self.check(&TokenType::Is) || self.check(&TokenType::Are) {
+            // Predicate check: "user is admin"
+            is_capability = false;
+            self.advance(); // consume "is" / "are"
+
+            // Parse predicate name (e.g., "admin")
+            predicate = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = None;
+        } else if self.check(&TokenType::Can) {
+            // Capability check: "user can publish the document"
+            is_capability = true;
+            self.advance(); // consume "can"
+
+            // Parse action (e.g., "publish", "edit", "delete")
+            predicate = match &self.peek().kind {
+                TokenType::Verb { lemma, .. } => {
+                    let s = *lemma;
+                    self.advance();
+                    s
+                }
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+
+            // Consume optional "the"
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                self.advance();
+            }
+
+            // Parse object (e.g., "document")
+            let obj = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = Some(obj);
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "is/can".to_string() },
+                span: self.current_span(),
+            });
+        }
+
+        // Build source text for error message
+        let source_text = if is_capability {
+            let obj_name = self.interner.resolve(object.unwrap());
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} can {} the {}", subj_name, pred_name, obj_name)
+        } else {
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} is {}", subj_name, pred_name)
+        };
+
+        Ok(Stmt::Check {
+            subject,
+            predicate,
+            is_capability,
+            object,
+            source_text,
+            span: start_span,
+        })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -2473,9 +2633,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Phase 32: Parse function definition after `## To` header
     /// Phase 32/38: Parse function definition
-    /// Syntax: [native] name (a: Type) [and (b: Type)] [-> ReturnType]
+    /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        // Consume "To" if present (when called from parse_statement)
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            self.advance();
+        }
+
         // Phase 38: Check for native modifier
         let is_native = if self.check(&TokenType::Native) {
             self.advance(); // consume "native"
@@ -2487,25 +2652,37 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse function name (first identifier after ## To [native])
         let name = self.expect_identifier()?;
 
-        // Parse parameters: (name: Type) groups separated by "and"
+        // Parse parameters: (name: Type) groups separated by "and", or comma-separated in one group
         let mut params = Vec::new();
         while self.check(&TokenType::LParen) {
             self.advance(); // consume (
 
-            let param_name = self.expect_identifier()?;
+            // Parse parameters in this group (possibly comma-separated)
+            loop {
+                let param_name = self.expect_identifier()?;
 
-            // Expect colon
-            if !self.check(&TokenType::Colon) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                    span: self.current_span(),
-                });
+                // Expect colon
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume :
+
+                // Phase 38: Parse full type expression instead of simple identifier
+                let param_type_expr = self.parse_type_expression()?;
+                let param_type = self.ctx.alloc_type_expr(param_type_expr);
+
+                params.push((param_name, param_type));
+
+                // Check for comma (more params in this group) or ) (end of group)
+                if self.check(&TokenType::Comma) {
+                    self.advance(); // consume ,
+                    continue;
+                }
+                break;
             }
-            self.advance(); // consume :
-
-            // Phase 38: Parse full type expression instead of simple identifier
-            let param_type_expr = self.parse_type_expression()?;
-            let param_type = self.ctx.alloc_type_expr(param_type_expr);
 
             // Expect )
             if !self.check(&TokenType::RParen) {
@@ -2516,9 +2693,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume )
 
-            params.push((param_name, param_type));
-
-            // Check for "and", preposition, or "from" between parameters
+            // Check for "and", preposition, or "from" between parameter groups
             // Allows: "## To withdraw (amount: Int) from (balance: Int)"
             if self.check_word("and") || self.check_preposition() || self.check(&TokenType::From) {
                 self.advance();
