@@ -1,8 +1,29 @@
 {
   "id": "15.2",
-  "section": "Symbols",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["formal languages", "syntax", "well-formed formulas"],
-  "status": "planned"
+  "title": "Formal Languages",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **formal language** is precisely defined by its **syntax** — rules for what counts as a well-formed expression. This precision lets us prove things about the language itself."
+    },
+    {
+      "type": "definition",
+      "term": "Well-Formed Formula (WFF)",
+      "definition": "A string of symbols that follows the syntactic rules of the formal language. 'P → Q' is well-formed; '→ P Q →' is not."
+    },
+    {
+      "type": "quiz",
+      "question": "What makes a formula 'well-formed'?",
+      "options": [
+        "It expresses a true statement",
+        "It follows the syntactic rules of the language",
+        "It can be understood by humans",
+        "It contains no variables"
+      ],
+      "correct": 1,
+      "explanation": "A well-formed formula follows the grammar rules of the formal language. Whether it's true is a separate question."
+    }
+  ],
+  "key_symbols": ["→", "∧", "∨", "¬"]
 }

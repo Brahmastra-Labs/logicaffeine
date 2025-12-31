@@ -1,8 +1,53 @@
 {
   "id": "18.1",
-  "section": "Abstract Entities",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["Platonism", "nominalism", "abstract objects", "logical objects"],
-  "status": "planned"
+  "title": "Abstract Entities",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Logic deals with propositions, properties, sets, and numbers — but do these abstract objects really exist? This is the debate between **Platonism** (they exist mind-independently) and **nominalism** (they don't exist at all, or only as mental constructs)."
+    },
+    {
+      "type": "definition",
+      "term": "Platonism",
+      "definition": "The view that abstract objects (numbers, propositions, logical forms) exist independently of minds and language. They are discovered, not invented."
+    },
+    {
+      "type": "paragraph",
+      "text": "Platonists argue that mathematical and logical truths are objective — 2+2=4 was true before humans existed and would remain true if we vanished. This suggests the objects these truths are about exist independently."
+    },
+    {
+      "type": "definition",
+      "term": "Nominalism",
+      "definition": "The view that abstract objects don't really exist. What we call 'numbers' or 'propositions' are just useful fictions, linguistic conventions, or mental constructs."
+    },
+    {
+      "type": "example",
+      "title": "The Problem of Abstract Objects",
+      "premises": [
+        "Numbers and propositions have no location in space",
+        "They exist outside of time (2+2=4 is always true)",
+        "We can't causally interact with them",
+        "Yet we seem to have knowledge about them — how?"
+      ],
+      "note": "If abstract objects exist, how do we know about them? If they don't, what makes mathematical statements true?"
+    },
+    {
+      "type": "paragraph",
+      "text": "This matters for logic: if propositions don't exist, what are logical laws about? Are they merely rules we invented, or do they describe an objective logical structure?"
+    },
+    {
+      "type": "quiz",
+      "question": "What is the Platonist view about abstract objects?",
+      "options": [
+        "They don't exist at all",
+        "They exist only in our minds",
+        "They exist independently of minds",
+        "They are physical objects"
+      ],
+      "correct": 2,
+      "explanation": "Platonists hold that abstract objects (like numbers and propositions) exist independently of any minds or languages — they are discovered, not invented."
+    }
+  ],
+  "key_symbols": ["∃", "∀"]
 }

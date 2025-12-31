@@ -1,8 +1,51 @@
 {
   "id": "17.4",
-  "section": "Relevance Logic",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["relevance", "variable sharing", "paradoxes of implication", "Anderson and Belnap"],
-  "status": "planned"
+  "title": "Relevance Logic",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In classical logic, 'If the moon is cheese, then 2+2=4' is true — because the conclusion is true regardless of the premise. **Relevance logic** rejects this: for A → B to be valid, A must be genuinely relevant to B."
+    },
+    {
+      "type": "definition",
+      "term": "Paradoxes of Material Implication",
+      "definition": "Classical logic validates strange implications: false premises imply anything (A → B when A is false), and tautologies are implied by anything (A → B when B is necessarily true)."
+    },
+    {
+      "type": "paragraph",
+      "text": "Anderson and Belnap developed relevance logic requiring **variable sharing**: for A → B to be valid, A and B must share at least one propositional variable. 'P → Q' fails because P and Q are unconnected."
+    },
+    {
+      "type": "example",
+      "title": "Classical vs Relevance",
+      "premises": [
+        "Classical: 'P → (Q → P)' is valid (if P, then anything implies P)",
+        "Classical: '(P ∧ ¬P) → Q' is valid (contradiction implies anything)",
+        "Relevance: Both fail — Q is irrelevant to the premises"
+      ],
+      "note": "Relevance logic blocks inferences where the conclusion has nothing to do with the premises."
+    },
+    {
+      "type": "paragraph",
+      "text": "Relevance logic better captures how we actually reason: we expect conclusions to follow FROM the premises, not just follow GIVEN the premises. The connection should be substantive, not accidental."
+    },
+    {
+      "type": "paragraph",
+      "text": "Applications include database query systems (we want relevant results), legal reasoning (evidence must be relevant), and modeling natural language conditionals ('if-then' in ordinary speech)."
+    },
+    {
+      "type": "quiz",
+      "question": "What do relevance logics require for A → B to be valid?",
+      "options": [
+        "A must be true",
+        "B must be true",
+        "A must be relevant to B",
+        "A and B must be identical"
+      ],
+      "correct": 2,
+      "explanation": "Relevance logics require a genuine connection between premise and conclusion. The premise must be relevant to establishing the conclusion — they typically must share propositional variables."
+    }
+  ],
+  "key_symbols": ["→", "∧", "¬"]
 }

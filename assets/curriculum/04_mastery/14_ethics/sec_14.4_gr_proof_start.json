@@ -1,8 +1,48 @@
 {
   "id": "14.4",
-  "section": "Starting the GR Proof",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["formal proof of golden rule", "logical foundations of ethics"],
-  "status": "planned"
+  "title": "Formalizing the Golden Rule",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Can we prove the Golden Rule from more basic logical principles? Remarkably, yes. The argument begins with the principle of **consistency** and the idea that moral judgments must be **universalizable**."
+    },
+    {
+      "type": "paragraph",
+      "text": "The key insight: if you judge that an action is wrong when done to you, and there's no relevant difference between you and others, then you must judge it wrong when done to anyone. Your identity isn't morally special."
+    },
+    {
+      "type": "definition",
+      "term": "Moral Relevance",
+      "definition": "A property is morally relevant if it can justify different moral treatment. Being in pain is relevant; having blue eyes typically isn't."
+    },
+    {
+      "type": "example",
+      "title": "The Argument Structure",
+      "premises": [
+        "1. I judge: 'It's wrong for X to do A to me.'",
+        "2. There's no relevant difference between me and others.",
+        "3. Consistency requires treating similar cases similarly.",
+        "4. Therefore: 'It's wrong for X to do A to anyone (including me doing A to others).'"
+      ],
+      "note": "The Golden Rule follows from consistency plus the claim that personal identity isn't morally relevant."
+    },
+    {
+      "type": "paragraph",
+      "text": "This argument can be formalized using deontic logic (the logic of obligation). We'll use O(φ) for 'it is obligatory that φ' and F(φ) for 'it is forbidden that φ'."
+    },
+    {
+      "type": "quiz",
+      "question": "What makes the Golden Rule follow from consistency?",
+      "options": [
+        "Personal identity is always morally relevant",
+        "Personal identity is never morally relevant",
+        "We should always do what we want",
+        "Morality is subjective"
+      ],
+      "correct": 1,
+      "explanation": "If there's no relevant difference between persons, then consistency requires treating all persons the same. Your identity alone can't justify special treatment."
+    }
+  ],
+  "key_symbols": ["O", "F", "→"]
 }

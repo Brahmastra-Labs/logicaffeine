@@ -1,8 +1,52 @@
 {
   "id": "17.1",
-  "section": "Many-Valued Logic",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["three-valued logic", "fuzzy logic", "degrees of truth", "Lukasiewicz"],
-  "status": "planned"
+  "title": "Many-Valued Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Classical logic assumes every proposition is either true or false — exactly two values. **Many-valued logics** allow three or more truth values, opening new possibilities for handling uncertainty, vagueness, and future contingents."
+    },
+    {
+      "type": "definition",
+      "term": "Many-Valued Logic",
+      "definition": "A logical system with more than two truth values. Common systems have three values (true, false, indeterminate) or infinitely many values (degrees from 0 to 1)."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Jan Łukasiewicz** developed three-valued logic in 1920 to handle future contingents: is 'There will be a sea battle tomorrow' true or false today? He added a third value: indeterminate."
+    },
+    {
+      "type": "example",
+      "title": "Three-Valued Truth Table for ¬",
+      "premises": [
+        "¬T = F (not true = false)",
+        "¬F = T (not false = true)",
+        "¬I = I (not indeterminate = indeterminate)"
+      ],
+      "note": "Negating something indeterminate doesn't make it determinate."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Fuzzy logic**, developed by Lotfi Zadeh, uses infinitely many values from 0 to 1. 'Tall' isn't simply true or false — someone 5'10\" might be 'tall to degree 0.7.' This models vagueness in natural language."
+    },
+    {
+      "type": "definition",
+      "term": "Fuzzy Logic",
+      "definition": "A many-valued logic using truth values from 0 to 1 (continuous degrees). Used in AI, control systems, and modeling vague predicates like 'tall,' 'warm,' or 'fast.'"
+    },
+    {
+      "type": "quiz",
+      "question": "Why did Łukasiewicz introduce a third truth value?",
+      "options": [
+        "To make logic harder",
+        "To handle future contingent statements",
+        "To eliminate contradictions",
+        "To simplify proofs"
+      ],
+      "correct": 1,
+      "explanation": "Łukasiewicz introduced a third value (indeterminate) to handle statements about the future that are neither definitely true nor definitely false yet, like 'There will be a sea battle tomorrow.'"
+    }
+  ],
+  "key_symbols": ["T", "F", "I"]
 }

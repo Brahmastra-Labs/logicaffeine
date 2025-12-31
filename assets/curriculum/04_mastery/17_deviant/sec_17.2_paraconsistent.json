@@ -1,8 +1,54 @@
 {
   "id": "17.2",
-  "section": "Paraconsistent Logic",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["contradictions", "explosion principle", "dialethism", "reasoning with inconsistency"],
-  "status": "planned"
+  "title": "Paraconsistent Logic",
+  "order": 2,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In classical logic, a contradiction implies everything: from 'A and not-A,' any proposition follows. This is the **explosion principle** (ex contradictione quodlibet). Paraconsistent logics reject this, allowing contradictions without total collapse."
+    },
+    {
+      "type": "definition",
+      "term": "Explosion Principle",
+      "definition": "The classical principle that from a contradiction, anything follows: (A ∧ ¬A) → B for any B. 'From falsehood, anything' — one contradiction destroys the entire system."
+    },
+    {
+      "type": "paragraph",
+      "text": "Why tolerate contradictions? Because real databases often contain inconsistencies, and we still want to reason with them. We don't want one error to make everything true."
+    },
+    {
+      "type": "example",
+      "title": "Classical Explosion",
+      "premises": [
+        "1. A ∧ ¬A (contradiction, assumed)",
+        "2. A (from 1, by ∧-elimination)",
+        "3. A ∨ B (from 2, by ∨-introduction)",
+        "4. ¬A (from 1, by ∧-elimination)",
+        "5. B (from 3, 4, by disjunctive syllogism)"
+      ],
+      "note": "This proof works for ANY B — one contradiction proves everything."
+    },
+    {
+      "type": "definition",
+      "term": "Paraconsistent Logic",
+      "definition": "A logic in which contradictions don't explode into proving everything. The inference from A ∧ ¬A to arbitrary B is blocked."
+    },
+    {
+      "type": "paragraph",
+      "text": "**Dialethism** goes further: some contradictions are actually true! The Liar Paradox ('This sentence is false') might be both true AND false. Paraconsistent logic provides tools for such views."
+    },
+    {
+      "type": "quiz",
+      "question": "What does paraconsistent logic reject?",
+      "options": [
+        "The law of identity",
+        "The explosion principle",
+        "All proofs",
+        "The use of symbols"
+      ],
+      "correct": 1,
+      "explanation": "Paraconsistent logic rejects the explosion principle — the idea that from a contradiction, anything follows. This allows reasoning in systems that contain some inconsistencies."
+    }
+  ],
+  "key_symbols": ["∧", "¬", "→"]
 }

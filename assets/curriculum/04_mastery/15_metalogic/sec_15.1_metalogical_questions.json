@@ -1,8 +1,34 @@
 {
   "id": "15.1",
-  "section": "Metalogical Questions",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["logic about logic", "object language vs metalanguage", "formal systems"],
-  "status": "planned"
+  "title": "What is Metalogic?",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Metalogic** is logic about logic. While logic studies valid reasoning, metalogic studies the properties of logical systems themselves. Can our proof system prove everything that's true? Can it avoid proving anything false?"
+    },
+    {
+      "type": "definition",
+      "term": "Object Language",
+      "definition": "The formal language being studied — the symbols, formulas, and rules of the logical system itself."
+    },
+    {
+      "type": "definition",
+      "term": "Metalanguage",
+      "definition": "The language used to talk ABOUT the object language — to state theorems about the system's properties."
+    },
+    {
+      "type": "quiz",
+      "question": "What does metalogic study?",
+      "options": [
+        "Valid arguments in everyday reasoning",
+        "Properties of logical systems themselves",
+        "The psychology of reasoning",
+        "Mathematical calculations"
+      ],
+      "correct": 1,
+      "explanation": "Metalogic studies properties of logical systems — questions like 'Is this system complete?' or 'Is it consistent?'"
+    }
+  ],
+  "key_symbols": ["⊢", "⊨"]
 }

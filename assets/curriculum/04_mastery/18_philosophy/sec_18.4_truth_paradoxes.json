@@ -1,8 +1,53 @@
 {
   "id": "18.4",
-  "section": "Truth and Paradoxes",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["theories of truth", "liar paradox", "Tarski", "semantic paradoxes"],
-  "status": "planned"
+  "title": "Truth and Paradoxes",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "What is truth? And why do some sentences about truth lead to paradox? The **Liar Paradox** — 'This sentence is false' — has puzzled logicians for millennia and drives research to this day."
+    },
+    {
+      "type": "definition",
+      "term": "The Liar Paradox",
+      "definition": "Consider: 'This sentence is false.' If it's true, then what it says is correct, so it's false. If it's false, then it's not false, so it's true. Contradiction either way."
+    },
+    {
+      "type": "paragraph",
+      "text": "Tarski showed that a consistent language cannot contain its own truth predicate — trying to define 'true-in-L' within L leads to paradox. Truth must be defined in a metalanguage."
+    },
+    {
+      "type": "example",
+      "title": "Tarski's Hierarchy",
+      "premises": [
+        "Language L₀ talks about objects",
+        "Language L₁ contains 'true-in-L₀'",
+        "Language L₂ contains 'true-in-L₁'",
+        "And so on..."
+      ],
+      "note": "Each level can only talk about truth at lower levels, avoiding self-reference."
+    },
+    {
+      "type": "definition",
+      "term": "Tarski's Convention T",
+      "definition": "A theory of truth must entail all instances of: 'P' is true if and only if P. Example: 'Snow is white' is true iff snow is white."
+    },
+    {
+      "type": "paragraph",
+      "text": "Other approaches include: denying that the Liar has a truth value (gappy), accepting that it's both true and false (glutty), or rejecting the unrestricted T-schema."
+    },
+    {
+      "type": "quiz",
+      "question": "What did Tarski conclude about truth predicates?",
+      "options": [
+        "Truth is indefinable",
+        "A language cannot consistently contain its own truth predicate",
+        "The Liar sentence is true",
+        "Paradoxes don't matter"
+      ],
+      "correct": 1,
+      "explanation": "Tarski showed that defining 'true-in-L' within L itself leads to the Liar paradox. Truth for a language must be defined in a metalanguage — a hierarchy of languages."
+    }
+  ],
+  "key_symbols": ["↔", "¬"]
 }

@@ -1,8 +1,53 @@
 {
   "id": "15.6",
-  "section": "Godel's Theorem",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["incompleteness theorems", "limits of formal systems", "self-reference"],
-  "status": "planned"
+  "title": "Gödel's Incompleteness",
+  "order": 6,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "In 1931, Kurt Gödel proved one of the most profound results in the history of logic: any consistent formal system capable of expressing basic arithmetic is **incomplete** — there exist true statements it cannot prove."
+    },
+    {
+      "type": "definition",
+      "term": "First Incompleteness Theorem",
+      "definition": "For any consistent, sufficiently powerful formal system F, there exists a sentence G such that: G is true, but F cannot prove G, and F cannot prove ¬G."
+    },
+    {
+      "type": "paragraph",
+      "text": "Gödel constructed a sentence that essentially says 'This sentence is not provable in system F.' If F could prove it, F would be inconsistent. If F is consistent, the sentence is true but unprovable."
+    },
+    {
+      "type": "definition",
+      "term": "Second Incompleteness Theorem",
+      "definition": "No consistent, sufficiently powerful formal system can prove its own consistency. If F proves 'F is consistent,' then F is actually inconsistent."
+    },
+    {
+      "type": "paragraph",
+      "text": "This shattered Hilbert's dream of finding a complete, consistent foundation for all mathematics. Some truths are beyond the reach of any single formal system — a fundamental limit of formal reasoning."
+    },
+    {
+      "type": "example",
+      "title": "The Gödel Sentence",
+      "premises": [
+        "G = 'This sentence is not provable in F'",
+        "If F proves G, then G is false, so F proves something false (F is unsound)",
+        "If F is sound, F cannot prove G",
+        "But then G is true! (It really is unprovable)"
+      ],
+      "note": "The Gödel sentence is true precisely because it cannot be proven — a profound self-referential twist."
+    },
+    {
+      "type": "quiz",
+      "question": "What did Gödel's First Incompleteness Theorem show?",
+      "options": [
+        "All mathematical systems are inconsistent",
+        "Some true statements cannot be proven in any consistent system strong enough for arithmetic",
+        "Logic is unreliable",
+        "Mathematics should be abandoned"
+      ],
+      "correct": 1,
+      "explanation": "Gödel showed that in any consistent formal system capable of basic arithmetic, there exist true statements that the system cannot prove. This is a fundamental limit, not a flaw."
+    }
+  ],
+  "key_symbols": ["⊢", "¬", "G"]
 }

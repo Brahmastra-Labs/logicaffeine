@@ -1,8 +1,52 @@
 {
   "id": "17.3",
-  "section": "Intuitionist Logic",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["constructive logic", "Brouwer", "excluded middle rejection", "proof-theoretic semantics"],
-  "status": "planned"
+  "title": "Intuitionist Logic",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Intuitionist logic**, developed by L.E.J. Brouwer, rejects the law of excluded middle (A ∨ ¬A). For intuitionists, a proposition is only true if we have a constructive proof of it — existence claims require actual construction."
+    },
+    {
+      "type": "definition",
+      "term": "Constructive Proof",
+      "definition": "A proof that doesn't just show something must exist, but actually constructs or exhibits it. Proving ∃x.P(x) requires providing a specific witness a and proving P(a)."
+    },
+    {
+      "type": "paragraph",
+      "text": "Intuitionists reject proofs that assume ¬A, derive a contradiction, and conclude A — without ever constructing A directly. They require that existence be demonstrated, not merely shown to be non-impossible."
+    },
+    {
+      "type": "example",
+      "title": "Classical vs Intuitionist",
+      "premises": [
+        "Classical: To prove ∃x.P(x), show ¬∃x.P(x) leads to contradiction",
+        "Intuitionist: To prove ∃x.P(x), exhibit a specific x and prove P(x)",
+        "Classical accepts the first; intuitionist requires the second"
+      ],
+      "note": "Intuitionism demands we 'show our work' by constructing what we claim exists."
+    },
+    {
+      "type": "paragraph",
+      "text": "Surprisingly, intuitionist logic connects to computer science: a constructive proof of A → B is essentially a program that transforms evidence for A into evidence for B. The Curry-Howard correspondence formalizes this."
+    },
+    {
+      "type": "definition",
+      "term": "Law of Excluded Middle",
+      "definition": "The principle that for any proposition A, either A or ¬A is true. Classical logic accepts this; intuitionist logic does not — we can't assert A ∨ ¬A without knowing which."
+    },
+    {
+      "type": "quiz",
+      "question": "What does intuitionist logic reject?",
+      "options": [
+        "All forms of proof",
+        "The law of excluded middle (A ∨ ¬A)",
+        "The use of quantifiers",
+        "Proof by construction"
+      ],
+      "correct": 1,
+      "explanation": "Intuitionists reject the law of excluded middle — we cannot assert 'A or not-A' for every proposition without a constructive proof of which one holds."
+    }
+  ],
+  "key_symbols": ["∨", "¬", "∃"]
 }

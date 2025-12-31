@@ -1,8 +1,60 @@
 {
   "id": "7.5",
-  "section": "Copi Proofs",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["Copi proof system", "natural deduction", "inference rules"],
-  "status": "planned"
+  "title": "Copi-Style Proofs",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "The **Copi system** (from Irving Copi's textbooks) is a popular natural deduction system with 18 rules: 9 rules of inference and 9 rules of replacement."
+    },
+    {
+      "type": "definition",
+      "term": "Rules of Inference",
+      "definition": "One-way rules that take premises and produce conclusions: Modus Ponens, Modus Tollens, Hypothetical Syllogism, Disjunctive Syllogism, Constructive Dilemma, Simplification, Conjunction, Addition, Absorption."
+    },
+    {
+      "type": "example",
+      "title": "Key Inference Rules",
+      "premises": [
+        "MP: P, P → Q ⊢ Q",
+        "MT: ¬Q, P → Q ⊢ ¬P",
+        "HS: P → Q, Q → R ⊢ P → R",
+        "DS: P ∨ Q, ¬P ⊢ Q"
+      ],
+      "note": "These rules only work in one direction — you apply them to derive new lines."
+    },
+    {
+      "type": "definition",
+      "term": "Rules of Replacement",
+      "definition": "Two-way equivalences: you can substitute equivalent forms anywhere. Includes De Morgan's, Double Negation, Commutativity, Associativity, Distribution, Material Implication, Exportation, Tautology."
+    },
+    {
+      "type": "example",
+      "title": "Key Replacement Rules",
+      "premises": [
+        "DeM: ¬(P ∧ Q) ↔ ¬P ∨ ¬Q",
+        "DN: ¬¬P ↔ P",
+        "Impl: P → Q ↔ ¬P ∨ Q",
+        "Contra: P → Q ↔ ¬Q → ¬P"
+      ],
+      "note": "These work both directions and can be applied to subformulas."
+    },
+    {
+      "type": "paragraph",
+      "text": "The Copi system doesn't use subproofs by default, though conditional proof and indirect proof can be added. It relies heavily on replacement rules to transform formulas."
+    },
+    {
+      "type": "quiz",
+      "question": "What is the difference between rules of inference and rules of replacement?",
+      "options": [
+        "Inference rules are wrong",
+        "Inference rules work one-way; replacement rules work both ways",
+        "Replacement rules are for numbers",
+        "There is no difference"
+      ],
+      "correct": 1,
+      "explanation": "Rules of inference (like MP) only work in one direction. Rules of replacement (like De Morgan's) are equivalences that work both ways and can be applied to subformulas."
+    }
+  ],
+  "key_symbols": ["→", "∨", "¬"]
 }

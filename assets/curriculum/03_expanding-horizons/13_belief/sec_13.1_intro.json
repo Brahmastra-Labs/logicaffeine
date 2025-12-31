@@ -1,0 +1,60 @@
+{
+  "id": "13.1",
+  "title": "Introduction to Belief Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Belief logic** (or epistemic logic) formalizes reasoning about knowledge, belief, and other **propositional attitudes**. It lets us express statements like 'Alice believes it's raining' or 'Bob knows that Alice believes it's raining'."
+    },
+    {
+      "type": "paragraph",
+      "text": "These operators are different from truth-functional connectives. 'Alice believes P' can be true even when P is false, and 'Alice believes P and Q' doesn't follow from 'Alice believes P' and 'Alice believes Q' being separately true."
+    },
+    {
+      "type": "definition",
+      "term": "Belief Operator (B)",
+      "definition": "Bₐ(P) means 'agent a believes that P'. Unlike knowledge, belief doesn't require truth — you can believe false things."
+    },
+    {
+      "type": "definition",
+      "term": "Knowledge Operator (K)",
+      "definition": "Kₐ(P) means 'agent a knows that P'. Knowledge is traditionally defined as justified true belief, so Kₐ(P) → P (knowledge implies truth)."
+    },
+    {
+      "type": "symbols",
+      "title": "Epistemic Operators",
+      "symbols": [
+        {
+          "symbol": "B",
+          "name": "Believes",
+          "meaning": "Agent believes that...",
+          "example": "Bₐₗᵢcₑ(Raining) — Alice believes it's raining"
+        },
+        {
+          "symbol": "K",
+          "name": "Knows",
+          "meaning": "Agent knows that...",
+          "example": "Kᵦₒᵦ(2+2=4) — Bob knows 2+2=4"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Important principle: Knowledge implies truth (Kₐ(P) → P), but belief doesn't. You can believe something false. Also, knowing that you know something (positive introspection) is often assumed: Kₐ(P) → Kₐ(Kₐ(P))."
+    },
+    {
+      "type": "quiz",
+      "question": "Can Bₐ(P) be true while P is false?",
+      "options": [
+        "No, belief requires truth",
+        "Yes, you can believe false things",
+        "Only if P is about the future",
+        "Only if agent a is uncertain"
+      ],
+      "correct": 1,
+      "explanation": "Yes! Unlike knowledge, belief doesn't require truth. You can believe it's sunny when it's actually raining. Bₐ(P) just says agent a believes P, regardless of whether P is true."
+    }
+  ],
+  "key_symbols": ["B", "K"]
+}

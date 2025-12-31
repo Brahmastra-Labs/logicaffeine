@@ -29,7 +29,8 @@ web-sys = { version = "0.3", features = [
     "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
     "Storage", "Navigator", "Clipboard", "UrlSearchParams",
     "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
-    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition"
+    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition",
+    "ScrollToOptions"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -38,6 +39,7 @@ rand = "0.8"
 include_dir = "0.7"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
+wasm-bindgen-futures = "0.4"
 clap = { version = "4.4", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }
 ureq = { version = "2.9", features = ["json"], optional = true }

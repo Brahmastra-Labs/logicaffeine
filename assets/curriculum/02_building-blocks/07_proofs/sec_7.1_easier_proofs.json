@@ -1,8 +1,54 @@
 {
   "id": "7.1",
-  "section": "Easier Proofs",
-  "type": "placeholder",
-  "difficulty": 2,
-  "topics": ["basic proof construction", "direct proofs", "simple inferences"],
-  "status": "planned"
+  "title": "Easier Proofs",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "A **proof** demonstrates that a conclusion follows necessarily from premises. In natural deduction, we build proofs step by step, applying inference rules until we reach our goal."
+    },
+    {
+      "type": "definition",
+      "term": "Direct Proof",
+      "definition": "A proof that proceeds directly from premises to conclusion using inference rules, without assuming the negation of what we want to prove."
+    },
+    {
+      "type": "paragraph",
+      "text": "The simplest proofs use basic rules like **Modus Ponens** (from P and P → Q, infer Q) and **conjunction elimination** (from P ∧ Q, infer P or Q)."
+    },
+    {
+      "type": "example",
+      "title": "A Simple Proof",
+      "premises": [
+        "1. P → Q          (premise)",
+        "2. Q → R          (premise)",
+        "3. P              (premise)",
+        "4. Q              (from 1, 3 by MP)",
+        "5. R              (from 2, 4 by MP)"
+      ],
+      "conclusion": "Therefore: P → Q, Q → R, P ⊢ R",
+      "note": "Each step follows from previous lines by a stated rule."
+    },
+    {
+      "type": "paragraph",
+      "text": "Always state which rule you're using and which lines it applies to. This makes your proof checkable — anyone can verify each step is valid."
+    },
+    {
+      "type": "paragraph",
+      "text": "Strategy tip: Work backwards from your goal. Ask 'What would give me this conclusion?' Then try to derive that from what you have."
+    },
+    {
+      "type": "quiz",
+      "question": "What is Modus Ponens?",
+      "options": [
+        "From P ∧ Q, infer P",
+        "From P and P → Q, infer Q",
+        "From P ∨ Q and ¬P, infer Q",
+        "From P, infer P ∨ Q"
+      ],
+      "correct": 1,
+      "explanation": "Modus Ponens (MP) says: if you have P and P → Q, you can conclude Q. It's the most basic rule for using conditionals."
+    }
+  ],
+  "key_symbols": ["→", "⊢", "∧"]
 }

@@ -318,4 +318,81 @@ mod tests {
 
         assert_eq!(result1, result2, "Same seed should produce same output");
     }
+
+    #[test]
+    fn test_all_introduction_exercises() {
+        let engine = ContentEngine::new();
+        let generator = Generator::new();
+
+        let module = engine.get_module("first-steps", "introduction");
+        assert!(module.is_some(), "Introduction module should exist");
+        let module = module.unwrap();
+
+        println!("Introduction module has {} exercises", module.exercises.len());
+
+        for (i, exercise) in module.exercises.iter().enumerate() {
+            let mut rng = StdRng::seed_from_u64(42 + i as u64);
+            println!("Exercise {}: id={}, type={:?}", i, exercise.id, exercise.exercise_type);
+
+            let challenge = generator.generate(exercise, &mut rng);
+            if challenge.is_none() {
+                println!("  FAILED to generate challenge!");
+                if let Some(template) = &exercise.template {
+                    println!("  Template: {}", template);
+                    let filled = generator.fill_template(template, &exercise.constraints, &mut StdRng::seed_from_u64(42));
+                    println!("  Filled template: {:?}", filled);
+                    if let Some(sentence) = filled {
+                        let compiled = crate::compile(&sentence);
+                        println!("  Compile result: {:?}", compiled);
+                    }
+                }
+            } else {
+                println!("  OK: {:?}", challenge.as_ref().map(|c| &c.sentence));
+            }
+            assert!(challenge.is_some(), "Exercise {} ({}) should generate a challenge", i, exercise.id);
+        }
+    }
+
+    #[test]
+    fn test_all_exercises_across_all_modules() {
+        let engine = ContentEngine::new();
+        let generator = Generator::new();
+
+        let mut total_exercises = 0;
+        let mut successful = 0;
+        let mut failed_exercises = Vec::new();
+
+        for era in engine.eras() {
+            for module in &era.modules {
+                if let Some(m) = engine.get_module(&era.meta.id, &module.meta.id) {
+                    for (i, exercise) in m.exercises.iter().enumerate() {
+                        total_exercises += 1;
+                        let mut rng = StdRng::seed_from_u64(42 + i as u64);
+
+                        let challenge = generator.generate(exercise, &mut rng);
+                        if challenge.is_some() {
+                            successful += 1;
+                        } else {
+                            failed_exercises.push(format!("{}/{}/{}", era.meta.id, module.meta.id, exercise.id));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("Total exercises: {}", total_exercises);
+        println!("Successful: {}", successful);
+        println!("Failed: {}", failed_exercises.len());
+
+        if !failed_exercises.is_empty() {
+            println!("\nFailed exercises:");
+            for ex in &failed_exercises {
+                println!("  - {}", ex);
+            }
+        }
+
+        // Allow some failures for now, but ensure most work
+        let success_rate = successful as f64 / total_exercises as f64;
+        assert!(success_rate >= 0.8, "At least 80% of exercises should generate (got {:.1}%)", success_rate * 100.0);
+    }
 }

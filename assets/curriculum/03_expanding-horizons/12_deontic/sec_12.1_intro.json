@@ -1,0 +1,67 @@
+{
+  "id": "12.1",
+  "title": "Introduction to Deontic Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Deontic logic** is the logic of obligation, permission, and prohibition. It lets us reason formally about what we ought to do, what we're allowed to do, and what we must not do."
+    },
+    {
+      "type": "paragraph",
+      "text": "Like modal logic uses 'possible' and 'necessary', deontic logic uses 'permitted' and 'obligatory'. These are related: what is obligatory is the same as what is not permitted to not do."
+    },
+    {
+      "type": "definition",
+      "term": "Obligation Operator (O)",
+      "definition": "Read as 'it is obligatory that' or 'ought'. O(P) means you have a duty or obligation to make P true."
+    },
+    {
+      "type": "definition",
+      "term": "Permission Operator (P)",
+      "definition": "Read as 'it is permitted that' or 'may'. P(Q) means you are allowed to do Q — it's not forbidden."
+    },
+    {
+      "type": "definition",
+      "term": "Prohibition",
+      "definition": "Something is forbidden if it is obligatory that you not do it: O(¬P). This is equivalent to ¬P(P) — it's not permitted."
+    },
+    {
+      "type": "symbols",
+      "title": "Deontic Operators",
+      "symbols": [
+        {
+          "symbol": "O",
+          "name": "Obligation",
+          "meaning": "It is obligatory that, ought to, must",
+          "example": "O(PayTaxes) — You ought to pay taxes"
+        },
+        {
+          "symbol": "P",
+          "name": "Permission",
+          "meaning": "It is permitted that, may, allowed to",
+          "example": "P(Park) — You may park here"
+        },
+        {
+          "symbol": "F",
+          "name": "Forbidden",
+          "meaning": "It is forbidden that, must not",
+          "example": "F(Steal) ≡ O(¬Steal)"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "What does O(P) → P(P) say?",
+      "options": [
+        "If something is permitted, it's obligatory",
+        "If something is obligatory, it's permitted",
+        "Obligation and permission are the same",
+        "Nothing is both obligatory and permitted"
+      ],
+      "correct": 1,
+      "explanation": "O(P) → P(P) says: if you are obligated to do something, then you are permitted to do it. This is a standard deontic axiom — 'ought implies may'."
+    }
+  ],
+  "key_symbols": ["O", "P", "F"]
+}

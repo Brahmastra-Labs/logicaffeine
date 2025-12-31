@@ -1,8 +1,50 @@
 {
   "id": "14.6",
-  "section": "The Symbolic GR Proof",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["complete formal proof", "symbolic ethics"],
-  "status": "planned"
+  "title": "The Formal Proof",
+  "order": 6,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "We can now construct the formal proof of the Golden Rule. The proof proceeds from the consistency requirement and the irrelevance of personal identity to moral judgments."
+    },
+    {
+      "type": "example",
+      "title": "The Golden Rule Derivation",
+      "premises": [
+        "1. ¬W_me(Do(x, me, A))          — I don't want A done to me",
+        "2. ¬W_me(Do(x, me, A)) → F(Do(x, me, A))   — What I reject is forbidden (to me)",
+        "3. F(Do(x, me, A))              — So A-to-me is forbidden (by 1,2)",
+        "4. ∀y∀z(F(Do(y, z, A)) ↔ F(Do(y', z', A)))  — Consistency: same action, same verdict",
+        "5. F(Do(me, x, A))              — So A-to-others is also forbidden (by 3,4)"
+      ],
+      "conclusion": "Therefore: ¬W_me(Do(x, me, A)) → O(¬Do(me, x, A))",
+      "note": "If I don't want it done to me, I'm obligated not to do it to others."
+    },
+    {
+      "type": "paragraph",
+      "text": "The crucial move is step 4: the **consistency principle**. If action A is forbidden when done to me, it must be forbidden when done to anyone — unless there's a relevant difference. Since mere identity isn't relevant, the Golden Rule follows."
+    },
+    {
+      "type": "definition",
+      "term": "The Formal Golden Rule",
+      "definition": "∀A∀x(¬W_me(Do(x, me, A)) → O(¬Do(me, x, A))). For all actions A and all persons x: if I wouldn't want A done to me, I ought not do A to x."
+    },
+    {
+      "type": "paragraph",
+      "text": "This is a remarkable result: a fundamental ethical principle derived from pure logic and the requirement of consistency. Ethics isn't arbitrary — it follows from the demand that we reason coherently about actions."
+    },
+    {
+      "type": "quiz",
+      "question": "What is the key premise that makes the Golden Rule proof work?",
+      "options": [
+        "All actions are wrong",
+        "My desires determine what's right",
+        "Consistency: same action requires same moral verdict",
+        "There are no moral truths"
+      ],
+      "correct": 2,
+      "explanation": "The proof relies on consistency: if an action is forbidden in one case, it's forbidden in all relevantly similar cases. Combined with personal identity being irrelevant, this yields the Golden Rule."
+    }
+  ],
+  "key_symbols": ["O", "F", "W", "∀", "→", "↔"]
 }

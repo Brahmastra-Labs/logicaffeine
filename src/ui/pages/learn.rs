@@ -448,6 +448,38 @@ const LEARN_STYLE: &str = r#"
     border-bottom-color: var(--color-accent-blue);
 }
 
+/* Practice tab - green accent */
+.content-tab-btn.practice {
+    color: var(--color-success);
+}
+
+.content-tab-btn.practice:hover {
+    color: var(--color-success);
+    background: rgba(74, 222, 128, 0.08);
+}
+
+.content-tab-btn.practice.active {
+    color: var(--color-success);
+    border-bottom-color: var(--color-success);
+    background: rgba(74, 222, 128, 0.1);
+}
+
+/* Test tab - orange/yellow accent */
+.content-tab-btn.test {
+    color: #fbbf24;
+}
+
+.content-tab-btn.test:hover {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+}
+
+.content-tab-btn.test.active {
+    color: #fbbf24;
+    border-bottom-color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+}
+
 /* Lesson section styling */
 .lesson-section {
     margin-bottom: var(--spacing-xxl);
@@ -570,17 +602,18 @@ const LEARN_STYLE: &str = r#"
 
 .lesson-symbol-item {
     display: flex;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm);
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
     background: rgba(255,255,255,0.03);
     border-radius: var(--radius-md);
+    text-align: center;
 }
 
 .lesson-symbol-glyph {
-    font-size: 1.5rem;
+    font-size: 2rem;
     font-family: var(--font-mono);
     color: #60a5fa;
-    min-width: 40px;
     text-align: center;
 }
 
@@ -635,19 +668,43 @@ const LEARN_STYLE: &str = r#"
     transition: all 0.15s ease;
 }
 
-.lesson-quiz-option:hover {
+.lesson-quiz-option:hover:not(:disabled) {
     background: rgba(255,255,255,0.08);
     border-color: rgba(255,255,255,0.2);
     color: var(--text-primary);
+}
+
+.lesson-quiz-option:disabled {
+    cursor: default;
+}
+
+.lesson-quiz-option.correct {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+
+.lesson-quiz-option.incorrect {
+    background: rgba(248, 113, 113, 0.15);
+    border-color: var(--color-error);
+    color: var(--color-error);
+}
+
+.lesson-quiz-option.answered {
+    opacity: 0.5;
 }
 
 .lesson-quiz-explanation {
     margin-top: var(--spacing-md);
     padding-top: var(--spacing-md);
     border-top: 1px solid rgba(255,255,255,0.08);
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.7);
     font-size: 0.9rem;
     display: none;
+}
+
+.lesson-quiz-explanation.visible {
+    display: block;
 }
 
 .learn-module-close {
@@ -908,7 +965,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "introduction",
                     title: "Introduction",
                     description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
-                    exercise_count: 4,
+                    exercise_count: 5,
                     difficulty: 1,
                     preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
                 },
@@ -916,7 +973,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "syllogistic",
                     title: "Syllogistic Logic",
                     description: "Translate English into syllogistic notation. Master the classical form of logical reasoning.",
-                    exercise_count: 99,
+                    exercise_count: 98,
                     difficulty: 1,
                     preview_code: Some("All humans are mortal."),
                 },
@@ -924,7 +981,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "definitions",
                     title: "Meaning and Definitions",
                     description: "Understand uses of language, types of definitions, and the analytic/synthetic distinction.",
-                    exercise_count: 49,
+                    exercise_count: 48,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -932,7 +989,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "fallacies",
                     title: "Fallacies and Argumentation",
                     description: "Identify good arguments vs. fallacious reasoning. Master informal fallacies.",
-                    exercise_count: 5,
+                    exercise_count: 16,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -940,7 +997,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "inductive",
                     title: "Inductive Reasoning",
                     description: "Master probability, analogical reasoning, Mill's methods, and inference to best explanation.",
-                    exercise_count: 10,
+                    exercise_count: 12,
                     difficulty: 2,
                     preview_code: Some("90% of observed swans are white..."),
                 },
@@ -956,7 +1013,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "propositional",
                     title: "Basic Propositional Logic",
                     description: "Master AND, OR, NOT, and IF-THEN connectives. Truth tables, S-rules, and I-rules.",
-                    exercise_count: 115,
+                    exercise_count: 114,
                     difficulty: 2,
                     preview_code: Some("If John runs, then Mary walks."),
                 },
@@ -964,7 +1021,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "proofs",
                     title: "Propositional Proofs",
                     description: "Construct formal proofs and refutations. Learn natural deduction and truth trees.",
-                    exercise_count: 6,
+                    exercise_count: 14,
                     difficulty: 3,
                     preview_code: Some("1. P → Q  2. P  ∴ Q"),
                 },
@@ -980,7 +1037,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "quantificational",
                     title: "Basic Quantificational Logic",
                     description: "Master universal and existential quantifiers. Translations, proofs, and refutations.",
-                    exercise_count: 6,
+                    exercise_count: 12,
                     difficulty: 3,
                     preview_code: Some("All birds fly."),
                 },
@@ -988,7 +1045,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "relations",
                     title: "Relations and Identity",
                     description: "Extend predicate logic with identity and relations. Handle definite descriptions.",
-                    exercise_count: 3,
+                    exercise_count: 8,
                     difficulty: 3,
                     preview_code: Some("John loves Mary."),
                 },
@@ -996,7 +1053,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "modal",
                     title: "Basic Modal Logic",
                     description: "Explore possibility and necessity operators. Express what could be or must be true.",
-                    exercise_count: 37,
+                    exercise_count: 36,
                     difficulty: 3,
                     preview_code: Some("It is possible that John runs."),
                 },
@@ -1004,7 +1061,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "further_modal",
                     title: "Further Modal Systems",
                     description: "Advanced modal systems including quantified modal logic and temporal operators.",
-                    exercise_count: 3,
+                    exercise_count: 2,
                     difficulty: 4,
                     preview_code: Some("John will run tomorrow."),
                 },
@@ -1012,7 +1069,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "deontic",
                     title: "Deontic and Imperative Logic",
                     description: "Reason about obligation, permission, and prohibition. The logic of ethics and law.",
-                    exercise_count: 39,
+                    exercise_count: 38,
                     difficulty: 3,
                     preview_code: Some("John ought to leave."),
                 },
@@ -1020,7 +1077,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "belief",
                     title: "Belief Logic",
                     description: "Express beliefs, knowledge, willing, and rationality. Model propositional attitudes.",
-                    exercise_count: 16,
+                    exercise_count: 15,
                     difficulty: 3,
                     preview_code: Some("John believes that Mary runs."),
                 },
@@ -1036,7 +1093,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "ethics",
                     title: "A Formalized Ethical Theory",
                     description: "Apply logic to ethics: practical reason, consistency, and the golden rule formalized.",
-                    exercise_count: 6,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -1052,7 +1109,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "history",
                     title: "History of Logic",
                     description: "Trace logic from Aristotle through Frege, Russell, and modern developments.",
-                    exercise_count: 5,
+                    exercise_count: 8,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -1060,7 +1117,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "deviant",
                     title: "Deviant Logics",
                     description: "Explore non-classical logics: many-valued, paraconsistent, intuitionist, and relevance logic.",
-                    exercise_count: 4,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -1068,7 +1125,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "philosophy",
                     title: "Philosophy of Logic",
                     description: "Examine philosophical foundations: abstract entities, truth, paradoxes, and logic's scope.",
-                    exercise_count: 5,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -1273,12 +1330,41 @@ pub fn Learn() -> Element {
 
                                                         // Close button when expanded
                                                         if is_expanded {
-                                                            button {
-                                                                class: "learn-module-close",
-                                                                onclick: move |_| {
-                                                                    expanded_module.set(None);
-                                                                },
-                                                                "×"
+                                                            {
+                                                                let module_id_for_scroll = module_id.clone();
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "learn-module-close",
+                                                                        onclick: move |_| {
+                                                                            expanded_module.set(None);
+                                                                            // Scroll to the module card after collapse
+                                                                            #[cfg(target_arch = "wasm32")]
+                                                                            {
+                                                                                let id = module_id_for_scroll.clone();
+                                                                                wasm_bindgen_futures::spawn_local(async move {
+                                                                                    // Delay to let the DOM update after collapse
+                                                                                    gloo_timers::future::TimeoutFuture::new(150).await;
+                                                                                    if let Some(window) = web_sys::window() {
+                                                                                        if let Some(document) = window.document() {
+                                                                                            if let Some(element) = document.get_element_by_id(&id) {
+                                                                                                // Get element position and scroll with offset for nav
+                                                                                                let rect = element.get_bounding_client_rect();
+                                                                                                let scroll_y = window.scroll_y().unwrap_or(0.0);
+                                                                                                let target_y = scroll_y + rect.top() - 100.0; // 100px offset for nav
+                                                                                                let _ = window.scroll_to_with_scroll_to_options(
+                                                                                                    web_sys::ScrollToOptions::new()
+                                                                                                        .top(target_y)
+                                                                                                        .behavior(web_sys::ScrollBehavior::Smooth)
+                                                                                                );
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        },
+                                                                        "×"
+                                                                    }
+                                                                }
                                                             }
                                                         }
 
@@ -1447,6 +1533,10 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let mut struggle_detector = use_signal(StruggleDetector::default);
     let mut show_socratic_hint = use_signal(|| false);
 
+    // Lesson quiz state - tracks which quizzes have been answered and their result
+    // Key: quiz question string, Value: (selected_index, is_correct)
+    let mut quiz_answers = use_signal(|| std::collections::HashMap::<String, (usize, bool)>::new());
+
     // Stable seed per exercise - only set once when component mounts or exercise changes
     // Use a signal to store the base seed so it doesn't change on re-renders
     let base_seed = use_signal(|| {
@@ -1518,7 +1608,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     "Examples"
                 }
                 button {
-                    class: if current_view == ContentView::Practice { "content-tab-btn active" } else { "content-tab-btn" },
+                    class: if current_view == ContentView::Practice { "content-tab-btn practice active" } else { "content-tab-btn practice" },
                     onclick: move |_| {
                         content_view.set(ContentView::Practice);
                         practice_mode.set(PracticeMode::Practice);
@@ -1526,7 +1616,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     "Practice"
                 }
                 button {
-                    class: if current_view == ContentView::Test { "content-tab-btn active test" } else { "content-tab-btn" },
+                    class: if current_view == ContentView::Test { "content-tab-btn test active" } else { "content-tab-btn test" },
                     onclick: move |_| {
                         content_view.set(ContentView::Test);
                         practice_mode.set(PracticeMode::Test);
@@ -1598,20 +1688,43 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                 }
                                             }
                                         },
-                                        ContentBlock::Quiz { question, options, correct, explanation } => rsx! {
-                                            div { class: "lesson-quiz",
-                                                div { class: "lesson-quiz-question", "{question}" }
-                                                div { class: "lesson-quiz-options",
-                                                    for (i, opt) in options.iter().enumerate() {
-                                                        button {
-                                                            class: "lesson-quiz-option",
-                                                            "data-correct": if i == *correct { "true" } else { "false" },
-                                                            "{opt}"
+                                        ContentBlock::Quiz { question, options, correct, explanation } => {
+                                            let q_key = question.clone();
+                                            let answered = quiz_answers.read().get(&q_key).cloned();
+                                            let correct_idx = *correct;
+                                            rsx! {
+                                                div { class: "lesson-quiz",
+                                                    div { class: "lesson-quiz-question", "{question}" }
+                                                    div { class: "lesson-quiz-options",
+                                                        for (i, opt) in options.iter().enumerate() {
+                                                            {
+                                                                let q_key_click = q_key.clone();
+                                                                let opt_class = match &answered {
+                                                                    Some((selected, _)) if *selected == i && i == correct_idx => "lesson-quiz-option correct",
+                                                                    Some((selected, _)) if *selected == i => "lesson-quiz-option incorrect",
+                                                                    Some(_) if i == correct_idx => "lesson-quiz-option correct",
+                                                                    Some(_) => "lesson-quiz-option answered",
+                                                                    None => "lesson-quiz-option",
+                                                                };
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "{opt_class}",
+                                                                        disabled: answered.is_some(),
+                                                                        onclick: move |_| {
+                                                                            let is_correct = i == correct_idx;
+                                                                            quiz_answers.write().insert(q_key_click.clone(), (i, is_correct));
+                                                                        },
+                                                                        "{opt}"
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
-                                                }
-                                                if let Some(expl) = explanation {
-                                                    div { class: "lesson-quiz-explanation", "{expl}" }
+                                                    if answered.is_some() {
+                                                        if let Some(expl) = explanation {
+                                                            div { class: "lesson-quiz-explanation visible", "{expl}" }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         },
@@ -2278,25 +2391,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                             class: "learn-action-btn secondary",
                             onclick: {
                                 move |_| {
-                                    // Check retry queue - pop after 3 exercises since last retry
-                                    let since_retry = *exercises_since_retry.read();
-                                    let has_retry = !retry_queue.read().is_empty();
-
-                                    if has_retry && since_retry >= 3 {
-                                        // Pop from retry queue
-                                        if let Some(retry_idx) = retry_queue.write().pop_front() {
-                                            current_exercise_idx.set(retry_idx);
-                                            exercises_since_retry.set(0);
-                                        }
+                                    // Simple linear progression - skip to next
+                                    let next = current_idx + 1;
+                                    if next < total_exercises {
+                                        current_exercise_idx.set(next);
                                     } else {
-                                        // Normal next exercise
-                                        let next = current_idx + 1;
-                                        if next < total_exercises {
-                                            current_exercise_idx.set(next);
-                                        } else {
-                                            current_exercise_idx.set(0); // Loop back
-                                        }
-                                        exercises_since_retry.set(since_retry + 1);
+                                        current_exercise_idx.set(0); // Loop back to start
                                     }
                                     // Reset state
                                     user_answer.set(String::new());
@@ -2314,25 +2414,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 class: "learn-action-btn primary",
                                 onclick: {
                                     move |_| {
-                                        // Check retry queue - pop after 3 exercises since last retry
-                                        let since_retry = *exercises_since_retry.read();
-                                        let has_retry = !retry_queue.read().is_empty();
-
-                                        if has_retry && since_retry >= 3 {
-                                            // Pop from retry queue
-                                            if let Some(retry_idx) = retry_queue.write().pop_front() {
-                                                current_exercise_idx.set(retry_idx);
-                                                exercises_since_retry.set(0);
-                                            }
+                                        // Simple linear progression after correct answer
+                                        let next = current_idx + 1;
+                                        if next < total_exercises {
+                                            current_exercise_idx.set(next);
                                         } else {
-                                            // Normal next exercise
-                                            let next = current_idx + 1;
-                                            if next < total_exercises {
-                                                current_exercise_idx.set(next);
-                                            } else {
-                                                current_exercise_idx.set(0);
-                                            }
-                                            exercises_since_retry.set(since_retry + 1);
+                                            current_exercise_idx.set(0); // Loop back to start
                                         }
                                         user_answer.set(String::new());
                                         feedback.set(None);
@@ -2366,7 +2453,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     }
                 }
             } else {
-                p { "Loading exercises..." }
+                div { style: "text-align: center; padding: var(--spacing-xl); color: var(--text-secondary);",
+                    p { "No exercises available for this module yet." }
+                    p { style: "font-size: var(--font-caption-md); margin-top: var(--spacing-md);",
+                        "Total loaded: {total_exercises}"
+                    }
+                }
             }
             } // end if !(is_test_mode && test_complete)
             } // end else (Practice view)

@@ -1,8 +1,57 @@
 {
   "id": "18.3",
-  "section": "The Basis for Logical Laws",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["logical necessity", "analyticity", "conventionalism", "psychologism"],
-  "status": "planned"
+  "title": "The Basis for Logical Laws",
+  "order": 3,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Why are logical laws true? What grounds their necessity? This fundamental question has generated several competing answers, from conventionalism to psychologism to logical Platonism."
+    },
+    {
+      "type": "definition",
+      "term": "Conventionalism",
+      "definition": "The view that logical truths are true by linguistic convention — they're rules we've adopted for how to use words like 'and,' 'or,' 'not,' and 'if-then.'"
+    },
+    {
+      "type": "paragraph",
+      "text": "The problem with conventionalism: logic seems to be used in establishing conventions, so it can't itself be merely conventional. We need logic to agree on the conventions."
+    },
+    {
+      "type": "definition",
+      "term": "Psychologism",
+      "definition": "The view that logical laws describe how humans actually think. Logic is a branch of psychology. Frege and Husserl powerfully criticized this view."
+    },
+    {
+      "type": "example",
+      "title": "Against Psychologism",
+      "premises": [
+        "Logical laws are normative (how we SHOULD think)",
+        "Psychology is descriptive (how we DO think)",
+        "Humans often reason illogically",
+        "Therefore logic can't just describe human thought"
+      ],
+      "note": "The fact that we can violate logical laws shows they aren't just descriptions of our thinking."
+    },
+    {
+      "type": "paragraph",
+      "text": "Perhaps logical laws are **analytic** — true in virtue of meaning alone. 'Bachelors are unmarried' is true by definition. But Quine challenged the analytic/synthetic distinction itself."
+    },
+    {
+      "type": "paragraph",
+      "text": "Or perhaps logical truths are necessary features of any possible world — they hold no matter what. This pushes the question back: what makes modal facts true?"
+    },
+    {
+      "type": "quiz",
+      "question": "What is the main problem with psychologism about logic?",
+      "options": [
+        "Psychology is too hard",
+        "Logic is normative but psychology is descriptive",
+        "Humans don't think",
+        "Logic came before psychology"
+      ],
+      "correct": 1,
+      "explanation": "Psychologism fails because logic tells us how we SHOULD think, not how we DO think. We often violate logical laws — showing they're norms, not descriptions."
+    }
+  ],
+  "key_symbols": ["→", "¬"]
 }

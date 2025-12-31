@@ -1,8 +1,54 @@
 {
   "id": "7.4",
-  "section": "Harder Refutations",
-  "type": "placeholder",
-  "difficulty": 3,
-  "topics": ["complex counterexamples", "semantic tableaux", "model construction"],
-  "status": "planned"
+  "title": "Harder Refutations",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "Complex arguments may have many propositional variables, making it hard to guess a counterexample. Systematic methods like **truth tables** or **semantic tableaux** can help."
+    },
+    {
+      "type": "paragraph",
+      "text": "For truth tables: list all possible truth-value combinations, evaluate premises and conclusion for each, then check if any row has true premises and false conclusion."
+    },
+    {
+      "type": "definition",
+      "term": "Countermodel",
+      "definition": "An interpretation (assignment of truth values to atomic propositions) that makes all premises true and the conclusion false. Finding one proves invalidity."
+    },
+    {
+      "type": "example",
+      "title": "Systematic Search",
+      "premises": [
+        "Argument: (P → Q) → R, P → R ∴ P → Q",
+        "Goal: Find P, Q, R making premises true, conclusion false",
+        "Conclusion false: P = T, Q = F (so P → Q = F)",
+        "Check P → R: need R = T",
+        "Check (P → Q) → R: (F) → T = T ✓",
+        "Counterexample: P = T, Q = F, R = T"
+      ],
+      "note": "Working backwards from 'conclusion false' often simplifies the search."
+    },
+    {
+      "type": "paragraph",
+      "text": "Strategy: Start with the conclusion. Find assignments making it false. Then check if any of those can also make all premises true."
+    },
+    {
+      "type": "paragraph",
+      "text": "If no counterexample exists after exhaustive search, the argument is valid. But for complex cases, a proof is more efficient than checking all possibilities."
+    },
+    {
+      "type": "quiz",
+      "question": "What is the best strategy for finding counterexamples?",
+      "options": [
+        "Randomly guess truth values",
+        "Start by making the conclusion false",
+        "Make all premises false first",
+        "Use Modus Ponens"
+      ],
+      "correct": 1,
+      "explanation": "Start by finding truth values that make the conclusion false, then check if any of those assignments can also make all premises true. This is more efficient than random guessing."
+    }
+  ],
+  "key_symbols": ["⊭", "→", "∧"]
 }

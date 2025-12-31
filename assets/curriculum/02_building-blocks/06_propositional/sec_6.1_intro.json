@@ -1,0 +1,84 @@
+{
+  "id": "6.1",
+  "title": "Introduction to Propositional Logic",
+  "order": 1,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Propositional logic** is the foundation of formal logic. It studies how simple statements can be combined using logical connectives like AND, OR, NOT, and IF-THEN to form complex statements, and how the truth of complex statements depends on the truth of their parts."
+    },
+    {
+      "type": "paragraph",
+      "text": "A **proposition** is a statement that is either true or false (but not both). 'It is raining' is a proposition. 'Close the door!' is not (it's a command). 'Is it raining?' is not (it's a question)."
+    },
+    {
+      "type": "definition",
+      "term": "Conjunction (∧)",
+      "definition": "P ∧ Q means 'P and Q'. It's true only when BOTH P and Q are true."
+    },
+    {
+      "type": "definition",
+      "term": "Disjunction (∨)",
+      "definition": "P ∨ Q means 'P or Q'. It's true when at least one of P or Q is true (inclusive or)."
+    },
+    {
+      "type": "definition",
+      "term": "Negation (¬)",
+      "definition": "¬P means 'not P'. It flips the truth value: true becomes false, false becomes true."
+    },
+    {
+      "type": "definition",
+      "term": "Conditional (→)",
+      "definition": "P → Q means 'if P then Q'. It's false only when P is true and Q is false."
+    },
+    {
+      "type": "symbols",
+      "title": "Propositional Connectives",
+      "symbols": [
+        {
+          "symbol": "∧",
+          "name": "And",
+          "meaning": "Conjunction - both must be true",
+          "example": "Raining ∧ Cold"
+        },
+        {
+          "symbol": "∨",
+          "name": "Or",
+          "meaning": "Disjunction - at least one true",
+          "example": "Tea ∨ Coffee"
+        },
+        {
+          "symbol": "¬",
+          "name": "Not",
+          "meaning": "Negation - flips truth value",
+          "example": "¬Raining"
+        },
+        {
+          "symbol": "→",
+          "name": "If-then",
+          "meaning": "Conditional - implication",
+          "example": "Raining → Wet"
+        },
+        {
+          "symbol": "↔",
+          "name": "If and only if",
+          "meaning": "Biconditional - same truth value",
+          "example": "Even ↔ Divisible-by-2"
+        }
+      ]
+    },
+    {
+      "type": "quiz",
+      "question": "When is P → Q false?",
+      "options": [
+        "When P is false and Q is false",
+        "When P is true and Q is false",
+        "When P is false and Q is true",
+        "When P is true and Q is true"
+      ],
+      "correct": 1,
+      "explanation": "A conditional P → Q is false ONLY when the antecedent (P) is true but the consequent (Q) is false. A false promise! In all other cases, including when P is false, the conditional is true."
+    }
+  ],
+  "key_symbols": ["∧", "∨", "¬", "→", "↔"]
+}

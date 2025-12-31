@@ -1,8 +1,47 @@
 {
   "id": "15.4",
-  "section": "Completeness",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["completeness theorem", "if valid then provable", "Godel completeness"],
-  "status": "planned"
+  "title": "Completeness",
+  "order": 4,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "**Completeness** is the converse of soundness: if a formula is valid (true in all interpretations), then our system can prove it. Nothing true escapes our proof methods."
+    },
+    {
+      "type": "definition",
+      "term": "Completeness",
+      "definition": "A proof system is complete if: whenever ⊨ φ (φ is valid), then ⊢ φ (φ is provable). Truth implies provability."
+    },
+    {
+      "type": "paragraph",
+      "text": "Soundness and completeness together mean our proof system perfectly matches semantic truth. ⊢ φ if and only if ⊨ φ. The syntactic notion (proof) and semantic notion (truth) coincide."
+    },
+    {
+      "type": "example",
+      "title": "Soundness + Completeness",
+      "premises": [
+        "Soundness: ⊢ φ → ⊨ φ (proofs are reliable)",
+        "Completeness: ⊨ φ → ⊢ φ (proofs are sufficient)",
+        "Together: ⊢ φ ↔ ⊨ φ (perfect correspondence)"
+      ],
+      "note": "A sound and complete system captures exactly the valid formulas — no more, no less."
+    },
+    {
+      "type": "paragraph",
+      "text": "Kurt Gödel proved completeness for first-order logic in 1929. This was a major achievement: it shows that first-order logic has a proof system that can derive every valid formula."
+    },
+    {
+      "type": "quiz",
+      "question": "What does completeness guarantee about a proof system?",
+      "options": [
+        "Every proof is correct",
+        "Every valid formula can be proven",
+        "The system has no contradictions",
+        "Proofs are always short"
+      ],
+      "correct": 1,
+      "explanation": "Completeness means every semantically valid formula is provable. Combined with soundness, this means provability and validity are the same thing."
+    }
+  ],
+  "key_symbols": ["⊢", "⊨", "↔"]
 }

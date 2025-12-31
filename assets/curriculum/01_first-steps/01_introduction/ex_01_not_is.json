@@ -2,10 +2,10 @@
   "id": "I_1.2",
   "type": "translation",
   "difficulty": 2,
-  "prompt": "Translate this negation:",
-  "template": "{ProperName} is not {Adjective}.",
+  "prompt": "Translate this negated action:",
+  "template": "{ProperName} does not {Verb}.",
   "constraints": {
-    "Adjective": ["Intersective"]
+    "Verb": ["Intransitive"]
   },
-  "hint": "Negation wraps the entire predication: ¬P(x)."
+  "hint": "Negation wraps the entire predication: ¬Verb(subject)."
 }

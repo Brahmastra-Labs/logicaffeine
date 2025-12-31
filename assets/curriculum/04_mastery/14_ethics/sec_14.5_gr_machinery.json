@@ -1,8 +1,62 @@
 {
   "id": "14.5",
-  "section": "GR Logical Machinery",
-  "type": "placeholder",
-  "difficulty": 4,
-  "topics": ["deontic operators in ethics", "formal ethical reasoning"],
-  "status": "planned"
+  "title": "The Logical Machinery",
+  "order": 5,
+  "content": [
+    {
+      "type": "paragraph",
+      "text": "To formally derive the Golden Rule, we need several logical tools: deontic operators for obligation and permission, and a way to express 'what I would want' and 'what I do to others'."
+    },
+    {
+      "type": "definition",
+      "term": "Desire Operator (W)",
+      "definition": "W_a(φ) means 'agent a wants φ to be the case.' This captures the 'as you would have them do' part of the Golden Rule."
+    },
+    {
+      "type": "definition",
+      "term": "Action Notation",
+      "definition": "Do(a, b, A) means 'agent a does action A to agent b.' This lets us distinguish who acts and who is affected."
+    },
+    {
+      "type": "symbols",
+      "title": "Formal Vocabulary",
+      "symbols": [
+        {
+          "symbol": "W",
+          "name": "Wants",
+          "meaning": "Agent wants/desires that...",
+          "example": "W_me(¬Harm(x, me))"
+        },
+        {
+          "symbol": "Do",
+          "name": "Does",
+          "meaning": "Agent does action to recipient",
+          "example": "Do(you, me, lie)"
+        },
+        {
+          "symbol": "O",
+          "name": "Ought",
+          "meaning": "It is obligatory that...",
+          "example": "O(¬Do(me, you, harm))"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "The Golden Rule can now be stated: If ¬W_me(Do(x, me, A)) — I don't want A done to me — then O(¬Do(me, x, A)) — I ought not do A to others. In symbols: ¬W_me(Do(x, me, A)) → O(¬Do(me, x, A))."
+    },
+    {
+      "type": "quiz",
+      "question": "What does ¬W_me(Do(x, me, harm)) express?",
+      "options": [
+        "I want to be harmed",
+        "I don't want others to harm me",
+        "I will harm others",
+        "Harm is obligatory"
+      ],
+      "correct": 1,
+      "explanation": "W_me means 'I want', the ¬ negates it, and Do(x, me, harm) means 'x does harm to me'. Together: I don't want x to harm me."
+    }
+  ],
+  "key_symbols": ["W", "O", "Do", "¬", "→"]
 }
