@@ -2107,28 +2107,28 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2227 lines
-Parser (ast/, parser/):               12251 lines
+Lexer (token.rs, lexer.rs):           2269 lines
+Parser (ast/, parser/):               12876 lines
 Transpilation:                        1341 lines
-Code Generation:                      1622 lines
+Code Generation:                      1915 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            1918 lines
-Support Infrastructure:               4242 lines
-Desktop UI:                              10122 lines
+Type Analysis (analysis/):            2588 lines
+Support Infrastructure:               4318 lines
+Desktop UI:                              12958 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        43607
-Test lines:          15105
-Total Rust lines: 58712
+Source lines:        49031
+Test lines:          15968
+Total Rust lines: 64999
 ```
 
 ### File Counts
 ```
-Source files: 103
-Test files:   99
+Source files: 109
+Test files:   103
 ```
 ## Lexicon Data
 
@@ -2988,6 +2988,7 @@ pub enum BlockType {
     Note,
     Function,  // Phase 32: ## To blocks
     TypeDef,   // Inline type definitions: ## A Point has:, ## A Color is one of:
+    Policy,    // Phase 50: ## Policy blocks for security rules
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3085,6 +3086,26 @@ pub enum TokenType {
     Attempt,        // "Attempt all of the following:" -> concurrent (async, I/O-bound)
     Following,      // "the following"
     Simultaneously, // "Simultaneously:" -> parallel (CPU-bound)
+
+    // Phase 46: Agent System (Actor Model)
+    Spawn,    // "Spawn a Worker called 'w1'" -> create agent
+    Send,     // "Send Ping to 'agent'" -> send message to agent
+    Await,    // "Await response from 'agent' into result" -> receive message
+
+    // Phase 47: Serialization
+    Portable, // "A Message is Portable and has:" -> serde derives
+
+    // Phase 48: Sipping Protocol
+    Manifest, // "the manifest of Zone" -> FileSipper manifest
+    Chunk,    // "the chunk at N in Zone" -> FileSipper chunk
+
+    // Phase 49: CRDT Keywords
+    Shared,   // "A Counter is Shared and has:" -> CRDT struct
+    Merge,    // "Merge remote into local" -> CRDT merge
+    Increase, // "Increase x's count by 10" -> GCounter increment
+
+    // Phase 50: Security Keywords
+    Check,    // "Check that user is admin" -> mandatory runtime guard
 
     // Block Scoping
     Colon,
@@ -3200,6 +3221,7 @@ pub enum TokenType {
     Minus,
     Star,
     Slash,
+    Percent,  // Modulo operator
 
     // Grand Challenge: Comparison Operators
     Lt,        // <
@@ -3889,7 +3911,7 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
-                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '<' | '>' | '=' => {
+                '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
                             word: std::mem::take(&mut current_word),
@@ -4073,6 +4095,7 @@ impl<'a> Lexer<'a> {
                         '-' => TokenType::Minus,
                         '*' => TokenType::Star,
                         '/' => TokenType::Slash,
+                        '%' => TokenType::Percent,
                         '<' => TokenType::Lt,
                         '>' => TokenType::Gt,
                         _ => {
@@ -4126,6 +4149,7 @@ impl<'a> Lexer<'a> {
                                     '-' => TokenType::Minus,
                                     '*' => TokenType::Star,
                                     '/' => TokenType::Slash,
+                                    '%' => TokenType::Percent,
                                     '<' => TokenType::Lt,
                                     '>' => TokenType::Gt,
                                     _ => {
@@ -4161,6 +4185,7 @@ impl<'a> Lexer<'a> {
                     '-' => TokenType::Minus,
                     '*' => TokenType::Star,
                     '/' => TokenType::Slash,
+                    '%' => TokenType::Percent,
                     '<' => TokenType::Lt,
                     '>' => TokenType::Gt,
                     _ => {
@@ -4386,6 +4411,7 @@ impl<'a> Lexer<'a> {
                 "note" => BlockType::Note,
                 "to" => BlockType::Function,  // Phase 32: ## To blocks
                 "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
+                "policy" => BlockType::Policy,  // Phase 50: Security policy definitions
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -4587,6 +4613,8 @@ impl<'a> Lexer<'a> {
             "in" if self.mode == LexerMode::Imperative => return TokenType::In,
             // Phase 8.5: Zone keywords (must come before is_preposition check)
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
+            // Phase 48: "at" for chunk access (must come before is_preposition check)
+            "at" if self.mode == LexerMode::Imperative => return TokenType::At,
             _ => {}
         }
 
@@ -4624,6 +4652,7 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "check" => return TokenType::Check,  // Phase 50: Security check
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
@@ -4659,6 +4688,19 @@ impl<'a> Lexer<'a> {
             "write" if self.mode == LexerMode::Imperative => return TokenType::Write,
             "console" if self.mode == LexerMode::Imperative => return TokenType::Console,
             "file" if self.mode == LexerMode::Imperative => return TokenType::File,
+            // Phase 46: Agent System keywords (Imperative mode only)
+            "spawn" if self.mode == LexerMode::Imperative => return TokenType::Spawn,
+            "send" if self.mode == LexerMode::Imperative => return TokenType::Send,
+            "await" if self.mode == LexerMode::Imperative => return TokenType::Await,
+            // Phase 47: Serialization keyword (works in Definition blocks too)
+            "portable" => return TokenType::Portable,
+            // Phase 48: Sipping Protocol keywords (Imperative mode only)
+            "manifest" if self.mode == LexerMode::Imperative => return TokenType::Manifest,
+            "chunk" if self.mode == LexerMode::Imperative => return TokenType::Chunk,
+            // Phase 49: CRDT keywords
+            "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
+            "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
+            "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
@@ -5692,6 +5734,7 @@ pub enum BinaryOpKind {
     Subtract,
     Multiply,
     Divide,
+    Modulo,
     Eq,
     NotEq,
     Lt,
@@ -5781,6 +5824,12 @@ pub enum Stmt<'a> {
         justification: Symbol,
     },
 
+    /// Runtime assertion with imperative condition
+    /// `Assert that condition.` (for imperative mode)
+    RuntimeAssert {
+        condition: &'a Expr<'a>,
+    },
+
     /// Ownership transfer (move): `Give x to processor.`
     /// Semantics: Move ownership of `object` to `recipient`.
     Give {
@@ -5803,9 +5852,11 @@ pub enum Stmt<'a> {
     },
 
     /// Phase 31: Struct definition for codegen
+    /// Phase 47: Added is_portable for serde derives
     StructDef {
         name: Symbol,
         fields: Vec<(Symbol, Symbol, bool)>, // (name, type_name, is_public)
+        is_portable: bool,                    // Phase 47: Derives Serialize/Deserialize
     },
 
     /// Phase 32/38: Function definition
@@ -5890,6 +5941,61 @@ pub enum Stmt<'a> {
         content: &'a Expr<'a>,
         path: &'a Expr<'a>,
     },
+
+    /// Phase 46: Spawn an agent
+    /// `Spawn a Worker called "w1".`
+    Spawn {
+        agent_type: Symbol,
+        name: Symbol,
+    },
+
+    /// Phase 46: Send message to agent
+    /// `Send Ping to "agent".`
+    SendMessage {
+        message: &'a Expr<'a>,
+        destination: &'a Expr<'a>,
+    },
+
+    /// Phase 46: Await response from agent
+    /// `Await response from "agent" into result.`
+    AwaitMessage {
+        source: &'a Expr<'a>,
+        into: Symbol,
+    },
+
+    /// Phase 49: Merge CRDT state
+    /// `Merge remote into local.` or `Merge remote's field into local's field.`
+    MergeCrdt {
+        source: &'a Expr<'a>,
+        target: &'a Expr<'a>,
+    },
+
+    /// Phase 49: Increment GCounter
+    /// `Increase local's points by 10.`
+    IncreaseCrdt {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        amount: &'a Expr<'a>,
+    },
+
+    /// Phase 50: Security check - mandatory runtime guard
+    /// `Check that user is admin.`
+    /// `Check that user can publish the document.`
+    /// Semantics: NEVER optimized out. Panics if condition is false.
+    Check {
+        /// The subject being checked (e.g., "user")
+        subject: Symbol,
+        /// The predicate name (e.g., "admin") or action (e.g., "publish")
+        predicate: Symbol,
+        /// True if this is a capability check (can [action])
+        is_capability: bool,
+        /// For capabilities: the object being acted on (e.g., "document")
+        object: Option<Symbol>,
+        /// Original English text for error message
+        source_text: String,
+        /// Source location for error reporting
+        span: crate::token::Span,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -5938,6 +6044,19 @@ pub enum Expr<'a> {
     /// Phase 43D: Length expression: `length of items` → items.len()
     Length {
         collection: &'a Expr<'a>,
+    },
+
+    /// Phase 48: Get manifest of a zone
+    /// `the manifest of Zone` → FileSipper::from_zone(&zone).manifest()
+    ManifestOf {
+        zone: &'a Expr<'a>,
+    },
+
+    /// Phase 48: Get chunk at index from a zone
+    /// `the chunk at N in Zone` → FileSipper::from_zone(&zone).get_chunk(N)
+    ChunkAt {
+        index: &'a Expr<'a>,
+        zone: &'a Expr<'a>,
     },
 
     /// List literal: [1, 2, 3]
@@ -6469,7 +6588,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef => ParserMode::Declarative,
+                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
+                    BlockType::Policy => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -6739,6 +6859,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.skip_type_def_content();
                         continue;
                     }
+                    BlockType::Policy => {
+                        // Phase 50: Policy definitions are handled by DiscoveryPass
+                        // Skip content until next block header
+                        in_definition_block = true;  // Reuse flag to skip content
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
                     _ => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -6778,6 +6906,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        // Phase 32: Function definitions can appear inside Main block
+        // Handle both TokenType::To and Preposition("to")
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            return self.parse_function_def();
+        }
         if self.check(&TokenType::Let) {
             return self.parse_let_statement();
         }
@@ -6796,6 +6929,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 35: Trust statement
         if self.check(&TokenType::Trust) {
             return self.parse_trust_statement();
+        }
+        // Phase 50: Security Check statement
+        if self.check(&TokenType::Check) {
+            return self.parse_check_statement();
         }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
@@ -6844,6 +6981,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Write) {
             return self.parse_write_statement();
+        }
+
+        // Phase 46: Agent System statements
+        if self.check(&TokenType::Spawn) {
+            return self.parse_spawn_statement();
+        }
+        if self.check(&TokenType::Send) {
+            return self.parse_send_statement();
+        }
+        if self.check(&TokenType::Await) {
+            return self.parse_await_statement();
+        }
+
+        // Phase 49: CRDT statements
+        if self.check(&TokenType::Merge) {
+            return self.parse_merge_statement();
+        }
+        if self.check(&TokenType::Increase) {
+            return self.parse_increase_statement();
+        }
+
+        // Expression-statement: function call without "Call" keyword
+        // e.g., `greet("Alice").` instead of `Call greet with "Alice".`
+        // Check if next token is LParen (indicating a function call)
+        if self.tokens.get(self.current + 1)
+            .map(|t| matches!(t.kind, TokenType::LParen))
+            .unwrap_or(false)
+        {
+            // Get the function name from current token
+            let function = self.peek().lexeme;
+            self.advance(); // consume function name
+
+            // Parse the call expression (starts from LParen)
+            let expr = self.parse_call_expr(function)?;
+            if let Expr::Call { function, args } = expr {
+                return Ok(Stmt::Call { function: *function, args: args.clone() });
+            }
         }
 
         Err(ParseError {
@@ -7180,10 +7354,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Grand Challenge: Parse a single comparison expression
     fn parse_comparison(&mut self) -> ParseResult<&'a Expr<'a>> {
+        // Handle unary "not" operator: "not a" or "not (x > 5)"
+        if self.check(&TokenType::Not) || self.check_word("not") {
+            self.advance(); // consume "not"
+            let operand = self.parse_comparison()?; // recursive to handle "not not x"
+            // Implement as: operand == false (since we don't have UnaryNot)
+            return Ok(self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                op: BinaryOpKind::Eq,
+                left: operand,
+                right: self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Boolean(false))),
+            }));
+        }
+
         let left = self.parse_imperative_expr()?;
 
         // Check for comparison operators
         let op = if self.check(&TokenType::Equals) {
+            self.advance();
+            Some(BinaryOpKind::Eq)
+        } else if self.check(&TokenType::Identity) {
+            // "is equal to" was tokenized as TokenType::Identity
             self.advance();
             Some(BinaryOpKind::Eq)
         } else if self.check_word("is") {
@@ -7225,6 +7415,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // "is not X" → NotEq
                 self.advance(); // consume "not"
                 Some(BinaryOpKind::NotEq)
+            } else if self.check_word("equal") {
+                // "is equal to X" → Eq
+                self.advance(); // consume "equal"
+                if self.check_preposition_is("to") {
+                    self.advance(); // consume "to"
+                    Some(BinaryOpKind::Eq)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
             } else {
                 self.current = saved_pos;
                 None
@@ -7428,17 +7628,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        // Save current mode and switch to declarative for proposition parsing
-        let saved_mode = self.mode;
-        self.mode = ParserMode::Declarative;
+        // Parse condition using imperative expression parser
+        // This allows syntax like "Assert that b is not 0."
+        let condition = self.parse_condition()?;
 
-        // Parse the proposition using the Logic Kernel
-        let proposition = self.parse()?;
-
-        // Restore mode
-        self.mode = saved_mode;
-
-        Ok(Stmt::Assert { proposition })
+        Ok(Stmt::RuntimeAssert { condition })
     }
 
     /// Phase 35: Parse Trust statement
@@ -7494,6 +7688,138 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Trust { proposition, justification })
     }
 
+    /// Phase 50: Parse Check statement - mandatory security guard
+    /// Syntax: Check that [subject] is [predicate].
+    /// Syntax: Check that [subject] can [action] the [object].
+    fn parse_check_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_span = self.current_span();
+        self.advance(); // consume "Check"
+
+        // Optionally consume "that"
+        if self.check(&TokenType::That) {
+            self.advance();
+        }
+
+        // Consume optional "the"
+        if matches!(self.peek().kind, TokenType::Article(_)) {
+            self.advance();
+        }
+
+        // Parse subject identifier (e.g., "user")
+        let subject = match &self.peek().kind {
+            TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                // Try to get an identifier
+                let tok = self.peek();
+                let s = tok.lexeme;
+                self.advance();
+                s
+            }
+        };
+
+        // Determine if this is a predicate check ("is admin") or capability check ("can publish")
+        let is_capability;
+        let predicate;
+        let object;
+
+        if self.check(&TokenType::Is) || self.check(&TokenType::Are) {
+            // Predicate check: "user is admin"
+            is_capability = false;
+            self.advance(); // consume "is" / "are"
+
+            // Parse predicate name (e.g., "admin")
+            predicate = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = None;
+        } else if self.check(&TokenType::Can) {
+            // Capability check: "user can publish the document"
+            is_capability = true;
+            self.advance(); // consume "can"
+
+            // Parse action (e.g., "publish", "edit", "delete")
+            predicate = match &self.peek().kind {
+                TokenType::Verb { lemma, .. } => {
+                    let s = *lemma;
+                    self.advance();
+                    s
+                }
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+
+            // Consume optional "the"
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                self.advance();
+            }
+
+            // Parse object (e.g., "document")
+            let obj = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = Some(obj);
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "is/can".to_string() },
+                span: self.current_span(),
+            });
+        }
+
+        // Build source text for error message
+        let source_text = if is_capability {
+            let obj_name = self.interner.resolve(object.unwrap());
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} can {} the {}", subj_name, pred_name, obj_name)
+        } else {
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} is {}", subj_name, pred_name)
+        };
+
+        Ok(Stmt::Check {
+            subject,
+            predicate,
+            is_capability,
+            object,
+            source_text,
+            span: start_span,
+        })
+    }
+
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::context::OwnershipState;
 
@@ -7530,8 +7856,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         self.advance(); // consume "Show"
 
-        // Parse the object being shown: "x" or "the data"
-        let object = self.parse_imperative_expr()?;
+        // Parse the object being shown - use parse_condition to support
+        // comparisons (x is less than y) and boolean operators (a and b)
+        let object = self.parse_condition()?;
 
         // Optional "to" preposition - if not present, default to "show" function
         let recipient = if self.check_preposition_is("to") {
@@ -8422,9 +8749,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Phase 32: Parse function definition after `## To` header
     /// Phase 32/38: Parse function definition
-    /// Syntax: [native] name (a: Type) [and (b: Type)] [-> ReturnType]
+    /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        // Consume "To" if present (when called from parse_statement)
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            self.advance();
+        }
+
         // Phase 38: Check for native modifier
         let is_native = if self.check(&TokenType::Native) {
             self.advance(); // consume "native"
@@ -8436,25 +8768,37 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse function name (first identifier after ## To [native])
         let name = self.expect_identifier()?;
 
-        // Parse parameters: (name: Type) groups separated by "and"
+        // Parse parameters: (name: Type) groups separated by "and", or comma-separated in one group
         let mut params = Vec::new();
         while self.check(&TokenType::LParen) {
             self.advance(); // consume (
 
-            let param_name = self.expect_identifier()?;
+            // Parse parameters in this group (possibly comma-separated)
+            loop {
+                let param_name = self.expect_identifier()?;
 
-            // Expect colon
-            if !self.check(&TokenType::Colon) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                    span: self.current_span(),
-                });
+                // Expect colon
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume :
+
+                // Phase 38: Parse full type expression instead of simple identifier
+                let param_type_expr = self.parse_type_expression()?;
+                let param_type = self.ctx.alloc_type_expr(param_type_expr);
+
+                params.push((param_name, param_type));
+
+                // Check for comma (more params in this group) or ) (end of group)
+                if self.check(&TokenType::Comma) {
+                    self.advance(); // consume ,
+                    continue;
+                }
+                break;
             }
-            self.advance(); // consume :
-
-            // Phase 38: Parse full type expression instead of simple identifier
-            let param_type_expr = self.parse_type_expression()?;
-            let param_type = self.ctx.alloc_type_expr(param_type_expr);
 
             // Expect )
             if !self.check(&TokenType::RParen) {
@@ -8465,10 +8809,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume )
 
-            params.push((param_name, param_type));
-
-            // Check for "and" between parameters
-            if self.check_word("and") {
+            // Check for "and", preposition, or "from" between parameter groups
+            // Allows: "## To withdraw (amount: Int) from (balance: Int)"
+            if self.check_word("and") || self.check_preposition() || self.check(&TokenType::From) {
                 self.advance();
             }
         }
@@ -8619,6 +8962,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 33: Extended for variant constructors "a new Circle with radius 10"
             // Phase 34: Extended for generic instantiation "a new Box of Int"
             TokenType::Article(_) => {
+                // Phase 48: Check if followed by Manifest or Chunk token
+                // Pattern: "the manifest of Zone" or "the chunk at N in Zone"
+                if let Some(next) = self.tokens.get(self.current + 1) {
+                    if matches!(next.kind, TokenType::Manifest) {
+                        self.advance(); // consume "the"
+                        // Delegate to Manifest handling
+                        return self.parse_primary_expr();
+                    }
+                    if matches!(next.kind, TokenType::Chunk) {
+                        self.advance(); // consume "the"
+                        // Delegate to Chunk handling
+                        return self.parse_primary_expr();
+                    }
+                }
                 // Check if followed by New token
                 if let Some(next) = self.tokens.get(self.current + 1) {
                     if matches!(next.kind, TokenType::New) {
@@ -8933,11 +9290,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
             }
 
-            // Phase 43D: Length expression: "length of items"
+            // Phase 43D: Length expression: "length of items" or "length(items)"
             TokenType::Length => {
+                let func_name = self.peek().lexeme;
+
+                // Check for function call syntax: length(x)
+                if self.tokens.get(self.current + 1)
+                    .map(|t| matches!(t.kind, TokenType::LParen))
+                    .unwrap_or(false)
+                {
+                    self.advance(); // consume "length"
+                    return self.parse_call_expr(func_name);
+                }
+
                 self.advance(); // consume "length"
 
-                // Expect "of"
+                // Expect "of" for natural syntax
                 if !self.check_preposition_is("of") {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
@@ -8950,11 +9318,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Length { collection }))
             }
 
-            // Phase 43D: Copy expression: "copy of slice"
+            // Phase 43D: Copy expression: "copy of slice" or "copy(slice)"
             TokenType::Copy => {
+                let func_name = self.peek().lexeme;
+
+                // Check for function call syntax: copy(x)
+                if self.tokens.get(self.current + 1)
+                    .map(|t| matches!(t.kind, TokenType::LParen))
+                    .unwrap_or(false)
+                {
+                    self.advance(); // consume "copy"
+                    return self.parse_call_expr(func_name);
+                }
+
                 self.advance(); // consume "copy"
 
-                // Expect "of"
+                // Expect "of" for natural syntax
                 if !self.check_preposition_is("of") {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
@@ -8965,6 +9344,51 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 let expr = self.parse_imperative_expr()?;
                 Ok(self.ctx.alloc_imperative_expr(Expr::Copy { expr }))
+            }
+
+            // Phase 48: Manifest expression: "manifest of Zone"
+            TokenType::Manifest => {
+                self.advance(); // consume "manifest"
+
+                // Expect "of"
+                if !self.check_preposition_is("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                let zone = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::ManifestOf { zone }))
+            }
+
+            // Phase 48: Chunk expression: "chunk at N in Zone"
+            TokenType::Chunk => {
+                self.advance(); // consume "chunk"
+
+                // Expect "at"
+                if !self.check(&TokenType::At) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "at"
+
+                let index = self.parse_imperative_expr()?;
+
+                // Expect "in"
+                if !self.check_preposition_is("in") && !self.check(&TokenType::In) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "in".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "in"
+
+                let zone = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::ChunkAt { index, zone }))
             }
 
             // Handle verbs in expression context:
@@ -9036,12 +9460,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
 
-                // Don't verify as variable - might be a function call
+                // Don't verify as variable - might be a function call or enum variant
                 self.advance();
 
                 // Phase 32: Check for function call: identifier(args)
                 if self.check(&TokenType::LParen) {
                     return self.parse_call_expr(sym);
+                }
+
+                // Phase 33: Check if this is a bare enum variant (e.g., "North" for Direction)
+                if let Some(enum_name) = self.find_variant(sym) {
+                    let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
+                        enum_name,
+                        variant: sym,
+                        fields: vec![],
+                    });
+                    return self.parse_field_access_chain(base);
                 }
 
                 // Centralized verification for undefined/moved checks (only for variables)
@@ -9057,6 +9491,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 // Phase 31: Check for field access via possessive
+                self.parse_field_access_chain(base)
+            }
+
+            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            TokenType::Merge | TokenType::Increase => {
+                let sym = token.lexeme;
+                self.advance();
+
+                // Check for function call: Merge(args)
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                 self.parse_field_access_chain(base)
             }
 
@@ -9157,7 +9605,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_primary_expr()
     }
 
-    /// Parse multiplicative expressions (*, /) - left-to-right associative
+    /// Parse multiplicative expressions (*, /, %) - left-to-right associative
     fn parse_multiplicative_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_unary_expr()?;
 
@@ -9170,6 +9618,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Slash => {
                     self.advance();
                     BinaryOpKind::Divide
+                }
+                TokenType::Percent => {
+                    self.advance();
+                    BinaryOpKind::Modulo
                 }
                 _ => break,
             };
@@ -9235,21 +9687,43 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
     }
 
-    /// Phase 31: Parse field access chain via possessive ('s)
-    /// Handles patterns like: p's x, p's x's y
+    /// Phase 31: Parse field access chain via possessive ('s) and bracket indexing
+    /// Handles patterns like: p's x, p's x's y, items[1], items[i]'s field
     fn parse_field_access_chain(&mut self, base: &'a Expr<'a>) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Expr;
 
         let mut result = base;
 
-        // Keep parsing field accesses while we see possessive tokens
-        while self.check(&TokenType::Possessive) {
-            self.advance(); // consume "'s"
-            let field = self.expect_identifier()?;
-            result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
-                object: result,
-                field,
-            });
+        // Keep parsing field accesses and bracket indexing
+        loop {
+            if self.check(&TokenType::Possessive) {
+                // Field access: p's x
+                self.advance(); // consume "'s"
+                let field = self.expect_identifier()?;
+                result = self.ctx.alloc_imperative_expr(Expr::FieldAccess {
+                    object: result,
+                    field,
+                });
+            } else if self.check(&TokenType::LBracket) {
+                // Bracket indexing: items[1], items[i]
+                self.advance(); // consume "["
+                let index = self.parse_imperative_expr()?;
+
+                if !self.check(&TokenType::RBracket) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "]".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "]"
+
+                result = self.ctx.alloc_imperative_expr(Expr::Index {
+                    collection: result,
+                    index,
+                });
+            } else {
+                break;
+            }
         }
 
         Ok(result)
@@ -9313,7 +9787,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Read |
             TokenType::Write |
             TokenType::File |
-            TokenType::Console => {
+            TokenType::Console |
+            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            TokenType::Merge |
+            TokenType::Increase => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -12023,6 +12500,196 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return false;
         }
         matches!(self.tokens[self.current + 1].kind, TokenType::Verb { .. })
+    }
+
+    // =========================================================================
+    // Phase 46: Agent System Parsing
+    // =========================================================================
+
+    /// Parse spawn statement: "Spawn a Worker called 'w1'."
+    fn parse_spawn_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Spawn"
+
+        // Expect article (a/an)
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "a/an".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume article
+
+        // Get agent type name (Noun or ProperName)
+        let agent_type = match &self.tokens[self.current].kind {
+            TokenType::Noun(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "agent type".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "called"
+        if !self.check(&TokenType::Called) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "called".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "called"
+
+        // Get agent name (string literal)
+        let name = if let TokenType::StringLiteral(sym) = &self.tokens[self.current].kind {
+            let s = *sym;
+            self.advance();
+            s
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "agent name".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        Ok(Stmt::Spawn { agent_type, name })
+    }
+
+    /// Parse send statement: "Send Ping to 'agent'."
+    fn parse_send_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Send"
+
+        // Parse message expression
+        let message = self.parse_imperative_expr()?;
+
+        // Expect "to"
+        if !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse destination expression
+        let destination = self.parse_imperative_expr()?;
+
+        Ok(Stmt::SendMessage { message, destination })
+    }
+
+    /// Parse await statement: "Await response from 'agent' into result."
+    fn parse_await_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Await"
+
+        // Skip optional "response" word
+        if self.check_word("response") {
+            self.advance();
+        }
+
+        // Expect "from" (can be keyword or preposition)
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse source expression
+        let source = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check_word("into") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "into"
+
+        // Get variable name (Noun, ProperName, or Adjective - can be any content word)
+        let into = match &self.tokens[self.current].kind {
+            TokenType::Noun(sym) | TokenType::ProperName(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            // Also accept lexemes from other token types if they look like identifiers
+            _ if self.check_content_word() => {
+                let sym = self.tokens[self.current].lexeme;
+                self.advance();
+                sym
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        Ok(Stmt::AwaitMessage { source, into })
+    }
+
+    // =========================================================================
+    // Phase 49: CRDT Statement Parsing
+    // =========================================================================
+
+    /// Parse merge statement: "Merge remote into local." or "Merge remote's field into local's field."
+    fn parse_merge_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Merge"
+
+        // Parse source expression
+        let source = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check_word("into") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "into"
+
+        // Parse target expression
+        let target = self.parse_imperative_expr()?;
+
+        Ok(Stmt::MergeCrdt { source, target })
+    }
+
+    /// Parse increase statement: "Increase local's points by 10."
+    fn parse_increase_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Increase"
+
+        // Parse object with field access (e.g., "local's points")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "by"
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        // Parse amount
+        let amount = self.parse_imperative_expr()?;
+
+        Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
     }
 
 }
@@ -22737,12 +23404,14 @@ pub mod discovery;
 pub mod dependencies;
 pub mod escape;
 pub mod ownership;
+pub mod policy;
 
 pub use registry::{TypeRegistry, TypeDef};
-pub use discovery::DiscoveryPass;
+pub use discovery::{DiscoveryPass, DiscoveryResult};
 pub use dependencies::{scan_dependencies, Dependency};
 pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
 pub use ownership::{OwnershipChecker, OwnershipError, OwnershipErrorKind, VarState};
+pub use policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use discovery::discover_with_imports;
@@ -22795,15 +23464,23 @@ pub enum TypeDef {
     Primitive,
     /// Struct with named fields and visibility
     /// Phase 34: Now includes optional type parameters
+    /// Phase 47: Added is_portable for serde derives
+    /// Phase 49: Added is_shared for CRDT Merge impl
     Struct {
         fields: Vec<FieldDef>,
         generics: Vec<Symbol>,  // [T, U] for "A Pair of [T] and [U] has:"
+        is_portable: bool,       // Phase 47: Derives Serialize/Deserialize
+        is_shared: bool,         // Phase 49: Generates impl Merge
     },
     /// Phase 33: Enum with variants (unit or with payload)
     /// Phase 34: Now includes optional type parameters
+    /// Phase 47: Added is_portable for serde derives
+    /// Phase 49: Added is_shared for CRDT Merge impl
     Enum {
         variants: Vec<VariantDef>,
         generics: Vec<Symbol>,  // [T] for "A Maybe of [T] is either:"
+        is_portable: bool,       // Phase 47: Derives Serialize/Deserialize
+        is_shared: bool,         // Phase 49: Generates impl Merge
     },
     /// Built-in generic type (List, Option, Result)
     Generic { param_count: usize },
@@ -22932,6 +23609,7 @@ First pass of two-pass compilation. DiscoveryPass scans source for ## Definition
 use crate::token::{Token, TokenType, BlockType};
 use crate::intern::{Interner, Symbol};
 use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
+use super::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use super::dependencies::scan_dependencies;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -22939,12 +23617,20 @@ use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::project::Loader;
 
+/// Result of running the discovery pass
+pub struct DiscoveryResult {
+    pub types: TypeRegistry,
+    pub policies: PolicyRegistry,
+}
+
 /// Discovery pass that scans tokens before main parsing to build a TypeRegistry.
 ///
 /// This pass looks for type definitions in `## Definition` blocks:
 /// - "A Stack is a generic collection." → Generic type
 /// - "A User is a structure." → Struct type
 /// - "A Shape is an enum." → Enum type
+///
+/// Phase 50: Also scans `## Policy` blocks for security predicates and capabilities.
 pub struct DiscoveryPass<'a> {
     tokens: &'a [Token],
     pos: usize,
@@ -22957,25 +23643,39 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     /// Run discovery pass, returning populated TypeRegistry
+    /// (Backward compatible - returns only TypeRegistry)
     pub fn run(&mut self) -> TypeRegistry {
-        let mut registry = TypeRegistry::with_primitives(self.interner);
+        self.run_full().types
+    }
+
+    /// Phase 50: Run discovery pass, returning both TypeRegistry and PolicyRegistry
+    pub fn run_full(&mut self) -> DiscoveryResult {
+        let mut type_registry = TypeRegistry::with_primitives(self.interner);
+        let mut policy_registry = PolicyRegistry::new();
 
         while self.pos < self.tokens.len() {
             // Look for Definition blocks
             if self.check_block_header(BlockType::Definition) {
                 self.advance(); // consume ## Definition
-                self.scan_definition_block(&mut registry);
+                self.scan_definition_block(&mut type_registry);
             } else if self.check_block_header(BlockType::TypeDef) {
                 // Inline type definition: ## A Point has: or ## A Color is one of:
                 // The article is part of the block header, so don't skip it
                 self.advance(); // consume ## A/An
-                self.parse_type_definition_inline(&mut registry);
+                self.parse_type_definition_inline(&mut type_registry);
+            } else if self.check_block_header(BlockType::Policy) {
+                // Phase 50: Security policy definitions
+                self.advance(); // consume ## Policy
+                self.scan_policy_block(&mut policy_registry);
             } else {
                 self.advance();
             }
         }
 
-        registry
+        DiscoveryResult {
+            types: type_registry,
+            policies: policy_registry,
+        }
     }
 
     fn check_block_header(&self, expected: BlockType) -> bool {
@@ -23002,6 +23702,305 @@ impl<'a> DiscoveryPass<'a> {
         }
     }
 
+    /// Phase 50: Scan policy block for predicate and capability definitions
+    /// Patterns:
+    /// - "A User is admin if the user's role equals \"admin\"."
+    /// - "A User can publish the Document if the user is admin OR the user equals the document's owner."
+    fn scan_policy_block(&mut self, registry: &mut PolicyRegistry) {
+        while self.pos < self.tokens.len() {
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+
+            // Skip newlines and indentation
+            if self.check_newline() || self.check_indent() || self.check_dedent() {
+                self.advance();
+                continue;
+            }
+
+            // Look for "A [Type] is [predicate] if..." or "A [Type] can [action] ..."
+            if self.check_article() {
+                self.try_parse_policy_definition(registry);
+            } else {
+                self.advance();
+            }
+        }
+    }
+
+    /// Phase 50: Parse a policy definition
+    fn try_parse_policy_definition(&mut self, registry: &mut PolicyRegistry) {
+        self.advance(); // consume article
+
+        // Get subject type name (e.g., "User")
+        let subject_type = match self.consume_noun_or_proper() {
+            Some(sym) => sym,
+            None => return,
+        };
+
+        // Determine if predicate ("is admin") or capability ("can publish")
+        if self.check_copula() {
+            // "A User is admin if..."
+            self.advance(); // consume "is"
+
+            // Get predicate name (e.g., "admin")
+            let predicate_name = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return,
+            };
+
+            // Expect "if"
+            if !self.check_word("if") {
+                self.skip_to_period();
+                return;
+            }
+            self.advance(); // consume "if"
+
+            // Parse condition
+            let condition = self.parse_policy_condition(subject_type, None);
+
+            registry.register_predicate(PredicateDef {
+                subject_type,
+                predicate_name,
+                condition,
+            });
+
+            self.skip_to_period();
+        } else if self.check_word("can") {
+            // "A User can publish the Document if..."
+            self.advance(); // consume "can"
+
+            // Get action name (e.g., "publish")
+            let action = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => {
+                    // Try verb token
+                    if let Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) = self.peek() {
+                        let sym = *lemma;
+                        self.advance();
+                        sym
+                    } else {
+                        return;
+                    }
+                }
+            };
+
+            // Skip "the" article if present
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Get object type (e.g., "Document")
+            let object_type = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return,
+            };
+
+            // Expect "if"
+            if !self.check_word("if") {
+                self.skip_to_period();
+                return;
+            }
+            self.advance(); // consume "if"
+
+            // Parse condition (may include colon for multi-line)
+            if self.check_colon() {
+                self.advance();
+            }
+            if self.check_newline() {
+                self.advance();
+            }
+            if self.check_indent() {
+                self.advance();
+            }
+
+            let condition = self.parse_policy_condition(subject_type, Some(object_type));
+
+            registry.register_capability(CapabilityDef {
+                subject_type,
+                action,
+                object_type,
+                condition,
+            });
+
+            // Skip to end of definition (may span multiple lines)
+            self.skip_policy_definition();
+        } else {
+            self.skip_to_period();
+        }
+    }
+
+    /// Phase 50: Parse a policy condition
+    /// Handles: field comparisons, predicate references, and OR/AND combinators
+    fn parse_policy_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+        let first = self.parse_atomic_condition(subject_type, object_type);
+
+        // Check for OR/AND combinators
+        loop {
+            // Skip newlines between conditions
+            while self.check_newline() {
+                self.advance();
+            }
+
+            if self.check_word("OR") || self.check_comma() {
+                if self.check_comma() {
+                    self.advance();
+                }
+                if self.check_word("OR") {
+                    self.advance();
+                }
+                // Skip newlines after OR
+                while self.check_newline() {
+                    self.advance();
+                }
+                let right = self.parse_atomic_condition(subject_type, object_type);
+                return PolicyCondition::Or(Box::new(first), Box::new(right));
+            } else if self.check_word("AND") {
+                self.advance();
+                // Skip newlines after AND
+                while self.check_newline() {
+                    self.advance();
+                }
+                let right = self.parse_atomic_condition(subject_type, object_type);
+                return PolicyCondition::And(Box::new(first), Box::new(right));
+            } else {
+                break;
+            }
+        }
+
+        first
+    }
+
+    /// Phase 50: Parse an atomic condition
+    fn parse_atomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+        // Skip "The" article if present
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Get the subject reference (e.g., "user" or "user's role")
+        let subject_ref = match self.consume_noun_or_proper() {
+            Some(sym) => sym,
+            None => return PolicyCondition::FieldEquals {
+                field: self.interner.intern("unknown"),
+                value: self.interner.intern("unknown"),
+                is_string_literal: false,
+            },
+        };
+
+        // Check if it's a field access ("'s role") or a predicate ("is admin")
+        if self.check_possessive() {
+            self.advance(); // consume "'s"
+
+            // Get field name
+            let field = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                },
+            };
+
+            // Expect "equals"
+            if self.check_word("equals") {
+                self.advance();
+
+                // Get value (string literal or identifier)
+                let (value, is_string_literal) = self.consume_value();
+
+                return PolicyCondition::FieldEquals { field, value, is_string_literal };
+            }
+        } else if self.check_copula() {
+            // "user is admin"
+            self.advance(); // consume "is"
+
+            // Get predicate name
+            let predicate = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                },
+            };
+
+            return PolicyCondition::Predicate {
+                subject: subject_ref,
+                predicate,
+            };
+        } else if self.check_word("equals") {
+            // "user equals the document's owner"
+            self.advance(); // consume "equals"
+
+            // Skip "the" if present
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Check for object field reference: "document's owner"
+            if let Some(obj_ref) = self.consume_noun_or_proper() {
+                if self.check_possessive() {
+                    self.advance(); // consume "'s"
+                    if let Some(field) = self.consume_noun_or_proper() {
+                        return PolicyCondition::ObjectFieldEquals {
+                            subject: subject_ref,
+                            object: obj_ref,
+                            field,
+                        };
+                    }
+                }
+            }
+        }
+
+        // Fallback: unknown condition
+        PolicyCondition::FieldEquals {
+            field: self.interner.intern("unknown"),
+            value: self.interner.intern("unknown"),
+            is_string_literal: false,
+        }
+    }
+
+    /// Consume a value (string literal or identifier), returning the symbol and whether it was a string literal
+    fn consume_value(&mut self) -> (Symbol, bool) {
+        if let Some(Token { kind: TokenType::StringLiteral(sym), .. }) = self.peek() {
+            let s = *sym;
+            self.advance();
+            (s, true)
+        } else if let Some(sym) = self.consume_noun_or_proper() {
+            (sym, false)
+        } else {
+            (self.interner.intern("unknown"), false)
+        }
+    }
+
+    /// Check for possessive marker ('s)
+    fn check_possessive(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Possessive, .. }))
+    }
+
+    /// Skip to end of a multi-line policy definition
+    fn skip_policy_definition(&mut self) {
+        let mut depth = 0;
+        while self.pos < self.tokens.len() {
+            if self.check_indent() {
+                depth += 1;
+            } else if self.check_dedent() {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+            }
+            if self.check_period() && depth == 0 {
+                self.advance();
+                break;
+            }
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+            self.advance();
+        }
+    }
+
     /// Parse inline type definition where article was part of block header (## A Point has:)
     fn parse_type_definition_inline(&mut self, registry: &mut TypeRegistry) {
         // Don't skip article - it was part of the block header
@@ -23023,8 +24022,40 @@ impl<'a> DiscoveryPass<'a> {
                 vec![]
             };
 
+            // Phase 47/49: Check for "is Portable/Shared and" pattern before "has:"
+            let mut is_portable = false;
+            let mut is_shared = false;
+            if self.check_copula() {
+                let copula_pos = self.pos;
+                self.advance(); // consume is/are
+
+                // Check for modifiers in any order (e.g., "is Shared and Portable and")
+                loop {
+                    if self.check_portable() {
+                        self.advance(); // consume "Portable"
+                        is_portable = true;
+                        if self.check_word("and") {
+                            self.advance(); // consume "and"
+                        }
+                    } else if self.check_shared() {
+                        self.advance(); // consume "Shared"
+                        is_shared = true;
+                        if self.check_word("and") {
+                            self.advance(); // consume "and"
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                // If no modifiers were found, restore position
+                if !is_portable && !is_shared {
+                    self.pos = copula_pos;
+                }
+            }
+
             // Phase 31/34: Check for "has:" which indicates struct with fields
-            // Pattern: "A Point has:" or "A Box of [T] has:"
+            // Pattern: "A Point has:" or "A Box of [T] has:" or "A Message is Portable and has:"
             if self.check_word("has") {
                 self.advance(); // consume "has"
                 if self.check_colon() {
@@ -23036,7 +24067,7 @@ impl<'a> DiscoveryPass<'a> {
                     if self.check_indent() {
                         self.advance(); // consume INDENT
                         let fields = self.parse_struct_fields_with_params(&type_params);
-                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params });
+                        registry.register(name_sym, TypeDef::Struct { fields, generics: type_params, is_portable, is_shared });
                         return;
                     }
                 }
@@ -23072,7 +24103,7 @@ impl<'a> DiscoveryPass<'a> {
                         if self.check_indent() {
                             self.advance(); // consume INDENT
                             let variants = self.parse_enum_variants_with_params(&type_params);
-                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params });
+                            registry.register(name_sym, TypeDef::Enum { variants, generics: type_params, is_portable, is_shared });
                             return;
                         }
                     }
@@ -23086,10 +24117,10 @@ impl<'a> DiscoveryPass<'a> {
                         registry.register(name_sym, TypeDef::Generic { param_count: 1 });
                         self.skip_to_period();
                     } else if self.check_word("record") || self.check_word("struct") || self.check_word("structure") {
-                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![] });
+                        registry.register(name_sym, TypeDef::Struct { fields: vec![], generics: vec![], is_portable: false, is_shared: false });
                         self.skip_to_period();
                     } else if self.check_word("sum") || self.check_word("enum") || self.check_word("choice") {
-                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![] });
+                        registry.register(name_sym, TypeDef::Enum { variants: vec![], generics: vec![], is_portable: false, is_shared: false });
                         self.skip_to_period();
                     }
                 }
@@ -23123,37 +24154,37 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse variant: "A VariantName [with fields | (field: Type)]."
+            // Parse variant: "A VariantName [with fields | (field: Type)]." or bare "VariantName."
+            // Optionally consume article (a/an) if present
             if self.check_article() {
                 self.advance(); // consume "A"/"An"
+            }
 
-                if let Some(variant_name) = self.consume_noun_or_proper() {
-                    // Check for payload fields
-                    let fields = if self.check_word("with") {
-                        // Natural syntax: "A Circle with a radius, which is Int."
-                        self.parse_variant_fields_natural_with_params(type_params)
-                    } else if self.check_lparen() {
-                        // Concise syntax: "A Circle (radius: Int)."
-                        self.parse_variant_fields_concise_with_params(type_params)
-                    } else {
-                        // Unit variant: "A Point."
-                        vec![]
-                    };
-
-                    variants.push(VariantDef {
-                        name: variant_name,
-                        fields,
-                    });
-
-                    // Consume period
-                    if self.check_period() {
-                        self.advance();
-                    }
+            // Try to parse variant name (noun or proper name)
+            if let Some(variant_name) = self.consume_noun_or_proper() {
+                // Check for payload fields
+                let fields = if self.check_word("with") {
+                    // Natural syntax: "A Circle with a radius, which is Int."
+                    self.parse_variant_fields_natural_with_params(type_params)
+                } else if self.check_lparen() {
+                    // Concise syntax: "A Circle (radius: Int)."
+                    self.parse_variant_fields_concise_with_params(type_params)
                 } else {
-                    self.advance(); // skip malformed token
+                    // Unit variant: "A Point." or "Point."
+                    vec![]
+                };
+
+                variants.push(VariantDef {
+                    name: variant_name,
+                    fields,
+                });
+
+                // Consume period
+                if self.check_period() {
+                    self.advance();
                 }
             } else {
-                self.advance();
+                self.advance(); // skip malformed token
             }
         }
 
@@ -23433,11 +24464,29 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Phase 47: Accept Performative as type name (for agent messages like "Command")
+            TokenType::Performative(s) => {
+                let sym = *s;
+                self.advance();
+                Some(sym)
+            }
             // Phase 34: Accept special tokens as identifiers using their lexeme
             TokenType::Items | TokenType::Some => {
                 let sym = t.lexeme;
                 self.advance();
                 Some(sym)
+            }
+            // Phase 49: Accept Verb tokens that look like type names (uppercase, e.g., "Setting")
+            // These are -ing words that get classified as verbs but could be type names
+            TokenType::Verb { .. } => {
+                let lexeme_str = self.interner.resolve(t.lexeme);
+                if lexeme_str.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    let sym = t.lexeme;
+                    self.advance();
+                    Some(sym)
+                } else {
+                    None
+                }
             }
             _ => None
         }
@@ -23496,6 +24545,16 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_rparen(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+    }
+
+    /// Phase 47: Check for Portable token
+    fn check_portable(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Portable, .. }))
+    }
+
+    /// Phase 49: Check for Shared token
+    fn check_shared(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Shared, .. }))
     }
 
     // Phase 34: Bracket checks for type parameters
@@ -23698,7 +24757,7 @@ A Point has:
         let point = interner.intern("Point");
         assert!(registry.is_type(point), "Point should be registered");
 
-        if let Some(TypeDef::Struct { fields, generics }) = registry.get(point) {
+        if let Some(TypeDef::Struct { fields, generics, .. }) = registry.get(point) {
             assert_eq!(fields.len(), 2, "Point should have 2 fields, got {:?}", fields);
             assert_eq!(interner.resolve(fields[0].name), "x");
             assert_eq!(interner.resolve(fields[1].name), "y");
@@ -23729,6 +24788,73 @@ A Point has:
         let registry = discovery.run();
         let point = interner.intern("Point");
         assert!(registry.is_type(point), "Point should be discovered even with # header");
+    }
+
+    #[test]
+    fn discovery_parses_portable_enum() {
+        let source = r#"## Definition
+A Command is Portable and is either:
+    a Start.
+    a Stop.
+    a Pause.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens to see what we're getting
+        eprintln!("Tokens for portable enum:");
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("Token {}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let command = interner.intern("Command");
+        assert!(registry.is_type(command), "Command should be registered as type");
+
+        if let Some(TypeDef::Enum { variants, is_portable, .. }) = registry.get(command) {
+            eprintln!("Command is_portable: {}", is_portable);
+            eprintln!("Variants: {:?}", variants.iter().map(|v| interner.resolve(v.name)).collect::<Vec<_>>());
+            assert!(*is_portable, "Command should be portable");
+            assert_eq!(variants.len(), 3, "Command should have 3 variants");
+        } else {
+            panic!("Command should be an enum, got: {:?}", registry.get(command));
+        }
+    }
+
+    #[test]
+    fn discovery_parses_lww_int_field() {
+        let source = r#"## Definition
+A Setting is Shared and has:
+    a volume, which is LastWriteWins of Int.
+"#;
+        let mut interner = Interner::new();
+        let tokens = make_tokens(source, &mut interner);
+
+        // Debug: print tokens
+        eprintln!("Tokens for LWW of Int:");
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("{:3}: {:?} ({})", i, tok.kind, interner.resolve(tok.lexeme));
+        }
+
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let registry = discovery.run();
+
+        let setting = interner.intern("Setting");
+        assert!(registry.is_type(setting), "Setting should be registered");
+
+        if let Some(TypeDef::Struct { fields, is_shared, .. }) = registry.get(setting) {
+            eprintln!("is_shared: {}", is_shared);
+            eprintln!("Fields: {:?}", fields.len());
+            for f in fields {
+                eprintln!("  field: {} = {:?}", interner.resolve(f.name), f.ty);
+            }
+            assert!(*is_shared, "Setting should be shared");
+            assert_eq!(fields.len(), 1, "Setting should have 1 field");
+        } else {
+            panic!("Setting should be a struct, got: {:?}", registry.get(setting));
+        }
     }
 }
 
@@ -24261,6 +25387,15 @@ impl<'a> EscapeChecker<'a> {
                 }
             }
 
+            Expr::ManifestOf { zone } => {
+                self.check_no_escape(zone, max_depth)?;
+            }
+
+            Expr::ChunkAt { index, zone } => {
+                self.check_no_escape(index, max_depth)?;
+                self.check_no_escape(zone, max_depth)?;
+            }
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }
@@ -24342,6 +25477,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+use crate::analysis::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
@@ -24500,22 +25636,124 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
     }
 }
 
+// =============================================================================
+// Phase 50: Policy Method Generation
+// =============================================================================
+
+/// Generate impl blocks with predicate and capability methods for security policies.
+fn codegen_policy_impls(policies: &PolicyRegistry, interner: &Interner) -> String {
+    let mut output = String::new();
+
+    // Collect all types that have policies
+    let mut type_predicates: HashMap<Symbol, Vec<&PredicateDef>> = HashMap::new();
+    let mut type_capabilities: HashMap<Symbol, Vec<&CapabilityDef>> = HashMap::new();
+
+    for (type_sym, predicates) in policies.iter_predicates() {
+        type_predicates.entry(*type_sym).or_insert_with(Vec::new).extend(predicates.iter());
+    }
+
+    for (type_sym, capabilities) in policies.iter_capabilities() {
+        type_capabilities.entry(*type_sym).or_insert_with(Vec::new).extend(capabilities.iter());
+    }
+
+    // Get all types that have any policies
+    let mut all_types: HashSet<Symbol> = HashSet::new();
+    all_types.extend(type_predicates.keys().copied());
+    all_types.extend(type_capabilities.keys().copied());
+
+    // Generate impl block for each type
+    for type_sym in all_types {
+        let type_name = interner.resolve(type_sym);
+
+        writeln!(output, "impl {} {{", type_name).unwrap();
+
+        // Generate predicate methods
+        if let Some(predicates) = type_predicates.get(&type_sym) {
+            for pred in predicates {
+                let pred_name = interner.resolve(pred.predicate_name).to_lowercase();
+                writeln!(output, "    pub fn is_{}(&self) -> bool {{", pred_name).unwrap();
+                let condition_code = codegen_policy_condition(&pred.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        // Generate capability methods
+        if let Some(capabilities) = type_capabilities.get(&type_sym) {
+            for cap in capabilities {
+                let action_name = interner.resolve(cap.action).to_lowercase();
+                let object_type = interner.resolve(cap.object_type);
+                let object_param = object_type.to_lowercase();
+
+                writeln!(output, "    pub fn can_{}(&self, {}: &{}) -> bool {{",
+                         action_name, object_param, object_type).unwrap();
+                let condition_code = codegen_policy_condition(&cap.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        writeln!(output, "}}\n").unwrap();
+    }
+
+    output
+}
+
+/// Generate Rust code for a policy condition.
+fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) -> String {
+    match condition {
+        PolicyCondition::FieldEquals { field, value, is_string_literal } => {
+            let field_name = interner.resolve(*field);
+            let value_str = interner.resolve(*value);
+            if *is_string_literal {
+                format!("self.{} == \"{}\"", field_name, value_str)
+            } else {
+                format!("self.{} == {}", field_name, value_str)
+            }
+        }
+        PolicyCondition::FieldBool { field, value } => {
+            let field_name = interner.resolve(*field);
+            format!("self.{} == {}", field_name, value)
+        }
+        PolicyCondition::Predicate { subject: _, predicate } => {
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+            format!("self.is_{}()", pred_name)
+        }
+        PolicyCondition::ObjectFieldEquals { subject: _, object, field } => {
+            let object_name = interner.resolve(*object).to_lowercase();
+            let field_name = interner.resolve(*field);
+            format!("self == &{}.{}", object_name, field_name)
+        }
+        PolicyCondition::Or(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} || {}", left_code, right_code)
+        }
+        PolicyCondition::And(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} && {}", left_code, right_code)
+        }
+    }
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
 /// Phase 32: Function definitions are emitted before main.
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) -> String {
+/// Phase 50: Accepts PolicyRegistry to generate security predicate methods.
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner) -> String {
     let mut output = String::new();
 
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
 
-    // Collect user-defined structs from registry (Phase 34: now with generics)
+    // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Struct { fields, generics } = def {
+            if let TypeDef::Struct { fields, generics, is_portable, is_shared } = def {
                 if !fields.is_empty() || !generics.is_empty() {
-                    Some((*name, fields.clone(), generics.clone()))
+                    Some((*name, fields.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -24525,12 +25763,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         })
         .collect();
 
-    // Phase 33/34: Collect user-defined enums from registry (now with generics)
+    // Phase 33/34: Collect user-defined enums from registry (generics, Phase 47: is_portable, Phase 49: is_shared)
     let enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Enum { variants, generics } = def {
+            if let TypeDef::Enum { variants, generics, is_portable, is_shared } = def {
                 if !variants.is_empty() || !generics.is_empty() {
-                    Some((*name, variants.clone(), generics.clone()))
+                    Some((*name, variants.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -24545,17 +25783,20 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "pub mod user_types {{").unwrap();
         writeln!(output, "    use super::*;\n").unwrap();
 
-        for (name, fields, generics) in &structs {
-            output.push_str(&codegen_struct_def(*name, fields, generics, interner, 4));
+        for (name, fields, generics, is_portable, is_shared) in &structs {
+            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, *is_shared, interner, 4));
         }
 
-        for (name, variants, generics) in &enums {
-            output.push_str(&codegen_enum_def(*name, variants, generics, interner, 4));
+        for (name, variants, generics, is_portable, is_shared) in &enums {
+            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, *is_shared, interner, 4));
         }
 
         writeln!(output, "}}\n").unwrap();
         writeln!(output, "use user_types::*;\n").unwrap();
     }
+
+    // Phase 50: Generate policy impl blocks with predicate and capability methods
+    output.push_str(&codegen_policy_impls(policies, interner));
 
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
@@ -24766,7 +26007,9 @@ fn map_type_to_rust(ty: &str) -> String {
 
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
-fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now supports is_shared for CRDT Merge impl.
+fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -24780,7 +26023,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for field in fields {
@@ -24790,11 +26038,67 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
     }
 
     writeln!(output, "{}}}\n", ind).unwrap();
+
+    // Phase 49: Generate Merge impl for Shared structs
+    if is_shared {
+        output.push_str(&codegen_merge_impl(name, fields, generics, interner, indent));
+    }
+
     output
 }
 
+/// Phase 49: Generate impl Merge for a Shared struct.
+fn codegen_merge_impl(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+    let ind = " ".repeat(indent);
+    let name_str = interner.resolve(name);
+    let mut output = String::new();
+
+    // Build generic parameter string: <T, U> or empty
+    let generic_str = if generics.is_empty() {
+        String::new()
+    } else {
+        let params: Vec<&str> = generics.iter()
+            .map(|g| interner.resolve(*g))
+            .collect();
+        format!("<{}>", params.join(", "))
+    };
+
+    writeln!(output, "{}impl{} logos_core::crdt::Merge for {}{} {{", ind, generic_str, name_str, generic_str).unwrap();
+    writeln!(output, "{}    fn merge(&mut self, other: &Self) {{", ind).unwrap();
+
+    for field in fields {
+        let field_name = interner.resolve(field.name);
+        // Only merge fields that implement Merge (CRDT types)
+        if is_crdt_field_type(&field.ty, interner) {
+            writeln!(output, "{}        self.{}.merge(&other.{});", ind, field_name, field_name).unwrap();
+        }
+    }
+
+    writeln!(output, "{}    }}", ind).unwrap();
+    writeln!(output, "{}}}\n", ind).unwrap();
+
+    output
+}
+
+/// Phase 49: Check if a field type is a CRDT type that implements Merge.
+fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "ConvergentCount" | "GCounter")
+        }
+        FieldType::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "LastWriteWins" | "LWWRegister")
+        }
+        _ => false,
+    }
+}
+
 /// Phase 33/34: Generate enum definition with optional generic parameters.
-fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now accepts is_shared parameter (enums don't generate Merge impl yet).
+fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, _is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -24808,7 +26112,12 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for variant in variants {
@@ -24846,12 +26155,21 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 other => other.to_string(),
             }
         }
-        FieldType::Named(sym) => interner.resolve(*sym).to_string(),
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                // Phase 49: CRDT type mapping
+                "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                _ => name.to_string(),
+            }
+        }
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
                 "Option" => "Option",
                 "Result" => "Result",
+                // Phase 49: CRDT generic type
+                "LastWriteWins" => "logos_core::crdt::LWWRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -24979,6 +26297,29 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
             let condition = codegen_assertion(proposition, interner);
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
+        Stmt::RuntimeAssert { condition } => {
+            let cond_str = codegen_expr(condition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
+        }
+
+        // Phase 50: Security Check - mandatory runtime guard (NEVER optimized out)
+        Stmt::Check { subject, predicate, is_capability, object, source_text, span } => {
+            let subj_name = interner.resolve(*subject);
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+
+            let call = if *is_capability {
+                let obj_name = interner.resolve(object.expect("capability must have object"));
+                format!("{}.can_{}(&{})", subj_name, pred_name, obj_name)
+            } else {
+                format!("{}.is_{}()", subj_name, pred_name)
+            };
+
+            writeln!(output, "{}if !({}) {{", indent_str, call).unwrap();
+            writeln!(output, "{}    logos_core::panic_with(\"Security Check Failed at line {}: {}\");",
+                     indent_str, span.start, source_text).unwrap();
+            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -25226,6 +26567,63 @@ pub fn codegen_stmt<'a>(
                 indent_str, path_str, content_str
             ).unwrap();
         }
+
+        // Phase 46: Spawn an agent
+        Stmt::Spawn { agent_type, name } => {
+            let type_name = interner.resolve(*agent_type);
+            let agent_name = interner.resolve(*name);
+            // Generate agent spawn with tokio channel
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ /* {} agent loop */ }});",
+                indent_str, agent_name, type_name
+            ).unwrap();
+        }
+
+        // Phase 46: Send message to agent
+        Stmt::SendMessage { message, destination } => {
+            let msg_str = codegen_expr(message, interner);
+            let dest_str = codegen_expr(destination, interner);
+            writeln!(
+                output,
+                "{}{}.send({}).await.expect(\"Failed to send message\");",
+                indent_str, dest_str, msg_str
+            ).unwrap();
+        }
+
+        // Phase 46: Await response from agent
+        Stmt::AwaitMessage { source, into } => {
+            let src_str = codegen_expr(source, interner);
+            let var_name = interner.resolve(*into);
+            writeln!(
+                output,
+                "{}let {} = {}.recv().await.expect(\"Failed to receive message\");",
+                indent_str, var_name, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Merge CRDT state
+        Stmt::MergeCrdt { source, target } => {
+            let src_str = codegen_expr(source, interner);
+            let tgt_str = codegen_expr(target, interner);
+            writeln!(
+                output,
+                "{}{}.merge(&{});",
+                indent_str, tgt_str, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Increment GCounter
+        Stmt::IncreaseCrdt { object, field, amount } => {
+            let obj_str = codegen_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner);
+            writeln!(
+                output,
+                "{}{}.{}.increment({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
     }
 
     output
@@ -25245,6 +26643,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
                 BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
                 BinaryOpKind::Lt => "<",
@@ -25289,6 +26688,19 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             let coll_str = codegen_expr(collection, interner);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
+        }
+
+        // Phase 48: Sipping Protocol expressions
+        Expr::ManifestOf { zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
+        }
+
+        Expr::ChunkAt { index, zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            let index_str = codegen_expr(index, interner);
+            // LOGOS uses 1-indexed, Rust uses 0-indexed
+            format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
@@ -25467,7 +26879,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -25486,13 +26898,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -25538,7 +26952,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -25553,13 +26967,15 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -25607,7 +27023,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -25624,13 +27040,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -25680,7 +27098,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -25829,7 +27247,17 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
     let codegen_registry = type_registry.clone();
 
-    // Tokenize the main file
+    // Phase 50: Also discover policies from the main file
+    // (discover_with_imports doesn't handle policies yet, so we do a separate pass)
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+    let policy_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run_full().policies
+    };
+    let codegen_policies = policy_registry.clone();
+
+    // Re-tokenize for parsing (interner may have been modified)
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
@@ -25859,7 +27287,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     // Pass 2: Parse with type context (includes imported types)
     let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -27737,6 +29165,7 @@ pub mod transpile;
 pub mod ui;
 pub mod view;
 pub mod visitor;
+pub mod interpreter;
 
 pub mod test_utils;
 
@@ -27763,6 +29192,7 @@ pub use scope::{ScopeStack, ScopeEntry};
 pub use token::{BlockType, Token, TokenType};
 pub use view::{ExprView, NounPhraseView, Resolve, TermView};
 pub use visitor::{Visitor, walk_expr, walk_term, walk_np};
+pub use interpreter::{Interpreter, InterpreterResult, RuntimeValue};
 
 // ═══════════════════════════════════════════════════════════════════
 // Output Format Configuration
@@ -28656,6 +30086,80 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
                 ast: None,
                 readings: Vec::new(),
                 tokens,
+                error: Some(advice),
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Imperative Interpreter API - For Guide Page Interactive Examples
+// ═══════════════════════════════════════════════════════════════════
+
+use crate::ast::stmt::{Stmt, Expr, TypeExpr};
+
+/// Interpret LOGOS imperative code and return output lines.
+/// This is used by the Guide page for interactive code examples.
+pub fn interpret_for_ui(input: &str) -> InterpreterResult {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Apply MWE collapsing (for consistency with compile pipeline)
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery - scan for type definitions
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    // Create arenas for AST allocation
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context (imperative mode)
+    let mut discourse = DiscourseContext::new();
+    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+
+    match parser.parse_program() {
+        Ok(stmts) => {
+            let mut interp = interpreter::Interpreter::new(&interner);
+            match interp.run(&stmts) {
+                Ok(()) => InterpreterResult {
+                    lines: interp.output,
+                    error: None,
+                },
+                Err(e) => InterpreterResult {
+                    lines: interp.output,
+                    error: Some(e),
+                },
+            }
+        }
+        Err(e) => {
+            let advice = socratic_explanation(&e, &interner);
+            InterpreterResult {
+                lines: vec![],
                 error: Some(advice),
             }
         }
@@ -35873,7 +37377,7 @@ Dioxus Router with routes: / (Home), /pricing (Pricing), /studio (Studio), /lear
 
 ```rust
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio};
+use crate::ui::pages::{Home, Landing, Learn, Lesson, Pricing, Privacy, Review, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
@@ -35895,6 +37399,9 @@ pub enum Route {
 
     #[route("/roadmap")]
     Roadmap {},
+
+    #[route("/guide")]
+    Guide {},
 
     #[route("/success")]
     Success {},
@@ -37583,6 +39090,7 @@ pub fn Landing() -> Element {
                             a { href: "#product", "Product" }
                             a { href: "#for", "Who it's for" }
                             a { href: "#faq", "FAQ" }
+                            Link { to: Route::Guide {}, "Guide" }
                             Link { to: Route::Roadmap {}, "Roadmap" }
                             Link { to: Route::Pricing {}, "Pricing" }
                         }
@@ -39362,6 +40870,7 @@ pub mod success;
 pub mod terms;
 pub mod workspace;
 pub mod studio;
+pub mod guide;
 
 pub use home::Home;
 pub use landing::Landing;
@@ -39375,6 +40884,7 @@ pub use success::Success;
 pub use terms::Terms;
 pub use workspace::Workspace;
 pub use studio::Studio;
+pub use guide::Guide;
 
 ```
 
@@ -44994,6 +46504,657 @@ pub fn LiveEditor(
 
 ---
 
+### Component: guide_code_block
+
+**File:** `src/ui/components/guide_code_block.rs`
+
+Reusable UI component.
+
+```rust
+//! Interactive code block component for the Programmer's Guide.
+//!
+//! Features:
+//! - Editable code area
+//! - Run button (Logic mode: FOL output, Imperative mode: interpreter)
+//! - Copy button
+//! - Reset button
+//! - Output panel
+
+use dioxus::prelude::*;
+use crate::ui::pages::guide::content::ExampleMode;
+use crate::compile_for_ui;
+use crate::interpret_for_ui;
+
+const CODE_BLOCK_STYLE: &str = r#"
+.guide-code-block {
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(0,0,0,0.35);
+    overflow: hidden;
+    margin: 20px 0;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+
+.guide-code-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.guide-code-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.guide-code-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(229,231,235,0.9);
+}
+
+.guide-code-mode {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.guide-code-mode.logic {
+    background: rgba(167,139,250,0.2);
+    color: #a78bfa;
+    border: 1px solid rgba(167,139,250,0.3);
+}
+
+.guide-code-mode.imperative {
+    background: rgba(34,197,94,0.2);
+    color: #22c55e;
+    border: 1px solid rgba(34,197,94,0.3);
+}
+
+.guide-code-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.guide-code-btn {
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.06);
+    color: rgba(229,231,235,0.8);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.guide-code-btn:hover {
+    background: rgba(255,255,255,0.10);
+    border-color: rgba(255,255,255,0.20);
+    color: #fff;
+}
+
+.guide-code-btn:active {
+    transform: scale(0.97);
+}
+
+.guide-code-btn.primary {
+    background: linear-gradient(135deg, rgba(96,165,250,0.9), rgba(167,139,250,0.9));
+    border-color: rgba(255,255,255,0.2);
+    color: #060814;
+}
+
+.guide-code-btn.primary:hover {
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+}
+
+.guide-code-btn.running {
+    opacity: 0.7;
+    cursor: wait;
+}
+
+.guide-code-editor {
+    position: relative;
+}
+
+.guide-code-textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 16px;
+    background: transparent;
+    border: none;
+    color: rgba(229,231,235,0.95);
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'Cascadia Code', monospace;
+    font-size: 14px;
+    line-height: 1.7;
+    resize: vertical;
+    outline: none;
+    tab-size: 4;
+}
+
+.guide-code-textarea::placeholder {
+    color: rgba(229,231,235,0.3);
+}
+
+.guide-code-output {
+    border-top: 1px solid rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.25);
+}
+
+.guide-code-output-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: rgba(229,231,235,0.5);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.guide-code-output-content {
+    padding: 16px;
+    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.guide-code-output-content.success {
+    color: #a78bfa;
+}
+
+.guide-code-output-content.error {
+    color: #f87171;
+}
+
+.guide-code-output-content.info {
+    color: rgba(229,231,235,0.7);
+}
+
+.guide-code-copied {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    padding: 8px 16px;
+    background: rgba(34,197,94,0.9);
+    color: #fff;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    animation: fadeInOut 1.5s ease forwards;
+    pointer-events: none;
+}
+
+@keyframes fadeInOut {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+.guide-code-placeholder {
+    padding: 24px 16px;
+    text-align: center;
+    color: rgba(229,231,235,0.4);
+    font-size: 13px;
+}
+"#;
+
+#[derive(Props, Clone, PartialEq)]
+pub struct GuideCodeBlockProps {
+    pub id: String,
+    pub label: String,
+    pub mode: ExampleMode,
+    pub initial_code: String,
+}
+
+#[component]
+pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
+    let mut code = use_signal(|| props.initial_code.clone());
+    let mut output = use_signal(String::new);
+    let mut output_type = use_signal(|| "info".to_string());
+    let mut is_running = use_signal(|| false);
+    let mut show_copied = use_signal(|| false);
+    let mut has_run = use_signal(|| false);
+
+    let initial_code = props.initial_code.clone();
+    let mode = props.mode;
+    let id = props.id.clone();
+
+    // Run handler
+    let handle_run = move |_| {
+        is_running.set(true);
+        has_run.set(true);
+
+        let current_code = code.read().clone();
+
+        match mode {
+            ExampleMode::Logic => {
+                // Use compile_for_ui for Logic mode
+                let result = compile_for_ui(&current_code);
+                if let Some(logic) = result.logic {
+                    output.set(logic);
+                    output_type.set("success".to_string());
+                } else if let Some(err) = result.error {
+                    output.set(err);
+                    output_type.set("error".to_string());
+                } else {
+                    output.set("No output".to_string());
+                    output_type.set("info".to_string());
+                }
+            }
+            ExampleMode::Imperative => {
+                // Use the real LOGOS parser + tree-walking interpreter
+                let result = interpret_for_ui(&current_code);
+                if let Some(err) = result.error {
+                    output.set(err);
+                    output_type.set("error".to_string());
+                } else if result.lines.is_empty() {
+                    output.set("(no output)".to_string());
+                    output_type.set("info".to_string());
+                } else {
+                    output.set(result.lines.join("\n"));
+                    output_type.set("success".to_string());
+                }
+            }
+        }
+
+        is_running.set(false);
+    };
+
+    // Copy handler
+    let handle_copy = move |_| {
+        let code_to_copy = code.read().clone();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            if let Some(window) = web_sys::window() {
+                let clipboard = window.navigator().clipboard();
+                let _ = clipboard.write_text(&code_to_copy);
+                show_copied.set(true);
+
+                // Reset after animation
+                spawn(async move {
+                    gloo_timers::future::TimeoutFuture::new(1500).await;
+                    show_copied.set(false);
+                });
+            }
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = code_to_copy;
+            show_copied.set(true);
+        }
+    };
+
+    // Reset handler
+    let handle_reset = {
+        let initial = initial_code.clone();
+        move |_| {
+            code.set(initial.clone());
+            output.set(String::new());
+            has_run.set(false);
+        }
+    };
+
+    let mode_class = match mode {
+        ExampleMode::Logic => "logic",
+        ExampleMode::Imperative => "imperative",
+    };
+
+    let mode_label = match mode {
+        ExampleMode::Logic => "Logic",
+        ExampleMode::Imperative => "Run",
+    };
+
+    rsx! {
+        style { "{CODE_BLOCK_STYLE}" }
+
+        div {
+            class: "guide-code-block",
+            id: "{id}",
+
+            // Header
+            div { class: "guide-code-header",
+                div { class: "guide-code-label",
+                    span { class: "guide-code-title", "{props.label}" }
+                    span { class: "guide-code-mode {mode_class}",
+                        match mode {
+                            ExampleMode::Logic => "Logic Mode",
+                            ExampleMode::Imperative => "Imperative",
+                        }
+                    }
+                }
+
+                div { class: "guide-code-actions",
+                    button {
+                        class: if *is_running.read() { "guide-code-btn primary running" } else { "guide-code-btn primary" },
+                        onclick: handle_run,
+                        disabled: *is_running.read(),
+                        if *is_running.read() {
+                            "Running..."
+                        } else {
+                            "{mode_label}"
+                        }
+                    }
+                    button {
+                        class: "guide-code-btn",
+                        onclick: handle_copy,
+                        "Copy"
+                    }
+                    button {
+                        class: "guide-code-btn",
+                        onclick: handle_reset,
+                        "Reset"
+                    }
+                }
+            }
+
+            // Editor
+            div { class: "guide-code-editor",
+                textarea {
+                    class: "guide-code-textarea",
+                    value: "{code}",
+                    oninput: move |evt| code.set(evt.value()),
+                    spellcheck: "false",
+                    autocomplete: "off",
+                    autocapitalize: "off",
+                }
+
+                if *show_copied.read() {
+                    div { class: "guide-code-copied", "Copied!" }
+                }
+            }
+
+            // Output (only show if has run)
+            if *has_run.read() {
+                div { class: "guide-code-output",
+                    div { class: "guide-code-output-header",
+                        span { "Output" }
+                    }
+                    div {
+                        class: "guide-code-output-content {output_type}",
+                        "{output}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+```
+
+---
+
+### Component: guide_sidebar
+
+**File:** `src/ui/components/guide_sidebar.rs`
+
+Reusable UI component.
+
+```rust
+//! Sidebar navigation component for the Programmer's Guide.
+//!
+//! Features:
+//! - Sticky positioning
+//! - Sections grouped by Part
+//! - Active section highlighting
+//! - Click navigation with anchor links
+
+use dioxus::prelude::*;
+
+const SIDEBAR_STYLE: &str = r#"
+.guide-sidebar {
+    position: sticky;
+    top: 90px;
+    width: 260px;
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    flex-shrink: 0;
+    padding: 4px 0;
+
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.guide-sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+
+.guide-sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.guide-sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+}
+
+.guide-sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+.sidebar-part {
+    margin-bottom: 24px;
+}
+
+.sidebar-part:last-child {
+    margin-bottom: 0;
+}
+
+.sidebar-part-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(229,231,235,0.45);
+    padding: 0 16px;
+    margin-bottom: 10px;
+}
+
+.sidebar-section {
+    display: block;
+    padding: 9px 16px;
+    margin: 2px 8px;
+    border-radius: 8px;
+    color: rgba(229,231,235,0.65);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: all 0.18s ease;
+    cursor: pointer;
+    border-left: 2px solid transparent;
+}
+
+.sidebar-section:hover {
+    background: rgba(255,255,255,0.05);
+    color: rgba(229,231,235,0.9);
+}
+
+.sidebar-section.active {
+    background: rgba(167,139,250,0.12);
+    color: #a78bfa;
+    border-left-color: #a78bfa;
+    font-weight: 600;
+}
+
+.sidebar-section-number {
+    display: inline-block;
+    min-width: 22px;
+    color: rgba(229,231,235,0.35);
+    font-weight: 500;
+}
+
+.sidebar-section.active .sidebar-section-number {
+    color: rgba(167,139,250,0.7);
+}
+
+@media (max-width: 1024px) {
+    .guide-sidebar {
+        display: none;
+    }
+}
+
+/* Mobile sidebar toggle - shown on mobile */
+.sidebar-mobile-toggle {
+    display: none;
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #60a5fa, #a78bfa);
+    border: none;
+    color: #060814;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    z-index: 100;
+    transition: transform 0.2s ease;
+}
+
+.sidebar-mobile-toggle:hover {
+    transform: scale(1.05);
+}
+
+@media (max-width: 1024px) {
+    .sidebar-mobile-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+"#;
+
+/// Information about a section for the sidebar
+#[derive(Clone, PartialEq, Debug)]
+pub struct SectionInfo {
+    pub id: String,
+    pub number: u8,
+    pub title: String,
+    pub part: String,
+}
+
+#[derive(Props, Clone, PartialEq)]
+pub struct GuideSidebarProps {
+    pub sections: Vec<SectionInfo>,
+    pub active_section: String,
+    pub on_section_click: EventHandler<String>,
+}
+
+#[component]
+pub fn GuideSidebar(props: GuideSidebarProps) -> Element {
+    // Group sections by part
+    let grouped = group_sections_by_part(&props.sections);
+
+    rsx! {
+        style { "{SIDEBAR_STYLE}" }
+
+        nav { class: "guide-sidebar",
+            for (part, sections) in grouped {
+                div { class: "sidebar-part",
+                    h4 { class: "sidebar-part-title", "{part}" }
+
+                    for section in sections {
+                        {
+                            let section_id = section.id.clone();
+                            let is_active = props.active_section == section.id;
+                            let class_name = if is_active {
+                                "sidebar-section active"
+                            } else {
+                                "sidebar-section"
+                            };
+
+                            rsx! {
+                                a {
+                                    class: "{class_name}",
+                                    href: "#{section_id}",
+                                    onclick: {
+                                        let id = section.id.clone();
+                                        let handler = props.on_section_click.clone();
+                                        move |evt: Event<MouseData>| {
+                                            evt.prevent_default();
+                                            handler.call(id.clone());
+
+                                            // Smooth scroll to section
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                if let Some(window) = web_sys::window() {
+                                                    if let Some(document) = window.document() {
+                                                        if let Some(element) = document.get_element_by_id(&id) {
+                                                            let options = web_sys::ScrollIntoViewOptions::new();
+                                                            options.set_behavior(web_sys::ScrollBehavior::Smooth);
+                                                            options.set_block(web_sys::ScrollLogicalPosition::Start);
+                                                            let _ = element.scroll_into_view_with_scroll_into_view_options(&options);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    span { class: "sidebar-section-number", "{section.number}." }
+                                    " {section.title}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Groups sections by their part name, preserving order
+fn group_sections_by_part(sections: &[SectionInfo]) -> Vec<(String, Vec<SectionInfo>)> {
+    let mut result: Vec<(String, Vec<SectionInfo>)> = Vec::new();
+
+    for section in sections {
+        if let Some((_, group)) = result.iter_mut().find(|(part, _)| part == &section.part) {
+            group.push(section.clone());
+        } else {
+            result.push((section.part.clone(), vec![section.clone()]));
+        }
+    }
+
+    result
+}
+
+/// Mobile sidebar toggle button component
+#[component]
+pub fn SidebarMobileToggle(on_toggle: EventHandler<()>) -> Element {
+    rsx! {
+        button {
+            class: "sidebar-mobile-toggle",
+            onclick: move |_| on_toggle.call(()),
+            title: "Toggle navigation",
+            "☰"
+        }
+    }
+}
+
+```
+
+---
+
 ### Component: InputArea
 
 **File:** `src/ui/components/input.rs`
@@ -45474,6 +47635,8 @@ pub mod combo_indicator;
 pub mod streak_display;
 pub mod achievement_toast;
 pub mod mode_selector;
+pub mod guide_code_block;
+pub mod guide_sidebar;
 
 ```
 
@@ -47604,6 +49767,10 @@ pub mod time;
 pub mod random;
 pub mod env;
 pub mod memory;
+// Phase 48: Network primitives
+pub mod network;
+// Phase 49: CRDT primitives
+pub mod crdt;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
@@ -47659,6 +49826,10 @@ pub mod prelude {
     pub use crate::logos_index_mut;
     // Phase 8.5: Zone-based memory management
     pub use crate::memory::Zone;
+    // Phase 48: Sipping protocol
+    pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 49: CRDT primitives
+    pub use crate::crdt::{GCounter, LWWRegister, Merge};
 }
 
 #[cfg(test)]
@@ -51070,6 +53241,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+use crate::analysis::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
@@ -51228,22 +53400,124 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
     }
 }
 
+// =============================================================================
+// Phase 50: Policy Method Generation
+// =============================================================================
+
+/// Generate impl blocks with predicate and capability methods for security policies.
+fn codegen_policy_impls(policies: &PolicyRegistry, interner: &Interner) -> String {
+    let mut output = String::new();
+
+    // Collect all types that have policies
+    let mut type_predicates: HashMap<Symbol, Vec<&PredicateDef>> = HashMap::new();
+    let mut type_capabilities: HashMap<Symbol, Vec<&CapabilityDef>> = HashMap::new();
+
+    for (type_sym, predicates) in policies.iter_predicates() {
+        type_predicates.entry(*type_sym).or_insert_with(Vec::new).extend(predicates.iter());
+    }
+
+    for (type_sym, capabilities) in policies.iter_capabilities() {
+        type_capabilities.entry(*type_sym).or_insert_with(Vec::new).extend(capabilities.iter());
+    }
+
+    // Get all types that have any policies
+    let mut all_types: HashSet<Symbol> = HashSet::new();
+    all_types.extend(type_predicates.keys().copied());
+    all_types.extend(type_capabilities.keys().copied());
+
+    // Generate impl block for each type
+    for type_sym in all_types {
+        let type_name = interner.resolve(type_sym);
+
+        writeln!(output, "impl {} {{", type_name).unwrap();
+
+        // Generate predicate methods
+        if let Some(predicates) = type_predicates.get(&type_sym) {
+            for pred in predicates {
+                let pred_name = interner.resolve(pred.predicate_name).to_lowercase();
+                writeln!(output, "    pub fn is_{}(&self) -> bool {{", pred_name).unwrap();
+                let condition_code = codegen_policy_condition(&pred.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        // Generate capability methods
+        if let Some(capabilities) = type_capabilities.get(&type_sym) {
+            for cap in capabilities {
+                let action_name = interner.resolve(cap.action).to_lowercase();
+                let object_type = interner.resolve(cap.object_type);
+                let object_param = object_type.to_lowercase();
+
+                writeln!(output, "    pub fn can_{}(&self, {}: &{}) -> bool {{",
+                         action_name, object_param, object_type).unwrap();
+                let condition_code = codegen_policy_condition(&cap.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        writeln!(output, "}}\n").unwrap();
+    }
+
+    output
+}
+
+/// Generate Rust code for a policy condition.
+fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) -> String {
+    match condition {
+        PolicyCondition::FieldEquals { field, value, is_string_literal } => {
+            let field_name = interner.resolve(*field);
+            let value_str = interner.resolve(*value);
+            if *is_string_literal {
+                format!("self.{} == \"{}\"", field_name, value_str)
+            } else {
+                format!("self.{} == {}", field_name, value_str)
+            }
+        }
+        PolicyCondition::FieldBool { field, value } => {
+            let field_name = interner.resolve(*field);
+            format!("self.{} == {}", field_name, value)
+        }
+        PolicyCondition::Predicate { subject: _, predicate } => {
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+            format!("self.is_{}()", pred_name)
+        }
+        PolicyCondition::ObjectFieldEquals { subject: _, object, field } => {
+            let object_name = interner.resolve(*object).to_lowercase();
+            let field_name = interner.resolve(*field);
+            format!("self == &{}.{}", object_name, field_name)
+        }
+        PolicyCondition::Or(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} || {}", left_code, right_code)
+        }
+        PolicyCondition::And(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} && {}", left_code, right_code)
+        }
+    }
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
 /// Phase 32: Function definitions are emitted before main.
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) -> String {
+/// Phase 50: Accepts PolicyRegistry to generate security predicate methods.
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner) -> String {
     let mut output = String::new();
 
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
 
-    // Collect user-defined structs from registry (Phase 34: now with generics)
+    // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Struct { fields, generics } = def {
+            if let TypeDef::Struct { fields, generics, is_portable, is_shared } = def {
                 if !fields.is_empty() || !generics.is_empty() {
-                    Some((*name, fields.clone(), generics.clone()))
+                    Some((*name, fields.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -51253,12 +53527,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         })
         .collect();
 
-    // Phase 33/34: Collect user-defined enums from registry (now with generics)
+    // Phase 33/34: Collect user-defined enums from registry (generics, Phase 47: is_portable, Phase 49: is_shared)
     let enums: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
-            if let TypeDef::Enum { variants, generics } = def {
+            if let TypeDef::Enum { variants, generics, is_portable, is_shared } = def {
                 if !variants.is_empty() || !generics.is_empty() {
-                    Some((*name, variants.clone(), generics.clone()))
+                    Some((*name, variants.clone(), generics.clone(), *is_portable, *is_shared))
                 } else {
                     None
                 }
@@ -51273,17 +53547,20 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "pub mod user_types {{").unwrap();
         writeln!(output, "    use super::*;\n").unwrap();
 
-        for (name, fields, generics) in &structs {
-            output.push_str(&codegen_struct_def(*name, fields, generics, interner, 4));
+        for (name, fields, generics, is_portable, is_shared) in &structs {
+            output.push_str(&codegen_struct_def(*name, fields, generics, *is_portable, *is_shared, interner, 4));
         }
 
-        for (name, variants, generics) in &enums {
-            output.push_str(&codegen_enum_def(*name, variants, generics, interner, 4));
+        for (name, variants, generics, is_portable, is_shared) in &enums {
+            output.push_str(&codegen_enum_def(*name, variants, generics, *is_portable, *is_shared, interner, 4));
         }
 
         writeln!(output, "}}\n").unwrap();
         writeln!(output, "use user_types::*;\n").unwrap();
     }
+
+    // Phase 50: Generate policy impl blocks with predicate and capability methods
+    output.push_str(&codegen_policy_impls(policies, interner));
 
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
@@ -51494,7 +53771,9 @@ fn map_type_to_rust(ty: &str) -> String {
 
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
-fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now supports is_shared for CRDT Merge impl.
+fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is_portable: bool, is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -51508,7 +53787,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for field in fields {
@@ -51518,11 +53802,67 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], in
     }
 
     writeln!(output, "{}}}\n", ind).unwrap();
+
+    // Phase 49: Generate Merge impl for Shared structs
+    if is_shared {
+        output.push_str(&codegen_merge_impl(name, fields, generics, interner, indent));
+    }
+
     output
 }
 
+/// Phase 49: Generate impl Merge for a Shared struct.
+fn codegen_merge_impl(name: Symbol, fields: &[FieldDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+    let ind = " ".repeat(indent);
+    let name_str = interner.resolve(name);
+    let mut output = String::new();
+
+    // Build generic parameter string: <T, U> or empty
+    let generic_str = if generics.is_empty() {
+        String::new()
+    } else {
+        let params: Vec<&str> = generics.iter()
+            .map(|g| interner.resolve(*g))
+            .collect();
+        format!("<{}>", params.join(", "))
+    };
+
+    writeln!(output, "{}impl{} logos_core::crdt::Merge for {}{} {{", ind, generic_str, name_str, generic_str).unwrap();
+    writeln!(output, "{}    fn merge(&mut self, other: &Self) {{", ind).unwrap();
+
+    for field in fields {
+        let field_name = interner.resolve(field.name);
+        // Only merge fields that implement Merge (CRDT types)
+        if is_crdt_field_type(&field.ty, interner) {
+            writeln!(output, "{}        self.{}.merge(&other.{});", ind, field_name, field_name).unwrap();
+        }
+    }
+
+    writeln!(output, "{}    }}", ind).unwrap();
+    writeln!(output, "{}}}\n", ind).unwrap();
+
+    output
+}
+
+/// Phase 49: Check if a field type is a CRDT type that implements Merge.
+fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "ConvergentCount" | "GCounter")
+        }
+        FieldType::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "LastWriteWins" | "LWWRegister")
+        }
+        _ => false,
+    }
+}
+
 /// Phase 33/34: Generate enum definition with optional generic parameters.
-fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], interner: &Interner, indent: usize) -> String {
+/// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
+/// Phase 49: Now accepts is_shared parameter (enums don't generate Merge impl yet).
+fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], is_portable: bool, _is_shared: bool, interner: &Interner, indent: usize) -> String {
     let ind = " ".repeat(indent);
     let mut output = String::new();
 
@@ -51536,7 +53876,12 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
         format!("<{}>", params.join(", "))
     };
 
-    writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    // Phase 47: Add Serialize, Deserialize derives if portable
+    if is_portable {
+        writeln!(output, "{}#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    } else {
+        writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+    }
     writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
     for variant in variants {
@@ -51574,12 +53919,21 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 other => other.to_string(),
             }
         }
-        FieldType::Named(sym) => interner.resolve(*sym).to_string(),
+        FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                // Phase 49: CRDT type mapping
+                "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                _ => name.to_string(),
+            }
+        }
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
                 "Option" => "Option",
                 "Result" => "Result",
+                // Phase 49: CRDT generic type
+                "LastWriteWins" => "logos_core::crdt::LWWRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -51707,6 +54061,29 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}// TRUST: {}", indent_str, reason_clean).unwrap();
             let condition = codegen_assertion(proposition, interner);
             writeln!(output, "{}debug_assert!({});", indent_str, condition).unwrap();
+        }
+
+        Stmt::RuntimeAssert { condition } => {
+            let cond_str = codegen_expr(condition, interner);
+            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
+        }
+
+        // Phase 50: Security Check - mandatory runtime guard (NEVER optimized out)
+        Stmt::Check { subject, predicate, is_capability, object, source_text, span } => {
+            let subj_name = interner.resolve(*subject);
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+
+            let call = if *is_capability {
+                let obj_name = interner.resolve(object.expect("capability must have object"));
+                format!("{}.can_{}(&{})", subj_name, pred_name, obj_name)
+            } else {
+                format!("{}.is_{}()", subj_name, pred_name)
+            };
+
+            writeln!(output, "{}if !({}) {{", indent_str, call).unwrap();
+            writeln!(output, "{}    logos_core::panic_with(\"Security Check Failed at line {}: {}\");",
+                     indent_str, span.start, source_text).unwrap();
+            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -51954,6 +54331,63 @@ pub fn codegen_stmt<'a>(
                 indent_str, path_str, content_str
             ).unwrap();
         }
+
+        // Phase 46: Spawn an agent
+        Stmt::Spawn { agent_type, name } => {
+            let type_name = interner.resolve(*agent_type);
+            let agent_name = interner.resolve(*name);
+            // Generate agent spawn with tokio channel
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ /* {} agent loop */ }});",
+                indent_str, agent_name, type_name
+            ).unwrap();
+        }
+
+        // Phase 46: Send message to agent
+        Stmt::SendMessage { message, destination } => {
+            let msg_str = codegen_expr(message, interner);
+            let dest_str = codegen_expr(destination, interner);
+            writeln!(
+                output,
+                "{}{}.send({}).await.expect(\"Failed to send message\");",
+                indent_str, dest_str, msg_str
+            ).unwrap();
+        }
+
+        // Phase 46: Await response from agent
+        Stmt::AwaitMessage { source, into } => {
+            let src_str = codegen_expr(source, interner);
+            let var_name = interner.resolve(*into);
+            writeln!(
+                output,
+                "{}let {} = {}.recv().await.expect(\"Failed to receive message\");",
+                indent_str, var_name, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Merge CRDT state
+        Stmt::MergeCrdt { source, target } => {
+            let src_str = codegen_expr(source, interner);
+            let tgt_str = codegen_expr(target, interner);
+            writeln!(
+                output,
+                "{}{}.merge(&{});",
+                indent_str, tgt_str, src_str
+            ).unwrap();
+        }
+
+        // Phase 49: Increment GCounter
+        Stmt::IncreaseCrdt { object, field, amount } => {
+            let obj_str = codegen_expr(object, interner);
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner);
+            writeln!(
+                output,
+                "{}{}.{}.increment({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
     }
 
     output
@@ -51973,6 +54407,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 BinaryOpKind::Subtract => "-",
                 BinaryOpKind::Multiply => "*",
                 BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
                 BinaryOpKind::Eq => "==",
                 BinaryOpKind::NotEq => "!=",
                 BinaryOpKind::Lt => "<",
@@ -52017,6 +54452,19 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
             let coll_str = codegen_expr(collection, interner);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
+        }
+
+        // Phase 48: Sipping Protocol expressions
+        Expr::ManifestOf { zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
+        }
+
+        Expr::ChunkAt { index, zone } => {
+            let zone_str = codegen_expr(zone, interner);
+            let index_str = codegen_expr(index, interner);
+            // LOGOS uses 1-indexed, Rust uses 0-indexed
+            format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
@@ -52195,7 +54643,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -52214,13 +54662,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -52266,7 +54716,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -52281,13 +54731,15 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -52335,7 +54787,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -52352,13 +54804,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -52408,7 +54862,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -52557,7 +55011,17 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
     let codegen_registry = type_registry.clone();
 
-    // Tokenize the main file
+    // Phase 50: Also discover policies from the main file
+    // (discover_with_imports doesn't handle policies yet, so we do a separate pass)
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+    let policy_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run_full().policies
+    };
+    let codegen_policies = policy_registry.clone();
+
+    // Re-tokenize for parsing (interner may have been modified)
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
@@ -52587,7 +55051,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     // Pass 2: Parse with type context (includes imported types)
     let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -53823,6 +56287,900 @@ mod tests {
         assert!(is_yesterday("2025-01-01", "2025-01-02"));
         assert!(!is_yesterday("2025-01-01", "2025-01-03"));
     }
+}
+
+```
+
+---
+
+### Module: interpreter
+
+**File:** `src/interpreter.rs`
+
+Additional source module.
+
+```rust
+//! Tree-walking interpreter for LOGOS imperative code.
+//!
+//! This module provides runtime execution of parsed LOGOS programs,
+//! walking the AST and executing statements/expressions directly.
+
+use std::collections::HashMap;
+
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, Stmt, TypeExpr};
+use crate::intern::{Interner, Symbol};
+
+/// Runtime values during interpretation.
+#[derive(Debug, Clone)]
+pub enum RuntimeValue {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
+    List(Vec<RuntimeValue>),
+    Struct {
+        type_name: String,
+        fields: HashMap<String, RuntimeValue>,
+    },
+    Nothing,
+}
+
+impl RuntimeValue {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            RuntimeValue::Int(_) => "Int",
+            RuntimeValue::Float(_) => "Float",
+            RuntimeValue::Bool(_) => "Bool",
+            RuntimeValue::Text(_) => "Text",
+            RuntimeValue::List(_) => "List",
+            RuntimeValue::Struct { .. } => "Struct",
+            RuntimeValue::Nothing => "Nothing",
+        }
+    }
+
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            RuntimeValue::Bool(b) => *b,
+            RuntimeValue::Int(n) => *n != 0,
+            RuntimeValue::Nothing => false,
+            _ => true,
+        }
+    }
+
+    pub fn to_display_string(&self) -> String {
+        match self {
+            RuntimeValue::Int(n) => n.to_string(),
+            RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
+            RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
+            RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::List(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Struct { type_name, fields } => {
+                if fields.is_empty() {
+                    // Unit variant - just show the name
+                    type_name.clone()
+                } else {
+                    let field_strs: Vec<String> = fields
+                        .iter()
+                        .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                        .collect();
+                    format!("{} {{ {} }}", type_name, field_strs.join(", "))
+                }
+            }
+            RuntimeValue::Nothing => "nothing".to_string(),
+        }
+    }
+}
+
+/// Control flow signals for statement execution.
+pub enum ControlFlow {
+    Continue,
+    Return(RuntimeValue),
+    Break,
+}
+
+/// Stored function definition for user-defined functions.
+pub struct FunctionDef<'a> {
+    pub params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+    pub body: Block<'a>,
+    pub return_type: Option<&'a TypeExpr<'a>>,
+}
+
+/// Tree-walking interpreter for LOGOS programs.
+pub struct Interpreter<'a> {
+    interner: &'a Interner,
+    /// Scope stack - each HashMap is a scope level
+    env: Vec<HashMap<Symbol, RuntimeValue>>,
+    /// User-defined functions
+    functions: HashMap<Symbol, FunctionDef<'a>>,
+    /// Struct type definitions (for constructor validation)
+    struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
+    /// Output lines from show() calls
+    pub output: Vec<String>,
+}
+
+impl<'a> Interpreter<'a> {
+    pub fn new(interner: &'a Interner) -> Self {
+        Interpreter {
+            interner,
+            env: vec![HashMap::new()], // Global scope
+            functions: HashMap::new(),
+            struct_defs: HashMap::new(),
+            output: Vec::new(),
+        }
+    }
+
+    /// Execute a program (list of statements).
+    pub fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        for stmt in stmts {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Return(_) => break,
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Execute a single statement.
+    fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                let val = self.evaluate_expr(value)?;
+                self.define(*var, val);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Set { target, value } => {
+                let val = self.evaluate_expr(value)?;
+                self.assign(*target, val)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Call { function, args } => {
+                self.call_function(*function, args)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::If { cond, then_block, else_block } => {
+                let condition = self.evaluate_expr(cond)?;
+                if condition.is_truthy() {
+                    let flow = self.execute_block(then_block)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow); // Propagate Return/Break from If block
+                    }
+                } else if let Some(else_stmts) = else_block {
+                    let flow = self.execute_block(else_stmts)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow); // Propagate Return/Break from Otherwise block
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::While { cond, body, .. } => {
+                loop {
+                    let condition = self.evaluate_expr(cond)?;
+                    if !condition.is_truthy() {
+                        break;
+                    }
+                    match self.execute_block(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                        ControlFlow::Continue => {}
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Repeat { var, iterable, body } => {
+                let iter_val = self.evaluate_expr(iterable)?;
+                let items = match iter_val {
+                    RuntimeValue::List(list) => list,
+                    RuntimeValue::Text(s) => {
+                        s.chars().map(|c| RuntimeValue::Text(c.to_string())).collect()
+                    }
+                    _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
+                };
+
+                self.push_scope();
+                for item in items {
+                    self.define(*var, item);
+                    match self.execute_block(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => {
+                            self.pop_scope();
+                            return Ok(ControlFlow::Return(v));
+                        }
+                        ControlFlow::Continue => {}
+                    }
+                }
+                self.pop_scope();
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Return { value } => {
+                let ret_val = match value {
+                    Some(expr) => self.evaluate_expr(expr)?,
+                    None => RuntimeValue::Nothing,
+                };
+                Ok(ControlFlow::Return(ret_val))
+            }
+
+            Stmt::FunctionDef { name, params, body, return_type, .. } => {
+                let func = FunctionDef {
+                    params: params.clone(),
+                    body: *body,
+                    return_type: *return_type,
+                };
+                self.functions.insert(*name, func);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::StructDef { name, fields, .. } => {
+                self.struct_defs.insert(*name, fields.clone());
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetField { object, field, value } => {
+                let new_val = self.evaluate_expr(value)?;
+                // Get the object identifier
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+                    if let RuntimeValue::Struct { fields, .. } = &mut obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err(format!("Cannot set field on non-struct value"));
+                    }
+                } else {
+                    return Err("SetField target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Push { value, collection } => {
+                let val = self.evaluate_expr(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        items.push(val);
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only push to a List".to_string());
+                    }
+                } else {
+                    return Err("Push collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Pop { collection, into } => {
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        let popped = items.pop().unwrap_or(RuntimeValue::Nothing);
+                        self.assign(*coll_sym, coll_val)?;
+                        if let Some(into_var) = into {
+                            self.define(*into_var, popped);
+                        }
+                    } else {
+                        return Err("Can only pop from a List".to_string());
+                    }
+                } else {
+                    return Err("Pop collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetIndex { collection, index, value } => {
+                let idx_val = self.evaluate_expr(index)?;
+                let new_val = self.evaluate_expr(value)?;
+                let idx = match idx_val {
+                    RuntimeValue::Int(n) => n as usize,
+                    _ => return Err("Index must be an integer".to_string()),
+                };
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        // 1-indexed
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                        }
+                        items[idx - 1] = new_val;
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only index into a List".to_string());
+                    }
+                } else {
+                    return Err("SetIndex collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Inspect { target, arms, .. } => {
+                let target_val = self.evaluate_expr(target)?;
+                self.execute_inspect(&target_val, arms)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Zone { name, body, .. } => {
+                // Zones create a new scope
+                self.push_scope();
+                // Define the zone handle (as Nothing for now)
+                self.define(*name, RuntimeValue::Nothing);
+                let result = self.execute_block(body);
+                self.pop_scope();
+                result?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+                // In WASM, execute sequentially
+                for task in tasks.iter() {
+                    self.execute_stmt(task)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Assert { .. } | Stmt::Trust { .. } => {
+                // Logic assertions - for now, just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::RuntimeAssert { condition } => {
+                let val = self.evaluate_expr(condition)?;
+                if !val.is_truthy() {
+                    return Err("Assertion failed".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Give { .. } => {
+                // Ownership semantics - in interpreter, just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Show { object, recipient } => {
+                // Show statement: "Show x." or "Show x to console."
+                // The recipient is the show function by default
+                let obj_val = self.evaluate_expr(object)?;
+
+                // Check if recipient is the "show" function (default)
+                if let Expr::Identifier(sym) = recipient {
+                    let name = self.interner.resolve(*sym);
+                    if name == "show" {
+                        // Output the value
+                        self.output.push(obj_val.to_display_string());
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::ReadFrom { var, .. } => {
+                // No filesystem in WASM - return empty string
+                self.define(*var, RuntimeValue::Text(String::new()));
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::WriteFile { .. } => {
+                // No filesystem in WASM - just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Spawn { name, .. } => {
+                // No agents in WASM - create a placeholder
+                self.define(*name, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SendMessage { .. } => {
+                // No agents in WASM
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::AwaitMessage { into, .. } => {
+                // No agents in WASM - define the into variable as Nothing
+                self.define(*into, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            // Phase 49: CRDT operations - not supported in interpreter (compile-only)
+            Stmt::MergeCrdt { .. } => {
+                Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::IncreaseCrdt { .. } => {
+                Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            // Phase 50: Security Check - not supported in interpreter (compile-only)
+            Stmt::Check { .. } => {
+                Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+        }
+    }
+
+    /// Execute a block of statements, returning control flow.
+    fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
+        self.push_scope();
+        for stmt in block.iter() {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Continue => {}
+                flow => {
+                    self.pop_scope();
+                    return Ok(flow);
+                }
+            }
+        }
+        self.pop_scope();
+        Ok(ControlFlow::Continue)
+    }
+
+    /// Execute Inspect (pattern matching).
+    fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
+        for arm in arms {
+            if arm.variant.is_none() {
+                // Otherwise arm - always matches
+                self.execute_block(arm.body)?;
+                return Ok(());
+            }
+            // For now, simplified matching - just check type name
+            if let RuntimeValue::Struct { type_name, fields } = target {
+                if let Some(variant) = arm.variant {
+                    let variant_name = self.interner.resolve(variant);
+                    if type_name == variant_name {
+                        // Bind fields
+                        self.push_scope();
+                        for (field_name, binding_name) in &arm.bindings {
+                            let field_str = self.interner.resolve(*field_name);
+                            if let Some(val) = fields.get(field_str) {
+                                self.define(*binding_name, val.clone());
+                            }
+                        }
+                        let result = self.execute_block(arm.body);
+                        self.pop_scope();
+                        result?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Evaluate an expression to a runtime value.
+    fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        match expr {
+            Expr::Literal(lit) => self.evaluate_literal(lit),
+
+            Expr::Identifier(sym) => {
+                self.lookup(*sym).cloned()
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let left_val = self.evaluate_expr(left)?;
+                let right_val = self.evaluate_expr(right)?;
+                self.apply_binary_op(*op, left_val, right_val)
+            }
+
+            Expr::Call { function, args } => {
+                self.call_function(*function, args)
+            }
+
+            Expr::Index { collection, index } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                let idx_val = self.evaluate_expr(index)?;
+                match (&coll_val, &idx_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
+                        // 1-indexed
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
+                    (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > s.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
+                    }
+                    _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
+                }
+            }
+
+            Expr::Slice { collection, start, end } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                let start_val = self.evaluate_expr(start)?;
+                let end_val = self.evaluate_expr(end)?;
+                match (&coll_val, &start_val, &end_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let start = (*s as usize).saturating_sub(1);
+                        let end = *e as usize;
+                        let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
+                        Ok(RuntimeValue::List(slice))
+                    }
+                    _ => Err("Slice requires List and Int indices".to_string()),
+                }
+            }
+
+            Expr::Copy { expr: inner } => {
+                // Copy just evaluates and clones
+                self.evaluate_expr(inner)
+            }
+
+            Expr::Length { collection } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                match &coll_val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::List(items) => {
+                let values: Result<Vec<RuntimeValue>, String> = items
+                    .iter()
+                    .map(|e| self.evaluate_expr(e))
+                    .collect();
+                Ok(RuntimeValue::List(values?))
+            }
+
+            Expr::Range { start, end } => {
+                let start_val = self.evaluate_expr(start)?;
+                let end_val = self.evaluate_expr(end)?;
+                match (&start_val, &end_val) {
+                    (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let range: Vec<RuntimeValue> = (*s..=*e)
+                            .map(RuntimeValue::Int)
+                            .collect();
+                        Ok(RuntimeValue::List(range))
+                    }
+                    _ => Err("Range requires Int bounds".to_string()),
+                }
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_val = self.evaluate_expr(object)?;
+                match &obj_val {
+                    RuntimeValue::Struct { fields, .. } => {
+                        let field_name = self.interner.resolve(*field);
+                        fields.get(field_name).cloned()
+                            .ok_or_else(|| format!("Field '{}' not found", field_name))
+                    }
+                    _ => Err(format!("Cannot access field on {}", obj_val.type_name())),
+                }
+            }
+
+            Expr::New { type_name, init_fields, .. } => {
+                let name = self.interner.resolve(*type_name).to_string();
+                let mut fields = HashMap::new();
+                for (field_sym, field_expr) in init_fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr(field_expr)?;
+                    fields.insert(field_name, field_val);
+                }
+                Ok(RuntimeValue::Struct { type_name: name, fields })
+            }
+
+            Expr::NewVariant { variant, fields, .. } => {
+                let name = self.interner.resolve(*variant).to_string();
+                let mut field_map = HashMap::new();
+                for (field_sym, field_expr) in fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr(field_expr)?;
+                    field_map.insert(field_name, field_val);
+                }
+                Ok(RuntimeValue::Struct { type_name: name, fields: field_map })
+            }
+
+            Expr::ManifestOf { .. } => {
+                // Phase 48: Zone manifests not available in WASM
+                Ok(RuntimeValue::List(vec![]))
+            }
+
+            Expr::ChunkAt { .. } => {
+                // Phase 48: Zone chunks not available in WASM
+                Ok(RuntimeValue::Nothing)
+            }
+        }
+    }
+
+    /// Evaluate a literal to a runtime value.
+    fn evaluate_literal(&self, lit: &Literal) -> Result<RuntimeValue, String> {
+        match lit {
+            Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
+            Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
+            Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
+            Literal::Nothing => Ok(RuntimeValue::Nothing),
+        }
+    }
+
+    /// Apply a binary operator.
+    fn apply_binary_op(&self, op: BinaryOpKind, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match op {
+            BinaryOpKind::Add => self.apply_add(left, right),
+            BinaryOpKind::Subtract => self.apply_subtract(left, right),
+            BinaryOpKind::Multiply => self.apply_multiply(left, right),
+            BinaryOpKind::Divide => self.apply_divide(left, right),
+            BinaryOpKind::Modulo => self.apply_modulo(left, right),
+            BinaryOpKind::Eq => Ok(RuntimeValue::Bool(self.values_equal(&left, &right))),
+            BinaryOpKind::NotEq => Ok(RuntimeValue::Bool(!self.values_equal(&left, &right))),
+            BinaryOpKind::Lt => self.apply_comparison(left, right, |a, b| a < b),
+            BinaryOpKind::Gt => self.apply_comparison(left, right, |a, b| a > b),
+            BinaryOpKind::LtEq => self.apply_comparison(left, right, |a, b| a <= b),
+            BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
+            BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
+            BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+        }
+    }
+
+    fn apply_add(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a + b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a + b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 + b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a + *b as f64)),
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", a, b))),
+            (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(format!("{}{}", a, other.to_display_string()))),
+            (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
+            _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a - b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a - b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 - b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a - *b as f64)),
+            _ => Err(format!("Cannot subtract {} from {}", right.type_name(), left.type_name())),
+        }
+    }
+
+    fn apply_multiply(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a * b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a * b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 * b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a * *b as f64)),
+            _ => Err(format!("Cannot multiply {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_divide(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Int(a / b))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
+                if *b == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(a / b))
+            }
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
+                if *b == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(*a as f64 / b))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(a / *b as f64))
+            }
+            _ => Err(format!("Cannot divide {} by {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_modulo(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Modulo by zero".to_string());
+                }
+                Ok(RuntimeValue::Int(a % b))
+            }
+            _ => Err(format!("Cannot compute modulo of {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_comparison<F>(&self, left: RuntimeValue, right: RuntimeValue, cmp: F) -> Result<RuntimeValue, String>
+    where
+        F: Fn(i64, i64) -> bool,
+    {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            _ => Err(format!("Cannot compare {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn values_equal(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
+        match (left, right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+            _ => false,
+        }
+    }
+
+    /// Call a function (built-in or user-defined).
+    fn call_function(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+        let func_name = self.interner.resolve(function);
+
+        // Built-in functions
+        match func_name {
+            "show" => {
+                for arg in args {
+                    let val = self.evaluate_expr(arg)?;
+                    self.output.push(val.to_display_string());
+                }
+                return Ok(RuntimeValue::Nothing);
+            }
+            "length" => {
+                if args.len() != 1 {
+                    return Err("length() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return match &val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", val.type_name())),
+                };
+            }
+            "format" => {
+                if args.is_empty() {
+                    return Ok(RuntimeValue::Text(String::new()));
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(RuntimeValue::Text(val.to_display_string()));
+            }
+            "abs" => {
+                if args.len() != 1 {
+                    return Err("abs() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return match val {
+                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
+                    RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
+                    _ => Err(format!("abs() requires a number, got {}", val.type_name())),
+                };
+            }
+            "min" => {
+                if args.len() != 2 {
+                    return Err("min() takes exactly 2 arguments".to_string());
+                }
+                let a = self.evaluate_expr(args[0])?;
+                let b = self.evaluate_expr(args[1])?;
+                return match (&a, &b) {
+                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
+                    _ => Err("min() requires integers".to_string()),
+                };
+            }
+            "max" => {
+                if args.len() != 2 {
+                    return Err("max() takes exactly 2 arguments".to_string());
+                }
+                let a = self.evaluate_expr(args[0])?;
+                let b = self.evaluate_expr(args[1])?;
+                return match (&a, &b) {
+                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
+                    _ => Err("max() requires integers".to_string()),
+                };
+            }
+            "copy" => {
+                if args.len() != 1 {
+                    return Err("copy() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(val.clone());
+            }
+            _ => {}
+        }
+
+        // User-defined function lookup
+        // Need to get the function separately to avoid borrow conflicts
+        let func_data = self.functions.get(&function)
+            .map(|f| (f.params.clone(), f.body))
+            .ok_or_else(|| format!("Unknown function: {}", func_name))?;
+
+        let (params, body) = func_data;
+
+        if args.len() != params.len() {
+            return Err(format!(
+                "Function {} expects {} arguments, got {}",
+                func_name,
+                params.len(),
+                args.len()
+            ));
+        }
+
+        // Evaluate arguments before pushing scope
+        let mut arg_values = Vec::new();
+        for arg in args {
+            arg_values.push(self.evaluate_expr(arg)?);
+        }
+
+        // Push new scope and bind parameters
+        self.push_scope();
+        for ((param_name, _), arg_val) in params.iter().zip(arg_values) {
+            self.define(*param_name, arg_val);
+        }
+
+        // Execute function body
+        let mut return_value = RuntimeValue::Nothing;
+        for stmt in body.iter() {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Return(val) => {
+                    return_value = val;
+                    break;
+                }
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+
+        self.pop_scope();
+        Ok(return_value)
+    }
+
+    // Scope management
+
+    fn push_scope(&mut self) {
+        self.env.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.env.len() > 1 {
+            self.env.pop();
+        }
+    }
+
+    fn define(&mut self, name: Symbol, value: RuntimeValue) {
+        if let Some(scope) = self.env.last_mut() {
+            scope.insert(name, value);
+        }
+    }
+
+    fn assign(&mut self, name: Symbol, value: RuntimeValue) -> Result<(), String> {
+        // Search from innermost to outermost scope
+        for scope in self.env.iter_mut().rev() {
+            if scope.contains_key(&name) {
+                scope.insert(name, value);
+                return Ok(());
+            }
+        }
+        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+
+    fn lookup(&self, name: Symbol) -> Result<&RuntimeValue, String> {
+        // Search from innermost to outermost scope
+        for scope in self.env.iter().rev() {
+            if let Some(value) = scope.get(&name) {
+                return Ok(value);
+            }
+        }
+        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+}
+
+/// Result from interpretation.
+#[derive(Debug, Clone)]
+pub struct InterpreterResult {
+    pub lines: Vec<String>,
+    pub error: Option<String>,
 }
 
 ```
@@ -57119,11 +60477,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Mon Dec 29 15:08:15 CST 2025
+- **Generated:** Wed Dec 31 15:04:44 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
-- **Git Branch:** main
-- **Git Commit:** 0ff47d6
-- **Documentation Size:** 1.9M
+- **Git Branch:** tristen
+- **Git Commit:** f50d935
+- **Documentation Size:** 2.1M
 
 ---
 

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+use crate::analysis::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
@@ -15,14 +16,21 @@ use crate::registry::SymbolRegistry;
 /// Tracks refinement type constraints across scopes for mutation enforcement.
 /// When a variable with a refinement type is defined, we register its constraint.
 /// When that variable is mutated via `Set`, we re-emit the assertion.
+/// Phase 50: Also tracks variable types for capability Check resolution.
 pub struct RefinementContext<'a> {
     /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
     scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+    /// Phase 50: Maps variable name Symbol to type name (for capability resolution)
+    /// e.g., "doc" -> "Document" allows "Check that user can publish the document" to resolve to &doc
+    variable_types: HashMap<Symbol, String>,
 }
 
 impl<'a> RefinementContext<'a> {
     pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()] }
+        Self {
+            scopes: vec![HashMap::new()],
+            variable_types: HashMap::new(),
+        }
     }
 
     fn push_scope(&mut self) {
@@ -43,6 +51,22 @@ impl<'a> RefinementContext<'a> {
         for scope in self.scopes.iter().rev() {
             if let Some(entry) = scope.get(&var) {
                 return Some(*entry);
+            }
+        }
+        None
+    }
+
+    /// Phase 50: Register a variable with its type for capability resolution
+    fn register_variable_type(&mut self, var: Symbol, type_name: String) {
+        self.variable_types.insert(var, type_name);
+    }
+
+    /// Phase 50: Find a variable name by its type (for resolving "the document" to "doc")
+    fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
+        let type_lower = type_name.to_lowercase();
+        for (var_sym, var_type) in &self.variable_types {
+            if var_type.to_lowercase() == type_lower {
+                return Some(interner.resolve(*var_sym).to_string());
             }
         }
         None
@@ -160,15 +184,141 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
     }
 }
 
+// =============================================================================
+// Phase 50: Policy Method Generation
+// =============================================================================
+
+/// Generate impl blocks with predicate and capability methods for security policies.
+fn codegen_policy_impls(policies: &PolicyRegistry, interner: &Interner) -> String {
+    let mut output = String::new();
+
+    // Collect all types that have policies
+    let mut type_predicates: HashMap<Symbol, Vec<&PredicateDef>> = HashMap::new();
+    let mut type_capabilities: HashMap<Symbol, Vec<&CapabilityDef>> = HashMap::new();
+
+    for (type_sym, predicates) in policies.iter_predicates() {
+        type_predicates.entry(*type_sym).or_insert_with(Vec::new).extend(predicates.iter());
+    }
+
+    for (type_sym, capabilities) in policies.iter_capabilities() {
+        type_capabilities.entry(*type_sym).or_insert_with(Vec::new).extend(capabilities.iter());
+    }
+
+    // Get all types that have any policies
+    let mut all_types: HashSet<Symbol> = HashSet::new();
+    all_types.extend(type_predicates.keys().copied());
+    all_types.extend(type_capabilities.keys().copied());
+
+    // Generate impl block for each type
+    for type_sym in all_types {
+        let type_name = interner.resolve(type_sym);
+
+        writeln!(output, "impl {} {{", type_name).unwrap();
+
+        // Generate predicate methods
+        if let Some(predicates) = type_predicates.get(&type_sym) {
+            for pred in predicates {
+                let pred_name = interner.resolve(pred.predicate_name).to_lowercase();
+                writeln!(output, "    pub fn is_{}(&self) -> bool {{", pred_name).unwrap();
+                let condition_code = codegen_policy_condition(&pred.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        // Generate capability methods
+        if let Some(capabilities) = type_capabilities.get(&type_sym) {
+            for cap in capabilities {
+                let action_name = interner.resolve(cap.action).to_lowercase();
+                let object_type = interner.resolve(cap.object_type);
+                let object_param = object_type.to_lowercase();
+
+                writeln!(output, "    pub fn can_{}(&self, {}: &{}) -> bool {{",
+                         action_name, object_param, object_type).unwrap();
+                let condition_code = codegen_policy_condition(&cap.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        writeln!(output, "}}\n").unwrap();
+    }
+
+    output
+}
+
+/// Generate Rust code for a policy condition.
+fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) -> String {
+    match condition {
+        PolicyCondition::FieldEquals { field, value, is_string_literal } => {
+            let field_name = interner.resolve(*field);
+            let value_str = interner.resolve(*value);
+            if *is_string_literal {
+                format!("self.{} == \"{}\"", field_name, value_str)
+            } else {
+                format!("self.{} == {}", field_name, value_str)
+            }
+        }
+        PolicyCondition::FieldBool { field, value } => {
+            let field_name = interner.resolve(*field);
+            format!("self.{} == {}", field_name, value)
+        }
+        PolicyCondition::Predicate { subject: _, predicate } => {
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+            format!("self.is_{}()", pred_name)
+        }
+        PolicyCondition::ObjectFieldEquals { subject: _, object, field } => {
+            let object_name = interner.resolve(*object).to_lowercase();
+            let field_name = interner.resolve(*field);
+            format!("self == &{}.{}", object_name, field_name)
+        }
+        PolicyCondition::Or(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} || {}", left_code, right_code)
+        }
+        PolicyCondition::And(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} && {}", left_code, right_code)
+        }
+    }
+}
+
+/// Collect LWWRegister field paths for special handling in SetField codegen.
+/// Returns a set of (type_name, field_name) pairs where the field is an LWWRegister.
+fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String)> {
+    let mut lww_fields = HashSet::new();
+    for (type_sym, def) in registry.iter_types() {
+        if let TypeDef::Struct { fields, .. } = def {
+            let type_name = interner.resolve(*type_sym).to_string();
+            for field in fields {
+                if let FieldType::Generic { base, .. } = &field.ty {
+                    let base_name = interner.resolve(*base);
+                    if base_name == "LastWriteWins" {
+                        let field_name = interner.resolve(field.name).to_string();
+                        lww_fields.insert((type_name.clone(), field_name));
+                    }
+                }
+            }
+        }
+    }
+    lww_fields
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
 /// Phase 32: Function definitions are emitted before main.
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) -> String {
+/// Phase 50: Accepts PolicyRegistry to generate security predicate methods.
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner) -> String {
     let mut output = String::new();
 
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
+
+    // Phase 49: Collect LWWRegister fields for special SetField handling
+    let lww_fields = collect_lww_fields(registry, interner);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -217,10 +367,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "use user_types::*;\n").unwrap();
     }
 
+    // Phase 50: Generate policy impl blocks with predicate and capability methods
+    output.push_str(&codegen_policy_impls(policies, interner));
+
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields));
         }
     }
 
@@ -241,7 +394,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -249,6 +402,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
 
 /// Phase 32/38: Generate a function definition.
 /// Phase 38: Updated for native functions and TypeExpr types.
+/// Phase 49: Accepts lww_fields for LWWRegister SetField handling.
 fn codegen_function_def(
     name: Symbol,
     params: &[(Symbol, &TypeExpr)],
@@ -256,6 +410,7 @@ fn codegen_function_def(
     return_type: Option<&TypeExpr>,
     is_native: bool,
     interner: &Interner,
+    lww_fields: &HashSet<(String, String)>,
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
@@ -303,8 +458,15 @@ fn codegen_function_def(
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
+
+        // Phase 50: Register parameter types for capability Check resolution
+        for (param_name, param_type) in params {
+            let type_name = codegen_type_expr(param_type, interner);
+            func_ctx.register_variable_type(*param_name, type_name);
+        }
+
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -443,10 +605,11 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is
     };
 
     // Phase 47: Add Serialize, Deserialize derives if portable
+    // Phase 50: Add PartialEq for policy equality comparisons
     if is_portable {
-        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+        writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]", ind).unwrap();
     } else {
-        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+        writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq)]", ind).unwrap();
     }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
@@ -607,6 +770,7 @@ pub fn codegen_stmt<'a>(
     indent: usize,
     mutable_vars: &HashSet<Symbol>,
     ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -656,14 +820,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
                 }
                 ctx.pop_scope();
             }
@@ -676,7 +840,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -688,7 +852,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -720,7 +884,33 @@ pub fn codegen_stmt<'a>(
 
         Stmt::RuntimeAssert { condition } => {
             let cond_str = codegen_expr(condition, interner);
-            writeln!(output, "{}assert!({});", indent_str, cond_str).unwrap();
+            writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
+        }
+
+        // Phase 50: Security Check - mandatory runtime guard (NEVER optimized out)
+        Stmt::Check { subject, predicate, is_capability, object, source_text, span } => {
+            let subj_name = interner.resolve(*subject);
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+
+            let call = if *is_capability {
+                let obj_sym = object.expect("capability must have object");
+                let obj_word = interner.resolve(obj_sym);
+
+                // Phase 50: Type-based resolution
+                // "Check that user can publish the document" -> find variable of type Document
+                // First try to find a variable whose type matches the object word
+                let obj_name = ctx.find_variable_by_type(obj_word, interner)
+                    .unwrap_or_else(|| obj_word.to_string());
+
+                format!("{}.can_{}(&{})", subj_name, pred_name, obj_name)
+            } else {
+                format!("{}.is_{}()", subj_name, pred_name)
+            };
+
+            writeln!(output, "{}if !({}) {{", indent_str, call).unwrap();
+            writeln!(output, "{}    logos_core::panic_with(\"Security Check Failed at line {}: {}\");",
+                     indent_str, span.start, source_text).unwrap();
+            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -741,7 +931,15 @@ pub fn codegen_stmt<'a>(
             let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
             let value_str = codegen_expr(value, interner);
-            writeln!(output, "{}{}.{} = {};", indent_str, obj_str, field_name, value_str).unwrap();
+
+            // Phase 49: Check if this field is an LWWRegister - use .set() instead of =
+            // We check if ANY type has this field as LWW (heuristic - works for most cases)
+            let is_lww = lww_fields.iter().any(|(_, f)| f == field_name);
+            if is_lww {
+                writeln!(output, "{}{}.{}.set({});", indent_str, obj_str, field_name, value_str).unwrap();
+            } else {
+                writeln!(output, "{}{}.{} = {};", indent_str, obj_str, field_name, value_str).unwrap();
+            }
         }
 
         Stmt::StructDef { .. } => {
@@ -789,7 +987,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -855,7 +1053,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
             }
 
             ctx.pop_scope();
@@ -882,7 +1080,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields);
                 // Wrap each statement in an async block
                 write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
                 if i < tasks.len() - 1 {
@@ -916,7 +1114,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -930,7 +1128,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -1126,7 +1324,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
         Expr::New { type_name, type_args, init_fields } => {
             let type_str = interner.resolve(*type_name);
             if !init_fields.is_empty() {
-                // Struct initialization with fields: Point { x: 10, y: 20 }
+                // Struct initialization with fields: Point { x: 10, y: 20, ..Default::default() }
+                // Always add ..Default::default() to handle partial initialization (e.g., CRDT fields)
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
@@ -1135,7 +1334,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{} {{ {} }}", type_str, fields_str)
+                format!("{} {{ {}, ..Default::default() }}", type_str, fields_str)
             } else if type_args.is_empty() {
                 format!("{}::default()", type_str)
             } else {

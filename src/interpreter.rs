@@ -394,6 +394,11 @@ impl<'a> Interpreter<'a> {
             Stmt::IncreaseCrdt { .. } => {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
             }
+
+            // Phase 50: Security Check - not supported in interpreter (compile-only)
+            Stmt::Check { .. } => {
+                Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 
@@ -552,6 +557,13 @@ impl<'a> Interpreter<'a> {
 
             Expr::New { type_name, init_fields, .. } => {
                 let name = self.interner.resolve(*type_name).to_string();
+
+                // Check if this is a collection type (Seq or List)
+                if name == "Seq" || name == "List" {
+                    return Ok(RuntimeValue::List(vec![]));
+                }
+
+                // Otherwise create a struct
                 let mut fields = HashMap::new();
                 for (field_sym, field_expr) in init_fields {
                     let field_name = self.interner.resolve(*field_sym).to_string();

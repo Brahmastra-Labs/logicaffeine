@@ -5,15 +5,17 @@
 //! is the sum of all replica counts.
 
 use super::Merge;
+use crate::io::Showable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 
 /// A grow-only counter that supports distributed increment operations.
 ///
 /// Each replica has a unique ID and maintains its own count.
 /// The total value is the sum across all replicas.
 /// Merging takes the maximum count for each replica ID.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct GCounter {
     /// Map from replica ID to local count
     counts: HashMap<String, u64>,
@@ -66,6 +68,12 @@ impl Merge for GCounter {
             let entry = self.counts.entry(replica.clone()).or_insert(0);
             *entry = (*entry).max(count);
         }
+    }
+}
+
+impl Showable for GCounter {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.value())
     }
 }
 

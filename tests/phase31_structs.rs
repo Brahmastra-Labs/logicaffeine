@@ -40,11 +40,12 @@ Show p.
 }
 
 #[test]
-fn test_private_field_codegen() {
+fn test_field_visibility_codegen() {
+    // Phase 50: Both concise and natural syntax fields are public by default
     let source = r#"
 ## Definition
 A User has:
-    a public name, which is Text.
+    a name, which is Text.
     an age, which is Nat.
 
 ## Main
@@ -52,8 +53,7 @@ Return.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
     assert!(rust.contains("pub name: String"), "name should be pub: {}", rust);
-    assert!(rust.contains("age: u64"), "age should exist: {}", rust);
-    assert!(!rust.contains("pub age"), "age should NOT be pub: {}", rust);
+    assert!(rust.contains("pub age: u64"), "age should be pub: {}", rust);
 }
 
 #[test]
@@ -98,5 +98,5 @@ A Point has:
 Return.
 "#;
     let rust = compile_to_rust(source).expect("Compiles");
-    assert!(rust.contains("#[derive(Default, Debug, Clone)]"), "Should have derive macros: {}", rust);
+    assert!(rust.contains("#[derive(Default, Debug, Clone, PartialEq)]"), "Should have derive macros: {}", rust);
 }

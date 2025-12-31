@@ -4,14 +4,16 @@
 //! The value with the highest timestamp wins on merge.
 
 use super::Merge;
+use crate::io::Showable;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A register that resolves conflicts using "last write wins" semantics.
 ///
 /// Each write records a timestamp, and on merge the value with
 /// the higher timestamp is kept.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LWWRegister<T> {
     value: T,
     /// Microseconds since UNIX epoch
@@ -67,6 +69,12 @@ impl<T: Clone> Merge for LWWRegister<T> {
             self.value = other.value.clone();
             self.timestamp = other.timestamp;
         }
+    }
+}
+
+impl<T: Showable> Showable for LWWRegister<T> {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.value.format_show(f)
     }
 }
 
