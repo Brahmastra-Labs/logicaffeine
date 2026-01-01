@@ -61,9 +61,9 @@ fn compile_index_expression() {
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Index expression should compile: {:?}", result);
     let rust = result.unwrap();
-    // Phase 43D: Index now uses logos_index helper for 1-based indexing
-    assert!(rust.contains("logos_index(&list, 1)"),
-            "Should produce logos_index call: {}", rust);
+    // Phase 57: Index now uses LogosIndex trait for polymorphic indexing
+    assert!(rust.contains("LogosIndex::logos_get(&list, 1)"),
+            "Should produce LogosIndex::logos_get call: {}", rust);
 }
 
 #[test]
