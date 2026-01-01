@@ -2020,6 +2020,14 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
             format!("vec![{}]", item_strs.join(", "))
         }
 
+        Expr::Tuple(ref items) => {
+            let item_strs: Vec<String> = items.iter()
+                .map(|i| format!("Value::from({})", codegen_expr(i, interner, synced_vars)))
+                .collect();
+            // Tuples as Vec<Value> for heterogeneous support
+            format!("vec![{}]", item_strs.join(", "))
+        }
+
         Expr::Range { start, end } => {
             let start_str = codegen_expr(start, interner, synced_vars);
             let end_str = codegen_expr(end, interner, synced_vars);
@@ -2092,6 +2100,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
 fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
         Literal::Number(n) => n.to_string(),
+        Literal::Float(f) => format!("{}f64", f),
         // String literals are converted to String for consistent Text type handling
         Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),

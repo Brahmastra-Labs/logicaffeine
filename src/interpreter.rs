@@ -25,6 +25,7 @@ pub enum RuntimeValue {
     Text(String),
     Char(char),
     List(Vec<RuntimeValue>),
+    Tuple(Vec<RuntimeValue>),  // Heterogeneous tuple
     Set(Vec<RuntimeValue>),  // HashSet equivalent - Vec for simplicity in interpreter
     Map(HashMap<String, RuntimeValue>),
     Struct {
@@ -43,6 +44,7 @@ impl RuntimeValue {
             RuntimeValue::Text(_) => "Text",
             RuntimeValue::Char(_) => "Char",
             RuntimeValue::List(_) => "List",
+            RuntimeValue::Tuple(_) => "Tuple",
             RuntimeValue::Set(_) => "Set",
             RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct { .. } => "Struct",
@@ -69,6 +71,10 @@ impl RuntimeValue {
             RuntimeValue::List(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Tuple(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("({})", parts.join(", "))
             }
             RuntimeValue::Set(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
@@ -622,6 +628,13 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(items[idx - 1].clone())
                     }
+                    (RuntimeValue::Tuple(items), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
                     (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
                         let idx = *idx as usize;
                         if idx == 0 || idx > s.len() {
@@ -662,6 +675,7 @@ impl<'a> Interpreter<'a> {
                 let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
                     _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
@@ -743,6 +757,14 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::List(values))
             }
 
+            Expr::Tuple(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr(e).await?);
+                }
+                Ok(RuntimeValue::Tuple(values))
+            }
+
             Expr::Range { start, end } => {
                 let start_val = self.evaluate_expr(start).await?;
                 let end_val = self.evaluate_expr(end).await?;
@@ -818,6 +840,7 @@ impl<'a> Interpreter<'a> {
     fn evaluate_literal(&self, lit: &Literal) -> Result<RuntimeValue, String> {
         match lit {
             Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
+            Literal::Float(f) => Ok(RuntimeValue::Float(*f)),
             Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),

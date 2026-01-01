@@ -212,7 +212,7 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(expr, max_depth)?;
             }
 
-            Expr::List(items) => {
+            Expr::List(items) | Expr::Tuple(items) => {
                 for item in items {
                     self.check_no_escape(item, max_depth)?;
                 }

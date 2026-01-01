@@ -292,7 +292,7 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::List(items) => {
+            Expr::List(items) | Expr::Tuple(items) => {
                 for item in items {
                     self.check_not_moved(item)?;
                 }

@@ -1,6 +1,6 @@
 # Logicaffeine
 
-**Write English. Get Logic. Run Code.**
+**Compile English to Rust.**
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![Version](https://img.shields.io/badge/version-0.5.5-blue)]()

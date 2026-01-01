@@ -469,13 +469,14 @@ Show factorial(5)."#,
         title: "Collections",
         part: "Part I: Programming in LOGOS",
         content: r#"
-Collections hold multiple values. LOGOS provides three main collection types:
+Collections hold multiple values. LOGOS provides four main collection types:
 
 | Collection | Description | Index Type |
 |------------|-------------|------------|
 | `Seq of T` | Ordered list | Int (1-based) |
 | `Map of K to V` | Key-value pairs | Any key type |
 | `Set of T` | Unique elements | N/A (membership) |
+| `Tuple` | Fixed-size, mixed types | Int (1-based) |
 
 ### Creating Lists
 
@@ -541,6 +542,22 @@ Sets store unique elements with no duplicates. Unlike lists, sets have no order 
 **Set operations:**
 - `a union b` — elements in either set
 - `a intersection b` — elements in both sets
+
+### Tuples
+
+Tuples are fixed-size collections that can hold values of different types. Unlike lists, tuples can mix integers, text, and other types in a single collection.
+
+**Create a tuple:**
+`Let point be (10, 20).`
+`Let record be ("Alice", 25, true).`
+
+**Access elements (1-indexed):**
+`Let x be point[1].` or `Let x be item 1 of point.`
+
+**Get length:**
+`Let size be length of record.`
+
+Tuples are useful for returning multiple values from functions or grouping related but differently-typed data without defining a struct.
 "#,
         examples: &[
             CodeExample {
@@ -600,7 +617,9 @@ Let prices be a new Map of Text to Int.
 Set prices["iron"] to 10.
 Set prices["copper"] to 25.
 Set prices["gold"] to 100.
-Show "Map created with 3 items"."#,
+Show "Iron: " + prices["iron"].
+Show "Copper: " + prices["copper"].
+Show "Gold: " + prices["gold"]."#,
             },
             CodeExample {
                 id: "map-access",
@@ -652,7 +671,7 @@ Add 1 to numbers.
 Add 2 to numbers.
 Add 3 to numbers.
 Add 1 to numbers.
-Show "Set created with 3 unique elements"."#,
+Show numbers."#,
             },
             CodeExample {
                 id: "set-contains",
@@ -681,10 +700,10 @@ Let colors be a new Set of Text.
 Add "red" to colors.
 Add "green" to colors.
 Add "blue" to colors.
-Show "Added 3 colors".
+Show colors.
 
 Remove "green" from colors.
-Show "Removed green"."#,
+Show colors."#,
             },
             CodeExample {
                 id: "set-operations",
@@ -699,7 +718,40 @@ Add 2 to b. Add 3 to b. Add 4 to b.
 
 Let both be a intersection b.
 Let either be a union b.
-Show "Intersection and union computed"."#,
+Show "Intersection: " + both.
+Show "Union: " + either."#,
+            },
+            CodeExample {
+                id: "tuple-create",
+                label: "Creating Tuples",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let point be (10, 20).
+Let record be ("Alice", 25, true).
+Show point.
+Show record."#,
+            },
+            CodeExample {
+                id: "tuple-access",
+                label: "Accessing Tuple Elements",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let data be ("answer", 42).
+Let label be data[1].
+Let value be data[2].
+Show label.
+Show value."#,
+            },
+            CodeExample {
+                id: "tuple-mixed",
+                label: "Mixed-Type Tuples",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let person be ("Bob", 30, 5.9).
+Show item 1 of person.
+Show item 2 of person.
+Show item 3 of person.
+Show length of person."#,
             },
         ],
     },
@@ -979,7 +1031,6 @@ Show "Zone freed!"."#,
                 code: r#"## Main
 Inside a zone called "LargeBuffer" of size 2 MB:
     Let data be [1, 2, 3, 4, 5].
-    Show "Allocated in 2MB zone".
     Show data."#,
             },
             CodeExample {
@@ -996,10 +1047,13 @@ Inside a zone called "SmallArena" of size 64 KB:
                 id: "zone-mapped",
                 label: "Memory-Mapped Zone (Compiled Only)",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Inside a zone called "FileData" mapped from "data.bin":
-    Show "File mapped into memory".
-Show "Zone unmapped"."#,
+                code: r#"## To process_file (path: Text):
+    Inside a zone called "Data" mapped from path:
+        Show "Processing: " + path.
+
+## Main
+process_file("config.bin").
+process_file("assets.bin")."#,
             },
         ],
     },
@@ -1299,7 +1353,10 @@ A Profile is Shared and has:
 
 ## Main
 Let p be a new Profile.
-Show "Profile created"."#,
+Set p's name to "Alice".
+Set p's score to 100.
+Show p's name.
+Show p's score."#,
             },
             CodeExample {
                 id: "crdt-merge",
@@ -1346,7 +1403,7 @@ A Profile is Shared and has:
 Let mutable p be a new Profile.
 Sync p on "player-data".
 Increase p's level by 1.
-Show "Profile synced"."#,
+Show p's level."#,
             },
             CodeExample {
                 id: "crdt-persistent",
@@ -1530,8 +1587,8 @@ A Greeting is Portable and has:
 ## Main
 Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
 Let msg be a new Greeting with message "Hello, peer!".
-Send msg to remote.
-Show "Message sent"."#,
+Show "Sending: " + msg's message.
+Send msg to remote."#,
             },
         ],
     },
@@ -1682,12 +1739,15 @@ By default, all definitions are public. Mark fields private with no `public` mod
         examples: &[
             CodeExample {
                 id: "module-import",
-                label: "Importing Modules",
+                label: "Importing Modules (Compiled Only)",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "Module syntax:".
-Show "Use Math.".
-Show "Let x be Math's square(5)."."#,
+                code: r#"## To square (n: Int) -> Int:
+    Return n * n.
+
+## Main
+Let x be 5.
+Let result be square(x).
+Show "5 squared = " + result."#,
             },
         ],
     },
@@ -2128,6 +2188,11 @@ Show "Positives: " + positives."#,
 - `set contains x` — Check membership
 - `a union b` — Elements in either set
 - `a intersection b` — Elements in both sets
+
+**Tuples:**
+- `(1, "two", 3.0)` — Tuple literal (mixed types allowed)
+- `t[1]` or `item 1 of t` — Access (1-indexed)
+- `length of t` — Get tuple size
 
 ### Ownership Verbs
 

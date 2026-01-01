@@ -1122,12 +1122,20 @@ impl<'a> Lexer<'a> {
             // Numeric literal: starts with digit (may have underscore separators like 1_000)
             return true;
         }
-        // Symbolic numbers like aleph_0, omega_1: letters followed by underscore and digits only
-        // But NOT identifiers like n_left, my_var (which have letters after underscore)
+        // Symbolic numbers: only recognize known mathematical symbols
+        // (aleph, omega, beth) followed by underscore and digits
         if let Some(underscore_pos) = word.rfind('_') {
+            let before_underscore = &word[..underscore_pos];
             let after_underscore = &word[underscore_pos + 1..];
-            // If everything after the last underscore is digits, it's a symbolic number
-            if !after_underscore.is_empty() && after_underscore.chars().all(|c| c.is_ascii_digit()) {
+            // Must be a known mathematical symbol prefix AND digits after underscore
+            let is_math_symbol = matches!(
+                before_underscore.to_lowercase().as_str(),
+                "aleph" | "omega" | "beth"
+            );
+            if is_math_symbol
+                && !after_underscore.is_empty()
+                && after_underscore.chars().all(|c| c.is_ascii_digit())
+            {
                 return true;
             }
         }

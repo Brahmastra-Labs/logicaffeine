@@ -583,6 +583,9 @@ pub enum Expr<'a> {
     /// List literal: [1, 2, 3]
     List(Vec<&'a Expr<'a>>),
 
+    /// Tuple literal: (1, "hello", true)
+    Tuple(Vec<&'a Expr<'a>>),
+
     /// Range: 1 to 10 (inclusive)
     Range {
         start: &'a Expr<'a>,
@@ -616,6 +619,8 @@ pub enum Expr<'a> {
 pub enum Literal {
     /// Integer literal
     Number(i64),
+    /// Float literal
+    Float(f64),
     /// Text literal
     Text(Symbol),
     /// Boolean literal

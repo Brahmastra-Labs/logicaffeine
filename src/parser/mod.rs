@@ -1622,6 +1622,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match expr {
             Expr::Literal(lit) => match lit {
                 crate::ast::Literal::Number(_) => Some("Int"),
+                crate::ast::Literal::Float(_) => Some("Real"),
                 crate::ast::Literal::Text(_) => Some("Text"),
                 crate::ast::Literal::Boolean(_) => Some("Bool"),
                 crate::ast::Literal::Nothing => Some("Unit"),
@@ -1636,9 +1637,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match declared {
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 let declared_name = self.interner.resolve(*sym);
-                // Nat is compatible with Int literals
+                // Nat and Byte are compatible with Int literals
                 declared_name.eq_ignore_ascii_case(inferred)
                     || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
+                    || (declared_name.eq_ignore_ascii_case("Byte") && inferred == "Int")
             }
             _ => true, // For generics/functions, skip check for now
         }
@@ -3907,8 +3909,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Number(sym) => {
                 self.advance();
                 let num_str = self.interner.resolve(*sym);
-                let num = num_str.parse::<i64>().unwrap_or(0);
-                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                // Check if it's a float (contains decimal point)
+                if num_str.contains('.') {
+                    let num = num_str.parse::<f64>().unwrap_or(0.0);
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(num))))
+                } else {
+                    let num = num_str.parse::<i64>().unwrap_or(0);
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                }
             }
 
             // Phase 33: String literals
@@ -4175,18 +4183,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
 
-            // Parenthesized expression: (expr)
+            // Parenthesized expression: (expr) or Tuple literal: (expr, expr, ...)
             TokenType::LParen => {
                 self.advance(); // consume '('
-                let inner = self.parse_imperative_expr()?;
-                if !self.check(&TokenType::RParen) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
-                        span: self.current_span(),
-                    });
+                let first = self.parse_imperative_expr()?;
+
+                // Check if this is a tuple (has comma) or just grouping
+                if self.check(&TokenType::Comma) {
+                    // It's a tuple - parse remaining elements
+                    let mut items = vec![first];
+                    while self.check(&TokenType::Comma) {
+                        self.advance(); // consume ","
+                        items.push(self.parse_imperative_expr()?);
+                    }
+
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+
+                    let base = self.ctx.alloc_imperative_expr(Expr::Tuple(items));
+                    self.parse_field_access_chain(base)
+                } else {
+                    // Just a parenthesized expression
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    Ok(first)
                 }
-                self.advance(); // consume ')'
-                Ok(inner)
             }
 
             _ => {
