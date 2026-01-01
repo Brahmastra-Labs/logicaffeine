@@ -463,6 +463,20 @@ impl<'a> Interpreter<'a> {
                 }
                 Ok(ControlFlow::Continue)
             }
+
+            // Phase 54: Go-like concurrency - not supported in interpreter
+            // These are compile-to-Rust only features
+            Stmt::LaunchTask { .. } |
+            Stmt::LaunchTaskWithHandle { .. } |
+            Stmt::CreatePipe { .. } |
+            Stmt::SendPipe { .. } |
+            Stmt::ReceivePipe { .. } |
+            Stmt::TrySendPipe { .. } |
+            Stmt::TryReceivePipe { .. } |
+            Stmt::StopTask { .. } |
+            Stmt::Select { .. } => {
+                Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
+            }
         }
     }
 

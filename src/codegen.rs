@@ -113,6 +113,82 @@ fn replace_word(text: &str, from: &str, to: &str) -> String {
     result
 }
 
+// =============================================================================
+// Phase 56: Mount+Sync Detection for Distributed<T>
+// =============================================================================
+
+/// Tracks which variables have Mount and/or Sync statements.
+/// Used to detect when a variable needs Distributed<T> instead of separate wrappers.
+#[derive(Debug, Default)]
+pub struct VariableCapabilities {
+    /// Variable has a Mount statement
+    mounted: bool,
+    /// Variable has a Sync statement
+    synced: bool,
+    /// Path expression for Mount (as generated code string)
+    mount_path: Option<String>,
+    /// Topic expression for Sync (as generated code string)
+    sync_topic: Option<String>,
+}
+
+/// Helper to create an empty VariableCapabilities map (for tests).
+pub fn empty_var_caps() -> HashMap<Symbol, VariableCapabilities> {
+    HashMap::new()
+}
+
+/// Pre-scan statements to detect variables that have both Mount and Sync.
+/// Returns a map from variable Symbol to its capabilities.
+fn analyze_variable_capabilities<'a>(
+    stmts: &[Stmt<'a>],
+    interner: &Interner,
+) -> HashMap<Symbol, VariableCapabilities> {
+    let mut caps: HashMap<Symbol, VariableCapabilities> = HashMap::new();
+    let empty_synced = HashSet::new();
+
+    for stmt in stmts {
+        match stmt {
+            Stmt::Mount { var, path } => {
+                let entry = caps.entry(*var).or_default();
+                entry.mounted = true;
+                entry.mount_path = Some(codegen_expr(path, interner, &empty_synced));
+            }
+            Stmt::Sync { var, topic } => {
+                let entry = caps.entry(*var).or_default();
+                entry.synced = true;
+                entry.sync_topic = Some(codegen_expr(topic, interner, &empty_synced));
+            }
+            // Recursively check nested blocks (Block<'a> is &[Stmt<'a>])
+            Stmt::If { then_block, else_block, .. } => {
+                let nested = analyze_variable_capabilities(then_block, interner);
+                for (var, cap) in nested {
+                    let entry = caps.entry(var).or_default();
+                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                }
+                if let Some(else_b) = else_block {
+                    let nested = analyze_variable_capabilities(else_b, interner);
+                    for (var, cap) in nested {
+                        let entry = caps.entry(var).or_default();
+                        if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                        if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                    }
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                let nested = analyze_variable_capabilities(body, interner);
+                for (var, cap) in nested {
+                    let entry = caps.entry(var).or_default();
+                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    caps
+}
+
 /// Phase 51: Detect if any statements require async execution.
 /// Returns true if the program needs #[tokio::main] async fn main().
 fn requires_async(stmts: &[Stmt]) -> bool {
@@ -134,6 +210,14 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         // Phase 53: File I/O is async (VFS operations)
         Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
         Stmt::WriteFile { .. } => true,
+        // Phase 54: Go-like concurrency is async
+        Stmt::LaunchTask { .. } => true,
+        Stmt::LaunchTaskWithHandle { .. } => true,
+        Stmt::SendPipe { .. } => true,
+        Stmt::ReceivePipe { .. } => true,
+        Stmt::Select { .. } => true,
+        // While and Repeat are now always async due to check_preemption()
+        // (handled below in recursive check)
         // Recursively check nested blocks
         Stmt::If { then_block, else_block, .. } => {
             then_block.iter().any(|s| requires_async_stmt(s))
@@ -369,6 +453,95 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
     lww_fields
 }
 
+/// Phase 54: Collect function names that are async.
+/// Used by LaunchTask codegen to determine if .await is needed.
+fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut async_fns = HashSet::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, body, .. } = stmt {
+            if body.iter().any(|s| requires_async_stmt(s)) {
+                async_fns.insert(*name);
+            }
+        }
+    }
+    async_fns
+}
+
+/// Phase 54: Collect parameters that are used as pipe senders in function body.
+/// If a param appears in `SendPipe { pipe: Expr::Identifier(param) }`, it's a sender.
+fn collect_pipe_sender_params(body: &[Stmt]) -> HashSet<Symbol> {
+    let mut senders = HashSet::new();
+    for stmt in body {
+        collect_pipe_sender_params_stmt(stmt, &mut senders);
+    }
+    senders
+}
+
+fn collect_pipe_sender_params_stmt(stmt: &Stmt, senders: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::SendPipe { pipe, .. } | Stmt::TrySendPipe { pipe, .. } => {
+            if let Expr::Identifier(sym) = pipe {
+                senders.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_pipe_sender_params_stmt(s, senders);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Phase 54: Collect variables that are pipe declarations (created with CreatePipe).
+/// These have _tx/_rx suffixes, while pipe parameters don't.
+fn collect_pipe_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut pipe_vars = HashSet::new();
+    for stmt in stmts {
+        collect_pipe_vars_stmt(stmt, &mut pipe_vars);
+    }
+    pipe_vars
+}
+
+fn collect_pipe_vars_stmt(stmt: &Stmt, pipe_vars: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::CreatePipe { var, .. } => {
+            pipe_vars.insert(*var);
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_pipe_vars_stmt(s, pipe_vars);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+        }
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
@@ -382,6 +555,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Phase 49: Collect LWWRegister fields for special SetField handling
     let lww_fields = collect_lww_fields(registry, interner);
+
+    // Phase 54: Collect async functions for Launch codegen
+    let async_functions = collect_async_functions(stmts);
+
+    // Phase 54: Collect pipe declarations (variables with _tx/_rx suffixes)
+    let main_pipe_vars = collect_pipe_vars(stmts);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -436,7 +615,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields, &async_functions));
         }
     }
 
@@ -463,12 +642,14 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     }
     let mut main_ctx = RefinementContext::new();
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
+    // Phase 56: Pre-scan for Mount+Sync combinations
+    let main_var_caps = analyze_variable_capabilities(stmts, interner);
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -485,16 +666,25 @@ fn codegen_function_def(
     is_native: bool,
     interner: &Interner,
     lww_fields: &HashSet<(String, String)>,
+    async_functions: &HashSet<Symbol>,  // Phase 54
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
+
+    // Phase 54: Detect which parameters are used as pipe senders
+    let pipe_sender_params = collect_pipe_sender_params(body);
 
     // Build parameter list using TypeExpr
     let params_str: Vec<String> = params.iter()
         .map(|(param_name, param_type)| {
             let name = interner.resolve(*param_name);
             let ty = codegen_type_expr(param_type, interner);
-            format!("{}: {}", name, ty)
+            // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
+            if pipe_sender_params.contains(param_name) {
+                format!("{}: tokio::sync::mpsc::Sender<{}>", name, ty)
+            } else {
+                format!("{}: {}", name, ty)
+            }
         })
         .collect();
 
@@ -537,6 +727,8 @@ fn codegen_function_def(
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
         let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
+        // Phase 56: Pre-scan for Mount+Sync combinations in function body
+        let func_var_caps = analyze_variable_capabilities(body, interner);
 
         // Phase 50: Register parameter types for capability Check resolution
         for (param_name, param_type) in params {
@@ -544,8 +736,11 @@ fn codegen_function_def(
             func_ctx.register_variable_type(*param_name, type_name);
         }
 
+        // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
+        let func_pipe_vars = HashSet::new();
+
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -857,6 +1052,9 @@ pub fn codegen_stmt<'a>(
     ctx: &mut RefinementContext<'a>,
     lww_fields: &HashSet<(String, String)>,
     synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
+    var_caps: &HashMap<Symbol, VariableCapabilities>,  // Phase 56: Mount+Sync detection
+    async_functions: &HashSet<Symbol>,  // Phase 54: Functions that are async
+    pipe_vars: &HashSet<Symbol>,  // Phase 54: Pipe declarations (have _tx/_rx suffixes)
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -906,14 +1104,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
                 }
                 ctx.pop_scope();
             }
@@ -926,7 +1124,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -938,7 +1136,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -1032,32 +1230,269 @@ pub fn codegen_stmt<'a>(
                      indent_str, ms_str).unwrap();
         }
 
-        // Phase 52: Sync CRDT variable on topic
+        // Phase 52/56: Sync CRDT variable on topic
         Stmt::Sync { var, topic } => {
             let var_name = interner.resolve(*var);
             let topic_str = codegen_expr(topic, interner, synced_vars);
-            // Wrap the variable in Synced<T> for automatic GossipSub replication
+
+            // Phase 56: Check if this variable is also mounted
+            if let Some(caps) = var_caps.get(var) {
+                if caps.mounted {
+                    // Both Mount and Sync: use Distributed<T>
+                    // Mount statement will handle the Distributed::mount call
+                    // Here we just track it as synced
+                    synced_vars.insert(*var);
+                    return output;  // Skip - Mount will emit Distributed<T>
+                }
+            }
+
+            // Sync-only: use Synced<T>
             writeln!(
                 output,
                 "{}let {} = logos_core::crdt::Synced::new({}, &{}).await;",
                 indent_str, var_name, var_name, topic_str
             ).unwrap();
-            // Track this variable as synced for subsequent field access
             synced_vars.insert(*var);
         }
 
-        // Phase 53: Mount persistent CRDT from journal
+        // Phase 53/56: Mount persistent CRDT from journal
         Stmt::Mount { var, path } => {
             let var_name = interner.resolve(*var);
             let path_str = codegen_expr(path, interner, synced_vars);
-            // Mount the persistent value from the journal file
+
+            // Phase 56: Check if this variable is also synced
+            if let Some(caps) = var_caps.get(var) {
+                if caps.synced {
+                    // Both Mount and Sync: use Distributed<T>
+                    let topic_str = caps.sync_topic.as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("\"default\"");
+                    writeln!(
+                        output,
+                        "{}let {} = logos_core::distributed::Distributed::mount(std::sync::Arc::new(vfs.clone()), &{}, Some({}.to_string())).await.expect(\"Failed to mount\");",
+                        indent_str, var_name, path_str, topic_str
+                    ).unwrap();
+                    synced_vars.insert(*var);
+                    return output;
+                }
+            }
+
+            // Mount-only: use Persistent<T>
             writeln!(
                 output,
                 "{}let {} = logos_core::storage::Persistent::mount(&vfs, &{}).await.expect(\"Failed to mount\");",
                 indent_str, var_name, path_str
             ).unwrap();
-            // Track as synced so CRDT mutations use .mutate() for persistence
             synced_vars.insert(*var);
+        }
+
+        // =====================================================================
+        // Phase 54: Go-like Concurrency Codegen
+        // =====================================================================
+
+        Stmt::LaunchTask { function, args } => {
+            let fn_name = interner.resolve(*function);
+            // Phase 54: When passing a pipe variable, pass the sender (_tx)
+            let args_str: Vec<String> = args.iter()
+                .map(|a| {
+                    if let Expr::Identifier(sym) = a {
+                        if pipe_vars.contains(sym) {
+                            return format!("{}_tx.clone()", interner.resolve(*sym));
+                        }
+                    }
+                    codegen_expr(a, interner, synced_vars)
+                })
+                .collect();
+            // Phase 54: Add .await only if the function is async
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(
+                output,
+                "{}tokio::spawn(async move {{ {}({}){await_suffix}; }});",
+                indent_str, fn_name, args_str.join(", ")
+            ).unwrap();
+        }
+
+        Stmt::LaunchTaskWithHandle { handle, function, args } => {
+            let handle_name = interner.resolve(*handle);
+            let fn_name = interner.resolve(*function);
+            // Phase 54: When passing a pipe variable, pass the sender (_tx)
+            let args_str: Vec<String> = args.iter()
+                .map(|a| {
+                    if let Expr::Identifier(sym) = a {
+                        if pipe_vars.contains(sym) {
+                            return format!("{}_tx.clone()", interner.resolve(*sym));
+                        }
+                    }
+                    codegen_expr(a, interner, synced_vars)
+                })
+                .collect();
+            // Phase 54: Add .await only if the function is async
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ {}({}){await_suffix} }});",
+                indent_str, handle_name, fn_name, args_str.join(", ")
+            ).unwrap();
+        }
+
+        Stmt::CreatePipe { var, element_type, capacity } => {
+            let var_name = interner.resolve(*var);
+            let type_name = interner.resolve(*element_type);
+            let cap = capacity.unwrap_or(32);
+            // Map LOGOS types to Rust types
+            let rust_type = match type_name {
+                "Int" => "i64",
+                "Nat" => "u64",
+                "Text" => "String",
+                "Bool" => "bool",
+                _ => type_name,
+            };
+            writeln!(
+                output,
+                "{}let ({}_tx, mut {}_rx) = tokio::sync::mpsc::channel::<{}>({});",
+                indent_str, var_name, var_name, rust_type, cap
+            ).unwrap();
+        }
+
+        Stmt::SendPipe { value, pipe } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            if is_local_pipe {
+                writeln!(
+                    output,
+                    "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{}.send({}).await.expect(\"pipe send failed\");",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            }
+        }
+
+        Stmt::ReceivePipe { var, pipe } => {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration (has _rx suffix) or parameter (no suffix)
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            if is_local_pipe {
+                writeln!(
+                    output,
+                    "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
+                    indent_str, var_name, pipe_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}let {} = {}.recv().await.expect(\"pipe closed\");",
+                    indent_str, var_name, pipe_str
+                ).unwrap();
+            }
+        }
+
+        Stmt::TrySendPipe { value, pipe, result } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_tx" } else { "" };
+            if let Some(res) = result {
+                let res_name = interner.resolve(*res);
+                writeln!(
+                    output,
+                    "{}let {} = {}{}.try_send({}).is_ok();",
+                    indent_str, res_name, pipe_str, suffix, val_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}let _ = {}{}.try_send({});",
+                    indent_str, pipe_str, suffix, val_str
+                ).unwrap();
+            }
+        }
+
+        Stmt::TryReceivePipe { var, pipe } => {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_rx" } else { "" };
+            writeln!(
+                output,
+                "{}let {} = {}{}.try_recv().ok();",
+                indent_str, var_name, pipe_str, suffix
+            ).unwrap();
+        }
+
+        Stmt::StopTask { handle } => {
+            let handle_str = codegen_expr(handle, interner, synced_vars);
+            writeln!(output, "{}{}.abort();", indent_str, handle_str).unwrap();
+        }
+
+        Stmt::Select { branches } => {
+            use crate::ast::stmt::SelectBranch;
+
+            writeln!(output, "{}tokio::select! {{", indent_str).unwrap();
+            for branch in branches {
+                match branch {
+                    SelectBranch::Receive { var, pipe, body } => {
+                        let var_name = interner.resolve(*var);
+                        let pipe_str = codegen_expr(pipe, interner, synced_vars);
+                        writeln!(
+                            output,
+                            "{}    {} = {}_rx.recv() => {{",
+                            indent_str, var_name, pipe_str
+                        ).unwrap();
+                        writeln!(
+                            output,
+                            "{}        if let Some({}) = {} {{",
+                            indent_str, var_name, var_name
+                        ).unwrap();
+                        for stmt in *body {
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                            write!(output, "{}", stmt_code).unwrap();
+                        }
+                        writeln!(output, "{}        }}", indent_str).unwrap();
+                        writeln!(output, "{}    }}", indent_str).unwrap();
+                    }
+                    SelectBranch::Timeout { milliseconds, body } => {
+                        let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+                        // Convert seconds to milliseconds if the value looks like seconds
+                        writeln!(
+                            output,
+                            "{}    _ = tokio::time::sleep(std::time::Duration::from_secs({} as u64)) => {{",
+                            indent_str, ms_str
+                        ).unwrap();
+                        for stmt in *body {
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                            write!(output, "{}", stmt_code).unwrap();
+                        }
+                        writeln!(output, "{}    }}", indent_str).unwrap();
+                    }
+                }
+            }
+            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -1134,7 +1569,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -1200,7 +1635,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
 
             ctx.pop_scope();
@@ -1243,7 +1678,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
 
                 // Convert call statements to awaited calls for async context
                 let inner_awaited = if let Stmt::Call { .. } = stmt {
@@ -1297,7 +1732,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -1311,7 +1746,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }

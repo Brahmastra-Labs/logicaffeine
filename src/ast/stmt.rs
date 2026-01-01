@@ -371,6 +371,122 @@ pub enum Stmt<'a> {
         /// The path expression for the journal file
         path: &'a Expr<'a>,
     },
+
+    // =========================================================================
+    // Phase 54: Go-like Concurrency (Green Threads, Channels, Select)
+    // =========================================================================
+
+    /// Phase 54: Launch a fire-and-forget task (green thread)
+    /// `Launch a task to process(data).`
+    /// Semantics: tokio::spawn with no handle capture
+    LaunchTask {
+        /// The function to call
+        function: Symbol,
+        /// Arguments to pass
+        args: Vec<&'a Expr<'a>>,
+    },
+
+    /// Phase 54: Launch a task with handle for control
+    /// `Let worker be Launch a task to process(data).`
+    /// Semantics: tokio::spawn returning JoinHandle
+    LaunchTaskWithHandle {
+        /// Variable to bind the handle
+        handle: Symbol,
+        /// The function to call
+        function: Symbol,
+        /// Arguments to pass
+        args: Vec<&'a Expr<'a>>,
+    },
+
+    /// Phase 54: Create a bounded channel (pipe)
+    /// `Let jobs be a new Pipe of Int.`
+    /// Semantics: tokio::sync::mpsc::channel(32)
+    CreatePipe {
+        /// Variable for the pipe
+        var: Symbol,
+        /// Type of values in the pipe
+        element_type: Symbol,
+        /// Optional capacity (defaults to 32)
+        capacity: Option<u32>,
+    },
+
+    /// Phase 54: Blocking send into pipe
+    /// `Send value into pipe.`
+    /// Semantics: pipe_tx.send(value).await
+    SendPipe {
+        /// The value to send
+        value: &'a Expr<'a>,
+        /// The pipe to send into
+        pipe: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Blocking receive from pipe
+    /// `Receive x from pipe.`
+    /// Semantics: let x = pipe_rx.recv().await
+    ReceivePipe {
+        /// Variable to bind the received value
+        var: Symbol,
+        /// The pipe to receive from
+        pipe: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Non-blocking send (try)
+    /// `Try to send value into pipe.`
+    /// Semantics: pipe_tx.try_send(value) - returns immediately
+    TrySendPipe {
+        /// The value to send
+        value: &'a Expr<'a>,
+        /// The pipe to send into
+        pipe: &'a Expr<'a>,
+        /// Variable to bind the result (true/false)
+        result: Option<Symbol>,
+    },
+
+    /// Phase 54: Non-blocking receive (try)
+    /// `Try to receive x from pipe.`
+    /// Semantics: pipe_rx.try_recv() - returns Option
+    TryReceivePipe {
+        /// Variable to bind the received value (if any)
+        var: Symbol,
+        /// The pipe to receive from
+        pipe: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Cancel a spawned task
+    /// `Stop worker.`
+    /// Semantics: handle.abort()
+    StopTask {
+        /// The handle to cancel
+        handle: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Select on multiple channels/timeouts
+    /// `Await the first of:`
+    ///     `Receive x from ch:`
+    ///         `...`
+    ///     `After 5 seconds:`
+    ///         `...`
+    /// Semantics: tokio::select! with auto-cancel
+    Select {
+        /// The branches to select from
+        branches: Vec<SelectBranch<'a>>,
+    },
+}
+
+/// Phase 54: A branch in a Select statement
+#[derive(Debug)]
+pub enum SelectBranch<'a> {
+    /// Receive from a pipe: `Receive x from ch:`
+    Receive {
+        var: Symbol,
+        pipe: &'a Expr<'a>,
+        body: Block<'a>,
+    },
+    /// Timeout: `After N seconds:` or `After N milliseconds:`
+    Timeout {
+        milliseconds: &'a Expr<'a>,
+        body: Block<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).

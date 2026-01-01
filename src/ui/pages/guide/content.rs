@@ -815,12 +815,15 @@ Show "Zone unmapped"."#,
         content: r#"
 LOGOS provides safe concurrency through structured patterns. No data races, no deadlocks.
 
-### Two Kinds of Concurrent Work
+### Concurrent Patterns Overview
 
 | Pattern | Syntax | Use For | Compiles To |
 |---------|--------|---------|-------------|
-| **Async** | `Attempt all of the following:` | I/O-bound tasks (network, files) | tokio::join! |
-| **Parallel** | `Simultaneously:` | CPU-bound tasks (computation) | rayon::join / threads |
+| **Async Join** | `Attempt all of the following:` | Wait for all I/O tasks | tokio::join! |
+| **Parallel CPU** | `Simultaneously:` | CPU-bound computation | rayon::join / threads |
+| **Spawn Task** | `Launch a task to...` | Fire-and-forget work | tokio::spawn |
+| **Channels** | `Pipe of Type` | Message passing | tokio::mpsc |
+| **Select** | `Await the first of:` | Race operations | tokio::select! |
 
 ### Attempt All (Async I/O)
 
@@ -835,9 +838,58 @@ Use `Simultaneously:` for CPU-intensive work. Computations run in parallel on di
 - 2 tasks → uses `rayon::join` (work-stealing thread pool)
 - 3+ tasks → uses `std::thread::spawn` (dedicated threads)
 
+### Tasks (Green Threads)
+
+Use `Launch a task to...` to spawn a green thread that runs concurrently. For fire-and-forget work, just launch:
+
+`Launch a task to process(data).`
+
+To control the task later (cancel, await), capture a handle:
+
+`Let worker be Launch a task to process(data).`
+
+Stop a running task with:
+
+`Stop worker.`
+
+### Channels (Pipes)
+
+Pipes are Go-style channels for message passing between tasks.
+
+**Create a channel:**
+`Let jobs be a new Pipe of Int.`
+
+**Send into a channel (blocking):**
+`Send value into jobs.`
+
+**Receive from a channel (blocking):**
+`Receive item from jobs.`
+
+**Non-blocking variants:**
+`Try to send value into jobs.`
+`Try to receive item from jobs.`
+
+### Select (Racing Operations)
+
+Use `Await the first of:` to race multiple operations. The first one to complete wins:
+
+```
+Await the first of:
+    Receive msg from inbox:
+        Show msg.
+    After 5 seconds:
+        Show "timeout".
+```
+
+**Branch types:**
+- `Receive var from pipe:` — wait for channel message
+- `After N seconds:` — timeout branch
+
 ### Ownership and Concurrency
 
 The ownership system prevents data races. Multiple reads are OK, but concurrent writes are prevented.
+
+**Note:** Tasks, Pipes, and Select require compilation—they don't run in the browser playground.
 "#,
         examples: &[
             CodeExample {
@@ -889,6 +941,55 @@ Show "Sum: " + (a + b + c)."#,
 Let result be compute_parallel().
 Show "Result: " + result."#,
             },
+            CodeExample {
+                id: "launch-task",
+                label: "Launch Task (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To worker (id: Int):
+    Show "Worker " + id + " started".
+
+## Main
+Launch a task to worker(1).
+Launch a task to worker(2).
+Show "Tasks launched"."#,
+            },
+            CodeExample {
+                id: "task-with-handle",
+                label: "Task with Handle (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To long_running:
+    Show "Working...".
+
+## Main
+Let job be Launch a task to long_running.
+Show "Task spawned".
+Stop job.
+Show "Task cancelled"."#,
+            },
+            CodeExample {
+                id: "pipe-send-receive",
+                label: "Pipe Communication (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let messages be a new Pipe of Int.
+Send 42 into messages.
+Send 100 into messages.
+Receive x from messages.
+Show "Got: " + x."#,
+            },
+            CodeExample {
+                id: "select-timeout",
+                label: "Select with Timeout (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let inbox be a new Pipe of Text.
+
+Await the first of:
+    Receive msg from inbox:
+        Show "Message: " + msg.
+    After 2 seconds:
+        Show "No message received"."#,
+            },
         ],
     },
 
@@ -933,6 +1034,24 @@ A register that resolves conflicts by timestamp. The most recent write wins. Wor
 
 Use `Merge source into target` to combine two CRDT instances. The target is updated in place with the merged state.
 
+### Persistence
+
+CRDTs can be persisted to disk using the `Persistent` type modifier and `Mount` statement. Data is stored in append-only journal files (`.lsf` format) with automatic compaction.
+
+**The Persistent Type:**
+
+`Persistent Counter` wraps a Shared struct with journaling. All mutations are durably recorded.
+
+**The Mount Statement:**
+
+`Mount [variable] at [path].`
+
+or
+
+`Let x be mounted at "path/to/data.lsf".`
+
+This loads existing state from the journal file (if present) or creates a new one. Changes are automatically persisted.
+
 ### Network Synchronization
 
 CRDTs become powerful when synchronized across the network. Use `Sync` to subscribe a variable to a GossipSub topic.
@@ -949,7 +1068,14 @@ CRDTs become powerful when synchronized across the network. Use `Sync` to subscr
 2. Spawns a background task to merge incoming updates
 3. Broadcasts the full state after any mutation
 
-**Note:** Programs using `Sync` require compilation—they don't run in the browser playground.
+### Persistence + Network
+
+For the best of both worlds, combine `Persistent` types with `Sync`. The Distributed runtime ensures:
+- Local changes are journaled before broadcast
+- Remote updates are merged and persisted
+- Data survives restarts
+
+**Note:** Programs using `Sync` or `Mount` require compilation—they don't run in the browser playground.
 "#,
         examples: &[
             CodeExample {
@@ -1024,6 +1150,19 @@ Let mutable p be a new Profile.
 Sync p on "player-data".
 Increase p's level by 1.
 Show "Profile synced"."#,
+            },
+            CodeExample {
+                id: "crdt-persistent",
+                label: "Persistent Counter (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a value, which is ConvergentCount.
+
+## Main
+Let mutable c: Persistent Counter be mounted at "counter.lsf".
+Increase c's value by 1.
+Show c's value."#,
             },
         ],
     },
@@ -1366,37 +1505,49 @@ LOGOS projects are built with `largo`, the LOGOS build tool.
 
 ### Creating a Project
 
-`largo new myproject` creates a new project with a `Largo.toml` manifest and `src/main.md`.
+| Command | Description |
+|---------|-------------|
+| `largo new <name>` | Create a new project in a new directory |
+| `largo init` | Initialize a project in the current directory |
+
+This creates a `Largo.toml` manifest and `src/main.lg` entry point.
 
 ### Build Commands
 
 | Command | Description |
 |---------|-------------|
-| `largo build` | Compile the project |
+| `largo build` | Compile the project to a native binary |
 | `largo build --release` | Compile with optimizations |
 | `largo run` | Build and run |
-| `largo check` | Type check without compiling |
-| `largo test` | Run tests |
-| `largo audit` | List Trust statements |
+| `largo check` | Type-check without compiling |
+| `largo verify` | Run Z3 static verification (Pro+ license required) |
+| `largo build --verify` | Build with verification |
+
+### Package Registry
+
+Publish and manage packages on the LOGOS registry:
+
+| Command | Description |
+|---------|-------------|
+| `largo login` | Authenticate with the registry |
+| `largo publish` | Publish your package |
+| `largo publish --dry-run` | Validate without publishing |
+| `largo logout` | Log out from the registry |
 
 ### Project Manifest
 
-The `Largo.toml` file defines package metadata and dependencies.
+The `Largo.toml` file defines package metadata and dependencies:
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+entry = "src/main.lg"
+
+[dependencies]
+```
 "#,
-        examples: &[
-            CodeExample {
-                id: "largo-commands",
-                label: "largo Commands",
-                mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "largo commands:".
-Show "- largo new <name>".
-Show "- largo build".
-Show "- largo run".
-Show "- largo check".
-Show "- largo test"."#,
-            },
-        ],
+        examples: &[],
     },
 
     Section {
@@ -1781,6 +1932,22 @@ Show "Positives: " + positives."#,
 **Parallel CPU:**
 - `Simultaneously:` — Parallel computation (rayon/threads)
 
+**Tasks (Compiled Only):**
+- `Launch a task to f(args).` — Fire-and-forget spawn
+- `Let h be Launch a task to f(args).` — Spawn with handle
+- `Stop h.` — Abort a running task
+
+**Channels/Pipes (Compiled Only):**
+- `Let p be a new Pipe of Int.` — Create bounded channel
+- `Send x into p.` — Blocking send
+- `Receive x from p.` — Blocking receive
+- `Try to send/receive` — Non-blocking variants
+
+**Select (Compiled Only):**
+- `Await the first of:` — Race multiple operations
+- `Receive x from p:` — Channel receive branch
+- `After N seconds:` — Timeout branch
+
 ### Distributed Types (CRDTs)
 
 **Shared Structs:**
@@ -1791,6 +1958,11 @@ Show "Positives: " + positives."#,
 **CRDT Operations:**
 - `Increase x's field by amount.` — Increment a ConvergentCount
 - `Merge source into target.` — Combine two CRDT instances
+
+**Persistence (Compiled Only):**
+- `Persistent Counter` — Type with automatic journaling
+- `Let x be mounted at "data.lsf".` — Load/create persistent CRDT
+- `Mount x at "path".` — Mount statement for persistence
 
 **Network Sync (Compiled Only):**
 - `Sync mutable_var on "topic".` — Subscribe to GossipSub topic for auto-sync

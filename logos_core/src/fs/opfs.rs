@@ -225,4 +225,12 @@ impl Vfs for OpfsVfs {
         self.get_dir(path, true).await?;
         Ok(())
     }
+
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
+        // OPFS doesn't have native rename - read, write, delete
+        let content = self.read(from).await?;
+        self.write(to, &content).await?;
+        self.remove(from).await?;
+        Ok(())
+    }
 }

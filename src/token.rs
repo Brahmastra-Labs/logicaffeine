@@ -180,6 +180,17 @@ pub enum TokenType {
     Persistent, // "Persistent Counter" -> type wrapped with journaling
     Combined,   // "x combined with y" -> string concatenation
 
+    // Phase 54: Go-like Concurrency Keywords
+    Launch,     // "Launch a task to..." -> spawn green thread
+    Task,       // "a task" -> identifier for task context
+    Pipe,       // "Pipe of Type" -> channel creation
+    Receive,    // "Receive from pipe" -> recv from channel
+    Stop,       // "Stop handle" -> abort task
+    Try,        // "Try to send/receive" -> non-blocking variant
+    Into,       // "Send value into pipe" -> channel send
+    First,      // "Await the first of:" -> select statement
+    After,      // "After N seconds:" -> timeout branch
+
     // Block Scoping
     Colon,
     Indent,

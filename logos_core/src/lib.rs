@@ -8,6 +8,8 @@ pub mod fs;
 pub mod crdt;
 // Phase 55: Persistent storage (cross-platform, uses async-lock)
 pub mod storage;
+// Phase 56: Distributed<T> - unified persistence + network (cross-platform)
+pub mod distributed;
 
 // Native-only modules
 #[cfg(not(target_arch = "wasm32"))]
@@ -22,6 +24,9 @@ pub mod env;
 pub mod memory;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod network;
+// Phase 54: Go-like concurrency primitives (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub mod concurrency;
 
 // Phase 51: Re-export tokio for async main support (native only)
 #[cfg(not(target_arch = "wasm32"))]
@@ -77,6 +82,8 @@ pub mod prelude {
     pub use crate::logos_index_mut;
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
+    // Phase 56: Distributed<T>
+    pub use crate::distributed::Distributed;
 
     // Native-only prelude exports
     #[cfg(not(target_arch = "wasm32"))]
@@ -91,6 +98,13 @@ pub mod prelude {
     pub use crate::memory::Zone;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 54: Go-like concurrency primitives
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::concurrency::{
+        spawn, TaskHandle,
+        Pipe, PipeSender, PipeReceiver,
+        check_preemption, reset_preemption_timer,
+    };
 }
 
 #[cfg(test)]

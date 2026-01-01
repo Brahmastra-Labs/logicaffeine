@@ -102,6 +102,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 50: Security Policies](#phase-50-security-policies)
     - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
     - [Phase 52: The Sync](#phase-52-the-sync)
+    - [Phase 54: Go-like Concurrency](#phase-54-go-like-concurrency)
     - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
@@ -235,6 +236,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
 - **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
 - **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
+- **Go-like Concurrency** - Pipe<T> bounded channels (PipeSender/PipeReceiver split), TaskHandle<T> with abort/is_finished, spawn() for green threads, Select statement (tokio::select!), check_preemption() for cooperative yields
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1746,6 +1748,12 @@ add_test_description "tests/phase52_sync.rs" \
     "Automatic CRDT synchronization over GossipSub. Sync binds a CRDT variable to a pub/sub topic for auto-replication. Synced<T> wrapper auto-publishes on mutation, auto-merges on receive." \
     "Let mutable c be a new Counter. Sync c on \"room\". Increase c's clicks by 5."
 
+# Phase 54: Go-like Concurrency
+add_test_description "tests/phase54_concurrency.rs" \
+    "Phase 54: Go-like Concurrency" \
+    "Green threads and channel primitives. 'Launch a task to fn' generates tokio::spawn. 'Let ch be a Pipe of T' creates mpsc::channel. 'Send x into ch' for tx.send(). 'Receive x from ch' for rx.recv(). 'Await the first of:' generates tokio::select!. 'Stop handle' for handle.abort(). Non-blocking Try variants." \
+    "Launch a task to worker. Let ch be a Pipe of Int. Send 42 into ch."
+
 # End-to-End Tests
 add_test_description "tests/e2e_collections.rs" \
     "E2E: Collections" \
@@ -2859,6 +2867,11 @@ add_file "logos_core/src/fs/mod.rs" \
 add_file "logos_core/src/fs/opfs.rs" \
     "OPFS VFS (WASM)" \
     "Origin Private File System for browser persistence. OpfsVfs implements async Vfs trait using web-sys bindings. navigator.storage.getDirectory() root, FileSystemWritableFileStream for writes."
+
+# Concurrency Module (Phase 54: Go-like Primitives)
+add_file "logos_core/src/concurrency.rs" \
+    "Go-like Concurrency Primitives" \
+    "Green thread and channel primitives. TaskHandle<T> wraps JoinHandle with is_finished()/abort(). Pipe<T>::new(cap) creates bounded mpsc channel split into PipeSender/PipeReceiver. spawn() for ergonomic task creation. check_preemption() for 10ms cooperative yielding in long loops."
 
 # ==============================================================================
 # LOGOS VERIFICATION CRATE

@@ -53,6 +53,24 @@ pub async fn publish<T: Serialize>(topic: &str, data: &T) {
     crate::network::gossip_publish(topic, bytes).await;
 }
 
+/// Phase 56: Publish raw bytes (already encoded) to avoid double-encoding.
+///
+/// Used by Distributed<T> which serializes once for both journaling and network.
+pub async fn publish_raw(topic: &str, data: Vec<u8>) -> Result<(), String> {
+    crate::network::gossip_publish(topic, data).await;
+    Ok(())
+}
+
+/// Phase 56: Get the local peer ID for echo detection.
+///
+/// Returns None if the mesh node is not initialized.
+pub async fn local_peer_id() -> Option<String> {
+    match crate::network::local_peer_id().await {
+        Ok(peer_id) => Some(peer_id.to_string()),
+        Err(_) => None,
+    }
+}
+
 /// Subscribe to a topic and auto-merge incoming messages.
 ///
 /// This function blocks until the subscription is cancelled.

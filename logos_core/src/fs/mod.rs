@@ -82,6 +82,9 @@ pub trait Vfs: Send + Sync {
 
     /// Create directory and all parent directories.
     async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+
+    /// Atomically rename a file (for journal compaction).
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()>;
 }
 
 /// WASM version of VFS trait without Send+Sync (JS is single-threaded).
@@ -108,6 +111,9 @@ pub trait Vfs {
 
     /// Create directory and all parent directories.
     async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+
+    /// Atomically rename a file (for journal compaction).
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()>;
 }
 
 /// Native filesystem VFS using tokio::fs.
@@ -198,6 +204,12 @@ impl Vfs for NativeVfs {
     async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
         let full_path = self.resolve(path);
         tokio::fs::create_dir_all(&full_path).await.map_err(VfsError::from)
+    }
+
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
+        let from_path = self.resolve(from);
+        let to_path = self.resolve(to);
+        tokio::fs::rename(&from_path, &to_path).await.map_err(VfsError::from)
     }
 }
 

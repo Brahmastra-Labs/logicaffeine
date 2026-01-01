@@ -1,12 +1,22 @@
 use std::collections::HashSet;
 use logos::arena::Arena;
 use logos::ast::{Expr, Literal, Stmt, BinaryOpKind};
-use logos::codegen::{codegen_expr, codegen_stmt, codegen_program, RefinementContext};
+use logos::codegen::{codegen_expr, codegen_stmt, codegen_program, RefinementContext, empty_var_caps};
 use logos::intern::{Interner, Symbol};
 use logos::analysis::{TypeRegistry, PolicyRegistry};
 
 // Empty LWW fields set for tests that don't involve CRDTs
 fn empty_lww_fields() -> HashSet<(String, String)> {
+    HashSet::new()
+}
+
+// Empty async functions set for tests that don't involve concurrency
+fn empty_async_fns() -> HashSet<Symbol> {
+    HashSet::new()
+}
+
+// Empty pipe vars set for tests that don't involve concurrency
+fn empty_pipe_vars() -> HashSet<Symbol> {
     HashSet::new()
 }
 
@@ -157,7 +167,7 @@ fn codegen_let_statement() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "let x = 42;\n");
 }
 
@@ -175,7 +185,7 @@ fn codegen_let_mutable() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "let mut count = 0;\n");
 }
 
@@ -191,7 +201,7 @@ fn codegen_set_statement() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "x = 10;\n");
 }
 
@@ -205,7 +215,7 @@ fn codegen_return_with_value() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "return 42;\n");
 }
 
@@ -215,7 +225,7 @@ fn codegen_return_without_value() {
     let stmt = Stmt::Return { value: None };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "return;\n");
 }
 
@@ -234,7 +244,7 @@ fn codegen_if_without_else() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert!(result.contains("if x {"), "Expected 'if x {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -254,7 +264,7 @@ fn codegen_while_loop() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert!(result.contains("while running {"), "Expected 'while running {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -273,7 +283,7 @@ fn codegen_indentation() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "    let x = 5;\n");
 }
 
@@ -300,6 +310,6 @@ fn codegen_call_statement() {
     };
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars());
     assert_eq!(result, "println();\n");
 }

@@ -89,6 +89,7 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 50: Security Policies](#phase-50-security-policies)
     - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
     - [Phase 52: The Sync](#phase-52-the-sync)
+    - [Phase 54: Go-like Concurrency](#phase-54-go-like-concurrency)
     - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
@@ -222,6 +223,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
 - **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
 - **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
+- **Go-like Concurrency** - Pipe<T> bounded channels (PipeSender/PipeReceiver split), TaskHandle<T> with abort/is_finished, spawn() for green threads, Select statement (tokio::select!), check_preemption() for cooperative yields
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1966,6 +1968,16 @@ Automatic CRDT synchronization over GossipSub. Sync binds a CRDT variable to a p
 
 ---
 
+#### Phase 54: Go-like Concurrency
+
+**File:** `tests/phase54_concurrency.rs`
+
+Green threads and channel primitives. 'Launch a task to fn' generates tokio::spawn. 'Let ch be a Pipe of T' creates mpsc::channel. 'Send x into ch' for tx.send(). 'Receive x from ch' for rx.recv(). 'Await the first of:' generates tokio::select!. 'Stop handle' for handle.abort(). Non-blocking Try variants.
+
+**Example:** Launch a task to worker. Let ch be a Pipe of Int. Send 42 into ch.
+
+---
+
 #### E2E: Collections
 
 **File:** `tests/e2e_collections.rs`
@@ -2190,31 +2202,31 @@ Tests for lexer improvements and edge cases.
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2292 lines
-Parser (ast/, parser/):               13146 lines
+Lexer (token.rs, lexer.rs):           2315 lines
+Parser (ast/, parser/):               13749 lines
 Transpilation:                        1341 lines
-Code Generation:                      2223 lines
+Code Generation:                      2510 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            2613 lines
-Support Infrastructure:               4322 lines
-Desktop UI:                              17062 lines
-CRDT (logos_core/src/crdt/):          486 lines
-Network (logos_core/src/network/):    1456 lines
-VFS (logos_core/src/fs/):             491 lines
+Support Infrastructure:               4323 lines
+Desktop UI:                              17238 lines
+CRDT (logos_core/src/crdt/):          497 lines
+Network (logos_core/src/network/):    1493 lines
+VFS (logos_core/src/fs/):             511 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        55020
-Test lines:          18649
-Total Rust lines: 73669
+Source lines:        56165
+Test lines:          19070
+Total Rust lines: 75235
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   114
+Test files:   116
 ```
 ## Lexicon Data
 
@@ -3205,6 +3217,17 @@ pub enum TokenType {
     Mount,      // "Mount x at [path]" -> load/create persistent CRDT from journal
     Persistent, // "Persistent Counter" -> type wrapped with journaling
     Combined,   // "x combined with y" -> string concatenation
+
+    // Phase 54: Go-like Concurrency Keywords
+    Launch,     // "Launch a task to..." -> spawn green thread
+    Task,       // "a task" -> identifier for task context
+    Pipe,       // "Pipe of Type" -> channel creation
+    Receive,    // "Receive from pipe" -> recv from channel
+    Stop,       // "Stop handle" -> abort task
+    Try,        // "Try to send/receive" -> non-blocking variant
+    Into,       // "Send value into pipe" -> channel send
+    First,      // "Await the first of:" -> select statement
+    After,      // "After N seconds:" -> timeout branch
 
     // Block Scoping
     Colon,
@@ -4714,6 +4737,8 @@ impl<'a> Lexer<'a> {
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             // Phase 48: "at" for chunk access (must come before is_preposition check)
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Phase 54: "into" for pipe send (must come before is_preposition check)
+            "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             _ => {}
         }
 
@@ -4762,6 +4787,16 @@ impl<'a> Lexer<'a> {
             "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
             "persistent" => return TokenType::Persistent,  // Works in type expressions
             "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
+            // Phase 54: Go-like Concurrency keywords (Imperative mode only)
+            // Note: "first" and "after" are NOT keywords - they're checked via lookahead in parser
+            // to avoid conflicting with their use as variable names
+            "launch" if self.mode == LexerMode::Imperative => return TokenType::Launch,
+            "task" if self.mode == LexerMode::Imperative => return TokenType::Task,
+            "pipe" if self.mode == LexerMode::Imperative => return TokenType::Pipe,
+            "receive" if self.mode == LexerMode::Imperative => return TokenType::Receive,
+            "stop" if self.mode == LexerMode::Imperative => return TokenType::Stop,
+            "try" if self.mode == LexerMode::Imperative => return TokenType::Try,
+            "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
@@ -6161,6 +6196,122 @@ pub enum Stmt<'a> {
         /// The path expression for the journal file
         path: &'a Expr<'a>,
     },
+
+    // =========================================================================
+    // Phase 54: Go-like Concurrency (Green Threads, Channels, Select)
+    // =========================================================================
+
+    /// Phase 54: Launch a fire-and-forget task (green thread)
+    /// `Launch a task to process(data).`
+    /// Semantics: tokio::spawn with no handle capture
+    LaunchTask {
+        /// The function to call
+        function: Symbol,
+        /// Arguments to pass
+        args: Vec<&'a Expr<'a>>,
+    },
+
+    /// Phase 54: Launch a task with handle for control
+    /// `Let worker be Launch a task to process(data).`
+    /// Semantics: tokio::spawn returning JoinHandle
+    LaunchTaskWithHandle {
+        /// Variable to bind the handle
+        handle: Symbol,
+        /// The function to call
+        function: Symbol,
+        /// Arguments to pass
+        args: Vec<&'a Expr<'a>>,
+    },
+
+    /// Phase 54: Create a bounded channel (pipe)
+    /// `Let jobs be a new Pipe of Int.`
+    /// Semantics: tokio::sync::mpsc::channel(32)
+    CreatePipe {
+        /// Variable for the pipe
+        var: Symbol,
+        /// Type of values in the pipe
+        element_type: Symbol,
+        /// Optional capacity (defaults to 32)
+        capacity: Option<u32>,
+    },
+
+    /// Phase 54: Blocking send into pipe
+    /// `Send value into pipe.`
+    /// Semantics: pipe_tx.send(value).await
+    SendPipe {
+        /// The value to send
+        value: &'a Expr<'a>,
+        /// The pipe to send into
+        pipe: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Blocking receive from pipe
+    /// `Receive x from pipe.`
+    /// Semantics: let x = pipe_rx.recv().await
+    ReceivePipe {
+        /// Variable to bind the received value
+        var: Symbol,
+        /// The pipe to receive from
+        pipe: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Non-blocking send (try)
+    /// `Try to send value into pipe.`
+    /// Semantics: pipe_tx.try_send(value) - returns immediately
+    TrySendPipe {
+        /// The value to send
+        value: &'a Expr<'a>,
+        /// The pipe to send into
+        pipe: &'a Expr<'a>,
+        /// Variable to bind the result (true/false)
+        result: Option<Symbol>,
+    },
+
+    /// Phase 54: Non-blocking receive (try)
+    /// `Try to receive x from pipe.`
+    /// Semantics: pipe_rx.try_recv() - returns Option
+    TryReceivePipe {
+        /// Variable to bind the received value (if any)
+        var: Symbol,
+        /// The pipe to receive from
+        pipe: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Cancel a spawned task
+    /// `Stop worker.`
+    /// Semantics: handle.abort()
+    StopTask {
+        /// The handle to cancel
+        handle: &'a Expr<'a>,
+    },
+
+    /// Phase 54: Select on multiple channels/timeouts
+    /// `Await the first of:`
+    ///     `Receive x from ch:`
+    ///         `...`
+    ///     `After 5 seconds:`
+    ///         `...`
+    /// Semantics: tokio::select! with auto-cancel
+    Select {
+        /// The branches to select from
+        branches: Vec<SelectBranch<'a>>,
+    },
+}
+
+/// Phase 54: A branch in a Select statement
+#[derive(Debug)]
+pub enum SelectBranch<'a> {
+    /// Receive from a pipe: `Receive x from ch:`
+    Receive {
+        var: Symbol,
+        pipe: &'a Expr<'a>,
+        body: Block<'a>,
+    },
+    /// Timeout: `After N seconds:` or `After N milliseconds:`
+    Timeout {
+        milliseconds: &'a Expr<'a>,
+        body: Block<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -7179,9 +7330,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_spawn_statement();
         }
         if self.check(&TokenType::Send) {
+            // Phase 54: Disambiguate "Send x into pipe" vs "Send x to agent"
+            if self.lookahead_contains_into() {
+                return self.parse_send_pipe_statement();
+            }
             return self.parse_send_statement();
         }
         if self.check(&TokenType::Await) {
+            // Phase 54: Disambiguate "Await the first of:" vs "Await response from agent"
+            if self.lookahead_is_first_of() {
+                return self.parse_select_statement();
+            }
             return self.parse_await_statement();
         }
 
@@ -7191,6 +7350,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Increase) {
             return self.parse_increase_statement();
+        }
+
+        // Phase 54: Go-like Concurrency statements
+        if self.check(&TokenType::Launch) {
+            return self.parse_launch_statement();
+        }
+        if self.check(&TokenType::Stop) {
+            return self.parse_stop_statement();
+        }
+        if self.check(&TokenType::Try) {
+            return self.parse_try_statement();
+        }
+        if self.check(&TokenType::Receive) {
+            return self.parse_receive_pipe_statement();
         }
 
         // Expression-statement: function call without "Call" keyword
@@ -7735,6 +7908,90 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.current = saved_pos;
         }
 
+        // Phase 54: Check for "a Pipe of Type" pattern
+        if self.check_article() {
+            let saved_pos = self.current;
+            self.advance(); // consume article
+
+            if self.check(&TokenType::Pipe) {
+                self.advance(); // consume "Pipe"
+
+                // Expect "of"
+                if !self.check_word("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                // Parse element type
+                let element_type = self.expect_identifier()?;
+
+                // Register variable in scope
+                if let Some(ctx) = self.context.as_mut() {
+                    use crate::context::{Entity, Gender, Number, OwnershipState};
+                    let var_name = self.interner.resolve(var).to_string();
+                    ctx.register(Entity {
+                        symbol: var_name.clone(),
+                        gender: Gender::Neuter,
+                        number: Number::Singular,
+                        noun_class: "Pipe".to_string(),
+                        ownership: OwnershipState::Owned,
+                    });
+                }
+
+                return Ok(Stmt::CreatePipe { var, element_type, capacity: None });
+            }
+            // Not a Pipe, backtrack
+            self.current = saved_pos;
+        }
+
+        // Phase 54: Check for "Launch a task to..." pattern (for task handles)
+        if self.check(&TokenType::Launch) {
+            self.advance(); // consume "Launch"
+
+            // Expect "a"
+            if !self.check_article() {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Expect "task"
+            if !self.check(&TokenType::Task) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Expect "to"
+            if !self.check(&TokenType::To) && !self.check_word("to") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse function name
+            let function = self.expect_identifier()?;
+
+            // Parse optional arguments: "with arg1, arg2"
+            let args = if self.check_word("with") {
+                self.advance();
+                self.parse_call_arguments()?
+            } else {
+                vec![]
+            };
+
+            return Ok(Stmt::LaunchTaskWithHandle { handle: var, function, args });
+        }
+
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
 
@@ -8184,6 +8441,385 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let path = self.parse_imperative_expr()?;
 
         Ok(Stmt::Mount { var, path })
+    }
+
+    // =========================================================================
+    // Phase 54: Go-like Concurrency Parser Methods
+    // =========================================================================
+
+    /// Helper: Check if lookahead contains "into" (for Send...into pipe disambiguation)
+    fn lookahead_contains_into(&self) -> bool {
+        for i in self.current..std::cmp::min(self.current + 5, self.tokens.len()) {
+            if matches!(self.tokens[i].kind, TokenType::Into) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Helper: Check if lookahead is "the first of" (for Await select disambiguation)
+    fn lookahead_is_first_of(&self) -> bool {
+        // Check for "Await the first of:"
+        self.current + 3 < self.tokens.len()
+            && matches!(self.tokens.get(self.current + 1), Some(t) if matches!(t.kind, TokenType::Article(_)))
+            && self.tokens.get(self.current + 2)
+                .map(|t| self.interner.resolve(t.lexeme).to_lowercase() == "first")
+                .unwrap_or(false)
+    }
+
+    /// Phase 54: Parse Launch statement - spawn a task
+    /// Syntax: Launch a task to verb(args).
+    fn parse_launch_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Launch"
+
+        // Expect "a"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "task"
+        if !self.check(&TokenType::Task) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse function name
+        let function = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "function name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Optional arguments in parentheses or with "with" keyword
+        let args = if self.check(&TokenType::LParen) {
+            self.parse_call_arguments()?
+        } else if self.check_word("with") {
+            self.advance(); // consume "with"
+            let mut args = Vec::new();
+            let arg = self.parse_imperative_expr()?;
+            args.push(arg);
+            // Handle additional args separated by "and"
+            while self.check(&TokenType::And) {
+                self.advance();
+                let arg = self.parse_imperative_expr()?;
+                args.push(arg);
+            }
+            args
+        } else {
+            Vec::new()
+        };
+
+        Ok(Stmt::LaunchTask { function, args })
+    }
+
+    /// Phase 54: Parse Send into pipe statement
+    /// Syntax: Send value into pipe.
+    fn parse_send_pipe_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Send"
+
+        // Parse value expression
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check(&TokenType::Into) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse pipe expression
+        let pipe = self.parse_imperative_expr()?;
+
+        Ok(Stmt::SendPipe { value, pipe })
+    }
+
+    /// Phase 54: Parse Receive from pipe statement
+    /// Syntax: Receive x from pipe.
+    fn parse_receive_pipe_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Receive"
+
+        // Get variable name - use expect_identifier which handles various token types
+        let var = self.expect_identifier()?;
+
+        // Expect "from"
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse pipe expression
+        let pipe = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ReceivePipe { var, pipe })
+    }
+
+    /// Phase 54: Parse Try statement (non-blocking send/receive)
+    /// Syntax: Try to send x into pipe. OR Try to receive x from pipe.
+    fn parse_try_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Try"
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Check if send or receive
+        if self.check(&TokenType::Send) {
+            self.advance(); // consume "Send"
+            let value = self.parse_imperative_expr()?;
+
+            if !self.check(&TokenType::Into) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+            Ok(Stmt::TrySendPipe { value, pipe, result: None })
+        } else if self.check(&TokenType::Receive) {
+            self.advance(); // consume "Receive"
+
+            let var = self.expect_identifier()?;
+
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+            Ok(Stmt::TryReceivePipe { var, pipe })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "send or receive".to_string() },
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Phase 54: Parse Stop statement
+    /// Syntax: Stop handle.
+    fn parse_stop_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Stop"
+
+        let handle = self.parse_imperative_expr()?;
+
+        Ok(Stmt::StopTask { handle })
+    }
+
+    /// Phase 54: Parse Select statement
+    /// Syntax:
+    /// Await the first of:
+    ///     Receive x from pipe:
+    ///         ...
+    ///     After N seconds:
+    ///         ...
+    fn parse_select_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::SelectBranch;
+
+        self.advance(); // consume "Await"
+
+        // Expect "the"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "first"
+        if !self.check_word("first") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "first".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "of"
+        if !self.check_preposition_is("of") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse branches
+        let mut branches = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let branch = self.parse_select_branch()?;
+            branches.push(branch);
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        Ok(Stmt::Select { branches })
+    }
+
+    /// Phase 54: Parse a single select branch
+    fn parse_select_branch(&mut self) -> ParseResult<crate::ast::stmt::SelectBranch<'a>> {
+        use crate::ast::stmt::SelectBranch;
+
+        if self.check(&TokenType::Receive) {
+            self.advance(); // consume "Receive"
+
+            let var = match &self.tokens[self.current].kind {
+                TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+            };
+
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse body
+            let body = self.parse_indented_block()?;
+
+            Ok(SelectBranch::Receive { var, pipe, body })
+        } else if self.check_word("after") {
+            self.advance(); // consume "After"
+
+            let milliseconds = self.parse_imperative_expr()?;
+
+            // Skip "seconds" or "milliseconds" if present
+            if self.check_word("seconds") || self.check_word("milliseconds") {
+                self.advance();
+            }
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse body
+            let body = self.parse_indented_block()?;
+
+            Ok(SelectBranch::Timeout { milliseconds, body })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "Receive or After".to_string() },
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Phase 54: Parse an indented block of statements
+    fn parse_indented_block(&mut self) -> ParseResult<crate::ast::stmt::Block<'a>> {
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        let mut stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let block = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(stmts.into_iter());
+
+        Ok(block)
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -10169,7 +10805,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Console |
             // Phase 49: CRDT keywords can be function names (Merge, Increase)
             TokenType::Merge |
-            TokenType::Increase => {
+            TokenType::Increase |
+            // Phase 54: "first", "second", etc. can be variable names
+            TokenType::First => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -26596,6 +27234,82 @@ fn replace_word(text: &str, from: &str, to: &str) -> String {
     result
 }
 
+// =============================================================================
+// Phase 56: Mount+Sync Detection for Distributed<T>
+// =============================================================================
+
+/// Tracks which variables have Mount and/or Sync statements.
+/// Used to detect when a variable needs Distributed<T> instead of separate wrappers.
+#[derive(Debug, Default)]
+pub struct VariableCapabilities {
+    /// Variable has a Mount statement
+    mounted: bool,
+    /// Variable has a Sync statement
+    synced: bool,
+    /// Path expression for Mount (as generated code string)
+    mount_path: Option<String>,
+    /// Topic expression for Sync (as generated code string)
+    sync_topic: Option<String>,
+}
+
+/// Helper to create an empty VariableCapabilities map (for tests).
+pub fn empty_var_caps() -> HashMap<Symbol, VariableCapabilities> {
+    HashMap::new()
+}
+
+/// Pre-scan statements to detect variables that have both Mount and Sync.
+/// Returns a map from variable Symbol to its capabilities.
+fn analyze_variable_capabilities<'a>(
+    stmts: &[Stmt<'a>],
+    interner: &Interner,
+) -> HashMap<Symbol, VariableCapabilities> {
+    let mut caps: HashMap<Symbol, VariableCapabilities> = HashMap::new();
+    let empty_synced = HashSet::new();
+
+    for stmt in stmts {
+        match stmt {
+            Stmt::Mount { var, path } => {
+                let entry = caps.entry(*var).or_default();
+                entry.mounted = true;
+                entry.mount_path = Some(codegen_expr(path, interner, &empty_synced));
+            }
+            Stmt::Sync { var, topic } => {
+                let entry = caps.entry(*var).or_default();
+                entry.synced = true;
+                entry.sync_topic = Some(codegen_expr(topic, interner, &empty_synced));
+            }
+            // Recursively check nested blocks (Block<'a> is &[Stmt<'a>])
+            Stmt::If { then_block, else_block, .. } => {
+                let nested = analyze_variable_capabilities(then_block, interner);
+                for (var, cap) in nested {
+                    let entry = caps.entry(var).or_default();
+                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                }
+                if let Some(else_b) = else_block {
+                    let nested = analyze_variable_capabilities(else_b, interner);
+                    for (var, cap) in nested {
+                        let entry = caps.entry(var).or_default();
+                        if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                        if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                    }
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                let nested = analyze_variable_capabilities(body, interner);
+                for (var, cap) in nested {
+                    let entry = caps.entry(var).or_default();
+                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    caps
+}
+
 /// Phase 51: Detect if any statements require async execution.
 /// Returns true if the program needs #[tokio::main] async fn main().
 fn requires_async(stmts: &[Stmt]) -> bool {
@@ -26617,6 +27331,14 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         // Phase 53: File I/O is async (VFS operations)
         Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
         Stmt::WriteFile { .. } => true,
+        // Phase 54: Go-like concurrency is async
+        Stmt::LaunchTask { .. } => true,
+        Stmt::LaunchTaskWithHandle { .. } => true,
+        Stmt::SendPipe { .. } => true,
+        Stmt::ReceivePipe { .. } => true,
+        Stmt::Select { .. } => true,
+        // While and Repeat are now always async due to check_preemption()
+        // (handled below in recursive check)
         // Recursively check nested blocks
         Stmt::If { then_block, else_block, .. } => {
             then_block.iter().any(|s| requires_async_stmt(s))
@@ -26852,6 +27574,20 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
     lww_fields
 }
 
+/// Phase 54: Collect function names that are async.
+/// Used by LaunchTask codegen to determine if .await is needed.
+fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut async_fns = HashSet::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, body, .. } = stmt {
+            if body.iter().any(|s| requires_async_stmt(s)) {
+                async_fns.insert(*name);
+            }
+        }
+    }
+    async_fns
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
@@ -26865,6 +27601,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Phase 49: Collect LWWRegister fields for special SetField handling
     let lww_fields = collect_lww_fields(registry, interner);
+
+    // Phase 54: Collect async functions for Launch codegen
+    let async_functions = collect_async_functions(stmts);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -26919,7 +27658,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields, &async_functions));
         }
     }
 
@@ -26946,12 +27685,14 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     }
     let mut main_ctx = RefinementContext::new();
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
+    // Phase 56: Pre-scan for Mount+Sync combinations
+    let main_var_caps = analyze_variable_capabilities(stmts, interner);
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -26968,6 +27709,7 @@ fn codegen_function_def(
     is_native: bool,
     interner: &Interner,
     lww_fields: &HashSet<(String, String)>,
+    async_functions: &HashSet<Symbol>,  // Phase 54
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
@@ -27020,6 +27762,8 @@ fn codegen_function_def(
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
         let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
+        // Phase 56: Pre-scan for Mount+Sync combinations in function body
+        let func_var_caps = analyze_variable_capabilities(body, interner);
 
         // Phase 50: Register parameter types for capability Check resolution
         for (param_name, param_type) in params {
@@ -27028,7 +27772,7 @@ fn codegen_function_def(
         }
 
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -27340,6 +28084,8 @@ pub fn codegen_stmt<'a>(
     ctx: &mut RefinementContext<'a>,
     lww_fields: &HashSet<(String, String)>,
     synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
+    var_caps: &HashMap<Symbol, VariableCapabilities>,  // Phase 56: Mount+Sync detection
+    async_functions: &HashSet<Symbol>,  // Phase 54: Functions that are async
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -27389,14 +28135,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
                 }
                 ctx.pop_scope();
             }
@@ -27409,7 +28155,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -27421,7 +28167,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -27515,32 +28261,211 @@ pub fn codegen_stmt<'a>(
                      indent_str, ms_str).unwrap();
         }
 
-        // Phase 52: Sync CRDT variable on topic
+        // Phase 52/56: Sync CRDT variable on topic
         Stmt::Sync { var, topic } => {
             let var_name = interner.resolve(*var);
             let topic_str = codegen_expr(topic, interner, synced_vars);
-            // Wrap the variable in Synced<T> for automatic GossipSub replication
+
+            // Phase 56: Check if this variable is also mounted
+            if let Some(caps) = var_caps.get(var) {
+                if caps.mounted {
+                    // Both Mount and Sync: use Distributed<T>
+                    // Mount statement will handle the Distributed::mount call
+                    // Here we just track it as synced
+                    synced_vars.insert(*var);
+                    return output;  // Skip - Mount will emit Distributed<T>
+                }
+            }
+
+            // Sync-only: use Synced<T>
             writeln!(
                 output,
                 "{}let {} = logos_core::crdt::Synced::new({}, &{}).await;",
                 indent_str, var_name, var_name, topic_str
             ).unwrap();
-            // Track this variable as synced for subsequent field access
             synced_vars.insert(*var);
         }
 
-        // Phase 53: Mount persistent CRDT from journal
+        // Phase 53/56: Mount persistent CRDT from journal
         Stmt::Mount { var, path } => {
             let var_name = interner.resolve(*var);
             let path_str = codegen_expr(path, interner, synced_vars);
-            // Mount the persistent value from the journal file
+
+            // Phase 56: Check if this variable is also synced
+            if let Some(caps) = var_caps.get(var) {
+                if caps.synced {
+                    // Both Mount and Sync: use Distributed<T>
+                    let topic_str = caps.sync_topic.as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("\"default\"");
+                    writeln!(
+                        output,
+                        "{}let {} = logos_core::distributed::Distributed::mount(std::sync::Arc::new(vfs.clone()), &{}, Some({}.to_string())).await.expect(\"Failed to mount\");",
+                        indent_str, var_name, path_str, topic_str
+                    ).unwrap();
+                    synced_vars.insert(*var);
+                    return output;
+                }
+            }
+
+            // Mount-only: use Persistent<T>
             writeln!(
                 output,
                 "{}let {} = logos_core::storage::Persistent::mount(&vfs, &{}).await.expect(\"Failed to mount\");",
                 indent_str, var_name, path_str
             ).unwrap();
-            // Track as synced so CRDT mutations use .mutate() for persistence
             synced_vars.insert(*var);
+        }
+
+        // =====================================================================
+        // Phase 54: Go-like Concurrency Codegen
+        // =====================================================================
+
+        Stmt::LaunchTask { function, args } => {
+            let fn_name = interner.resolve(*function);
+            let args_str: Vec<String> = args.iter()
+                .map(|a| codegen_expr(a, interner, synced_vars))
+                .collect();
+            // Phase 54: Add .await only if the function is async
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(
+                output,
+                "{}tokio::spawn(async move {{ {}({}){await_suffix}; }});",
+                indent_str, fn_name, args_str.join(", ")
+            ).unwrap();
+        }
+
+        Stmt::LaunchTaskWithHandle { handle, function, args } => {
+            let handle_name = interner.resolve(*handle);
+            let fn_name = interner.resolve(*function);
+            let args_str: Vec<String> = args.iter()
+                .map(|a| codegen_expr(a, interner, synced_vars))
+                .collect();
+            // Phase 54: Add .await only if the function is async
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ {}({}){await_suffix} }});",
+                indent_str, handle_name, fn_name, args_str.join(", ")
+            ).unwrap();
+        }
+
+        Stmt::CreatePipe { var, element_type, capacity } => {
+            let var_name = interner.resolve(*var);
+            let type_name = interner.resolve(*element_type);
+            let cap = capacity.unwrap_or(32);
+            // Map LOGOS types to Rust types
+            let rust_type = match type_name {
+                "Int" => "i64",
+                "Nat" => "u64",
+                "Text" => "String",
+                "Bool" => "bool",
+                _ => type_name,
+            };
+            writeln!(
+                output,
+                "{}let ({}_tx, mut {}_rx) = tokio::sync::mpsc::channel::<{}>({});",
+                indent_str, var_name, var_name, rust_type, cap
+            ).unwrap();
+        }
+
+        Stmt::SendPipe { value, pipe } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
+                indent_str, pipe_str, val_str
+            ).unwrap();
+        }
+
+        Stmt::ReceivePipe { var, pipe } => {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            writeln!(
+                output,
+                "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
+                indent_str, var_name, pipe_str
+            ).unwrap();
+        }
+
+        Stmt::TrySendPipe { value, pipe, result } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            if let Some(res) = result {
+                let res_name = interner.resolve(*res);
+                writeln!(
+                    output,
+                    "{}let {} = {}_tx.try_send({}).is_ok();",
+                    indent_str, res_name, pipe_str, val_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}let _ = {}_tx.try_send({});",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            }
+        }
+
+        Stmt::TryReceivePipe { var, pipe } => {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            writeln!(
+                output,
+                "{}let {} = {}_rx.try_recv().ok();",
+                indent_str, var_name, pipe_str
+            ).unwrap();
+        }
+
+        Stmt::StopTask { handle } => {
+            let handle_str = codegen_expr(handle, interner, synced_vars);
+            writeln!(output, "{}{}.abort();", indent_str, handle_str).unwrap();
+        }
+
+        Stmt::Select { branches } => {
+            use crate::ast::stmt::SelectBranch;
+
+            writeln!(output, "{}tokio::select! {{", indent_str).unwrap();
+            for branch in branches {
+                match branch {
+                    SelectBranch::Receive { var, pipe, body } => {
+                        let var_name = interner.resolve(*var);
+                        let pipe_str = codegen_expr(pipe, interner, synced_vars);
+                        writeln!(
+                            output,
+                            "{}    {} = {}_rx.recv() => {{",
+                            indent_str, var_name, pipe_str
+                        ).unwrap();
+                        writeln!(
+                            output,
+                            "{}        if let Some({}) = {} {{",
+                            indent_str, var_name, var_name
+                        ).unwrap();
+                        for stmt in *body {
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            write!(output, "{}", stmt_code).unwrap();
+                        }
+                        writeln!(output, "{}        }}", indent_str).unwrap();
+                        writeln!(output, "{}    }}", indent_str).unwrap();
+                    }
+                    SelectBranch::Timeout { milliseconds, body } => {
+                        let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+                        // Convert seconds to milliseconds if the value looks like seconds
+                        writeln!(
+                            output,
+                            "{}    _ = tokio::time::sleep(std::time::Duration::from_secs({} as u64)) => {{",
+                            indent_str, ms_str
+                        ).unwrap();
+                        for stmt in *body {
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            write!(output, "{}", stmt_code).unwrap();
+                        }
+                        writeln!(output, "{}    }}", indent_str).unwrap();
+                    }
+                }
+            }
+            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -27617,7 +28542,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -27683,7 +28608,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
 
             ctx.pop_scope();
@@ -27726,7 +28651,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
 
                 // Convert call statements to awaited calls for async context
                 let inner_awaited = if let Stmt::Call { .. } = stmt {
@@ -27780,7 +28705,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -27794,7 +28719,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -31420,7 +32345,8 @@ use crate::ast::stmt::{Stmt, Expr, TypeExpr};
 
 /// Interpret LOGOS imperative code and return output lines.
 /// This is used by the Guide page for interactive code examples.
-pub fn interpret_for_ui(input: &str) -> InterpreterResult {
+/// Phase 55: Now async to support VFS operations.
+pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -31465,7 +32391,7 @@ pub fn interpret_for_ui(input: &str) -> InterpreterResult {
     match parser.parse_program() {
         Ok(stmts) => {
             let mut interp = interpreter::Interpreter::new(&interner);
-            match interp.run(&stmts) {
+            match interp.run(&stmts).await {
                 Ok(()) => InterpreterResult {
                     lines: interp.output,
                     error: None,
@@ -38473,11 +39399,19 @@ Direct AST interpretation without compilation. Used for REPL, debugging, and rap
 //!
 //! This module provides runtime execution of parsed LOGOS programs,
 //! walking the AST and executing statements/expressions directly.
+//!
+//! Phase 55: Made async for VFS operations (OPFS on WASM, tokio::fs on native).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, Stmt, TypeExpr};
+use async_recursion::async_recursion;
+
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
+
+// Phase 55: VFS imports
+use logos_core::fs::Vfs;
 
 /// Runtime values during interpretation.
 #[derive(Debug, Clone)]
@@ -38558,6 +39492,8 @@ pub struct FunctionDef<'a> {
 }
 
 /// Tree-walking interpreter for LOGOS programs.
+///
+/// Phase 55: Now async with optional VFS for file operations.
 pub struct Interpreter<'a> {
     interner: &'a Interner,
     /// Scope stack - each HashMap is a scope level
@@ -38568,6 +39504,8 @@ pub struct Interpreter<'a> {
     struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
     /// Output lines from show() calls
     pub output: Vec<String>,
+    /// Phase 55: VFS for file operations (OPFS on WASM, NativeVfs on native)
+    vfs: Option<Arc<dyn Vfs>>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -38578,13 +39516,21 @@ impl<'a> Interpreter<'a> {
             functions: HashMap::new(),
             struct_defs: HashMap::new(),
             output: Vec::new(),
+            vfs: None,
         }
     }
 
+    /// Phase 55: Set the VFS for file operations.
+    pub fn with_vfs(mut self, vfs: Arc<dyn Vfs>) -> Self {
+        self.vfs = Some(vfs);
+        self
+    }
+
     /// Execute a program (list of statements).
-    pub fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+    /// Phase 55: Now async for VFS operations.
+    pub async fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
         for stmt in stmts {
-            match self.execute_stmt(stmt)? {
+            match self.execute_stmt(stmt).await? {
                 ControlFlow::Return(_) => break,
                 ControlFlow::Break => break,
                 ControlFlow::Continue => {}
@@ -38594,36 +39540,38 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Execute a single statement.
-    fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+    /// Phase 55: Now async for VFS operations.
+    #[async_recursion(?Send)]
+    async fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
         match stmt {
             Stmt::Let { var, value, .. } => {
-                let val = self.evaluate_expr(value)?;
+                let val = self.evaluate_expr(value).await?;
                 self.define(*var, val);
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Set { target, value } => {
-                let val = self.evaluate_expr(value)?;
+                let val = self.evaluate_expr(value).await?;
                 self.assign(*target, val)?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Call { function, args } => {
-                self.call_function(*function, args)?;
+                self.call_function(*function, args).await?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::If { cond, then_block, else_block } => {
-                let condition = self.evaluate_expr(cond)?;
+                let condition = self.evaluate_expr(cond).await?;
                 if condition.is_truthy() {
-                    let flow = self.execute_block(then_block)?;
+                    let flow = self.execute_block(then_block).await?;
                     if !matches!(flow, ControlFlow::Continue) {
-                        return Ok(flow); // Propagate Return/Break from If block
+                        return Ok(flow);
                     }
                 } else if let Some(else_stmts) = else_block {
-                    let flow = self.execute_block(else_stmts)?;
+                    let flow = self.execute_block(else_stmts).await?;
                     if !matches!(flow, ControlFlow::Continue) {
-                        return Ok(flow); // Propagate Return/Break from Otherwise block
+                        return Ok(flow);
                     }
                 }
                 Ok(ControlFlow::Continue)
@@ -38631,11 +39579,11 @@ impl<'a> Interpreter<'a> {
 
             Stmt::While { cond, body, .. } => {
                 loop {
-                    let condition = self.evaluate_expr(cond)?;
+                    let condition = self.evaluate_expr(cond).await?;
                     if !condition.is_truthy() {
                         break;
                     }
-                    match self.execute_block(body)? {
+                    match self.execute_block(body).await? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                         ControlFlow::Continue => {}
@@ -38645,7 +39593,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Repeat { var, iterable, body } => {
-                let iter_val = self.evaluate_expr(iterable)?;
+                let iter_val = self.evaluate_expr(iterable).await?;
                 let items = match iter_val {
                     RuntimeValue::List(list) => list,
                     RuntimeValue::Text(s) => {
@@ -38657,7 +39605,7 @@ impl<'a> Interpreter<'a> {
                 self.push_scope();
                 for item in items {
                     self.define(*var, item);
-                    match self.execute_block(body)? {
+                    match self.execute_block(body).await? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => {
                             self.pop_scope();
@@ -38672,7 +39620,7 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Return { value } => {
                 let ret_val = match value {
-                    Some(expr) => self.evaluate_expr(expr)?,
+                    Some(expr) => self.evaluate_expr(expr).await?,
                     None => RuntimeValue::Nothing,
                 };
                 Ok(ControlFlow::Return(ret_val))
@@ -38694,8 +39642,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::SetField { object, field, value } => {
-                let new_val = self.evaluate_expr(value)?;
-                // Get the object identifier
+                let new_val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(obj_sym) = object {
                     let mut obj_val = self.lookup(*obj_sym)?.clone();
                     if let RuntimeValue::Struct { fields, .. } = &mut obj_val {
@@ -38712,7 +39659,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Push { value, collection } => {
-                let val = self.evaluate_expr(value)?;
+                let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
                     if let RuntimeValue::List(ref mut items) = coll_val {
@@ -38746,8 +39693,8 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::SetIndex { collection, index, value } => {
-                let idx_val = self.evaluate_expr(index)?;
-                let new_val = self.evaluate_expr(value)?;
+                let idx_val = self.evaluate_expr(index).await?;
+                let new_val = self.evaluate_expr(value).await?;
                 let idx = match idx_val {
                     RuntimeValue::Int(n) => n as usize,
                     _ => return Err("Index must be an integer".to_string()),
@@ -38755,7 +39702,6 @@ impl<'a> Interpreter<'a> {
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
                     if let RuntimeValue::List(ref mut items) = coll_val {
-                        // 1-indexed
                         if idx == 0 || idx > items.len() {
                             return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
                         }
@@ -38771,37 +39717,34 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Inspect { target, arms, .. } => {
-                let target_val = self.evaluate_expr(target)?;
-                self.execute_inspect(&target_val, arms)?;
+                let target_val = self.evaluate_expr(target).await?;
+                self.execute_inspect(&target_val, arms).await?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Zone { name, body, .. } => {
-                // Zones create a new scope
                 self.push_scope();
-                // Define the zone handle (as Nothing for now)
                 self.define(*name, RuntimeValue::Nothing);
-                let result = self.execute_block(body);
+                let result = self.execute_block(body).await;
                 self.pop_scope();
                 result?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-                // In WASM, execute sequentially
+                // In WASM, execute sequentially (no threads)
                 for task in tasks.iter() {
-                    self.execute_stmt(task)?;
+                    self.execute_stmt(task).await?;
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Assert { .. } | Stmt::Trust { .. } => {
-                // Logic assertions - for now, just continue
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::RuntimeAssert { condition } => {
-                let val = self.evaluate_expr(condition)?;
+                let val = self.evaluate_expr(condition).await?;
                 if !val.is_truthy() {
                     return Err("Assertion failed".to_string());
                 }
@@ -38809,55 +39752,69 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Give { .. } => {
-                // Ownership semantics - in interpreter, just continue
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Show { object, recipient } => {
-                // Show statement: "Show x." or "Show x to console."
-                // The recipient is the show function by default
-                let obj_val = self.evaluate_expr(object)?;
-
-                // Check if recipient is the "show" function (default)
+                let obj_val = self.evaluate_expr(object).await?;
                 if let Expr::Identifier(sym) = recipient {
                     let name = self.interner.resolve(*sym);
                     if name == "show" {
-                        // Output the value
                         self.output.push(obj_val.to_display_string());
                     }
                 }
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::ReadFrom { var, .. } => {
-                // No filesystem in WASM - return empty string
-                self.define(*var, RuntimeValue::Text(String::new()));
+            // Phase 55: VFS operations now supported
+            Stmt::ReadFrom { var, source } => {
+                let content = match source {
+                    ReadSource::Console => {
+                        // Console read not available in WASM interpreter
+                        String::new()
+                    }
+                    ReadSource::File(path_expr) => {
+                        let path = self.evaluate_expr(path_expr).await?.to_display_string();
+                        match &self.vfs {
+                            Some(vfs) => {
+                                vfs.read_to_string(&path).await
+                                    .map_err(|e| format!("Read error: {}", e))?
+                            }
+                            None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                        }
+                    }
+                };
+                self.define(*var, RuntimeValue::Text(content));
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::WriteFile { .. } => {
-                // No filesystem in WASM - just continue
+            Stmt::WriteFile { content, path } => {
+                let content_val = self.evaluate_expr(content).await?.to_display_string();
+                let path_val = self.evaluate_expr(path).await?.to_display_string();
+                match &self.vfs {
+                    Some(vfs) => {
+                        vfs.write(&path_val, content_val.as_bytes()).await
+                            .map_err(|e| format!("Write error: {}", e))?;
+                    }
+                    None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Spawn { name, .. } => {
-                // No agents in WASM - create a placeholder
                 self.define(*name, RuntimeValue::Nothing);
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::SendMessage { .. } => {
-                // No agents in WASM
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::AwaitMessage { into, .. } => {
-                // No agents in WASM - define the into variable as Nothing
                 self.define(*into, RuntimeValue::Nothing);
                 Ok(ControlFlow::Continue)
             }
 
-            // Phase 49: CRDT operations - not supported in interpreter (compile-only)
             Stmt::MergeCrdt { .. } => {
                 Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
             }
@@ -38866,12 +39823,10 @@ impl<'a> Interpreter<'a> {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
-            // Phase 50: Security Check - not supported in interpreter (compile-only)
             Stmt::Check { .. } => {
                 Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
-            // Phase 51: P2P Networking - not supported in interpreter (compile-only)
             Stmt::Listen { .. } => {
                 Err("Listen is not supported in the interpreter. Use compiled Rust.".to_string())
             }
@@ -38882,24 +39837,53 @@ impl<'a> Interpreter<'a> {
                 Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
             }
             Stmt::Sleep { .. } => {
-                Err("Sleep is not supported in the interpreter. Use compiled Rust.".to_string())
+                // Phase 55: Sleep could be implemented with gloo-timers on WASM
+                Err("Sleep is not yet supported in the interpreter.".to_string())
             }
-            // Phase 52: Sync is not supported in interpreter (compile-only)
             Stmt::Sync { .. } => {
                 Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
             }
-            // Phase 53: Mount is not supported in interpreter (compile-only)
-            Stmt::Mount { .. } => {
-                Err("Mount is not supported in the interpreter. Use compiled Rust.".to_string())
+            // Phase 55: Mount now supported via VFS
+            Stmt::Mount { var, path } => {
+                let path_val = self.evaluate_expr(path).await?.to_display_string();
+                match &self.vfs {
+                    Some(vfs) => {
+                        // Read existing content or create empty
+                        let content = match vfs.read_to_string(&path_val).await {
+                            Ok(s) => s,
+                            Err(_) => String::new(),
+                        };
+                        // Store as a simple value for now (full Persistent<T> requires more work)
+                        self.define(*var, RuntimeValue::Text(content));
+                    }
+                    None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            // Phase 54: Go-like concurrency - not supported in interpreter
+            // These are compile-to-Rust only features
+            Stmt::LaunchTask { .. } |
+            Stmt::LaunchTaskWithHandle { .. } |
+            Stmt::CreatePipe { .. } |
+            Stmt::SendPipe { .. } |
+            Stmt::ReceivePipe { .. } |
+            Stmt::TrySendPipe { .. } |
+            Stmt::TryReceivePipe { .. } |
+            Stmt::StopTask { .. } |
+            Stmt::Select { .. } => {
+                Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
             }
         }
     }
 
     /// Execute a block of statements, returning control flow.
-    fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
+    /// Phase 55: Now async.
+    #[async_recursion(?Send)]
+    async fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
         self.push_scope();
         for stmt in block.iter() {
-            match self.execute_stmt(stmt)? {
+            match self.execute_stmt(stmt).await? {
                 ControlFlow::Continue => {}
                 flow => {
                     self.pop_scope();
@@ -38912,19 +39896,18 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Execute Inspect (pattern matching).
-    fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
+    /// Phase 55: Now async.
+    #[async_recursion(?Send)]
+    async fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
         for arm in arms {
             if arm.variant.is_none() {
-                // Otherwise arm - always matches
-                self.execute_block(arm.body)?;
+                self.execute_block(arm.body).await?;
                 return Ok(());
             }
-            // For now, simplified matching - just check type name
             if let RuntimeValue::Struct { type_name, fields } = target {
                 if let Some(variant) = arm.variant {
                     let variant_name = self.interner.resolve(variant);
                     if type_name == variant_name {
-                        // Bind fields
                         self.push_scope();
                         for (field_name, binding_name) in &arm.bindings {
                             let field_str = self.interner.resolve(*field_name);
@@ -38932,7 +39915,7 @@ impl<'a> Interpreter<'a> {
                                 self.define(*binding_name, val.clone());
                             }
                         }
-                        let result = self.execute_block(arm.body);
+                        let result = self.execute_block(arm.body).await;
                         self.pop_scope();
                         result?;
                         return Ok(());
@@ -38944,7 +39927,9 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate an expression to a runtime value.
-    fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+    /// Phase 55: Now async.
+    #[async_recursion(?Send)]
+    async fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
         match expr {
             Expr::Literal(lit) => self.evaluate_literal(lit),
 
@@ -38953,21 +39938,20 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::BinaryOp { op, left, right } => {
-                let left_val = self.evaluate_expr(left)?;
-                let right_val = self.evaluate_expr(right)?;
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
                 self.apply_binary_op(*op, left_val, right_val)
             }
 
             Expr::Call { function, args } => {
-                self.call_function(*function, args)
+                self.call_function(*function, args).await
             }
 
             Expr::Index { collection, index } => {
-                let coll_val = self.evaluate_expr(collection)?;
-                let idx_val = self.evaluate_expr(index)?;
+                let coll_val = self.evaluate_expr(collection).await?;
+                let idx_val = self.evaluate_expr(index).await?;
                 match (&coll_val, &idx_val) {
                     (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
-                        // 1-indexed
                         let idx = *idx as usize;
                         if idx == 0 || idx > items.len() {
                             return Err(format!("Index {} out of bounds", idx));
@@ -38986,9 +39970,9 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Slice { collection, start, end } => {
-                let coll_val = self.evaluate_expr(collection)?;
-                let start_val = self.evaluate_expr(start)?;
-                let end_val = self.evaluate_expr(end)?;
+                let coll_val = self.evaluate_expr(collection).await?;
+                let start_val = self.evaluate_expr(start).await?;
+                let end_val = self.evaluate_expr(end).await?;
                 match (&coll_val, &start_val, &end_val) {
                     (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
                         let start = (*s as usize).saturating_sub(1);
@@ -39001,12 +39985,11 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Copy { expr: inner } => {
-                // Copy just evaluates and clones
-                self.evaluate_expr(inner)
+                self.evaluate_expr(inner).await
             }
 
             Expr::Length { collection } => {
-                let coll_val = self.evaluate_expr(collection)?;
+                let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
@@ -39015,16 +39998,17 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::List(items) => {
-                let values: Result<Vec<RuntimeValue>, String> = items
-                    .iter()
-                    .map(|e| self.evaluate_expr(e))
-                    .collect();
-                Ok(RuntimeValue::List(values?))
+                // Can't use .map() with async, so manual loop
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr(e).await?);
+                }
+                Ok(RuntimeValue::List(values))
             }
 
             Expr::Range { start, end } => {
-                let start_val = self.evaluate_expr(start)?;
-                let end_val = self.evaluate_expr(end)?;
+                let start_val = self.evaluate_expr(start).await?;
+                let end_val = self.evaluate_expr(end).await?;
                 match (&start_val, &end_val) {
                     (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
                         let range: Vec<RuntimeValue> = (*s..=*e)
@@ -39037,7 +40021,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::FieldAccess { object, field } => {
-                let obj_val = self.evaluate_expr(object)?;
+                let obj_val = self.evaluate_expr(object).await?;
                 match &obj_val {
                     RuntimeValue::Struct { fields, .. } => {
                         let field_name = self.interner.resolve(*field);
@@ -39051,16 +40035,14 @@ impl<'a> Interpreter<'a> {
             Expr::New { type_name, init_fields, .. } => {
                 let name = self.interner.resolve(*type_name).to_string();
 
-                // Check if this is a collection type (Seq or List)
                 if name == "Seq" || name == "List" {
                     return Ok(RuntimeValue::List(vec![]));
                 }
 
-                // Otherwise create a struct
                 let mut fields = HashMap::new();
                 for (field_sym, field_expr) in init_fields {
                     let field_name = self.interner.resolve(*field_sym).to_string();
-                    let field_val = self.evaluate_expr(field_expr)?;
+                    let field_val = self.evaluate_expr(field_expr).await?;
                     fields.insert(field_name, field_val);
                 }
                 Ok(RuntimeValue::Struct { type_name: name, fields })
@@ -39071,19 +40053,17 @@ impl<'a> Interpreter<'a> {
                 let mut field_map = HashMap::new();
                 for (field_sym, field_expr) in fields {
                     let field_name = self.interner.resolve(*field_sym).to_string();
-                    let field_val = self.evaluate_expr(field_expr)?;
+                    let field_val = self.evaluate_expr(field_expr).await?;
                     field_map.insert(field_name, field_val);
                 }
                 Ok(RuntimeValue::Struct { type_name: name, fields: field_map })
             }
 
             Expr::ManifestOf { .. } => {
-                // Phase 48: Zone manifests not available in WASM
                 Ok(RuntimeValue::List(vec![]))
             }
 
             Expr::ChunkAt { .. } => {
-                // Phase 48: Zone chunks not available in WASM
                 Ok(RuntimeValue::Nothing)
             }
         }
@@ -39222,14 +40202,15 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Call a function (built-in or user-defined).
-    fn call_function(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+    #[async_recursion(?Send)]
+    async fn call_function(&mut self, function: Symbol, args: &[&'async_recursion Expr<'a>]) -> Result<RuntimeValue, String> {
         let func_name = self.interner.resolve(function);
 
         // Built-in functions
         match func_name {
             "show" => {
                 for arg in args {
-                    let val = self.evaluate_expr(arg)?;
+                    let val = self.evaluate_expr(arg).await?;
                     self.output.push(val.to_display_string());
                 }
                 return Ok(RuntimeValue::Nothing);
@@ -39238,7 +40219,7 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 1 {
                     return Err("length() takes exactly 1 argument".to_string());
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return match &val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
@@ -39249,14 +40230,14 @@ impl<'a> Interpreter<'a> {
                 if args.is_empty() {
                     return Ok(RuntimeValue::Text(String::new()));
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return Ok(RuntimeValue::Text(val.to_display_string()));
             }
             "abs" => {
                 if args.len() != 1 {
                     return Err("abs() takes exactly 1 argument".to_string());
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return match val {
                     RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
                     RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
@@ -39267,8 +40248,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err("min() takes exactly 2 arguments".to_string());
                 }
-                let a = self.evaluate_expr(args[0])?;
-                let b = self.evaluate_expr(args[1])?;
+                let a = self.evaluate_expr(args[0]).await?;
+                let b = self.evaluate_expr(args[1]).await?;
                 return match (&a, &b) {
                     (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
                     _ => Err("min() requires integers".to_string()),
@@ -39278,8 +40259,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err("max() takes exactly 2 arguments".to_string());
                 }
-                let a = self.evaluate_expr(args[0])?;
-                let b = self.evaluate_expr(args[1])?;
+                let a = self.evaluate_expr(args[0]).await?;
+                let b = self.evaluate_expr(args[1]).await?;
                 return match (&a, &b) {
                     (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
                     _ => Err("max() requires integers".to_string()),
@@ -39289,7 +40270,7 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 1 {
                     return Err("copy() takes exactly 1 argument".to_string());
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return Ok(val.clone());
             }
             _ => {}
@@ -39315,7 +40296,7 @@ impl<'a> Interpreter<'a> {
         // Evaluate arguments before pushing scope
         let mut arg_values = Vec::new();
         for arg in args {
-            arg_values.push(self.evaluate_expr(arg)?);
+            arg_values.push(self.evaluate_expr(arg).await?);
         }
 
         // Push new scope and bind parameters
@@ -39327,7 +40308,7 @@ impl<'a> Interpreter<'a> {
         // Execute function body
         let mut return_value = RuntimeValue::Nothing;
         for stmt in body.iter() {
-            match self.execute_stmt(stmt)? {
+            match self.execute_stmt(stmt).await? {
                 ControlFlow::Return(val) => {
                     return_value = val;
                     break;
@@ -52185,18 +53166,22 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                 }
             }
             ExampleMode::Imperative => {
-                // Use the real LOGOS parser + tree-walking interpreter
-                let result = interpret_for_ui(&current_code);
-                if let Some(err) = result.error {
-                    output.set(err);
-                    output_type.set("error".to_string());
-                } else if result.lines.is_empty() {
-                    output.set("(no output)".to_string());
-                    output_type.set("info".to_string());
-                } else {
-                    output.set(result.lines.join("\n"));
-                    output_type.set("success".to_string());
-                }
+                // Phase 55: interpret_for_ui is now async for VFS support
+                spawn(async move {
+                    let result = interpret_for_ui(&current_code).await;
+                    if let Some(err) = result.error {
+                        output.set(err);
+                        output_type.set("error".to_string());
+                    } else if result.lines.is_empty() {
+                        output.set("(no output)".to_string());
+                        output_type.set("info".to_string());
+                    } else {
+                        output.set(result.lines.join("\n"));
+                        output_type.set("success".to_string());
+                    }
+                    is_running.set(false);
+                });
+                return;
             }
         }
 
@@ -56485,12 +57470,15 @@ Show "Zone unmapped"."#,
         content: r#"
 LOGOS provides safe concurrency through structured patterns. No data races, no deadlocks.
 
-### Two Kinds of Concurrent Work
+### Concurrent Patterns Overview
 
 | Pattern | Syntax | Use For | Compiles To |
 |---------|--------|---------|-------------|
-| **Async** | `Attempt all of the following:` | I/O-bound tasks (network, files) | tokio::join! |
-| **Parallel** | `Simultaneously:` | CPU-bound tasks (computation) | rayon::join / threads |
+| **Async Join** | `Attempt all of the following:` | Wait for all I/O tasks | tokio::join! |
+| **Parallel CPU** | `Simultaneously:` | CPU-bound computation | rayon::join / threads |
+| **Spawn Task** | `Launch a task to...` | Fire-and-forget work | tokio::spawn |
+| **Channels** | `Pipe of Type` | Message passing | tokio::mpsc |
+| **Select** | `Await the first of:` | Race operations | tokio::select! |
 
 ### Attempt All (Async I/O)
 
@@ -56505,9 +57493,58 @@ Use `Simultaneously:` for CPU-intensive work. Computations run in parallel on di
 - 2 tasks → uses `rayon::join` (work-stealing thread pool)
 - 3+ tasks → uses `std::thread::spawn` (dedicated threads)
 
+### Tasks (Green Threads)
+
+Use `Launch a task to...` to spawn a green thread that runs concurrently. For fire-and-forget work, just launch:
+
+`Launch a task to process(data).`
+
+To control the task later (cancel, await), capture a handle:
+
+`Let worker be Launch a task to process(data).`
+
+Stop a running task with:
+
+`Stop worker.`
+
+### Channels (Pipes)
+
+Pipes are Go-style channels for message passing between tasks.
+
+**Create a channel:**
+`Let jobs be a new Pipe of Int.`
+
+**Send into a channel (blocking):**
+`Send value into jobs.`
+
+**Receive from a channel (blocking):**
+`Receive item from jobs.`
+
+**Non-blocking variants:**
+`Try to send value into jobs.`
+`Try to receive item from jobs.`
+
+### Select (Racing Operations)
+
+Use `Await the first of:` to race multiple operations. The first one to complete wins:
+
+```
+Await the first of:
+    Receive msg from inbox:
+        Show msg.
+    After 5 seconds:
+        Show "timeout".
+```
+
+**Branch types:**
+- `Receive var from pipe:` — wait for channel message
+- `After N seconds:` — timeout branch
+
 ### Ownership and Concurrency
 
 The ownership system prevents data races. Multiple reads are OK, but concurrent writes are prevented.
+
+**Note:** Tasks, Pipes, and Select require compilation—they don't run in the browser playground.
 "#,
         examples: &[
             CodeExample {
@@ -56559,6 +57596,55 @@ Show "Sum: " + (a + b + c)."#,
 Let result be compute_parallel().
 Show "Result: " + result."#,
             },
+            CodeExample {
+                id: "launch-task",
+                label: "Launch Task (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To worker (id: Int):
+    Show "Worker " + id + " started".
+
+## Main
+Launch a task to worker(1).
+Launch a task to worker(2).
+Show "Tasks launched"."#,
+            },
+            CodeExample {
+                id: "task-with-handle",
+                label: "Task with Handle (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To long_running:
+    Show "Working...".
+
+## Main
+Let job be Launch a task to long_running.
+Show "Task spawned".
+Stop job.
+Show "Task cancelled"."#,
+            },
+            CodeExample {
+                id: "pipe-send-receive",
+                label: "Pipe Communication (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let messages be a new Pipe of Int.
+Send 42 into messages.
+Send 100 into messages.
+Receive x from messages.
+Show "Got: " + x."#,
+            },
+            CodeExample {
+                id: "select-timeout",
+                label: "Select with Timeout (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let inbox be a new Pipe of Text.
+
+Await the first of:
+    Receive msg from inbox:
+        Show "Message: " + msg.
+    After 2 seconds:
+        Show "No message received"."#,
+            },
         ],
     },
 
@@ -56603,6 +57689,24 @@ A register that resolves conflicts by timestamp. The most recent write wins. Wor
 
 Use `Merge source into target` to combine two CRDT instances. The target is updated in place with the merged state.
 
+### Persistence
+
+CRDTs can be persisted to disk using the `Persistent` type modifier and `Mount` statement. Data is stored in append-only journal files (`.lsf` format) with automatic compaction.
+
+**The Persistent Type:**
+
+`Persistent Counter` wraps a Shared struct with journaling. All mutations are durably recorded.
+
+**The Mount Statement:**
+
+`Mount [variable] at [path].`
+
+or
+
+`Let x be mounted at "path/to/data.lsf".`
+
+This loads existing state from the journal file (if present) or creates a new one. Changes are automatically persisted.
+
 ### Network Synchronization
 
 CRDTs become powerful when synchronized across the network. Use `Sync` to subscribe a variable to a GossipSub topic.
@@ -56619,7 +57723,14 @@ CRDTs become powerful when synchronized across the network. Use `Sync` to subscr
 2. Spawns a background task to merge incoming updates
 3. Broadcasts the full state after any mutation
 
-**Note:** Programs using `Sync` require compilation—they don't run in the browser playground.
+### Persistence + Network
+
+For the best of both worlds, combine `Persistent` types with `Sync`. The Distributed runtime ensures:
+- Local changes are journaled before broadcast
+- Remote updates are merged and persisted
+- Data survives restarts
+
+**Note:** Programs using `Sync` or `Mount` require compilation—they don't run in the browser playground.
 "#,
         examples: &[
             CodeExample {
@@ -56694,6 +57805,19 @@ Let mutable p be a new Profile.
 Sync p on "player-data".
 Increase p's level by 1.
 Show "Profile synced"."#,
+            },
+            CodeExample {
+                id: "crdt-persistent",
+                label: "Persistent Counter (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a value, which is ConvergentCount.
+
+## Main
+Let mutable c: Persistent Counter be mounted at "counter.lsf".
+Increase c's value by 1.
+Show c's value."#,
             },
         ],
     },
@@ -57036,37 +58160,49 @@ LOGOS projects are built with `largo`, the LOGOS build tool.
 
 ### Creating a Project
 
-`largo new myproject` creates a new project with a `Largo.toml` manifest and `src/main.md`.
+| Command | Description |
+|---------|-------------|
+| `largo new <name>` | Create a new project in a new directory |
+| `largo init` | Initialize a project in the current directory |
+
+This creates a `Largo.toml` manifest and `src/main.lg` entry point.
 
 ### Build Commands
 
 | Command | Description |
 |---------|-------------|
-| `largo build` | Compile the project |
+| `largo build` | Compile the project to a native binary |
 | `largo build --release` | Compile with optimizations |
 | `largo run` | Build and run |
-| `largo check` | Type check without compiling |
-| `largo test` | Run tests |
-| `largo audit` | List Trust statements |
+| `largo check` | Type-check without compiling |
+| `largo verify` | Run Z3 static verification (Pro+ license required) |
+| `largo build --verify` | Build with verification |
+
+### Package Registry
+
+Publish and manage packages on the LOGOS registry:
+
+| Command | Description |
+|---------|-------------|
+| `largo login` | Authenticate with the registry |
+| `largo publish` | Publish your package |
+| `largo publish --dry-run` | Validate without publishing |
+| `largo logout` | Log out from the registry |
 
 ### Project Manifest
 
-The `Largo.toml` file defines package metadata and dependencies.
+The `Largo.toml` file defines package metadata and dependencies:
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+entry = "src/main.lg"
+
+[dependencies]
+```
 "#,
-        examples: &[
-            CodeExample {
-                id: "largo-commands",
-                label: "largo Commands",
-                mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "largo commands:".
-Show "- largo new <name>".
-Show "- largo build".
-Show "- largo run".
-Show "- largo check".
-Show "- largo test"."#,
-            },
-        ],
+        examples: &[],
     },
 
     Section {
@@ -57451,6 +58587,22 @@ Show "Positives: " + positives."#,
 **Parallel CPU:**
 - `Simultaneously:` — Parallel computation (rayon/threads)
 
+**Tasks (Compiled Only):**
+- `Launch a task to f(args).` — Fire-and-forget spawn
+- `Let h be Launch a task to f(args).` — Spawn with handle
+- `Stop h.` — Abort a running task
+
+**Channels/Pipes (Compiled Only):**
+- `Let p be a new Pipe of Int.` — Create bounded channel
+- `Send x into p.` — Blocking send
+- `Receive x from p.` — Blocking receive
+- `Try to send/receive` — Non-blocking variants
+
+**Select (Compiled Only):**
+- `Await the first of:` — Race multiple operations
+- `Receive x from p:` — Channel receive branch
+- `After N seconds:` — Timeout branch
+
 ### Distributed Types (CRDTs)
 
 **Shared Structs:**
@@ -57461,6 +58613,11 @@ Show "Positives: " + positives."#,
 **CRDT Operations:**
 - `Increase x's field by amount.` — Increment a ConvergentCount
 - `Merge source into target.` — Combine two CRDT instances
+
+**Persistence (Compiled Only):**
+- `Persistent Counter` — Type with automatic journaling
+- `Let x be mounted at "data.lsf".` — Load/create persistent CRDT
+- `Mount x at "path".` — Mount statement for persistence
 
 **Network Sync (Compiled Only):**
 - `Sync mutable_var on "topic".` — Subscribe to GossipSub topic for auto-sync
@@ -59708,6 +60865,10 @@ pub mod types;
 pub mod fs;
 // Phase 49: CRDT primitives (cross-platform)
 pub mod crdt;
+// Phase 55: Persistent storage (cross-platform, uses async-lock)
+pub mod storage;
+// Phase 56: Distributed<T> - unified persistence + network (cross-platform)
+pub mod distributed;
 
 // Native-only modules
 #[cfg(not(target_arch = "wasm32"))]
@@ -59722,8 +60883,9 @@ pub mod env;
 pub mod memory;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod network;
+// Phase 54: Go-like concurrency primitives (native only)
 #[cfg(not(target_arch = "wasm32"))]
-pub mod storage;
+pub mod concurrency;
 
 // Phase 51: Re-export tokio for async main support (native only)
 #[cfg(not(target_arch = "wasm32"))]
@@ -59779,6 +60941,8 @@ pub mod prelude {
     pub use crate::logos_index_mut;
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
+    // Phase 56: Distributed<T>
+    pub use crate::distributed::Distributed;
 
     // Native-only prelude exports
     #[cfg(not(target_arch = "wasm32"))]
@@ -59793,6 +60957,13 @@ pub mod prelude {
     pub use crate::memory::Zone;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 54: Go-like concurrency primitives
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::concurrency::{
+        spawn, TaskHandle,
+        Pipe, PipeSender, PipeReceiver,
+        check_preemption, reset_preemption_timer,
+    };
 }
 
 #[cfg(test)]
@@ -60747,7 +61918,7 @@ Auto-replicating CRDT wrapper for GossipSub. Wraps Arc<Mutex<T>> for thread-safe
 //! it's automatically merged into the local state.
 
 use super::Merge;
-use crate::network::gossip;
+use crate::network::{gossip, wire};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -60771,19 +61942,30 @@ pub struct Synced<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'stat
 impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T> {
     /// Create a new synced wrapper and subscribe to the topic.
     ///
-    /// This spawns a background task that:
-    /// 1. Subscribes to the GossipSub topic
-    /// 2. Listens for incoming messages
-    /// 3. Deserializes and merges them into the local state
+    /// This:
+    /// 1. Subscribes to the GossipSub topic (awaited, ensures mesh membership)
+    /// 2. Spawns a background task to receive and merge incoming messages
     pub async fn new(initial: T, topic: &str) -> Self {
         let inner = Arc::new(Mutex::new(initial));
         let topic_str = topic.to_string();
 
-        // Spawn background merge task
+        // Subscribe FIRST, await completion to ensure mesh membership
+        let mut rx = gossip::subscribe(&topic_str).await;
+
+        // THEN spawn background merge task
         let inner_clone = Arc::clone(&inner);
-        let topic_clone = topic_str.clone();
         tokio::spawn(async move {
-            gossip::subscribe_and_merge::<T>(&topic_clone, inner_clone).await;
+            while let Some(bytes) = rx.recv().await {
+                match wire::decode::<T>(&bytes) {
+                    Ok(incoming) => {
+                        let mut guard = inner_clone.lock().await;
+                        guard.merge(&incoming);
+                    }
+                    Err(e) => {
+                        eprintln!("[gossip] Deserialization failed: {:?}", e);
+                    }
+                }
+            }
         });
 
         Self {
@@ -61929,6 +63111,25 @@ use tokio::sync::{mpsc, Mutex};
 static SUBSCRIPTIONS: Lazy<Mutex<HashMap<String, mpsc::Sender<Vec<u8>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Subscribe to a topic. Returns a receiver for incoming messages.
+///
+/// This registers the subscription locally and forwards it to the mesh node.
+/// The returned receiver will receive raw message bytes.
+pub async fn subscribe(topic: &str) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
+
+    // Register subscription
+    {
+        let mut subs = SUBSCRIPTIONS.lock().await;
+        subs.insert(topic.to_string(), tx);
+    }
+
+    // Forward subscription to mesh node
+    crate::network::gossip_subscribe(topic).await;
+
+    rx
+}
+
 /// Publish a message to a GossipSub topic.
 ///
 /// The message is serialized with bincode and broadcast to all subscribers
@@ -61944,6 +63145,24 @@ pub async fn publish<T: Serialize>(topic: &str, data: &T) {
 
     // Forward to mesh node's gossipsub behaviour
     crate::network::gossip_publish(topic, bytes).await;
+}
+
+/// Phase 56: Publish raw bytes (already encoded) to avoid double-encoding.
+///
+/// Used by Distributed<T> which serializes once for both journaling and network.
+pub async fn publish_raw(topic: &str, data: Vec<u8>) -> Result<(), String> {
+    crate::network::gossip_publish(topic, data).await;
+    Ok(())
+}
+
+/// Phase 56: Get the local peer ID for echo detection.
+///
+/// Returns None if the mesh node is not initialized.
+pub async fn local_peer_id() -> Option<String> {
+    match crate::network::local_peer_id().await {
+        Ok(peer_id) => Some(peer_id.to_string()),
+        Err(_) => None,
+    }
 }
 
 /// Subscribe to a topic and auto-merge incoming messages.
@@ -62359,6 +63578,9 @@ pub trait Vfs: Send + Sync {
 
     /// Create directory and all parent directories.
     async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+
+    /// Atomically rename a file (for journal compaction).
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()>;
 }
 
 /// WASM version of VFS trait without Send+Sync (JS is single-threaded).
@@ -62385,6 +63607,9 @@ pub trait Vfs {
 
     /// Create directory and all parent directories.
     async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+
+    /// Atomically rename a file (for journal compaction).
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()>;
 }
 
 /// Native filesystem VFS using tokio::fs.
@@ -62475,6 +63700,12 @@ impl Vfs for NativeVfs {
     async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
         let full_path = self.resolve(path);
         tokio::fs::create_dir_all(&full_path).await.map_err(VfsError::from)
+    }
+
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
+        let from_path = self.resolve(from);
+        let to_path = self.resolve(to);
+        tokio::fs::rename(&from_path, &to_path).await.map_err(VfsError::from)
     }
 }
 
@@ -62776,6 +64007,553 @@ impl Vfs for OpfsVfs {
     async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
         self.get_dir(path, true).await?;
         Ok(())
+    }
+
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
+        // OPFS doesn't have native rename - read, write, delete
+        let content = self.read(from).await?;
+        self.write(to, &content).await?;
+        self.remove(from).await?;
+        Ok(())
+    }
+}
+
+```
+
+---
+
+### Go-like Concurrency Primitives
+
+**File:** `logos_core/src/concurrency.rs`
+
+Green thread and channel primitives. TaskHandle<T> wraps JoinHandle with is_finished()/abort(). Pipe<T>::new(cap) creates bounded mpsc channel split into PipeSender/PipeReceiver. spawn() for ergonomic task creation. check_preemption() for 10ms cooperative yielding in long loops.
+
+```rust
+//! Phase 54: Go-like Concurrency Primitives
+//!
+//! This module provides green thread primitives for LOGOS:
+//! - `TaskHandle<T>`: Wrapper around tokio::task::JoinHandle with abort/completion tracking
+//! - `Pipe<T>`: Bounded channel with sender/receiver split (Go-like channels)
+//! - `check_preemption()`: Cooperative yielding for long-running computations
+//! - `spawn()`: Ergonomic task spawning
+
+use std::cell::RefCell;
+use std::future::Future;
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use std::time::Instant;
+
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+// Re-export error types for ergonomic API
+pub use tokio::sync::mpsc::error::{SendError, TryRecvError, TrySendError};
+pub use tokio::task::JoinError;
+
+// =============================================================================
+// TaskHandle<T> - Wrapper around JoinHandle with abort/completion tracking
+// =============================================================================
+
+/// Handle to a spawned async task.
+///
+/// Wraps `tokio::task::JoinHandle<T>` with a LOGOS-friendly API.
+///
+/// # Example
+/// ```ignore
+/// let handle = spawn(async { expensive_computation() });
+/// // Do other work...
+/// if handle.is_finished() {
+///     let result = handle.await?;
+/// }
+/// ```
+pub struct TaskHandle<T> {
+    inner: JoinHandle<T>,
+}
+
+impl<T> TaskHandle<T> {
+    /// Create a new TaskHandle wrapping a JoinHandle.
+    pub(crate) fn new(handle: JoinHandle<T>) -> Self {
+        Self { inner: handle }
+    }
+
+    /// Check if the task has completed.
+    ///
+    /// Returns `true` if the task has finished (successfully or with error),
+    /// `false` if still running.
+    pub fn is_finished(&self) -> bool {
+        self.inner.is_finished()
+    }
+
+    /// Abort the task.
+    ///
+    /// The task will be cancelled at the next await point.
+    /// If the task has already completed, this has no effect.
+    pub fn abort(&self) {
+        self.inner.abort();
+    }
+}
+
+impl<T> Future for TaskHandle<T> {
+    type Output = Result<T, JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.inner).poll(cx)
+    }
+}
+
+// =============================================================================
+// spawn() - Ergonomic task spawning
+// =============================================================================
+
+/// Spawn an async task and return a handle to it.
+///
+/// This is a thin wrapper around `tokio::spawn` that returns
+/// a `TaskHandle<T>` for LOGOS codegen.
+///
+/// # Example
+/// ```ignore
+/// let handle = spawn(async {
+///     expensive_computation().await
+/// });
+/// let result = handle.await?;
+/// ```
+pub fn spawn<F, T>(future: F) -> TaskHandle<T>
+where
+    F: Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    TaskHandle::new(tokio::spawn(future))
+}
+
+// =============================================================================
+// Pipe<T> - Bounded channel with sender/receiver split
+// =============================================================================
+
+/// A bounded channel for communication between tasks.
+///
+/// `Pipe<T>` provides Go-like channel semantics with a capacity limit.
+/// Unlike Go, sender and receiver are split for Rust's ownership model.
+///
+/// # Example
+/// ```ignore
+/// let (tx, rx) = Pipe::<String>::new(16);
+///
+/// spawn(async move {
+///     tx.send("hello".to_string()).await.unwrap();
+/// });
+///
+/// let msg = rx.recv().await;
+/// ```
+pub struct Pipe<T>(std::marker::PhantomData<T>);
+
+impl<T> Pipe<T> {
+    /// Create a new bounded channel with the specified capacity.
+    ///
+    /// Returns a (Sender, Receiver) pair.
+    pub fn new(capacity: usize) -> (PipeSender<T>, PipeReceiver<T>) {
+        let (tx, rx) = mpsc::channel(capacity);
+        (PipeSender { inner: tx }, PipeReceiver { inner: rx })
+    }
+}
+
+/// Sender half of a Pipe.
+///
+/// Can be cloned to create multiple senders.
+#[derive(Clone)]
+pub struct PipeSender<T> {
+    inner: mpsc::Sender<T>,
+}
+
+impl<T> PipeSender<T> {
+    /// Send a value asynchronously.
+    ///
+    /// Waits if the channel is full. Returns error if all receivers dropped.
+    pub async fn send(&self, val: T) -> Result<(), SendError<T>> {
+        self.inner.send(val).await
+    }
+
+    /// Try to send a value without blocking.
+    ///
+    /// Returns immediately with an error if the channel is full or closed.
+    pub fn try_send(&self, val: T) -> Result<(), TrySendError<T>> {
+        self.inner.try_send(val)
+    }
+
+    /// Check if the receiver has been dropped.
+    pub fn is_closed(&self) -> bool {
+        self.inner.is_closed()
+    }
+
+    /// Get the current capacity of the channel.
+    pub fn capacity(&self) -> usize {
+        self.inner.capacity()
+    }
+}
+
+/// Receiver half of a Pipe.
+///
+/// Cannot be cloned - only one receiver per channel.
+pub struct PipeReceiver<T> {
+    inner: mpsc::Receiver<T>,
+}
+
+impl<T> PipeReceiver<T> {
+    /// Receive a value asynchronously.
+    ///
+    /// Returns `None` if all senders have been dropped and the channel is empty.
+    pub async fn recv(&mut self) -> Option<T> {
+        self.inner.recv().await
+    }
+
+    /// Try to receive a value without blocking.
+    ///
+    /// Returns immediately with an error if the channel is empty or closed.
+    pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
+        self.inner.try_recv()
+    }
+
+    /// Close the receiver.
+    ///
+    /// Prevents further values from being sent. Existing values can still be received.
+    pub fn close(&mut self) {
+        self.inner.close()
+    }
+}
+
+// =============================================================================
+// check_preemption() - The "Nanny" function for cooperative scheduling
+// =============================================================================
+
+/// Preemption threshold: yield if more than 10ms since last yield
+const PREEMPTION_THRESHOLD_MS: u128 = 10;
+
+thread_local! {
+    static LAST_YIELD: RefCell<Instant> = RefCell::new(Instant::now());
+}
+
+/// Reset the preemption timer (useful for tests).
+pub fn reset_preemption_timer() {
+    LAST_YIELD.with(|cell| {
+        *cell.borrow_mut() = Instant::now();
+    });
+}
+
+/// Check if we should yield to other tasks.
+///
+/// This is the "Nanny" function for cooperative multitasking.
+/// If more than 10ms have elapsed since the last yield point,
+/// yields control via `tokio::task::yield_now()` and resets the timer.
+///
+/// # Usage
+///
+/// Insert calls to `check_preemption().await` in long-running loops
+/// to ensure fair scheduling with other async tasks.
+///
+/// ```ignore
+/// for i in 0..1_000_000 {
+///     heavy_computation(i);
+///     check_preemption().await;  // Yield if >10ms elapsed
+/// }
+/// ```
+pub async fn check_preemption() {
+    let should_yield = LAST_YIELD.with(|cell| {
+        let last = *cell.borrow();
+        last.elapsed().as_millis() >= PREEMPTION_THRESHOLD_MS
+    });
+
+    if should_yield {
+        tokio::task::yield_now().await;
+        LAST_YIELD.with(|cell| {
+            *cell.borrow_mut() = Instant::now();
+        });
+    }
+}
+
+// =============================================================================
+// Tests - TDD: These define the expected behavior
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    // -------------------------------------------------------------------------
+    // TaskHandle tests
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_task_handle_creation_and_completion() {
+        let handle = spawn(async { 42 });
+
+        // Task should complete quickly
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(handle.is_finished());
+    }
+
+    #[tokio::test]
+    async fn test_task_handle_await_result() {
+        let handle = spawn(async { 42 });
+        let result = handle.await;
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn test_task_handle_is_finished_initially_false() {
+        let handle = spawn(async {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            42
+        });
+
+        // Should not be finished immediately
+        assert!(!handle.is_finished());
+
+        // Cleanup
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn test_task_handle_abort() {
+        let handle = spawn(async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            42
+        });
+
+        handle.abort();
+
+        // Wait a bit for abort to take effect
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert!(handle.is_finished());
+
+        // Awaiting should return JoinError
+        let result = handle.await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_returns_task_handle() {
+        let handle: TaskHandle<i32> = spawn(async { 1 + 1 });
+        let result = handle.await.unwrap();
+        assert_eq!(result, 2);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_with_captured_values() {
+        let x = 10;
+        let y = 20;
+        let handle = spawn(async move { x + y });
+        let result = handle.await.unwrap();
+        assert_eq!(result, 30);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_with_complex_return_type() {
+        let handle = spawn(async { vec![1, 2, 3] });
+        let result = handle.await.unwrap();
+        assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pipe tests
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_pipe_send_recv() {
+        let (tx, mut rx) = Pipe::<i32>::new(16);
+
+        tx.send(42).await.unwrap();
+        let received = rx.recv().await;
+
+        assert_eq!(received, Some(42));
+    }
+
+    #[tokio::test]
+    async fn test_pipe_recv_none_when_closed() {
+        let (tx, mut rx) = Pipe::<i32>::new(16);
+
+        drop(tx);
+
+        let received = rx.recv().await;
+        assert_eq!(received, None);
+    }
+
+    #[tokio::test]
+    async fn test_pipe_try_send_success() {
+        let (tx, mut rx) = Pipe::<i32>::new(16);
+
+        assert!(tx.try_send(42).is_ok());
+        assert_eq!(rx.recv().await, Some(42));
+    }
+
+    #[tokio::test]
+    async fn test_pipe_try_send_full() {
+        let (tx, _rx) = Pipe::<i32>::new(1);
+
+        assert!(tx.try_send(1).is_ok());
+        // Channel is now full
+        assert!(matches!(tx.try_send(2), Err(TrySendError::Full(_))));
+    }
+
+    #[tokio::test]
+    async fn test_pipe_try_recv_empty() {
+        let (_tx, mut rx) = Pipe::<i32>::new(16);
+
+        // Channel is empty
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
+    }
+
+    #[tokio::test]
+    async fn test_pipe_sender_clone() {
+        let (tx, mut rx) = Pipe::<i32>::new(16);
+        let tx2 = tx.clone();
+
+        tx.send(1).await.unwrap();
+        tx2.send(2).await.unwrap();
+
+        assert_eq!(rx.recv().await, Some(1));
+        assert_eq!(rx.recv().await, Some(2));
+    }
+
+    #[tokio::test]
+    async fn test_pipe_is_closed() {
+        let (tx, rx) = Pipe::<i32>::new(16);
+
+        assert!(!tx.is_closed());
+        drop(rx);
+        assert!(tx.is_closed());
+    }
+
+    #[tokio::test]
+    async fn test_pipe_receiver_close() {
+        let (tx, mut rx) = Pipe::<i32>::new(16);
+
+        rx.close();
+
+        // Sender should now fail
+        assert!(tx.send(42).await.is_err());
+    }
+
+    // -------------------------------------------------------------------------
+    // check_preemption tests
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_check_preemption_no_yield_initially() {
+        // Reset timer
+        reset_preemption_timer();
+
+        // Should not yield if called immediately
+        let start = Instant::now();
+        check_preemption().await;
+        let elapsed = start.elapsed();
+
+        // Should be nearly instant (no actual yield)
+        assert!(elapsed.as_millis() < 5);
+    }
+
+    #[tokio::test]
+    async fn test_check_preemption_yields_after_threshold() {
+        // Reset timer
+        reset_preemption_timer();
+
+        // Simulate 15ms of computation
+        std::thread::sleep(Duration::from_millis(15));
+
+        // This should yield
+        check_preemption().await;
+
+        // Timer should be reset - next call should not yield
+        let start = Instant::now();
+        check_preemption().await;
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 5);
+    }
+
+    // -------------------------------------------------------------------------
+    // Integration tests
+    // -------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_spawn_with_pipe_communication() {
+        let (tx, mut rx) = Pipe::<String>::new(16);
+
+        let producer = spawn(async move {
+            for i in 0..5 {
+                tx.send(format!("message {}", i)).await.unwrap();
+                check_preemption().await;
+            }
+        });
+
+        let mut received = Vec::new();
+        while let Some(msg) = rx.recv().await {
+            received.push(msg);
+        }
+
+        producer.await.unwrap();
+        assert_eq!(received.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_multiple_producers_single_consumer() {
+        let (tx, mut rx) = Pipe::<i32>::new(32);
+
+        let tx1 = tx.clone();
+        let tx2 = tx.clone();
+        drop(tx); // Drop original
+
+        let p1 = spawn(async move {
+            for i in 0..10 {
+                tx1.send(i).await.unwrap();
+            }
+        });
+
+        let p2 = spawn(async move {
+            for i in 10..20 {
+                tx2.send(i).await.unwrap();
+            }
+        });
+
+        // Wait for producers
+        p1.await.unwrap();
+        p2.await.unwrap();
+
+        // Collect all messages
+        let mut values = Vec::new();
+        while let Some(v) = rx.recv().await {
+            values.push(v);
+        }
+
+        values.sort();
+        assert_eq!(values, (0..20).collect::<Vec<_>>());
+    }
+
+    #[tokio::test]
+    async fn test_task_abort_with_pipe() {
+        let (tx, mut rx) = Pipe::<i32>::new(16);
+
+        let producer = spawn(async move {
+            for i in 0.. {
+                if tx.send(i).await.is_err() {
+                    break;
+                }
+                check_preemption().await;
+            }
+        });
+
+        // Receive a few messages
+        for _ in 0..5 {
+            rx.recv().await;
+        }
+
+        // Abort the producer
+        producer.abort();
+
+        // Close receiver - this will cause sender to fail
+        rx.close();
+
+        // Ensure task was aborted
+        let result = producer.await;
+        assert!(result.is_err());
     }
 }
 
@@ -65778,6 +67556,82 @@ fn replace_word(text: &str, from: &str, to: &str) -> String {
     result
 }
 
+// =============================================================================
+// Phase 56: Mount+Sync Detection for Distributed<T>
+// =============================================================================
+
+/// Tracks which variables have Mount and/or Sync statements.
+/// Used to detect when a variable needs Distributed<T> instead of separate wrappers.
+#[derive(Debug, Default)]
+pub struct VariableCapabilities {
+    /// Variable has a Mount statement
+    mounted: bool,
+    /// Variable has a Sync statement
+    synced: bool,
+    /// Path expression for Mount (as generated code string)
+    mount_path: Option<String>,
+    /// Topic expression for Sync (as generated code string)
+    sync_topic: Option<String>,
+}
+
+/// Helper to create an empty VariableCapabilities map (for tests).
+pub fn empty_var_caps() -> HashMap<Symbol, VariableCapabilities> {
+    HashMap::new()
+}
+
+/// Pre-scan statements to detect variables that have both Mount and Sync.
+/// Returns a map from variable Symbol to its capabilities.
+fn analyze_variable_capabilities<'a>(
+    stmts: &[Stmt<'a>],
+    interner: &Interner,
+) -> HashMap<Symbol, VariableCapabilities> {
+    let mut caps: HashMap<Symbol, VariableCapabilities> = HashMap::new();
+    let empty_synced = HashSet::new();
+
+    for stmt in stmts {
+        match stmt {
+            Stmt::Mount { var, path } => {
+                let entry = caps.entry(*var).or_default();
+                entry.mounted = true;
+                entry.mount_path = Some(codegen_expr(path, interner, &empty_synced));
+            }
+            Stmt::Sync { var, topic } => {
+                let entry = caps.entry(*var).or_default();
+                entry.synced = true;
+                entry.sync_topic = Some(codegen_expr(topic, interner, &empty_synced));
+            }
+            // Recursively check nested blocks (Block<'a> is &[Stmt<'a>])
+            Stmt::If { then_block, else_block, .. } => {
+                let nested = analyze_variable_capabilities(then_block, interner);
+                for (var, cap) in nested {
+                    let entry = caps.entry(var).or_default();
+                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                }
+                if let Some(else_b) = else_block {
+                    let nested = analyze_variable_capabilities(else_b, interner);
+                    for (var, cap) in nested {
+                        let entry = caps.entry(var).or_default();
+                        if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                        if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                    }
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                let nested = analyze_variable_capabilities(body, interner);
+                for (var, cap) in nested {
+                    let entry = caps.entry(var).or_default();
+                    if cap.mounted { entry.mounted = true; entry.mount_path = cap.mount_path; }
+                    if cap.synced { entry.synced = true; entry.sync_topic = cap.sync_topic; }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    caps
+}
+
 /// Phase 51: Detect if any statements require async execution.
 /// Returns true if the program needs #[tokio::main] async fn main().
 fn requires_async(stmts: &[Stmt]) -> bool {
@@ -65799,6 +67653,14 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         // Phase 53: File I/O is async (VFS operations)
         Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
         Stmt::WriteFile { .. } => true,
+        // Phase 54: Go-like concurrency is async
+        Stmt::LaunchTask { .. } => true,
+        Stmt::LaunchTaskWithHandle { .. } => true,
+        Stmt::SendPipe { .. } => true,
+        Stmt::ReceivePipe { .. } => true,
+        Stmt::Select { .. } => true,
+        // While and Repeat are now always async due to check_preemption()
+        // (handled below in recursive check)
         // Recursively check nested blocks
         Stmt::If { then_block, else_block, .. } => {
             then_block.iter().any(|s| requires_async_stmt(s))
@@ -66034,6 +67896,20 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
     lww_fields
 }
 
+/// Phase 54: Collect function names that are async.
+/// Used by LaunchTask codegen to determine if .await is needed.
+fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut async_fns = HashSet::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, body, .. } = stmt {
+            if body.iter().any(|s| requires_async_stmt(s)) {
+                async_fns.insert(*name);
+            }
+        }
+    }
+    async_fns
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
@@ -66047,6 +67923,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Phase 49: Collect LWWRegister fields for special SetField handling
     let lww_fields = collect_lww_fields(registry, interner);
+
+    // Phase 54: Collect async functions for Launch codegen
+    let async_functions = collect_async_functions(stmts);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -66101,7 +67980,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields, &async_functions));
         }
     }
 
@@ -66128,12 +68007,14 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     }
     let mut main_ctx = RefinementContext::new();
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
+    // Phase 56: Pre-scan for Mount+Sync combinations
+    let main_var_caps = analyze_variable_capabilities(stmts, interner);
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -66150,6 +68031,7 @@ fn codegen_function_def(
     is_native: bool,
     interner: &Interner,
     lww_fields: &HashSet<(String, String)>,
+    async_functions: &HashSet<Symbol>,  // Phase 54
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
@@ -66202,6 +68084,8 @@ fn codegen_function_def(
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
         let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
+        // Phase 56: Pre-scan for Mount+Sync combinations in function body
+        let func_var_caps = analyze_variable_capabilities(body, interner);
 
         // Phase 50: Register parameter types for capability Check resolution
         for (param_name, param_type) in params {
@@ -66210,7 +68094,7 @@ fn codegen_function_def(
         }
 
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -66522,6 +68406,8 @@ pub fn codegen_stmt<'a>(
     ctx: &mut RefinementContext<'a>,
     lww_fields: &HashSet<(String, String)>,
     synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
+    var_caps: &HashMap<Symbol, VariableCapabilities>,  // Phase 56: Mount+Sync detection
+    async_functions: &HashSet<Symbol>,  // Phase 54: Functions that are async
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -66571,14 +68457,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
                 }
                 ctx.pop_scope();
             }
@@ -66591,7 +68477,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -66603,7 +68489,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -66697,32 +68583,211 @@ pub fn codegen_stmt<'a>(
                      indent_str, ms_str).unwrap();
         }
 
-        // Phase 52: Sync CRDT variable on topic
+        // Phase 52/56: Sync CRDT variable on topic
         Stmt::Sync { var, topic } => {
             let var_name = interner.resolve(*var);
             let topic_str = codegen_expr(topic, interner, synced_vars);
-            // Wrap the variable in Synced<T> for automatic GossipSub replication
+
+            // Phase 56: Check if this variable is also mounted
+            if let Some(caps) = var_caps.get(var) {
+                if caps.mounted {
+                    // Both Mount and Sync: use Distributed<T>
+                    // Mount statement will handle the Distributed::mount call
+                    // Here we just track it as synced
+                    synced_vars.insert(*var);
+                    return output;  // Skip - Mount will emit Distributed<T>
+                }
+            }
+
+            // Sync-only: use Synced<T>
             writeln!(
                 output,
                 "{}let {} = logos_core::crdt::Synced::new({}, &{}).await;",
                 indent_str, var_name, var_name, topic_str
             ).unwrap();
-            // Track this variable as synced for subsequent field access
             synced_vars.insert(*var);
         }
 
-        // Phase 53: Mount persistent CRDT from journal
+        // Phase 53/56: Mount persistent CRDT from journal
         Stmt::Mount { var, path } => {
             let var_name = interner.resolve(*var);
             let path_str = codegen_expr(path, interner, synced_vars);
-            // Mount the persistent value from the journal file
+
+            // Phase 56: Check if this variable is also synced
+            if let Some(caps) = var_caps.get(var) {
+                if caps.synced {
+                    // Both Mount and Sync: use Distributed<T>
+                    let topic_str = caps.sync_topic.as_ref()
+                        .map(|s| s.as_str())
+                        .unwrap_or("\"default\"");
+                    writeln!(
+                        output,
+                        "{}let {} = logos_core::distributed::Distributed::mount(std::sync::Arc::new(vfs.clone()), &{}, Some({}.to_string())).await.expect(\"Failed to mount\");",
+                        indent_str, var_name, path_str, topic_str
+                    ).unwrap();
+                    synced_vars.insert(*var);
+                    return output;
+                }
+            }
+
+            // Mount-only: use Persistent<T>
             writeln!(
                 output,
                 "{}let {} = logos_core::storage::Persistent::mount(&vfs, &{}).await.expect(\"Failed to mount\");",
                 indent_str, var_name, path_str
             ).unwrap();
-            // Track as synced so CRDT mutations use .mutate() for persistence
             synced_vars.insert(*var);
+        }
+
+        // =====================================================================
+        // Phase 54: Go-like Concurrency Codegen
+        // =====================================================================
+
+        Stmt::LaunchTask { function, args } => {
+            let fn_name = interner.resolve(*function);
+            let args_str: Vec<String> = args.iter()
+                .map(|a| codegen_expr(a, interner, synced_vars))
+                .collect();
+            // Phase 54: Add .await only if the function is async
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(
+                output,
+                "{}tokio::spawn(async move {{ {}({}){await_suffix}; }});",
+                indent_str, fn_name, args_str.join(", ")
+            ).unwrap();
+        }
+
+        Stmt::LaunchTaskWithHandle { handle, function, args } => {
+            let handle_name = interner.resolve(*handle);
+            let fn_name = interner.resolve(*function);
+            let args_str: Vec<String> = args.iter()
+                .map(|a| codegen_expr(a, interner, synced_vars))
+                .collect();
+            // Phase 54: Add .await only if the function is async
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(
+                output,
+                "{}let {} = tokio::spawn(async move {{ {}({}){await_suffix} }});",
+                indent_str, handle_name, fn_name, args_str.join(", ")
+            ).unwrap();
+        }
+
+        Stmt::CreatePipe { var, element_type, capacity } => {
+            let var_name = interner.resolve(*var);
+            let type_name = interner.resolve(*element_type);
+            let cap = capacity.unwrap_or(32);
+            // Map LOGOS types to Rust types
+            let rust_type = match type_name {
+                "Int" => "i64",
+                "Nat" => "u64",
+                "Text" => "String",
+                "Bool" => "bool",
+                _ => type_name,
+            };
+            writeln!(
+                output,
+                "{}let ({}_tx, mut {}_rx) = tokio::sync::mpsc::channel::<{}>({});",
+                indent_str, var_name, var_name, rust_type, cap
+            ).unwrap();
+        }
+
+        Stmt::SendPipe { value, pipe } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
+                indent_str, pipe_str, val_str
+            ).unwrap();
+        }
+
+        Stmt::ReceivePipe { var, pipe } => {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            writeln!(
+                output,
+                "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
+                indent_str, var_name, pipe_str
+            ).unwrap();
+        }
+
+        Stmt::TrySendPipe { value, pipe, result } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            if let Some(res) = result {
+                let res_name = interner.resolve(*res);
+                writeln!(
+                    output,
+                    "{}let {} = {}_tx.try_send({}).is_ok();",
+                    indent_str, res_name, pipe_str, val_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}let _ = {}_tx.try_send({});",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            }
+        }
+
+        Stmt::TryReceivePipe { var, pipe } => {
+            let var_name = interner.resolve(*var);
+            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            writeln!(
+                output,
+                "{}let {} = {}_rx.try_recv().ok();",
+                indent_str, var_name, pipe_str
+            ).unwrap();
+        }
+
+        Stmt::StopTask { handle } => {
+            let handle_str = codegen_expr(handle, interner, synced_vars);
+            writeln!(output, "{}{}.abort();", indent_str, handle_str).unwrap();
+        }
+
+        Stmt::Select { branches } => {
+            use crate::ast::stmt::SelectBranch;
+
+            writeln!(output, "{}tokio::select! {{", indent_str).unwrap();
+            for branch in branches {
+                match branch {
+                    SelectBranch::Receive { var, pipe, body } => {
+                        let var_name = interner.resolve(*var);
+                        let pipe_str = codegen_expr(pipe, interner, synced_vars);
+                        writeln!(
+                            output,
+                            "{}    {} = {}_rx.recv() => {{",
+                            indent_str, var_name, pipe_str
+                        ).unwrap();
+                        writeln!(
+                            output,
+                            "{}        if let Some({}) = {} {{",
+                            indent_str, var_name, var_name
+                        ).unwrap();
+                        for stmt in *body {
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            write!(output, "{}", stmt_code).unwrap();
+                        }
+                        writeln!(output, "{}        }}", indent_str).unwrap();
+                        writeln!(output, "{}    }}", indent_str).unwrap();
+                    }
+                    SelectBranch::Timeout { milliseconds, body } => {
+                        let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+                        // Convert seconds to milliseconds if the value looks like seconds
+                        writeln!(
+                            output,
+                            "{}    _ = tokio::time::sleep(std::time::Duration::from_secs({} as u64)) => {{",
+                            indent_str, ms_str
+                        ).unwrap();
+                        for stmt in *body {
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            write!(output, "{}", stmt_code).unwrap();
+                        }
+                        writeln!(output, "{}    }}", indent_str).unwrap();
+                    }
+                }
+            }
+            writeln!(output, "{}}}", indent_str).unwrap();
         }
 
         Stmt::Give { object, recipient } => {
@@ -66799,7 +68864,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -66865,7 +68930,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
             }
 
             ctx.pop_scope();
@@ -66908,7 +68973,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
 
                 // Convert call statements to awaited calls for async context
                 let inner_awaited = if let Stmt::Call { .. } = stmt {
@@ -66962,7 +69027,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -66976,7 +69041,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -69038,11 +71103,19 @@ Additional source module.
 //!
 //! This module provides runtime execution of parsed LOGOS programs,
 //! walking the AST and executing statements/expressions directly.
+//!
+//! Phase 55: Made async for VFS operations (OPFS on WASM, tokio::fs on native).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, Stmt, TypeExpr};
+use async_recursion::async_recursion;
+
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
+
+// Phase 55: VFS imports
+use logos_core::fs::Vfs;
 
 /// Runtime values during interpretation.
 #[derive(Debug, Clone)]
@@ -69123,6 +71196,8 @@ pub struct FunctionDef<'a> {
 }
 
 /// Tree-walking interpreter for LOGOS programs.
+///
+/// Phase 55: Now async with optional VFS for file operations.
 pub struct Interpreter<'a> {
     interner: &'a Interner,
     /// Scope stack - each HashMap is a scope level
@@ -69133,6 +71208,8 @@ pub struct Interpreter<'a> {
     struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
     /// Output lines from show() calls
     pub output: Vec<String>,
+    /// Phase 55: VFS for file operations (OPFS on WASM, NativeVfs on native)
+    vfs: Option<Arc<dyn Vfs>>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -69143,13 +71220,21 @@ impl<'a> Interpreter<'a> {
             functions: HashMap::new(),
             struct_defs: HashMap::new(),
             output: Vec::new(),
+            vfs: None,
         }
     }
 
+    /// Phase 55: Set the VFS for file operations.
+    pub fn with_vfs(mut self, vfs: Arc<dyn Vfs>) -> Self {
+        self.vfs = Some(vfs);
+        self
+    }
+
     /// Execute a program (list of statements).
-    pub fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+    /// Phase 55: Now async for VFS operations.
+    pub async fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
         for stmt in stmts {
-            match self.execute_stmt(stmt)? {
+            match self.execute_stmt(stmt).await? {
                 ControlFlow::Return(_) => break,
                 ControlFlow::Break => break,
                 ControlFlow::Continue => {}
@@ -69159,36 +71244,38 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Execute a single statement.
-    fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+    /// Phase 55: Now async for VFS operations.
+    #[async_recursion(?Send)]
+    async fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
         match stmt {
             Stmt::Let { var, value, .. } => {
-                let val = self.evaluate_expr(value)?;
+                let val = self.evaluate_expr(value).await?;
                 self.define(*var, val);
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Set { target, value } => {
-                let val = self.evaluate_expr(value)?;
+                let val = self.evaluate_expr(value).await?;
                 self.assign(*target, val)?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Call { function, args } => {
-                self.call_function(*function, args)?;
+                self.call_function(*function, args).await?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::If { cond, then_block, else_block } => {
-                let condition = self.evaluate_expr(cond)?;
+                let condition = self.evaluate_expr(cond).await?;
                 if condition.is_truthy() {
-                    let flow = self.execute_block(then_block)?;
+                    let flow = self.execute_block(then_block).await?;
                     if !matches!(flow, ControlFlow::Continue) {
-                        return Ok(flow); // Propagate Return/Break from If block
+                        return Ok(flow);
                     }
                 } else if let Some(else_stmts) = else_block {
-                    let flow = self.execute_block(else_stmts)?;
+                    let flow = self.execute_block(else_stmts).await?;
                     if !matches!(flow, ControlFlow::Continue) {
-                        return Ok(flow); // Propagate Return/Break from Otherwise block
+                        return Ok(flow);
                     }
                 }
                 Ok(ControlFlow::Continue)
@@ -69196,11 +71283,11 @@ impl<'a> Interpreter<'a> {
 
             Stmt::While { cond, body, .. } => {
                 loop {
-                    let condition = self.evaluate_expr(cond)?;
+                    let condition = self.evaluate_expr(cond).await?;
                     if !condition.is_truthy() {
                         break;
                     }
-                    match self.execute_block(body)? {
+                    match self.execute_block(body).await? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
                         ControlFlow::Continue => {}
@@ -69210,7 +71297,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Repeat { var, iterable, body } => {
-                let iter_val = self.evaluate_expr(iterable)?;
+                let iter_val = self.evaluate_expr(iterable).await?;
                 let items = match iter_val {
                     RuntimeValue::List(list) => list,
                     RuntimeValue::Text(s) => {
@@ -69222,7 +71309,7 @@ impl<'a> Interpreter<'a> {
                 self.push_scope();
                 for item in items {
                     self.define(*var, item);
-                    match self.execute_block(body)? {
+                    match self.execute_block(body).await? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => {
                             self.pop_scope();
@@ -69237,7 +71324,7 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Return { value } => {
                 let ret_val = match value {
-                    Some(expr) => self.evaluate_expr(expr)?,
+                    Some(expr) => self.evaluate_expr(expr).await?,
                     None => RuntimeValue::Nothing,
                 };
                 Ok(ControlFlow::Return(ret_val))
@@ -69259,8 +71346,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::SetField { object, field, value } => {
-                let new_val = self.evaluate_expr(value)?;
-                // Get the object identifier
+                let new_val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(obj_sym) = object {
                     let mut obj_val = self.lookup(*obj_sym)?.clone();
                     if let RuntimeValue::Struct { fields, .. } = &mut obj_val {
@@ -69277,7 +71363,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Push { value, collection } => {
-                let val = self.evaluate_expr(value)?;
+                let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
                     if let RuntimeValue::List(ref mut items) = coll_val {
@@ -69311,8 +71397,8 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::SetIndex { collection, index, value } => {
-                let idx_val = self.evaluate_expr(index)?;
-                let new_val = self.evaluate_expr(value)?;
+                let idx_val = self.evaluate_expr(index).await?;
+                let new_val = self.evaluate_expr(value).await?;
                 let idx = match idx_val {
                     RuntimeValue::Int(n) => n as usize,
                     _ => return Err("Index must be an integer".to_string()),
@@ -69320,7 +71406,6 @@ impl<'a> Interpreter<'a> {
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
                     if let RuntimeValue::List(ref mut items) = coll_val {
-                        // 1-indexed
                         if idx == 0 || idx > items.len() {
                             return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
                         }
@@ -69336,37 +71421,34 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Inspect { target, arms, .. } => {
-                let target_val = self.evaluate_expr(target)?;
-                self.execute_inspect(&target_val, arms)?;
+                let target_val = self.evaluate_expr(target).await?;
+                self.execute_inspect(&target_val, arms).await?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Zone { name, body, .. } => {
-                // Zones create a new scope
                 self.push_scope();
-                // Define the zone handle (as Nothing for now)
                 self.define(*name, RuntimeValue::Nothing);
-                let result = self.execute_block(body);
+                let result = self.execute_block(body).await;
                 self.pop_scope();
                 result?;
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-                // In WASM, execute sequentially
+                // In WASM, execute sequentially (no threads)
                 for task in tasks.iter() {
-                    self.execute_stmt(task)?;
+                    self.execute_stmt(task).await?;
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Assert { .. } | Stmt::Trust { .. } => {
-                // Logic assertions - for now, just continue
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::RuntimeAssert { condition } => {
-                let val = self.evaluate_expr(condition)?;
+                let val = self.evaluate_expr(condition).await?;
                 if !val.is_truthy() {
                     return Err("Assertion failed".to_string());
                 }
@@ -69374,55 +71456,69 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::Give { .. } => {
-                // Ownership semantics - in interpreter, just continue
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Show { object, recipient } => {
-                // Show statement: "Show x." or "Show x to console."
-                // The recipient is the show function by default
-                let obj_val = self.evaluate_expr(object)?;
-
-                // Check if recipient is the "show" function (default)
+                let obj_val = self.evaluate_expr(object).await?;
                 if let Expr::Identifier(sym) = recipient {
                     let name = self.interner.resolve(*sym);
                     if name == "show" {
-                        // Output the value
                         self.output.push(obj_val.to_display_string());
                     }
                 }
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::ReadFrom { var, .. } => {
-                // No filesystem in WASM - return empty string
-                self.define(*var, RuntimeValue::Text(String::new()));
+            // Phase 55: VFS operations now supported
+            Stmt::ReadFrom { var, source } => {
+                let content = match source {
+                    ReadSource::Console => {
+                        // Console read not available in WASM interpreter
+                        String::new()
+                    }
+                    ReadSource::File(path_expr) => {
+                        let path = self.evaluate_expr(path_expr).await?.to_display_string();
+                        match &self.vfs {
+                            Some(vfs) => {
+                                vfs.read_to_string(&path).await
+                                    .map_err(|e| format!("Read error: {}", e))?
+                            }
+                            None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                        }
+                    }
+                };
+                self.define(*var, RuntimeValue::Text(content));
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::WriteFile { .. } => {
-                // No filesystem in WASM - just continue
+            Stmt::WriteFile { content, path } => {
+                let content_val = self.evaluate_expr(content).await?.to_display_string();
+                let path_val = self.evaluate_expr(path).await?.to_display_string();
+                match &self.vfs {
+                    Some(vfs) => {
+                        vfs.write(&path_val, content_val.as_bytes()).await
+                            .map_err(|e| format!("Write error: {}", e))?;
+                    }
+                    None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Spawn { name, .. } => {
-                // No agents in WASM - create a placeholder
                 self.define(*name, RuntimeValue::Nothing);
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::SendMessage { .. } => {
-                // No agents in WASM
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::AwaitMessage { into, .. } => {
-                // No agents in WASM - define the into variable as Nothing
                 self.define(*into, RuntimeValue::Nothing);
                 Ok(ControlFlow::Continue)
             }
 
-            // Phase 49: CRDT operations - not supported in interpreter (compile-only)
             Stmt::MergeCrdt { .. } => {
                 Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
             }
@@ -69431,12 +71527,10 @@ impl<'a> Interpreter<'a> {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
-            // Phase 50: Security Check - not supported in interpreter (compile-only)
             Stmt::Check { .. } => {
                 Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
-            // Phase 51: P2P Networking - not supported in interpreter (compile-only)
             Stmt::Listen { .. } => {
                 Err("Listen is not supported in the interpreter. Use compiled Rust.".to_string())
             }
@@ -69447,24 +71541,53 @@ impl<'a> Interpreter<'a> {
                 Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
             }
             Stmt::Sleep { .. } => {
-                Err("Sleep is not supported in the interpreter. Use compiled Rust.".to_string())
+                // Phase 55: Sleep could be implemented with gloo-timers on WASM
+                Err("Sleep is not yet supported in the interpreter.".to_string())
             }
-            // Phase 52: Sync is not supported in interpreter (compile-only)
             Stmt::Sync { .. } => {
                 Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
             }
-            // Phase 53: Mount is not supported in interpreter (compile-only)
-            Stmt::Mount { .. } => {
-                Err("Mount is not supported in the interpreter. Use compiled Rust.".to_string())
+            // Phase 55: Mount now supported via VFS
+            Stmt::Mount { var, path } => {
+                let path_val = self.evaluate_expr(path).await?.to_display_string();
+                match &self.vfs {
+                    Some(vfs) => {
+                        // Read existing content or create empty
+                        let content = match vfs.read_to_string(&path_val).await {
+                            Ok(s) => s,
+                            Err(_) => String::new(),
+                        };
+                        // Store as a simple value for now (full Persistent<T> requires more work)
+                        self.define(*var, RuntimeValue::Text(content));
+                    }
+                    None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            // Phase 54: Go-like concurrency - not supported in interpreter
+            // These are compile-to-Rust only features
+            Stmt::LaunchTask { .. } |
+            Stmt::LaunchTaskWithHandle { .. } |
+            Stmt::CreatePipe { .. } |
+            Stmt::SendPipe { .. } |
+            Stmt::ReceivePipe { .. } |
+            Stmt::TrySendPipe { .. } |
+            Stmt::TryReceivePipe { .. } |
+            Stmt::StopTask { .. } |
+            Stmt::Select { .. } => {
+                Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
             }
         }
     }
 
     /// Execute a block of statements, returning control flow.
-    fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
+    /// Phase 55: Now async.
+    #[async_recursion(?Send)]
+    async fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
         self.push_scope();
         for stmt in block.iter() {
-            match self.execute_stmt(stmt)? {
+            match self.execute_stmt(stmt).await? {
                 ControlFlow::Continue => {}
                 flow => {
                     self.pop_scope();
@@ -69477,19 +71600,18 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Execute Inspect (pattern matching).
-    fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
+    /// Phase 55: Now async.
+    #[async_recursion(?Send)]
+    async fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
         for arm in arms {
             if arm.variant.is_none() {
-                // Otherwise arm - always matches
-                self.execute_block(arm.body)?;
+                self.execute_block(arm.body).await?;
                 return Ok(());
             }
-            // For now, simplified matching - just check type name
             if let RuntimeValue::Struct { type_name, fields } = target {
                 if let Some(variant) = arm.variant {
                     let variant_name = self.interner.resolve(variant);
                     if type_name == variant_name {
-                        // Bind fields
                         self.push_scope();
                         for (field_name, binding_name) in &arm.bindings {
                             let field_str = self.interner.resolve(*field_name);
@@ -69497,7 +71619,7 @@ impl<'a> Interpreter<'a> {
                                 self.define(*binding_name, val.clone());
                             }
                         }
-                        let result = self.execute_block(arm.body);
+                        let result = self.execute_block(arm.body).await;
                         self.pop_scope();
                         result?;
                         return Ok(());
@@ -69509,7 +71631,9 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Evaluate an expression to a runtime value.
-    fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+    /// Phase 55: Now async.
+    #[async_recursion(?Send)]
+    async fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
         match expr {
             Expr::Literal(lit) => self.evaluate_literal(lit),
 
@@ -69518,21 +71642,20 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::BinaryOp { op, left, right } => {
-                let left_val = self.evaluate_expr(left)?;
-                let right_val = self.evaluate_expr(right)?;
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
                 self.apply_binary_op(*op, left_val, right_val)
             }
 
             Expr::Call { function, args } => {
-                self.call_function(*function, args)
+                self.call_function(*function, args).await
             }
 
             Expr::Index { collection, index } => {
-                let coll_val = self.evaluate_expr(collection)?;
-                let idx_val = self.evaluate_expr(index)?;
+                let coll_val = self.evaluate_expr(collection).await?;
+                let idx_val = self.evaluate_expr(index).await?;
                 match (&coll_val, &idx_val) {
                     (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
-                        // 1-indexed
                         let idx = *idx as usize;
                         if idx == 0 || idx > items.len() {
                             return Err(format!("Index {} out of bounds", idx));
@@ -69551,9 +71674,9 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Slice { collection, start, end } => {
-                let coll_val = self.evaluate_expr(collection)?;
-                let start_val = self.evaluate_expr(start)?;
-                let end_val = self.evaluate_expr(end)?;
+                let coll_val = self.evaluate_expr(collection).await?;
+                let start_val = self.evaluate_expr(start).await?;
+                let end_val = self.evaluate_expr(end).await?;
                 match (&coll_val, &start_val, &end_val) {
                     (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
                         let start = (*s as usize).saturating_sub(1);
@@ -69566,12 +71689,11 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::Copy { expr: inner } => {
-                // Copy just evaluates and clones
-                self.evaluate_expr(inner)
+                self.evaluate_expr(inner).await
             }
 
             Expr::Length { collection } => {
-                let coll_val = self.evaluate_expr(collection)?;
+                let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
@@ -69580,16 +71702,17 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::List(items) => {
-                let values: Result<Vec<RuntimeValue>, String> = items
-                    .iter()
-                    .map(|e| self.evaluate_expr(e))
-                    .collect();
-                Ok(RuntimeValue::List(values?))
+                // Can't use .map() with async, so manual loop
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr(e).await?);
+                }
+                Ok(RuntimeValue::List(values))
             }
 
             Expr::Range { start, end } => {
-                let start_val = self.evaluate_expr(start)?;
-                let end_val = self.evaluate_expr(end)?;
+                let start_val = self.evaluate_expr(start).await?;
+                let end_val = self.evaluate_expr(end).await?;
                 match (&start_val, &end_val) {
                     (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
                         let range: Vec<RuntimeValue> = (*s..=*e)
@@ -69602,7 +71725,7 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::FieldAccess { object, field } => {
-                let obj_val = self.evaluate_expr(object)?;
+                let obj_val = self.evaluate_expr(object).await?;
                 match &obj_val {
                     RuntimeValue::Struct { fields, .. } => {
                         let field_name = self.interner.resolve(*field);
@@ -69616,16 +71739,14 @@ impl<'a> Interpreter<'a> {
             Expr::New { type_name, init_fields, .. } => {
                 let name = self.interner.resolve(*type_name).to_string();
 
-                // Check if this is a collection type (Seq or List)
                 if name == "Seq" || name == "List" {
                     return Ok(RuntimeValue::List(vec![]));
                 }
 
-                // Otherwise create a struct
                 let mut fields = HashMap::new();
                 for (field_sym, field_expr) in init_fields {
                     let field_name = self.interner.resolve(*field_sym).to_string();
-                    let field_val = self.evaluate_expr(field_expr)?;
+                    let field_val = self.evaluate_expr(field_expr).await?;
                     fields.insert(field_name, field_val);
                 }
                 Ok(RuntimeValue::Struct { type_name: name, fields })
@@ -69636,19 +71757,17 @@ impl<'a> Interpreter<'a> {
                 let mut field_map = HashMap::new();
                 for (field_sym, field_expr) in fields {
                     let field_name = self.interner.resolve(*field_sym).to_string();
-                    let field_val = self.evaluate_expr(field_expr)?;
+                    let field_val = self.evaluate_expr(field_expr).await?;
                     field_map.insert(field_name, field_val);
                 }
                 Ok(RuntimeValue::Struct { type_name: name, fields: field_map })
             }
 
             Expr::ManifestOf { .. } => {
-                // Phase 48: Zone manifests not available in WASM
                 Ok(RuntimeValue::List(vec![]))
             }
 
             Expr::ChunkAt { .. } => {
-                // Phase 48: Zone chunks not available in WASM
                 Ok(RuntimeValue::Nothing)
             }
         }
@@ -69787,14 +71906,15 @@ impl<'a> Interpreter<'a> {
     }
 
     /// Call a function (built-in or user-defined).
-    fn call_function(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+    #[async_recursion(?Send)]
+    async fn call_function(&mut self, function: Symbol, args: &[&'async_recursion Expr<'a>]) -> Result<RuntimeValue, String> {
         let func_name = self.interner.resolve(function);
 
         // Built-in functions
         match func_name {
             "show" => {
                 for arg in args {
-                    let val = self.evaluate_expr(arg)?;
+                    let val = self.evaluate_expr(arg).await?;
                     self.output.push(val.to_display_string());
                 }
                 return Ok(RuntimeValue::Nothing);
@@ -69803,7 +71923,7 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 1 {
                     return Err("length() takes exactly 1 argument".to_string());
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return match &val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
@@ -69814,14 +71934,14 @@ impl<'a> Interpreter<'a> {
                 if args.is_empty() {
                     return Ok(RuntimeValue::Text(String::new()));
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return Ok(RuntimeValue::Text(val.to_display_string()));
             }
             "abs" => {
                 if args.len() != 1 {
                     return Err("abs() takes exactly 1 argument".to_string());
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return match val {
                     RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
                     RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
@@ -69832,8 +71952,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err("min() takes exactly 2 arguments".to_string());
                 }
-                let a = self.evaluate_expr(args[0])?;
-                let b = self.evaluate_expr(args[1])?;
+                let a = self.evaluate_expr(args[0]).await?;
+                let b = self.evaluate_expr(args[1]).await?;
                 return match (&a, &b) {
                     (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
                     _ => Err("min() requires integers".to_string()),
@@ -69843,8 +71963,8 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 2 {
                     return Err("max() takes exactly 2 arguments".to_string());
                 }
-                let a = self.evaluate_expr(args[0])?;
-                let b = self.evaluate_expr(args[1])?;
+                let a = self.evaluate_expr(args[0]).await?;
+                let b = self.evaluate_expr(args[1]).await?;
                 return match (&a, &b) {
                     (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
                     _ => Err("max() requires integers".to_string()),
@@ -69854,7 +71974,7 @@ impl<'a> Interpreter<'a> {
                 if args.len() != 1 {
                     return Err("copy() takes exactly 1 argument".to_string());
                 }
-                let val = self.evaluate_expr(args[0])?;
+                let val = self.evaluate_expr(args[0]).await?;
                 return Ok(val.clone());
             }
             _ => {}
@@ -69880,7 +72000,7 @@ impl<'a> Interpreter<'a> {
         // Evaluate arguments before pushing scope
         let mut arg_values = Vec::new();
         for arg in args {
-            arg_values.push(self.evaluate_expr(arg)?);
+            arg_values.push(self.evaluate_expr(arg).await?);
         }
 
         // Push new scope and bind parameters
@@ -69892,7 +72012,7 @@ impl<'a> Interpreter<'a> {
         // Execute function body
         let mut return_value = RuntimeValue::Nothing;
         for stmt in body.iter() {
-            match self.execute_stmt(stmt)? {
+            match self.execute_stmt(stmt).await? {
                 ControlFlow::Return(val) => {
                     return_value = val;
                     break;
@@ -72810,6 +74930,10 @@ include_dir = "0.7"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
 wasm-bindgen-futures = "0.4"
+# Phase 55: logos_core for VFS and Persistent<T> in interpreter
+logos_core = { path = "./logos_core" }
+# Phase 55: async-recursion for clean async interpreter
+async-recursion = "1.1"
 clap = { version = "4.4", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }
 ureq = { version = "2.9", features = ["json"], optional = true }
@@ -74323,10 +76447,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Wed Dec 31 21:23:46 CST 2025
+- **Generated:** Wed Dec 31 23:00:46 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 5da2e9a
+- **Git Commit:** d9f61b3
 - **Documentation Size:** 3.0M
 
 ---

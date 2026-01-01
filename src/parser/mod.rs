@@ -898,9 +898,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_spawn_statement();
         }
         if self.check(&TokenType::Send) {
+            // Phase 54: Disambiguate "Send x into pipe" vs "Send x to agent"
+            if self.lookahead_contains_into() {
+                return self.parse_send_pipe_statement();
+            }
             return self.parse_send_statement();
         }
         if self.check(&TokenType::Await) {
+            // Phase 54: Disambiguate "Await the first of:" vs "Await response from agent"
+            if self.lookahead_is_first_of() {
+                return self.parse_select_statement();
+            }
             return self.parse_await_statement();
         }
 
@@ -910,6 +918,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Increase) {
             return self.parse_increase_statement();
+        }
+
+        // Phase 54: Go-like Concurrency statements
+        if self.check(&TokenType::Launch) {
+            return self.parse_launch_statement();
+        }
+        if self.check(&TokenType::Stop) {
+            return self.parse_stop_statement();
+        }
+        if self.check(&TokenType::Try) {
+            return self.parse_try_statement();
+        }
+        if self.check(&TokenType::Receive) {
+            return self.parse_receive_pipe_statement();
         }
 
         // Expression-statement: function call without "Call" keyword
@@ -1454,6 +1476,90 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.current = saved_pos;
         }
 
+        // Phase 54: Check for "a Pipe of Type" pattern
+        if self.check_article() {
+            let saved_pos = self.current;
+            self.advance(); // consume article
+
+            if self.check(&TokenType::Pipe) {
+                self.advance(); // consume "Pipe"
+
+                // Expect "of"
+                if !self.check_word("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                // Parse element type
+                let element_type = self.expect_identifier()?;
+
+                // Register variable in scope
+                if let Some(ctx) = self.context.as_mut() {
+                    use crate::context::{Entity, Gender, Number, OwnershipState};
+                    let var_name = self.interner.resolve(var).to_string();
+                    ctx.register(Entity {
+                        symbol: var_name.clone(),
+                        gender: Gender::Neuter,
+                        number: Number::Singular,
+                        noun_class: "Pipe".to_string(),
+                        ownership: OwnershipState::Owned,
+                    });
+                }
+
+                return Ok(Stmt::CreatePipe { var, element_type, capacity: None });
+            }
+            // Not a Pipe, backtrack
+            self.current = saved_pos;
+        }
+
+        // Phase 54: Check for "Launch a task to..." pattern (for task handles)
+        if self.check(&TokenType::Launch) {
+            self.advance(); // consume "Launch"
+
+            // Expect "a"
+            if !self.check_article() {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Expect "task"
+            if !self.check(&TokenType::Task) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Expect "to"
+            if !self.check(&TokenType::To) && !self.check_word("to") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse function name
+            let function = self.expect_identifier()?;
+
+            // Parse optional arguments: "with arg1, arg2"
+            let args = if self.check_word("with") {
+                self.advance();
+                self.parse_call_arguments()?
+            } else {
+                vec![]
+            };
+
+            return Ok(Stmt::LaunchTaskWithHandle { handle: var, function, args });
+        }
+
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
 
@@ -1905,6 +2011,385 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Mount { var, path })
     }
 
+    // =========================================================================
+    // Phase 54: Go-like Concurrency Parser Methods
+    // =========================================================================
+
+    /// Helper: Check if lookahead contains "into" (for Send...into pipe disambiguation)
+    fn lookahead_contains_into(&self) -> bool {
+        for i in self.current..std::cmp::min(self.current + 5, self.tokens.len()) {
+            if matches!(self.tokens[i].kind, TokenType::Into) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Helper: Check if lookahead is "the first of" (for Await select disambiguation)
+    fn lookahead_is_first_of(&self) -> bool {
+        // Check for "Await the first of:"
+        self.current + 3 < self.tokens.len()
+            && matches!(self.tokens.get(self.current + 1), Some(t) if matches!(t.kind, TokenType::Article(_)))
+            && self.tokens.get(self.current + 2)
+                .map(|t| self.interner.resolve(t.lexeme).to_lowercase() == "first")
+                .unwrap_or(false)
+    }
+
+    /// Phase 54: Parse Launch statement - spawn a task
+    /// Syntax: Launch a task to verb(args).
+    fn parse_launch_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Launch"
+
+        // Expect "a"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "task"
+        if !self.check(&TokenType::Task) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse function name
+        let function = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "function name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Optional arguments in parentheses or with "with" keyword
+        let args = if self.check(&TokenType::LParen) {
+            self.parse_call_arguments()?
+        } else if self.check_word("with") {
+            self.advance(); // consume "with"
+            let mut args = Vec::new();
+            let arg = self.parse_imperative_expr()?;
+            args.push(arg);
+            // Handle additional args separated by "and"
+            while self.check(&TokenType::And) {
+                self.advance();
+                let arg = self.parse_imperative_expr()?;
+                args.push(arg);
+            }
+            args
+        } else {
+            Vec::new()
+        };
+
+        Ok(Stmt::LaunchTask { function, args })
+    }
+
+    /// Phase 54: Parse Send into pipe statement
+    /// Syntax: Send value into pipe.
+    fn parse_send_pipe_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Send"
+
+        // Parse value expression
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check(&TokenType::Into) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse pipe expression
+        let pipe = self.parse_imperative_expr()?;
+
+        Ok(Stmt::SendPipe { value, pipe })
+    }
+
+    /// Phase 54: Parse Receive from pipe statement
+    /// Syntax: Receive x from pipe.
+    fn parse_receive_pipe_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Receive"
+
+        // Get variable name - use expect_identifier which handles various token types
+        let var = self.expect_identifier()?;
+
+        // Expect "from"
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse pipe expression
+        let pipe = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ReceivePipe { var, pipe })
+    }
+
+    /// Phase 54: Parse Try statement (non-blocking send/receive)
+    /// Syntax: Try to send x into pipe. OR Try to receive x from pipe.
+    fn parse_try_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Try"
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Check if send or receive
+        if self.check(&TokenType::Send) {
+            self.advance(); // consume "Send"
+            let value = self.parse_imperative_expr()?;
+
+            if !self.check(&TokenType::Into) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+            Ok(Stmt::TrySendPipe { value, pipe, result: None })
+        } else if self.check(&TokenType::Receive) {
+            self.advance(); // consume "Receive"
+
+            let var = self.expect_identifier()?;
+
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+            Ok(Stmt::TryReceivePipe { var, pipe })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "send or receive".to_string() },
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Phase 54: Parse Stop statement
+    /// Syntax: Stop handle.
+    fn parse_stop_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Stop"
+
+        let handle = self.parse_imperative_expr()?;
+
+        Ok(Stmt::StopTask { handle })
+    }
+
+    /// Phase 54: Parse Select statement
+    /// Syntax:
+    /// Await the first of:
+    ///     Receive x from pipe:
+    ///         ...
+    ///     After N seconds:
+    ///         ...
+    fn parse_select_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::SelectBranch;
+
+        self.advance(); // consume "Await"
+
+        // Expect "the"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "first"
+        if !self.check_word("first") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "first".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "of"
+        if !self.check_preposition_is("of") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse branches
+        let mut branches = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let branch = self.parse_select_branch()?;
+            branches.push(branch);
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        Ok(Stmt::Select { branches })
+    }
+
+    /// Phase 54: Parse a single select branch
+    fn parse_select_branch(&mut self) -> ParseResult<crate::ast::stmt::SelectBranch<'a>> {
+        use crate::ast::stmt::SelectBranch;
+
+        if self.check(&TokenType::Receive) {
+            self.advance(); // consume "Receive"
+
+            let var = match &self.tokens[self.current].kind {
+                TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+            };
+
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse body
+            let body = self.parse_indented_block()?;
+
+            Ok(SelectBranch::Receive { var, pipe, body })
+        } else if self.check_word("after") {
+            self.advance(); // consume "After"
+
+            let milliseconds = self.parse_imperative_expr()?;
+
+            // Skip "seconds" or "milliseconds" if present
+            if self.check_word("seconds") || self.check_word("milliseconds") {
+                self.advance();
+            }
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse body
+            let body = self.parse_indented_block()?;
+
+            Ok(SelectBranch::Timeout { milliseconds, body })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "Receive or After".to_string() },
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Phase 54: Parse an indented block of statements
+    fn parse_indented_block(&mut self) -> ParseResult<crate::ast::stmt::Block<'a>> {
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        let mut stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let block = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(stmts.into_iter());
+
+        Ok(block)
+    }
+
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::context::OwnershipState;
 
@@ -2019,8 +2504,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the collection
         let collection = self.parse_imperative_expr()?;
 
-        // Check for optional "into" binding
-        let into = if self.check_preposition_is("into") {
+        // Check for optional "into" binding (can be Into keyword or preposition)
+        let into = if self.check(&TokenType::Into) || self.check_preposition_is("into") {
             self.advance(); // consume "into"
 
             // Parse variable name
@@ -3888,7 +4373,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Console |
             // Phase 49: CRDT keywords can be function names (Merge, Increase)
             TokenType::Merge |
-            TokenType::Increase => {
+            TokenType::Increase |
+            // Phase 54: "first", "second", etc. can be variable names
+            TokenType::First => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();

@@ -1283,6 +1283,8 @@ impl<'a> Lexer<'a> {
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             // Phase 48: "at" for chunk access (must come before is_preposition check)
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Phase 54: "into" for pipe send (must come before is_preposition check)
+            "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             _ => {}
         }
 
@@ -1331,6 +1333,16 @@ impl<'a> Lexer<'a> {
             "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
             "persistent" => return TokenType::Persistent,  // Works in type expressions
             "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
+            // Phase 54: Go-like Concurrency keywords (Imperative mode only)
+            // Note: "first" and "after" are NOT keywords - they're checked via lookahead in parser
+            // to avoid conflicting with their use as variable names
+            "launch" if self.mode == LexerMode::Imperative => return TokenType::Launch,
+            "task" if self.mode == LexerMode::Imperative => return TokenType::Task,
+            "pipe" if self.mode == LexerMode::Imperative => return TokenType::Pipe,
+            "receive" if self.mode == LexerMode::Imperative => return TokenType::Receive,
+            "stop" if self.mode == LexerMode::Imperative => return TokenType::Stop,
+            "try" if self.mode == LexerMode::Imperative => return TokenType::Try,
+            "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
