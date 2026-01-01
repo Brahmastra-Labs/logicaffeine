@@ -4,8 +4,33 @@
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![Version](https://img.shields.io/badge/version-0.5.5-blue)]()
-[![Phases](https://img.shields.io/badge/linguistic%20phases-43-success)]()
+[![Phases](https://img.shields.io/badge/linguistic%20phases-53-success)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE.md)
+
+**[Try LOGOS Online →](https://logicaffeine.com/guide)**
+
+---
+
+## Why LOGOS?
+
+**The gap between specification and implementation is where bugs hide.**
+
+Natural language specs get mistranslated into code. Code comments drift from reality. Documentation lies.
+
+LOGOS closes this gap: your specification IS your program.
+
+| Traditional | LOGOS |
+|-------------|-------|
+| Write spec in English | Write spec in English |
+| Translate to code manually | Compiler does it |
+| Spec and code diverge | They're the same thing |
+| Logic bugs hide in translation | Logic is explicit and verifiable |
+
+**Why not just use ChatGPT?**
+
+LLMs are probabilistic—they guess. LOGOS is deterministic—it parses. When "every woman loves a man" has two meanings, GPT picks one. LOGOS returns both.
+
+---
 
 Logicaffeine is a natural language compiler with two modes:
 
@@ -14,24 +39,26 @@ Logicaffeine is a natural language compiler with two modes:
 | **Logic** | English sentences | First-Order Logic (∀, ∃, →, ∧) |
 | **Imperative** | English programs | Executable Rust code |
 
+**Logic Mode** — English to First-Order Logic:
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  LOGIC MODE                           IMPERATIVE MODE                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  "Every woman loves a man."           ## Main                               │
-│           ↓                           Let x be 5.                           │
-│  ∀x(Woman(x) → ∃y(Man(y) ∧ Love(x,y))) If x is less than 10:                │
-│                                           Return true.                      │
-│                                       Return false.                         │
-│                                                ↓                            │
-│                                       fn main() -> bool {                   │
-│                                           let x = 5;                        │
-│                                           if x < 10 { return true; }        │
-│                                           false                             │
-│                                       }                                     │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+"Every woman loves a man."  →  ∀x(Woman(x) → ∃y(Man(y) ∧ Love(x,y)))
+```
+
+**Imperative Mode** — English to Rust:
+```logos
+## Main
+Let x be 5.
+If x is less than 10:
+    Return true.
+Return false.
+```
+↓
+```rust
+fn main() -> bool {
+    let x = 5;
+    if x < 10 { return true; }
+    false
+}
 ```
 
 The programming language is called **LOGOS**.
@@ -40,36 +67,37 @@ The programming language is called **LOGOS**.
 
 ## Table of Contents
 
+- [Why LOGOS?](#why-logos)
 - [Quick Start](#quick-start)
 - [The Grand Challenge: Mergesort](#the-grand-challenge-mergesort)
+- [Beyond Hello World](#beyond-hello-world)
 - [Imperative Mode](#imperative-mode)
-  - [Hello World](#hello-world)
-  - [Variables & Types](#variables--types)
-  - [Control Flow](#control-flow)
-  - [Collections](#collections)
-  - [Functions](#functions)
-  - [Structs](#structs)
-  - [Enums & Pattern Matching](#enums--pattern-matching)
 - [Logic Mode](#logic-mode)
   - [Quantifiers](#quantifiers)
-  - [Connectives](#connectives)
   - [Modal Operators](#modal-operators)
   - [Tense & Aspect](#tense--aspect)
-  - [Wh-Questions](#wh-questions)
-  - [Scope Ambiguity](#scope-ambiguity)
   - [Parse Forests](#parse-forests)
-  - [Discourse & Pronouns](#discourse--pronouns)
+  - [Garden Path Sentences](#garden-path-sentences)
+  - [Multi-Word Expressions](#multi-word-expressions--idioms)
 - [Type System](#type-system)
 - [Static Verification](#static-verification)
+- [The CLI: largo](#the-cli-largo)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
 - [Testing](#testing)
 - [Glossary](#glossary)
+- [Theoretical Foundations](#theoretical-foundations)
 - [Further Reading](#further-reading)
 
 ---
 
 ## Quick Start
+
+### Try Online
+
+No installation required—[launch the interactive playground at logicaffeine.com/guide →](https://logicaffeine.com/guide)
+
+### Local Development
 
 ```bash
 # Build the project
@@ -175,6 +203,38 @@ This is a complete, recursive mergesort algorithm written in LOGOS. It compiles 
 - Inclusive slicing (`items 1 through mid`)
 - Collection operations (`Push`, `length of`, `copy of`)
 - Full compilation to executable Rust
+
+---
+
+## Beyond Hello World
+
+### Distributed Systems in Natural Language
+
+LOGOS includes a P2P mesh networking layer with native CRDT support:
+
+```logos
+## Main
+Listen on "/ip4/0.0.0.0/tcp/8080".
+Connect to "/ip4/192.168.1.5/tcp/8080".
+
+Let counter be a new shared GCounter.
+Increment counter.
+Sync counter.
+```
+
+Compiles to production-grade Rust with libp2p, GossipSub, and CRDT merge semantics.
+
+### Conflict-Free Replicated Data Types
+
+Native CRDT support in the standard library:
+
+```logos
+Let votes be a new GCounter.              # Grow-only counter
+Increment votes.
+Let merged be merge(votes, remote_votes). # Automatic convergence
+```
+
+CRDTs guarantee eventual consistency without coordination—nodes can be offline, updates can arrive out of order, and the system still converges to the correct state.
 
 ---
 
@@ -375,6 +435,12 @@ Show area(r).                      # → 24
 
 Compile English sentences to First-Order Logic with full semantic analysis. The vocabulary is defined in `assets/lexicon.json`.
 
+LOGOS implements serious formal semantics:
+- **Neo-Davidsonian event decomposition** with thematic roles (Agent, Patient, Theme, Goal)
+- **Montague-style compositional semantics** via λ-calculus
+- **DRS (Discourse Representation Structures)** for anaphora resolution
+- **Vendler aspectual classes** (State, Activity, Accomplishment, Achievement, Semelfactive)
+
 ### Quantifiers
 
 ```
@@ -418,6 +484,15 @@ Output: Run(j) ↔ Walk(m)
 
 ### Modal Operators
 
+Modal operators are parsed with correct force and flavor:
+
+| Modal | Force | Flavor | Symbol |
+|-------|-------|--------|--------|
+| must | Universal | Epistemic/Deontic | □ |
+| can | Existential | Dynamic | ◇ |
+| may | Existential | Deontic | ◇ |
+| should | Universal | Deontic | ○ |
+
 ```
 Input:  "John can swim."
 Output: ◇Swim(j)
@@ -432,7 +507,22 @@ Input:  "John should help."
 Output: ○Help(j)        [deontic obligation]
 ```
 
+The system distinguishes:
+- **Epistemic:** "John must be home" → inference from evidence
+- **Deontic:** "John must leave" → obligation
+- **Dynamic:** "John can swim" → ability
+
 ### Tense & Aspect
+
+LOGOS classifies verbs by Vendler class (aktionsart) to correctly compose tense and aspect:
+
+| Vendler Class | Example | Property |
+|---------------|---------|----------|
+| State | "know", "love" | No internal structure |
+| Activity | "run", "swim" | Unbounded process |
+| Accomplishment | "build a house" | Bounded process with endpoint |
+| Achievement | "arrive", "die" | Instantaneous change |
+| Semelfactive | "knock", "cough" | Single occurrence |
 
 ```
 Input:  "John ran."
@@ -450,6 +540,10 @@ Output: PERF(Run(j))
 Input:  "John had been running."
 Output: PAST(PERF(PROG(Run(j))))
 ```
+
+This enables correct parsing of aspectual compositions:
+- "John was building a house" → progressive of accomplishment
+- "John was knowing the answer" → anomalous (states resist progressive)
 
 ### Wh-Questions
 
@@ -484,7 +578,7 @@ Use `compile_all_scopes()` to get all readings.
 
 ### Parse Forests
 
-Ambiguous sentences produce multiple parses:
+Ambiguous sentences produce multiple parses. The parser uses backtracking with RAII guards (`ParserGuard`) for memory-safe rollback, and arena allocation (`bumpalo`) for zero-copy AST nodes. Up to 12 distinct readings are returned.
 
 ```
 Input: "I saw the man with the telescope."
@@ -510,6 +604,23 @@ See(i, [Duck(her)])
 "I saw her perform a ducking motion"
 ```
 
+### Garden Path Sentences
+
+Classic parsing challenges that trip up other parsers:
+
+```
+Input: "The horse raced past the barn fell."
+
+Analysis:
+- First parse: "The horse raced past the barn" (complete sentence?)
+- Backtrack: "The horse [that was] raced past the barn" (reduced relative clause)
+- Resolution: The horse that was raced past the barn... fell.
+
+Output: ∃x∃e₁∃e₂(Horse(x) ∧ Race(e₁) ∧ Theme(e₁, x) ∧ Past(e₁, barn) ∧ Fall(e₂) ∧ Theme(e₂, x))
+```
+
+The parser recovers from initial misparse via RAII guards for memory-safe backtracking.
+
 ### Discourse & Pronouns
 
 ```
@@ -529,6 +640,23 @@ Output: ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))
 ```
 
 The indefinite "a donkey" receives universal (not existential) force due to DRS accessibility constraints.
+
+### Multi-Word Expressions & Idioms
+
+LOGOS recognizes idioms and compiles them to their semantic meaning:
+
+```
+Input:  "John kicked the bucket."
+Output: Die(j)
+
+Input:  "Mary spilled the beans."
+Output: RevealSecret(m)
+
+Input:  "The fire engine arrived."
+Output: ∃e(Arrive(e) ∧ Theme(e, fire_engine))
+```
+
+The MWE pipeline uses a trie-based recognizer to merge multi-word units before parsing, handling compound nouns ("fire engine"), phrasal verbs ("give up"), and idiomatic expressions ("kick the bucket").
 
 ---
 
@@ -669,6 +797,43 @@ You asserted 'x is greater than 10', but x could be 5.
 | Enterprise | Yes |
 
 Get a license at [logicaffeine.com/pricing](https://logicaffeine.com/pricing).
+
+---
+
+## The CLI: largo
+
+The `largo` command-line tool manages LOGOS projects:
+
+```bash
+# Install the CLI
+cargo install logicaffeine --features cli
+
+# Create a new project
+largo new my-project
+cd my-project
+
+# Build and run
+largo build
+largo run
+
+# Type checking only
+largo check
+
+# Publish to the registry
+largo publish --token $LOGOS_TOKEN
+
+# Verify with Z3 (Pro+ license required)
+largo verify --license $LOGOS_LICENSE
+```
+
+Project structure:
+```
+my-project/
+├── Logos.toml      # Project manifest
+├── src/
+│   └── main.logos  # Entry point
+└── tests/
+```
 
 ---
 
@@ -819,12 +984,35 @@ cargo test -- --nocapture
 
 ---
 
+## Theoretical Foundations
+
+LOGOS builds on decades of formal semantics research:
+
+- **Montague Grammar** (1970s) — Compositional semantics via λ-calculus
+- **Discourse Representation Theory** (Kamp, 1981) — Anaphora and presupposition
+- **Neo-Davidsonian Event Semantics** (Parsons, 1990) — Thematic roles
+- **Generalized Quantifier Theory** (Barwise & Cooper, 1981) — Scope ambiguity
+- **Vendler Aspectual Classes** (1957) — Tense and aspect composition
+
+The test suite includes classic examples from the formal semantics literature: donkey anaphora, garden paths, scope islands, and control theory.
+
+---
+
 ## Further Reading
 
-- **[SPECIFICATION.md](SPECIFICATION.md)** - Complete language specification (5000+ lines)
-- **[LOGOS_DOCUMENTATION.md](LOGOS_DOCUMENTATION.md)** - Full technical documentation
-- **[ROADMAP.md](ROADMAP.md)** - Development roadmap and version history
-- **[CLAUDE.md](CLAUDE.md)** - AI assistant guidelines for contributors
+**Documentation**
+- **[Language Guide](https://logicaffeine.com/guide)** — Interactive tutorial with live REPL
+- **[SPECIFICATION.md](SPECIFICATION.md)** — Complete language specification (5000+ lines)
+- **[LOGOS_DOCUMENTATION.md](LOGOS_DOCUMENTATION.md)** — Full technical documentation
+
+**Project**
+- **[CHANGELOG.md](CHANGELOG.md)** — Version history (v0.5.5: First public release)
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (TDD workflow)
+- **[SECURITY.md](SECURITY.md)** — Report security vulnerabilities
+- **[ROADMAP.md](ROADMAP.md)** — Development direction
+
+**For AI Contributors**
+- **[CLAUDE.md](CLAUDE.md)** — AI assistant guidelines
 
 ---
 
@@ -840,4 +1028,6 @@ See [LICENSE.md](LICENSE.md) for full terms.
 
 ---
 
-*Logicaffeine: Where natural language meets formal logic meets executable code.*
+**Logicaffeine** | [Try Online](https://logicaffeine.com/guide) | [Docs](SPECIFICATION.md) | [Changelog](CHANGELOG.md) | [Contribute](CONTRIBUTING.md)
+
+*In the beginning was the Word, and the Word was with Logic, and the Word was Code.*

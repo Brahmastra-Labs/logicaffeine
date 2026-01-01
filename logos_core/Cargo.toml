@@ -11,7 +11,10 @@ bumpalo = "3.19.1"
 memmap2 = "0.9.9"
 rand = "0.8"
 # Phase 9: Structured Concurrency
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+# Phase 53: Added "fs" and "io-util" for VFS
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+# Phase 53: CRC32 for journal checksums
+crc32fast = "1.3"
 rayon = "1.10"
 # Phase 47: Serialization
 serde = { version = "1.0", features = ["derive"] }

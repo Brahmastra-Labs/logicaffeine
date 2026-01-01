@@ -35,6 +35,13 @@ pub enum TypeExpr<'a> {
         /// The predicate constraint (from Logic Kernel)
         predicate: &'a LogicExpr<'a>,
     },
+    /// Phase 53: Persistent storage wrapper type
+    /// Example: `Persistent Counter`
+    /// Semantics: Wraps a Shared type with journal-backed storage
+    Persistent {
+        /// The inner type (must be a Shared/CRDT type)
+        inner: &'a TypeExpr<'a>,
+    },
 }
 
 /// Phase 10: Source for Read statements
@@ -63,6 +70,8 @@ pub enum BinaryOpKind {
     // Grand Challenge: Logical operators for compound conditions
     And,
     Or,
+    // Phase 53: String concatenation ("X combined with Y")
+    Concat,
 }
 
 /// Block is a sequence of statements.
@@ -351,6 +360,16 @@ pub enum Stmt<'a> {
     Sync {
         var: Symbol,
         topic: &'a Expr<'a>,
+    },
+
+    /// Phase 53: Mount persistent CRDT from journal file
+    /// `Mount counter at "data/counter.journal".`
+    /// Semantics: Load or create journal, replay operations to reconstruct state
+    Mount {
+        /// The variable name for the mounted value
+        var: Symbol,
+        /// The path expression for the journal file
+        path: &'a Expr<'a>,
     },
 }
 

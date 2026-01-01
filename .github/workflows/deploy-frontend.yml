@@ -1,30 +1,46 @@
 name: Deploy Frontend
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'assets/**'
-      - 'Cargo.toml'
-      - 'Dioxus.toml'
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy Dioxus App to Cloudflare Pages
+    # Only deploy if tests passed and this was a push (not PR)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check for relevant changes
+        uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            frontend:
+              - 'src/**'
+              - 'assets/**'
+              - 'Cargo.toml'
+              - 'Dioxus.toml'
 
       - name: Setup Rust
+        if: steps.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo
+        if: steps.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
         uses: actions/cache@v4
         with:
           path: |
@@ -38,12 +54,15 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Install Dioxus CLI
+        if: steps.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
         run: cargo install dioxus-cli@0.6.3 --locked || true
 
       - name: Build Dioxus App
+        if: steps.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
         run: dx build --release
 
       - name: Deploy to Cloudflare Pages
+        if: steps.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

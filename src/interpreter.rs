@@ -417,6 +417,10 @@ impl<'a> Interpreter<'a> {
             Stmt::Sync { .. } => {
                 Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
             }
+            // Phase 53: Mount is not supported in interpreter (compile-only)
+            Stmt::Mount { .. } => {
+                Err("Mount is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 
@@ -640,6 +644,8 @@ impl<'a> Interpreter<'a> {
             BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
             BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
             BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+            // Phase 53: String concatenation
+            BinaryOpKind::Concat => self.apply_concat(left, right),
         }
     }
 
@@ -654,6 +660,11 @@ impl<'a> Interpreter<'a> {
             (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
             _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
         }
+    }
+
+    /// Phase 53: String concatenation ("combined with")
+    fn apply_concat(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        Ok(RuntimeValue::Text(format!("{}{}", left.to_display_string(), right.to_display_string())))
     }
 
     fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {

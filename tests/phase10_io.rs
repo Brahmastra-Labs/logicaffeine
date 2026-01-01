@@ -91,8 +91,9 @@ Read data from file "config.txt".
 Show data."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("file::read"),
-            "Should call file::read.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("read_to_string"),
+            "Should call vfs.read_to_string.\nGot:\n{}", rust);
     assert!(rust.contains("config.txt"),
             "Should include file path.\nGot:\n{}", rust);
 }
@@ -105,10 +106,11 @@ Read content from file path.
 Show content."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("file::read"),
-            "Should call file::read.\nGot:\n{}", rust);
-    assert!(rust.contains("path.to_string()"),
-            "Should convert path to string.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("read_to_string"),
+            "Should call vfs.read_to_string.\nGot:\n{}", rust);
+    assert!(rust.contains("path"),
+            "Should use path variable.\nGot:\n{}", rust);
 }
 
 // =============================================================================
@@ -121,8 +123,9 @@ fn test_write_to_file_codegen() {
 Write "hello world" to file "output.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("file::write"),
-            "Should call file::write.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("vfs.write"),
+            "Should call vfs.write.\nGot:\n{}", rust);
     assert!(rust.contains("output.txt"),
             "Should include file path.\nGot:\n{}", rust);
 }
@@ -134,8 +137,9 @@ Let message be "Hello, World!".
 Write message to file "greeting.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("file::write"),
-            "Should call file::write.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("vfs.write"),
+            "Should call vfs.write.\nGot:\n{}", rust);
 }
 
 #[test]
@@ -145,10 +149,11 @@ Read original from file "input.txt".
 Write original to file "output.txt"."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("file::read"),
-            "Should have file::read.\nGot:\n{}", rust);
-    assert!(rust.contains("file::write"),
-            "Should have file::write.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("read_to_string"),
+            "Should have vfs.read_to_string.\nGot:\n{}", rust);
+    assert!(rust.contains("vfs.write"),
+            "Should have vfs.write.\nGot:\n{}", rust);
 }
 
 // =============================================================================
@@ -208,8 +213,9 @@ Call greet."#;
             "Should have function definition.\nGot:\n{}", rust);
     assert!(rust.contains("read_line()"),
             "Should have read_line in function.\nGot:\n{}", rust);
-    assert!(rust.contains("file::write"),
-            "Should have file::write in function.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("vfs.write"),
+            "Should have vfs.write in function.\nGot:\n{}", rust);
 }
 
 #[test]
@@ -225,8 +231,9 @@ Otherwise:
 
     assert!(rust.contains("read_line()"),
             "Should have read_line in if branch.\nGot:\n{}", rust);
-    assert!(rust.contains("file::write"),
-            "Should have file::write in else branch.\nGot:\n{}", rust);
+    // Phase 53: File operations now use VFS abstraction
+    assert!(rust.contains("vfs.write"),
+            "Should have vfs.write in else branch.\nGot:\n{}", rust);
 }
 
 #[test]

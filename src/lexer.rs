@@ -1327,6 +1327,10 @@ impl<'a> Lexer<'a> {
             "sleep" if self.mode == LexerMode::Imperative => return TokenType::Sleep,
             // Phase 52: GossipSub keywords (Imperative mode only)
             "sync" if self.mode == LexerMode::Imperative => return TokenType::Sync,
+            // Phase 53: Persistence keywords
+            "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
+            "persistent" => return TokenType::Persistent,  // Works in type expressions
+            "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,

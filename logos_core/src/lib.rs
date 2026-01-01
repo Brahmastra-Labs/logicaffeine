@@ -11,6 +11,10 @@ pub mod memory;
 pub mod network;
 // Phase 49: CRDT primitives
 pub mod crdt;
+// Phase 53: Virtual File System
+pub mod fs;
+// Phase 53: Persistent Storage
+pub mod storage;
 
 // Phase 51: Re-export tokio for async main support
 pub use tokio;

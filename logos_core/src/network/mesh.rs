@@ -149,6 +149,7 @@ enum MeshCommand {
     GossipPublish {
         topic: String,
         data: Vec<u8>,
+        retry_count: u8,  // Track retries to prevent infinite loops
     },
 }
 
@@ -258,13 +259,30 @@ impl MeshNode {
                                 }
                             }
                         }
-                        MeshCommand::GossipPublish { topic, data } => {
-                            match swarm.behaviour_mut().publish(&topic, data) {
+                        MeshCommand::GossipPublish { topic, data, retry_count } => {
+                            const MAX_RETRIES: u8 = 5;
+                            match swarm.behaviour_mut().publish(&topic, data.clone()) {
                                 Ok(_) => {
                                     eprintln!("[GOSSIP] Published to '{}'", topic);
                                 }
+                                Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRIES => {
+                                    // Retry with delay - spawn a task to re-queue the publish
+                                    eprintln!("[GOSSIP] InsufficientPeers, scheduling retry ({}/{})", retry_count + 1, MAX_RETRIES);
+                                    if let Some(tx) = GOSSIP_TX.get() {
+                                        let tx = tx.clone();
+                                        let topic = topic.clone();
+                                        let data = data.clone();
+                                        let next_retry = retry_count + 1;
+                                        tokio::spawn(async move {
+                                            // Wait for mesh to form (exponential backoff: 1s, 2s, 4s, 8s, 16s)
+                                            let delay = std::time::Duration::from_secs(1 << retry_count);
+                                            tokio::time::sleep(delay).await;
+                                            let _ = tx.send(MeshCommand::GossipPublish { topic, data, retry_count: next_retry }).await;
+                                        });
+                                    }
+                                }
                                 Err(e) => {
-                                    eprintln!("[GOSSIP] Publish failed: {:?}", e);
+                                    eprintln!("[GOSSIP] Publish failed after {} retries: {:?}", retry_count, e);
                                 }
                             }
                         }
@@ -581,6 +599,7 @@ pub async fn gossip_publish(topic: &str, data: Vec<u8>) {
         if tx.send(MeshCommand::GossipPublish {
             topic: topic.to_string(),
             data,
+            retry_count: 0,
         }).await.is_err() {
             eprintln!("[GOSSIP] Command channel closed");
         }

@@ -290,6 +290,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
 
+        // Phase 53: Handle "Persistent T" type modifier
+        if self.check(&TokenType::Persistent) {
+            self.advance(); // consume "Persistent"
+            let inner = self.parse_type_expression()?;
+            let inner_ref = self.ctx.alloc_type_expr(inner);
+            return Ok(TypeExpr::Persistent { inner: inner_ref });
+        }
+
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
         let base = self.consume_type_name()?;
 
@@ -831,6 +839,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 52: GossipSub sync statement
         if self.check(&TokenType::Sync) {
             return self.parse_sync_statement();
+        }
+        // Phase 53: Persistent storage mount statement
+        if self.check(&TokenType::Mount) {
+            return self.parse_mount_statement();
         }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
@@ -1389,6 +1401,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume "be"
 
+        // Phase 53: Check for "mounted at [path]" pattern (for Persistent types)
+        if self.check_word("mounted") {
+            self.advance(); // consume "mounted"
+            if !self.check(&TokenType::At) && !self.check_preposition_is("at") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "at"
+            let path = self.parse_imperative_expr()?;
+            return Ok(Stmt::Mount { var, path });
+        }
+
         // Phase 51: Check for "a PeerAgent at [addr]" pattern
         if self.check_article() {
             let saved_pos = self.current;
@@ -1841,6 +1867,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let topic = self.parse_imperative_expr()?;
 
         Ok(Stmt::Sync { var, topic })
+    }
+
+    /// Phase 53: Parse Mount statement
+    /// Syntax: Mount [var] at [path].
+    /// Example: Mount counter at "data/counter.journal".
+    fn parse_mount_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Mount"
+
+        // Parse variable name (must be an identifier)
+        let var = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "at" keyword (TokenType::At in imperative mode)
+        if !self.check(&TokenType::At) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "at"
+
+        // Parse path expression (string literal or variable)
+        let path = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Mount { var, path })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -3584,7 +3646,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_additive_expr()
     }
 
-    /// Parse additive expressions (+, -) - left-to-right associative
+    /// Parse additive expressions (+, -, combined with) - left-to-right associative
     fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_multiplicative_expr()?;
 
@@ -3597,6 +3659,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Minus => {
                     self.advance();
                     BinaryOpKind::Subtract
+                }
+                // Phase 53: "combined with" for string concatenation
+                TokenType::Combined => {
+                    self.advance(); // consume "combined"
+                    // Expect "with" (preposition)
+                    if !self.check_preposition_is("with") {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "with".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "with"
+                    BinaryOpKind::Concat
                 }
                 _ => break,
             };

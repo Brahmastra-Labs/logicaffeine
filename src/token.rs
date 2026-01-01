@@ -175,6 +175,11 @@ pub enum TokenType {
     // Phase 52: GossipSub Keywords
     Sync,     // "Sync x on 'topic'" -> automatic CRDT replication
 
+    // Phase 53: Persistence Keywords
+    Mount,      // "Mount x at [path]" -> load/create persistent CRDT from journal
+    Persistent, // "Persistent Counter" -> type wrapped with journaling
+    Combined,   // "x combined with y" -> string concatenation
+
     // Block Scoping
     Colon,
     Indent,

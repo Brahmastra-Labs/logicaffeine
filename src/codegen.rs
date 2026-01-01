@@ -129,6 +129,11 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Sleep { .. } => true,
         // Phase 52: Sync is async (GossipSub subscription)
         Stmt::Sync { .. } => true,
+        // Phase 53: Mount is async (VFS file operations)
+        Stmt::Mount { .. } => true,
+        // Phase 53: File I/O is async (VFS operations)
+        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::WriteFile { .. } => true,
         // Recursively check nested blocks
         Stmt::If { then_block, else_block, .. } => {
             then_block.iter().any(|s| requires_async_stmt(s))
@@ -139,6 +144,34 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
         Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        _ => false,
+    }
+}
+
+/// Phase 53: Detect if any statements require VFS (Virtual File System).
+/// Returns true if the program uses file operations or persistent storage.
+fn requires_vfs(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| requires_vfs_stmt(s))
+}
+
+fn requires_vfs_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        // Phase 53: Mount uses VFS for persistent storage
+        Stmt::Mount { .. } => true,
+        // Phase 53: File I/O uses VFS
+        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::WriteFile { .. } => true,
+        // Recursively check nested blocks
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| requires_vfs_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| requires_vfs_stmt(s)))
+        }
+        Stmt::While { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Concurrent { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
         _ => false,
     }
 }
@@ -424,6 +457,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     } else {
         writeln!(output, "fn main() {{").unwrap();
     }
+    // Phase 53: Inject VFS when file operations or persistence is used
+    if requires_vfs(stmts) {
+        writeln!(output, "    let vfs = logos_core::fs::NativeVfs::new(\".\");").unwrap();
+    }
     let mut main_ctx = RefinementContext::new();
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     for stmt in stmts {
@@ -599,6 +636,11 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
         // The constraint predicate is handled separately via debug_assert!
         TypeExpr::Refinement { base, .. } => {
             codegen_type_expr(base, interner)
+        }
+        // Phase 53: Persistent storage wrapper
+        TypeExpr::Persistent { inner } => {
+            let inner_type = codegen_type_expr(inner, interner);
+            format!("logos_core::storage::Persistent<{}>", inner_type)
         }
     }
 }
@@ -1004,6 +1046,20 @@ pub fn codegen_stmt<'a>(
             synced_vars.insert(*var);
         }
 
+        // Phase 53: Mount persistent CRDT from journal
+        Stmt::Mount { var, path } => {
+            let var_name = interner.resolve(*var);
+            let path_str = codegen_expr(path, interner, synced_vars);
+            // Mount the persistent value from the journal file
+            writeln!(
+                output,
+                "{}let {} = logos_core::storage::Persistent::mount(&vfs, &{}).await.expect(\"Failed to mount\");",
+                indent_str, var_name, path_str
+            ).unwrap();
+            // Track as synced so CRDT mutations use .mutate() for persistence
+            synced_vars.insert(*var);
+        }
+
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
             let obj_str = codegen_expr(object, interner, synced_vars);
@@ -1266,6 +1322,7 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 10: Read from console or file
+        // Phase 53: File reads now use async VFS
         Stmt::ReadFrom { var, source } => {
             let var_name = interner.resolve(*var);
             match source {
@@ -1274,9 +1331,10 @@ pub fn codegen_stmt<'a>(
                 }
                 ReadSource::File(path_expr) => {
                     let path_str = codegen_expr(path_expr, interner, synced_vars);
+                    // Phase 53: Use VFS with async
                     writeln!(
                         output,
-                        "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
+                        "{}let {} = vfs.read_to_string(&{}).await.expect(\"Failed to read file\");",
                         indent_str, var_name, path_str
                     ).unwrap();
                 }
@@ -1284,12 +1342,14 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 10: Write to file
+        // Phase 53: File writes now use async VFS
         Stmt::WriteFile { content, path } => {
             let content_str = codegen_expr(content, interner, synced_vars);
             let path_str = codegen_expr(path, interner, synced_vars);
+            // Phase 53: Use VFS with async
             writeln!(
                 output,
-                "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
+                "{}vfs.write(&{}, {}.as_bytes()).await.expect(\"Failed to write file\");",
                 indent_str, path_str, content_str
             ).unwrap();
         }
@@ -1392,6 +1452,10 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
         Expr::BinaryOp { op, left, right } => {
             let left_str = codegen_expr(left, interner, synced_vars);
             let right_str = codegen_expr(right, interner, synced_vars);
+            // Phase 53: String concatenation requires special handling
+            if matches!(op, BinaryOpKind::Concat) {
+                return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
+            }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -1406,6 +1470,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
                 BinaryOpKind::GtEq => ">=",
                 BinaryOpKind::And => "&&",
                 BinaryOpKind::Or => "||",
+                BinaryOpKind::Concat => unreachable!(), // Handled above
             };
             format!("({} {} {})", left_str, op_str, right_str)
         }
