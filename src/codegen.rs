@@ -1602,8 +1602,8 @@ pub fn codegen_stmt<'a>(
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
             let value_str = codegen_expr(value, interner, synced_vars);
-            // 1-based indexing: item 2 of items → items[1]
-            writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
+            // Phase 57: Polymorphic indexing via trait
+            writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
         }
 
         // Phase 8.5: Zone (memory arena) block
@@ -1919,8 +1919,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
         Expr::Index { collection, index } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
-            // Phase 43D: 1-based indexing with runtime bounds check
-            format!("logos_index(&{}, {})", coll_str, index_str)
+            // Phase 57: Polymorphic indexing via trait
+            format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {

@@ -131,8 +131,8 @@ fn codegen_index_1_indexed() {
         index,
     };
     let result = codegen_expr(&expr, &interner, &synced_vars);
-    // Phase 43D: Now uses logos_index helper for 1-based indexing
-    assert_eq!(result, "logos_index(&list, 1)");
+    // Phase 57: Uses LogosIndex trait for polymorphic indexing
+    assert_eq!(result, "LogosIndex::logos_get(&list, 1)");
 }
 
 #[test]
@@ -149,8 +149,8 @@ fn codegen_index_5_becomes_4() {
         index,
     };
     let result = codegen_expr(&expr, &interner, &synced_vars);
-    // Phase 43D: Now uses logos_index helper for 1-based indexing
-    assert_eq!(result, "logos_index(&items, 5)");
+    // Phase 57: Uses LogosIndex trait for polymorphic indexing
+    assert_eq!(result, "LogosIndex::logos_get(&items, 5)");
 }
 
 #[test]

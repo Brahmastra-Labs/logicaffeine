@@ -9,3 +9,6 @@ pub type Unit = ();
 
 // Phase 30: Collections
 pub type Seq<T> = Vec<T>;
+
+// Phase 57: Map type alias
+pub type Map<K, V> = std::collections::HashMap<K, V>;

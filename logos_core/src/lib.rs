@@ -10,6 +10,8 @@ pub mod crdt;
 pub mod storage;
 // Phase 56: Distributed<T> - unified persistence + network (cross-platform)
 pub mod distributed;
+// Phase 57: Polymorphic indexing (Vec + HashMap)
+pub mod indexing;
 
 // Native-only modules
 #[cfg(not(target_arch = "wasm32"))]
@@ -36,36 +38,6 @@ pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
 }
 
-/// Phase 43D: 1-based indexing with clear error messages
-///
-/// LOGOS uses 1-based indexing to match natural language ("the first item").
-/// This function converts 1-based indices to 0-based and provides helpful
-/// error messages for out-of-bounds access.
-#[inline]
-pub fn logos_index<T: Copy>(slice: &[T], index: i64) -> T {
-    if index < 1 {
-        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
-    }
-    let idx = (index - 1) as usize;
-    if idx >= slice.len() {
-        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
-    }
-    slice[idx]
-}
-
-/// Phase 43D: 1-based mutable indexing with clear error messages
-#[inline]
-pub fn logos_index_mut<T>(slice: &mut [T], index: i64) -> &mut T {
-    if index < 1 {
-        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
-    }
-    let idx = (index - 1) as usize;
-    if idx >= slice.len() {
-        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
-    }
-    &mut slice[idx]
-}
-
 pub mod fmt {
     pub fn format<T: std::fmt::Display>(x: T) -> String {
         format!("{}", x)
@@ -74,12 +46,11 @@ pub mod fmt {
 
 pub mod prelude {
     pub use crate::io::{show, read_line, println, eprintln, print, Showable};
-    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
+    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq, Map};
     pub use crate::panic_with;
     pub use crate::fmt::format;
-    // Phase 43D: Collection indexing helpers
-    pub use crate::logos_index;
-    pub use crate::logos_index_mut;
+    // Phase 57: Polymorphic indexing traits
+    pub use crate::indexing::{LogosIndex, LogosIndexMut};
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
     // Phase 56: Distributed<T>
