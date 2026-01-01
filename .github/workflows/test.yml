@@ -8,6 +8,9 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Reduce linker memory usage
+  CARGO_BUILD_JOBS: 2
+  RUSTFLAGS: "-C link-arg=-Wl,--threads=1"
 
 jobs:
   test:
@@ -41,4 +44,4 @@ jobs:
         run: cargo build --verbose
 
       - name: Run tests
-        run: cargo test -- --skip e2e
+        run: cargo test --jobs 1 -- --skip e2e --test-threads=1

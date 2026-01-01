@@ -435,7 +435,12 @@ Show factorial(5)."#,
         title: "Collections",
         part: "Part I: Programming in LOGOS",
         content: r#"
-Collections hold multiple values. The primary collection type in LOGOS is `Seq` (sequence), similar to lists or arrays in other languages.
+Collections hold multiple values. LOGOS provides two main collection types:
+
+| Collection | Description | Index Type |
+|------------|-------------|------------|
+| `Seq of T` | Ordered list | Int (1-based) |
+| `Map of K to V` | Key-value pairs | Any key type |
 
 ### Creating Lists
 
@@ -454,6 +459,21 @@ LOGOS uses **1-based indexing**. The first element is at position 1, not 0. Why?
 ### Slicing
 
 Extract a portion of a list with `through`. Slicing is **inclusive** on both ends.
+
+### Maps (Dictionaries)
+
+Maps store key-value pairs. Unlike lists which use integer indexing, maps use keys of any type.
+
+**Create a map:**
+`Let prices be a new Map of Text to Int.`
+
+**Access a value by key:**
+`Let cost be item "iron" of prices.`
+
+**Set a value by key:**
+`Set item "iron" of prices to 100.`
+
+Maps are useful for lookups, caches, and associating data without needing a struct.
 "#,
         examples: &[
             CodeExample {
@@ -503,6 +523,41 @@ Repeat for n in numbers:
     Set total to total + n.
 
 Show "Total: " + total."#,
+            },
+            CodeExample {
+                id: "map-create",
+                label: "Creating Maps",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let prices be a new Map of Text to Int.
+Set item "iron" of prices to 10.
+Set item "copper" of prices to 25.
+Set item "gold" of prices to 100.
+Show "Map created with 3 items"."#,
+            },
+            CodeExample {
+                id: "map-access",
+                label: "Map Access",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let inventory be a new Map of Text to Int.
+Set item "wood" of inventory to 50.
+Set item "stone" of inventory to 30.
+
+Let wood_count be item "wood" of inventory.
+Show "Wood: " + wood_count."#,
+            },
+            CodeExample {
+                id: "map-update",
+                label: "Map Update",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let scores be a new Map of Text to Int.
+Set item "Alice" of scores to 100.
+Show "Initial: " + item "Alice" of scores.
+
+Set item "Alice" of scores to 150.
+Show "Updated: " + item "Alice" of scores."#,
             },
         ],
     },
@@ -1900,11 +1955,17 @@ Show "Positives: " + positives."#,
 - `A TypeName is either:` ... — Define enum
 - `Inspect x: When Variant:` ... — Pattern match
 
-**Collections:**
+**Lists (Seq):**
 - `[1, 2, 3]` — List literal
 - `item 1 of items` — Access (1-indexed)
 - `Push value to items.` — Add to end
 - `length of items` — Get length
+
+**Maps:**
+- `Map of K to V` — Map type (key-value pairs)
+- `a new Map of Text to Int` — Create empty map
+- `item "key" of map` — Get value by key
+- `Set item "key" of map to val.` — Set value by key
 
 ### Ownership Verbs
 
