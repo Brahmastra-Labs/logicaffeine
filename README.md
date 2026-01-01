@@ -11,7 +11,7 @@
 
 ---
 
-## Why LOGOS? 
+## Why LOGOS?
 
 **The gap between specification and implementation is where bugs hide.**
 
