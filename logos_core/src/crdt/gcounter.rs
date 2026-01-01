@@ -42,9 +42,24 @@ impl GCounter {
     /// If this is the first increment, a unique replica ID is generated.
     pub fn increment(&mut self, amount: u64) {
         if self.replica_id.is_empty() {
-            self.replica_id = uuid::Uuid::new_v4().to_string();
+            self.replica_id = Self::generate_replica_id();
         }
         *self.counts.entry(self.replica_id.clone()).or_insert(0) += amount;
+    }
+
+    /// Generate a unique replica ID.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn generate_replica_id() -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
+    /// Generate a unique replica ID (WASM version using getrandom).
+    #[cfg(target_arch = "wasm32")]
+    fn generate_replica_id() -> String {
+        let mut bytes = [0u8; 16];
+        getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes");
+        // Format as hex string
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
 
     /// Get the current value (sum of all replica counts).

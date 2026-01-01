@@ -10,9 +10,14 @@
 mod gcounter;
 mod lww;
 mod merge;
+
+// Phase 52: Synced wrapper uses tokio and network - native only
+#[cfg(not(target_arch = "wasm32"))]
 mod sync;
 
 pub use gcounter::GCounter;
 pub use lww::LWWRegister;
 pub use merge::Merge;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub use sync::Synced;

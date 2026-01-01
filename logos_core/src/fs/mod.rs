@@ -2,10 +2,18 @@
 //!
 //! Provides platform-agnostic async file operations.
 //! - Native: tokio::fs with atomic operations
-//! - WASM: OPFS (Origin Private File System) - future implementation
+//! - WASM: OPFS (Origin Private File System) via web-sys
+
+#[cfg(target_arch = "wasm32")]
+mod opfs;
+
+#[cfg(target_arch = "wasm32")]
+pub use opfs::OpfsVfs;
 
 use async_trait::async_trait;
 use std::io;
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
 /// Error type for VFS operations
@@ -48,8 +56,38 @@ impl From<io::Error> for VfsError {
 pub type VfsResult<T> = Result<T, VfsError>;
 
 /// Virtual File System trait for platform-agnostic file operations.
+///
+/// On native platforms, requires Send+Sync for thread-safe access.
+/// On WASM, these bounds are relaxed since JS is single-threaded.
+#[cfg(not(target_arch = "wasm32"))]
 #[async_trait]
 pub trait Vfs: Send + Sync {
+    /// Read entire file contents as bytes.
+    async fn read(&self, path: &str) -> VfsResult<Vec<u8>>;
+
+    /// Read file contents as UTF-8 string.
+    async fn read_to_string(&self, path: &str) -> VfsResult<String>;
+
+    /// Write bytes to file (atomic on native, best-effort on WASM).
+    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()>;
+
+    /// Append bytes to file (atomic append semantics).
+    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()>;
+
+    /// Check if file exists.
+    async fn exists(&self, path: &str) -> VfsResult<bool>;
+
+    /// Delete a file.
+    async fn remove(&self, path: &str) -> VfsResult<()>;
+
+    /// Create directory and all parent directories.
+    async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+}
+
+/// WASM version of VFS trait without Send+Sync (JS is single-threaded).
+#[cfg(target_arch = "wasm32")]
+#[async_trait(?Send)]
+pub trait Vfs {
     /// Read entire file contents as bytes.
     async fn read(&self, path: &str) -> VfsResult<Vec<u8>>;
 
@@ -161,6 +199,27 @@ impl Vfs for NativeVfs {
         let full_path = self.resolve(path);
         tokio::fs::create_dir_all(&full_path).await.map_err(VfsError::from)
     }
+}
+
+/// Type alias for platform-specific VFS.
+#[cfg(not(target_arch = "wasm32"))]
+pub type PlatformVfs = NativeVfs;
+
+#[cfg(target_arch = "wasm32")]
+pub type PlatformVfs = OpfsVfs;
+
+/// Get the platform-default VFS instance.
+///
+/// - Native: Returns NativeVfs rooted at current directory
+/// - WASM: Returns OpfsVfs rooted at OPFS root
+#[cfg(not(target_arch = "wasm32"))]
+pub fn get_platform_vfs() -> NativeVfs {
+    NativeVfs::new(".")
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_platform_vfs() -> VfsResult<OpfsVfs> {
+    OpfsVfs::new().await
 }
 
 #[cfg(test)]

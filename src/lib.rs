@@ -993,7 +993,8 @@ use crate::ast::stmt::{Stmt, Expr, TypeExpr};
 
 /// Interpret LOGOS imperative code and return output lines.
 /// This is used by the Guide page for interactive code examples.
-pub fn interpret_for_ui(input: &str) -> InterpreterResult {
+/// Phase 55: Now async to support VFS operations.
+pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
     let tokens = lexer.tokenize();
@@ -1038,7 +1039,7 @@ pub fn interpret_for_ui(input: &str) -> InterpreterResult {
     match parser.parse_program() {
         Ok(stmts) => {
             let mut interp = interpreter::Interpreter::new(&interner);
-            match interp.run(&stmts) {
+            match interp.run(&stmts).await {
                 Ok(()) => InterpreterResult {
                     lines: interp.output,
                     error: None,

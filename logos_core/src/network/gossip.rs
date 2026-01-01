@@ -17,6 +17,25 @@ use tokio::sync::{mpsc, Mutex};
 static SUBSCRIPTIONS: Lazy<Mutex<HashMap<String, mpsc::Sender<Vec<u8>>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// Subscribe to a topic. Returns a receiver for incoming messages.
+///
+/// This registers the subscription locally and forwards it to the mesh node.
+/// The returned receiver will receive raw message bytes.
+pub async fn subscribe(topic: &str) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel::<Vec<u8>>(256);
+
+    // Register subscription
+    {
+        let mut subs = SUBSCRIPTIONS.lock().await;
+        subs.insert(topic.to_string(), tx);
+    }
+
+    // Forward subscription to mesh node
+    crate::network::gossip_subscribe(topic).await;
+
+    rx
+}
+
 /// Publish a message to a GossipSub topic.
 ///
 /// The message is serialized with bincode and broadcast to all subscribers

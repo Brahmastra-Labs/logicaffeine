@@ -234,6 +234,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Bincode Wire Protocol** - LogosWire trait for serialize/deserialize; /logos/mesh/1.0.0 protocol with 16MB max message size
 - **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
 - **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
+- **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1960,6 +1961,15 @@ for f in logos_core/src/network/*.rs; do
 done
 echo "Network (logos_core/src/network/):    $NETWORK_LINES lines" >> "$OUTPUT_FILE"
 
+# VFS
+VFS_LINES=0
+for f in logos_core/src/fs/*.rs; do
+    if [ -f "$f" ]; then
+        VFS_LINES=$((VFS_LINES + $(wc -l < "$f")))
+    fi
+done
+echo "VFS (logos_core/src/fs/):             $VFS_LINES lines" >> "$OUTPUT_FILE"
+
 # Entry
 ENTRY_LINES=0
 if [ -f "src/main.rs" ]; then
@@ -2761,7 +2771,7 @@ EOF
 
 add_file "logos_core/src/lib.rs" \
     "Runtime Library" \
-    "Entry point for logos_core crate. Re-exports io, types, and prelude modules. Embedded into compiled programs via include_str! in src/compile.rs."
+    "Entry point for logos_core crate. Conditional compilation: network, storage, memory, file, time, random, env gated with #[cfg(not(wasm32))] for native-only. CRDT and fs modules work cross-platform."
 
 add_file "logos_core/src/types.rs" \
     "Type Aliases" \
@@ -2802,7 +2812,7 @@ add_file "logos_core/src/crdt/merge.rs" \
 
 add_file "logos_core/src/crdt/gcounter.rs" \
     "GCounter (Grow-only Counter)" \
-    "Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Auto-generates UUID for replica ID on first increment. PartialEq<u64> and PartialEq<i32> for ergonomic comparisons in assertions."
+    "Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Platform-specific replica ID: uuid::Uuid on native, getrandom bytes on WASM. PartialEq<u64/i32> for ergonomic assertions."
 
 add_file "logos_core/src/crdt/lww.rs" \
     "LWWRegister (Last-Write-Wins Register)" \
@@ -2840,6 +2850,15 @@ add_file "logos_core/src/network/gossip.rs" \
 add_file "logos_core/src/network/sipping.rs" \
     "File Sipper (Phase 48)" \
     "Zero-copy file chunking for resumable transfers. FileSipper uses memory-mapped zones. FileManifest describes chunks with SHA256 hashes. Default 1MB chunk size."
+
+# VFS Module (Phase 54: Cross-Platform Storage)
+add_file "logos_core/src/fs/mod.rs" \
+    "Virtual File System" \
+    "Platform-agnostic file operations. Vfs trait with conditional Send+Sync (native) vs ?Send (WASM). NativeVfs uses tokio::fs. PlatformVfs type alias for ergonomic cross-platform code."
+
+add_file "logos_core/src/fs/opfs.rs" \
+    "OPFS VFS (WASM)" \
+    "Origin Private File System for browser persistence. OpfsVfs implements async Vfs trait using web-sys bindings. navigator.storage.getDirectory() root, FileSystemWritableFileStream for writes."
 
 # ==============================================================================
 # LOGOS VERIFICATION CRATE

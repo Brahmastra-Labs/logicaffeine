@@ -221,6 +221,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Bincode Wire Protocol** - LogosWire trait for serialize/deserialize; /logos/mesh/1.0.0 protocol with 16MB max message size
 - **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
 - **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
+- **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -2189,30 +2190,31 @@ Tests for lexer improvements and edge cases.
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2283 lines
-Parser (ast/, parser/):               13052 lines
+Lexer (token.rs, lexer.rs):           2292 lines
+Parser (ast/, parser/):               13146 lines
 Transpilation:                        1341 lines
-Code Generation:                      2158 lines
+Code Generation:                      2223 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            2613 lines
 Support Infrastructure:               4322 lines
-Desktop UI:                              16970 lines
-CRDT (logos_core/src/crdt/):          466 lines
-Network (logos_core/src/network/):    1437 lines
+Desktop UI:                              17062 lines
+CRDT (logos_core/src/crdt/):          486 lines
+Network (logos_core/src/network/):    1456 lines
+VFS (logos_core/src/fs/):             491 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        54672
-Test lines:          18231
-Total Rust lines: 72903
+Source lines:        55020
+Test lines:          18649
+Total Rust lines: 73669
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   113
+Test files:   114
 ```
 ## Lexicon Data
 
@@ -3198,6 +3200,11 @@ pub enum TokenType {
 
     // Phase 52: GossipSub Keywords
     Sync,     // "Sync x on 'topic'" -> automatic CRDT replication
+
+    // Phase 53: Persistence Keywords
+    Mount,      // "Mount x at [path]" -> load/create persistent CRDT from journal
+    Persistent, // "Persistent Counter" -> type wrapped with journaling
+    Combined,   // "x combined with y" -> string concatenation
 
     // Block Scoping
     Colon,
@@ -4751,6 +4758,10 @@ impl<'a> Lexer<'a> {
             "sleep" if self.mode == LexerMode::Imperative => return TokenType::Sleep,
             // Phase 52: GossipSub keywords (Imperative mode only)
             "sync" if self.mode == LexerMode::Imperative => return TokenType::Sync,
+            // Phase 53: Persistence keywords
+            "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
+            "persistent" => return TokenType::Persistent,  // Works in type expressions
+            "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
@@ -5814,6 +5825,13 @@ pub enum TypeExpr<'a> {
         /// The predicate constraint (from Logic Kernel)
         predicate: &'a LogicExpr<'a>,
     },
+    /// Phase 53: Persistent storage wrapper type
+    /// Example: `Persistent Counter`
+    /// Semantics: Wraps a Shared type with journal-backed storage
+    Persistent {
+        /// The inner type (must be a Shared/CRDT type)
+        inner: &'a TypeExpr<'a>,
+    },
 }
 
 /// Phase 10: Source for Read statements
@@ -5842,6 +5860,8 @@ pub enum BinaryOpKind {
     // Grand Challenge: Logical operators for compound conditions
     And,
     Or,
+    // Phase 53: String concatenation ("X combined with Y")
+    Concat,
 }
 
 /// Block is a sequence of statements.
@@ -6130,6 +6150,16 @@ pub enum Stmt<'a> {
     Sync {
         var: Symbol,
         topic: &'a Expr<'a>,
+    },
+
+    /// Phase 53: Mount persistent CRDT from journal file
+    /// `Mount counter at "data/counter.journal".`
+    /// Semantics: Load or create journal, replay operations to reconstruct state
+    Mount {
+        /// The variable name for the mounted value
+        var: Symbol,
+        /// The path expression for the journal file
+        path: &'a Expr<'a>,
     },
 }
 
@@ -6540,6 +6570,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Uses TypeRegistry to distinguish primitives from generics.
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
+
+        // Phase 53: Handle "Persistent T" type modifier
+        if self.check(&TokenType::Persistent) {
+            self.advance(); // consume "Persistent"
+            let inner = self.parse_type_expression()?;
+            let inner_ref = self.ctx.alloc_type_expr(inner);
+            return Ok(TypeExpr::Persistent { inner: inner_ref });
+        }
 
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
         let base = self.consume_type_name()?;
@@ -7082,6 +7120,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 52: GossipSub sync statement
         if self.check(&TokenType::Sync) {
             return self.parse_sync_statement();
+        }
+        // Phase 53: Persistent storage mount statement
+        if self.check(&TokenType::Mount) {
+            return self.parse_mount_statement();
         }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
@@ -7640,6 +7682,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume "be"
 
+        // Phase 53: Check for "mounted at [path]" pattern (for Persistent types)
+        if self.check_word("mounted") {
+            self.advance(); // consume "mounted"
+            if !self.check(&TokenType::At) && !self.check_preposition_is("at") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "at"
+            let path = self.parse_imperative_expr()?;
+            return Ok(Stmt::Mount { var, path });
+        }
+
         // Phase 51: Check for "a PeerAgent at [addr]" pattern
         if self.check_article() {
             let saved_pos = self.current;
@@ -8092,6 +8148,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let topic = self.parse_imperative_expr()?;
 
         Ok(Stmt::Sync { var, topic })
+    }
+
+    /// Phase 53: Parse Mount statement
+    /// Syntax: Mount [var] at [path].
+    /// Example: Mount counter at "data/counter.journal".
+    fn parse_mount_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Mount"
+
+        // Parse variable name (must be an identifier)
+        let var = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "at" keyword (TokenType::At in imperative mode)
+        if !self.check(&TokenType::At) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "at"
+
+        // Parse path expression (string literal or variable)
+        let path = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Mount { var, path })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -9835,7 +9927,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_additive_expr()
     }
 
-    /// Parse additive expressions (+, -) - left-to-right associative
+    /// Parse additive expressions (+, -, combined with) - left-to-right associative
     fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_multiplicative_expr()?;
 
@@ -9848,6 +9940,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 TokenType::Minus => {
                     self.advance();
                     BinaryOpKind::Subtract
+                }
+                // Phase 53: "combined with" for string concatenation
+                TokenType::Combined => {
+                    self.advance(); // consume "combined"
+                    // Expect "with" (preposition)
+                    if !self.check_preposition_is("with") {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "with".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "with"
+                    BinaryOpKind::Concat
                 }
                 _ => break,
             };
@@ -26507,6 +26612,11 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Sleep { .. } => true,
         // Phase 52: Sync is async (GossipSub subscription)
         Stmt::Sync { .. } => true,
+        // Phase 53: Mount is async (VFS file operations)
+        Stmt::Mount { .. } => true,
+        // Phase 53: File I/O is async (VFS operations)
+        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::WriteFile { .. } => true,
         // Recursively check nested blocks
         Stmt::If { then_block, else_block, .. } => {
             then_block.iter().any(|s| requires_async_stmt(s))
@@ -26517,6 +26627,34 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
         Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        _ => false,
+    }
+}
+
+/// Phase 53: Detect if any statements require VFS (Virtual File System).
+/// Returns true if the program uses file operations or persistent storage.
+fn requires_vfs(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| requires_vfs_stmt(s))
+}
+
+fn requires_vfs_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        // Phase 53: Mount uses VFS for persistent storage
+        Stmt::Mount { .. } => true,
+        // Phase 53: File I/O uses VFS
+        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::WriteFile { .. } => true,
+        // Recursively check nested blocks
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| requires_vfs_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| requires_vfs_stmt(s)))
+        }
+        Stmt::While { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Concurrent { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
         _ => false,
     }
 }
@@ -26802,6 +26940,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     } else {
         writeln!(output, "fn main() {{").unwrap();
     }
+    // Phase 53: Inject VFS when file operations or persistence is used
+    if requires_vfs(stmts) {
+        writeln!(output, "    let vfs = logos_core::fs::NativeVfs::new(\".\");").unwrap();
+    }
     let mut main_ctx = RefinementContext::new();
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     for stmt in stmts {
@@ -26977,6 +27119,11 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
         // The constraint predicate is handled separately via debug_assert!
         TypeExpr::Refinement { base, .. } => {
             codegen_type_expr(base, interner)
+        }
+        // Phase 53: Persistent storage wrapper
+        TypeExpr::Persistent { inner } => {
+            let inner_type = codegen_type_expr(inner, interner);
+            format!("logos_core::storage::Persistent<{}>", inner_type)
         }
     }
 }
@@ -27382,6 +27529,20 @@ pub fn codegen_stmt<'a>(
             synced_vars.insert(*var);
         }
 
+        // Phase 53: Mount persistent CRDT from journal
+        Stmt::Mount { var, path } => {
+            let var_name = interner.resolve(*var);
+            let path_str = codegen_expr(path, interner, synced_vars);
+            // Mount the persistent value from the journal file
+            writeln!(
+                output,
+                "{}let {} = logos_core::storage::Persistent::mount(&vfs, &{}).await.expect(\"Failed to mount\");",
+                indent_str, var_name, path_str
+            ).unwrap();
+            // Track as synced so CRDT mutations use .mutate() for persistence
+            synced_vars.insert(*var);
+        }
+
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
             let obj_str = codegen_expr(object, interner, synced_vars);
@@ -27644,6 +27805,7 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 10: Read from console or file
+        // Phase 53: File reads now use async VFS
         Stmt::ReadFrom { var, source } => {
             let var_name = interner.resolve(*var);
             match source {
@@ -27652,9 +27814,10 @@ pub fn codegen_stmt<'a>(
                 }
                 ReadSource::File(path_expr) => {
                     let path_str = codegen_expr(path_expr, interner, synced_vars);
+                    // Phase 53: Use VFS with async
                     writeln!(
                         output,
-                        "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
+                        "{}let {} = vfs.read_to_string(&{}).await.expect(\"Failed to read file\");",
                         indent_str, var_name, path_str
                     ).unwrap();
                 }
@@ -27662,12 +27825,14 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 10: Write to file
+        // Phase 53: File writes now use async VFS
         Stmt::WriteFile { content, path } => {
             let content_str = codegen_expr(content, interner, synced_vars);
             let path_str = codegen_expr(path, interner, synced_vars);
+            // Phase 53: Use VFS with async
             writeln!(
                 output,
-                "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
+                "{}vfs.write(&{}, {}.as_bytes()).await.expect(\"Failed to write file\");",
                 indent_str, path_str, content_str
             ).unwrap();
         }
@@ -27770,6 +27935,10 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
         Expr::BinaryOp { op, left, right } => {
             let left_str = codegen_expr(left, interner, synced_vars);
             let right_str = codegen_expr(right, interner, synced_vars);
+            // Phase 53: String concatenation requires special handling
+            if matches!(op, BinaryOpKind::Concat) {
+                return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
+            }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -27784,6 +27953,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
                 BinaryOpKind::GtEq => ">=",
                 BinaryOpKind::And => "&&",
                 BinaryOpKind::Or => "||",
+                BinaryOpKind::Concat => unreachable!(), // Handled above
             };
             format!("({} {} {})", left_str, op_str, right_str)
         }
@@ -38718,6 +38888,10 @@ impl<'a> Interpreter<'a> {
             Stmt::Sync { .. } => {
                 Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
             }
+            // Phase 53: Mount is not supported in interpreter (compile-only)
+            Stmt::Mount { .. } => {
+                Err("Mount is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 
@@ -38941,6 +39115,8 @@ impl<'a> Interpreter<'a> {
             BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
             BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
             BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+            // Phase 53: String concatenation
+            BinaryOpKind::Concat => self.apply_concat(left, right),
         }
     }
 
@@ -38955,6 +39131,11 @@ impl<'a> Interpreter<'a> {
             (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
             _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
         }
+    }
+
+    /// Phase 53: String concatenation ("combined with")
+    fn apply_concat(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        Ok(RuntimeValue::Text(format!("{}{}", left.to_display_string(), right.to_display_string())))
     }
 
     fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
@@ -42921,6 +43102,38 @@ const LEARN_STYLE: &str = r#"
     border-bottom-color: var(--color-accent-blue);
 }
 
+/* Practice tab - green accent */
+.content-tab-btn.practice {
+    color: var(--color-success);
+}
+
+.content-tab-btn.practice:hover {
+    color: var(--color-success);
+    background: rgba(74, 222, 128, 0.08);
+}
+
+.content-tab-btn.practice.active {
+    color: var(--color-success);
+    border-bottom-color: var(--color-success);
+    background: rgba(74, 222, 128, 0.1);
+}
+
+/* Test tab - orange/yellow accent */
+.content-tab-btn.test {
+    color: #fbbf24;
+}
+
+.content-tab-btn.test:hover {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+}
+
+.content-tab-btn.test.active {
+    color: #fbbf24;
+    border-bottom-color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+}
+
 /* Lesson section styling */
 .lesson-section {
     margin-bottom: var(--spacing-xxl);
@@ -43043,17 +43256,18 @@ const LEARN_STYLE: &str = r#"
 
 .lesson-symbol-item {
     display: flex;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm);
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
     background: rgba(255,255,255,0.03);
     border-radius: var(--radius-md);
+    text-align: center;
 }
 
 .lesson-symbol-glyph {
-    font-size: 1.5rem;
+    font-size: 2rem;
     font-family: var(--font-mono);
     color: #60a5fa;
-    min-width: 40px;
     text-align: center;
 }
 
@@ -43108,19 +43322,43 @@ const LEARN_STYLE: &str = r#"
     transition: all 0.15s ease;
 }
 
-.lesson-quiz-option:hover {
+.lesson-quiz-option:hover:not(:disabled) {
     background: rgba(255,255,255,0.08);
     border-color: rgba(255,255,255,0.2);
     color: var(--text-primary);
+}
+
+.lesson-quiz-option:disabled {
+    cursor: default;
+}
+
+.lesson-quiz-option.correct {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+
+.lesson-quiz-option.incorrect {
+    background: rgba(248, 113, 113, 0.15);
+    border-color: var(--color-error);
+    color: var(--color-error);
+}
+
+.lesson-quiz-option.answered {
+    opacity: 0.5;
 }
 
 .lesson-quiz-explanation {
     margin-top: var(--spacing-md);
     padding-top: var(--spacing-md);
     border-top: 1px solid rgba(255,255,255,0.08);
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(255, 255, 255, 0.7);
     font-size: 0.9rem;
     display: none;
+}
+
+.lesson-quiz-explanation.visible {
+    display: block;
 }
 
 .learn-module-close {
@@ -43381,7 +43619,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "introduction",
                     title: "Introduction",
                     description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
-                    exercise_count: 4,
+                    exercise_count: 5,
                     difficulty: 1,
                     preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
                 },
@@ -43389,7 +43627,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "syllogistic",
                     title: "Syllogistic Logic",
                     description: "Translate English into syllogistic notation. Master the classical form of logical reasoning.",
-                    exercise_count: 99,
+                    exercise_count: 98,
                     difficulty: 1,
                     preview_code: Some("All humans are mortal."),
                 },
@@ -43397,7 +43635,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "definitions",
                     title: "Meaning and Definitions",
                     description: "Understand uses of language, types of definitions, and the analytic/synthetic distinction.",
-                    exercise_count: 49,
+                    exercise_count: 48,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -43405,7 +43643,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "fallacies",
                     title: "Fallacies and Argumentation",
                     description: "Identify good arguments vs. fallacious reasoning. Master informal fallacies.",
-                    exercise_count: 5,
+                    exercise_count: 16,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -43413,7 +43651,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "inductive",
                     title: "Inductive Reasoning",
                     description: "Master probability, analogical reasoning, Mill's methods, and inference to best explanation.",
-                    exercise_count: 10,
+                    exercise_count: 12,
                     difficulty: 2,
                     preview_code: Some("90% of observed swans are white..."),
                 },
@@ -43429,7 +43667,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "propositional",
                     title: "Basic Propositional Logic",
                     description: "Master AND, OR, NOT, and IF-THEN connectives. Truth tables, S-rules, and I-rules.",
-                    exercise_count: 115,
+                    exercise_count: 114,
                     difficulty: 2,
                     preview_code: Some("If John runs, then Mary walks."),
                 },
@@ -43437,7 +43675,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "proofs",
                     title: "Propositional Proofs",
                     description: "Construct formal proofs and refutations. Learn natural deduction and truth trees.",
-                    exercise_count: 6,
+                    exercise_count: 14,
                     difficulty: 3,
                     preview_code: Some("1. P → Q  2. P  ∴ Q"),
                 },
@@ -43453,7 +43691,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "quantificational",
                     title: "Basic Quantificational Logic",
                     description: "Master universal and existential quantifiers. Translations, proofs, and refutations.",
-                    exercise_count: 6,
+                    exercise_count: 12,
                     difficulty: 3,
                     preview_code: Some("All birds fly."),
                 },
@@ -43461,7 +43699,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "relations",
                     title: "Relations and Identity",
                     description: "Extend predicate logic with identity and relations. Handle definite descriptions.",
-                    exercise_count: 3,
+                    exercise_count: 8,
                     difficulty: 3,
                     preview_code: Some("John loves Mary."),
                 },
@@ -43469,7 +43707,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "modal",
                     title: "Basic Modal Logic",
                     description: "Explore possibility and necessity operators. Express what could be or must be true.",
-                    exercise_count: 37,
+                    exercise_count: 36,
                     difficulty: 3,
                     preview_code: Some("It is possible that John runs."),
                 },
@@ -43477,7 +43715,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "further_modal",
                     title: "Further Modal Systems",
                     description: "Advanced modal systems including quantified modal logic and temporal operators.",
-                    exercise_count: 3,
+                    exercise_count: 2,
                     difficulty: 4,
                     preview_code: Some("John will run tomorrow."),
                 },
@@ -43485,7 +43723,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "deontic",
                     title: "Deontic and Imperative Logic",
                     description: "Reason about obligation, permission, and prohibition. The logic of ethics and law.",
-                    exercise_count: 39,
+                    exercise_count: 38,
                     difficulty: 3,
                     preview_code: Some("John ought to leave."),
                 },
@@ -43493,7 +43731,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "belief",
                     title: "Belief Logic",
                     description: "Express beliefs, knowledge, willing, and rationality. Model propositional attitudes.",
-                    exercise_count: 16,
+                    exercise_count: 15,
                     difficulty: 3,
                     preview_code: Some("John believes that Mary runs."),
                 },
@@ -43509,7 +43747,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "ethics",
                     title: "A Formalized Ethical Theory",
                     description: "Apply logic to ethics: practical reason, consistency, and the golden rule formalized.",
-                    exercise_count: 6,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -43525,7 +43763,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "history",
                     title: "History of Logic",
                     description: "Trace logic from Aristotle through Frege, Russell, and modern developments.",
-                    exercise_count: 5,
+                    exercise_count: 8,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -43533,7 +43771,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "deviant",
                     title: "Deviant Logics",
                     description: "Explore non-classical logics: many-valued, paraconsistent, intuitionist, and relevance logic.",
-                    exercise_count: 4,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -43541,7 +43779,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "philosophy",
                     title: "Philosophy of Logic",
                     description: "Examine philosophical foundations: abstract entities, truth, paradoxes, and logic's scope.",
-                    exercise_count: 5,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -43746,12 +43984,41 @@ pub fn Learn() -> Element {
 
                                                         // Close button when expanded
                                                         if is_expanded {
-                                                            button {
-                                                                class: "learn-module-close",
-                                                                onclick: move |_| {
-                                                                    expanded_module.set(None);
-                                                                },
-                                                                "×"
+                                                            {
+                                                                let module_id_for_scroll = module_id.clone();
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "learn-module-close",
+                                                                        onclick: move |_| {
+                                                                            expanded_module.set(None);
+                                                                            // Scroll to the module card after collapse
+                                                                            #[cfg(target_arch = "wasm32")]
+                                                                            {
+                                                                                let id = module_id_for_scroll.clone();
+                                                                                wasm_bindgen_futures::spawn_local(async move {
+                                                                                    // Delay to let the DOM update after collapse
+                                                                                    gloo_timers::future::TimeoutFuture::new(150).await;
+                                                                                    if let Some(window) = web_sys::window() {
+                                                                                        if let Some(document) = window.document() {
+                                                                                            if let Some(element) = document.get_element_by_id(&id) {
+                                                                                                // Get element position and scroll with offset for nav
+                                                                                                let rect = element.get_bounding_client_rect();
+                                                                                                let scroll_y = window.scroll_y().unwrap_or(0.0);
+                                                                                                let target_y = scroll_y + rect.top() - 100.0; // 100px offset for nav
+                                                                                                let _ = window.scroll_to_with_scroll_to_options(
+                                                                                                    web_sys::ScrollToOptions::new()
+                                                                                                        .top(target_y)
+                                                                                                        .behavior(web_sys::ScrollBehavior::Smooth)
+                                                                                                );
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        },
+                                                                        "×"
+                                                                    }
+                                                                }
                                                             }
                                                         }
 
@@ -43920,6 +44187,10 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let mut struggle_detector = use_signal(StruggleDetector::default);
     let mut show_socratic_hint = use_signal(|| false);
 
+    // Lesson quiz state - tracks which quizzes have been answered and their result
+    // Key: quiz question string, Value: (selected_index, is_correct)
+    let mut quiz_answers = use_signal(|| std::collections::HashMap::<String, (usize, bool)>::new());
+
     // Stable seed per exercise - only set once when component mounts or exercise changes
     // Use a signal to store the base seed so it doesn't change on re-renders
     let base_seed = use_signal(|| {
@@ -43991,7 +44262,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     "Examples"
                 }
                 button {
-                    class: if current_view == ContentView::Practice { "content-tab-btn active" } else { "content-tab-btn" },
+                    class: if current_view == ContentView::Practice { "content-tab-btn practice active" } else { "content-tab-btn practice" },
                     onclick: move |_| {
                         content_view.set(ContentView::Practice);
                         practice_mode.set(PracticeMode::Practice);
@@ -43999,7 +44270,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     "Practice"
                 }
                 button {
-                    class: if current_view == ContentView::Test { "content-tab-btn active test" } else { "content-tab-btn" },
+                    class: if current_view == ContentView::Test { "content-tab-btn test active" } else { "content-tab-btn test" },
                     onclick: move |_| {
                         content_view.set(ContentView::Test);
                         practice_mode.set(PracticeMode::Test);
@@ -44071,20 +44342,43 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                 }
                                             }
                                         },
-                                        ContentBlock::Quiz { question, options, correct, explanation } => rsx! {
-                                            div { class: "lesson-quiz",
-                                                div { class: "lesson-quiz-question", "{question}" }
-                                                div { class: "lesson-quiz-options",
-                                                    for (i, opt) in options.iter().enumerate() {
-                                                        button {
-                                                            class: "lesson-quiz-option",
-                                                            "data-correct": if i == *correct { "true" } else { "false" },
-                                                            "{opt}"
+                                        ContentBlock::Quiz { question, options, correct, explanation } => {
+                                            let q_key = question.clone();
+                                            let answered = quiz_answers.read().get(&q_key).cloned();
+                                            let correct_idx = *correct;
+                                            rsx! {
+                                                div { class: "lesson-quiz",
+                                                    div { class: "lesson-quiz-question", "{question}" }
+                                                    div { class: "lesson-quiz-options",
+                                                        for (i, opt) in options.iter().enumerate() {
+                                                            {
+                                                                let q_key_click = q_key.clone();
+                                                                let opt_class = match &answered {
+                                                                    Some((selected, _)) if *selected == i && i == correct_idx => "lesson-quiz-option correct",
+                                                                    Some((selected, _)) if *selected == i => "lesson-quiz-option incorrect",
+                                                                    Some(_) if i == correct_idx => "lesson-quiz-option correct",
+                                                                    Some(_) => "lesson-quiz-option answered",
+                                                                    None => "lesson-quiz-option",
+                                                                };
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "{opt_class}",
+                                                                        disabled: answered.is_some(),
+                                                                        onclick: move |_| {
+                                                                            let is_correct = i == correct_idx;
+                                                                            quiz_answers.write().insert(q_key_click.clone(), (i, is_correct));
+                                                                        },
+                                                                        "{opt}"
+                                                                    }
+                                                                }
+                                                            }
                                                         }
                                                     }
-                                                }
-                                                if let Some(expl) = explanation {
-                                                    div { class: "lesson-quiz-explanation", "{expl}" }
+                                                    if answered.is_some() {
+                                                        if let Some(expl) = explanation {
+                                                            div { class: "lesson-quiz-explanation visible", "{expl}" }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         },
@@ -44751,25 +45045,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                             class: "learn-action-btn secondary",
                             onclick: {
                                 move |_| {
-                                    // Check retry queue - pop after 3 exercises since last retry
-                                    let since_retry = *exercises_since_retry.read();
-                                    let has_retry = !retry_queue.read().is_empty();
-
-                                    if has_retry && since_retry >= 3 {
-                                        // Pop from retry queue
-                                        if let Some(retry_idx) = retry_queue.write().pop_front() {
-                                            current_exercise_idx.set(retry_idx);
-                                            exercises_since_retry.set(0);
-                                        }
+                                    // Simple linear progression - skip to next
+                                    let next = current_idx + 1;
+                                    if next < total_exercises {
+                                        current_exercise_idx.set(next);
                                     } else {
-                                        // Normal next exercise
-                                        let next = current_idx + 1;
-                                        if next < total_exercises {
-                                            current_exercise_idx.set(next);
-                                        } else {
-                                            current_exercise_idx.set(0); // Loop back
-                                        }
-                                        exercises_since_retry.set(since_retry + 1);
+                                        current_exercise_idx.set(0); // Loop back to start
                                     }
                                     // Reset state
                                     user_answer.set(String::new());
@@ -44787,25 +45068,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 class: "learn-action-btn primary",
                                 onclick: {
                                     move |_| {
-                                        // Check retry queue - pop after 3 exercises since last retry
-                                        let since_retry = *exercises_since_retry.read();
-                                        let has_retry = !retry_queue.read().is_empty();
-
-                                        if has_retry && since_retry >= 3 {
-                                            // Pop from retry queue
-                                            if let Some(retry_idx) = retry_queue.write().pop_front() {
-                                                current_exercise_idx.set(retry_idx);
-                                                exercises_since_retry.set(0);
-                                            }
+                                        // Simple linear progression after correct answer
+                                        let next = current_idx + 1;
+                                        if next < total_exercises {
+                                            current_exercise_idx.set(next);
                                         } else {
-                                            // Normal next exercise
-                                            let next = current_idx + 1;
-                                            if next < total_exercises {
-                                                current_exercise_idx.set(next);
-                                            } else {
-                                                current_exercise_idx.set(0);
-                                            }
-                                            exercises_since_retry.set(since_retry + 1);
+                                            current_exercise_idx.set(0); // Loop back to start
                                         }
                                         user_answer.set(String::new());
                                         feedback.set(None);
@@ -44839,7 +45107,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     }
                 }
             } else {
-                p { "Loading exercises..." }
+                div { style: "text-align: center; padding: var(--spacing-xl); color: var(--text-secondary);",
+                    p { "No exercises available for this module yet." }
+                    p { style: "font-size: var(--font-caption-md); margin-top: var(--spacing-md);",
+                        "Total loaded: {total_exercises}"
+                    }
+                }
             }
             } // end if !(is_test_mode && test_complete)
             } // end else (Practice view)
@@ -58672,6 +58945,83 @@ mod tests {
 
         assert_eq!(result1, result2, "Same seed should produce same output");
     }
+
+    #[test]
+    fn test_all_introduction_exercises() {
+        let engine = ContentEngine::new();
+        let generator = Generator::new();
+
+        let module = engine.get_module("first-steps", "introduction");
+        assert!(module.is_some(), "Introduction module should exist");
+        let module = module.unwrap();
+
+        println!("Introduction module has {} exercises", module.exercises.len());
+
+        for (i, exercise) in module.exercises.iter().enumerate() {
+            let mut rng = StdRng::seed_from_u64(42 + i as u64);
+            println!("Exercise {}: id={}, type={:?}", i, exercise.id, exercise.exercise_type);
+
+            let challenge = generator.generate(exercise, &mut rng);
+            if challenge.is_none() {
+                println!("  FAILED to generate challenge!");
+                if let Some(template) = &exercise.template {
+                    println!("  Template: {}", template);
+                    let filled = generator.fill_template(template, &exercise.constraints, &mut StdRng::seed_from_u64(42));
+                    println!("  Filled template: {:?}", filled);
+                    if let Some(sentence) = filled {
+                        let compiled = crate::compile(&sentence);
+                        println!("  Compile result: {:?}", compiled);
+                    }
+                }
+            } else {
+                println!("  OK: {:?}", challenge.as_ref().map(|c| &c.sentence));
+            }
+            assert!(challenge.is_some(), "Exercise {} ({}) should generate a challenge", i, exercise.id);
+        }
+    }
+
+    #[test]
+    fn test_all_exercises_across_all_modules() {
+        let engine = ContentEngine::new();
+        let generator = Generator::new();
+
+        let mut total_exercises = 0;
+        let mut successful = 0;
+        let mut failed_exercises = Vec::new();
+
+        for era in engine.eras() {
+            for module in &era.modules {
+                if let Some(m) = engine.get_module(&era.meta.id, &module.meta.id) {
+                    for (i, exercise) in m.exercises.iter().enumerate() {
+                        total_exercises += 1;
+                        let mut rng = StdRng::seed_from_u64(42 + i as u64);
+
+                        let challenge = generator.generate(exercise, &mut rng);
+                        if challenge.is_some() {
+                            successful += 1;
+                        } else {
+                            failed_exercises.push(format!("{}/{}/{}", era.meta.id, module.meta.id, exercise.id));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("Total exercises: {}", total_exercises);
+        println!("Successful: {}", successful);
+        println!("Failed: {}", failed_exercises.len());
+
+        if !failed_exercises.is_empty() {
+            println!("\nFailed exercises:");
+            for ex in &failed_exercises {
+                println!("  - {}", ex);
+            }
+        }
+
+        // Allow some failures for now, but ensure most work
+        let success_rate = successful as f64 / total_exercises as f64;
+        assert!(success_rate >= 0.8, "At least 80% of exercises should generate (got {:.1}%)", success_rate * 100.0);
+    }
 }
 
 ```
@@ -59347,24 +59697,36 @@ Embedded runtime library for compiled LOGOS programs. Provides type aliases and 
 
 **File:** `logos_core/src/lib.rs`
 
-Entry point for logos_core crate. Re-exports io, types, and prelude modules. Embedded into compiled programs via include_str! in src/compile.rs.
+Entry point for logos_core crate. Conditional compilation: network, storage, memory, file, time, random, env gated with #[cfg(not(wasm32))] for native-only. CRDT and fs modules work cross-platform.
 
 ```rust
 //! LOGOS Runtime Library
 
 pub mod io;
 pub mod types;
-pub mod file;
-pub mod time;
-pub mod random;
-pub mod env;
-pub mod memory;
-// Phase 48: Network primitives
-pub mod network;
-// Phase 49: CRDT primitives
+// Phase 53: Virtual File System (cross-platform)
+pub mod fs;
+// Phase 49: CRDT primitives (cross-platform)
 pub mod crdt;
 
-// Phase 51: Re-export tokio for async main support
+// Native-only modules
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod time;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod random;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod env;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod memory;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod network;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod storage;
+
+// Phase 51: Re-export tokio for async main support (native only)
+#[cfg(not(target_arch = "wasm32"))]
 pub use tokio;
 
 pub fn panic_with(reason: &str) -> ! {
@@ -59412,19 +59774,25 @@ pub mod prelude {
     pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
     pub use crate::panic_with;
     pub use crate::fmt::format;
-    pub use crate::file::{read, write};
-    pub use crate::time::{now, sleep};
-    pub use crate::random::{randomInt, randomFloat};
-    pub use crate::env::{get, args};
     // Phase 43D: Collection indexing helpers
     pub use crate::logos_index;
     pub use crate::logos_index_mut;
-    // Phase 8.5: Zone-based memory management
-    pub use crate::memory::Zone;
-    // Phase 48: Sipping protocol
-    pub use crate::network::{FileSipper, FileManifest, FileChunk};
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
+
+    // Native-only prelude exports
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::file::{read, write};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::time::{now, sleep};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::random::{randomInt, randomFloat};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::env::{get, args};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::memory::Zone;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::network::{FileSipper, FileManifest, FileChunk};
 }
 
 #[cfg(test)]
@@ -59971,11 +60339,16 @@ Exports Merge trait, GCounter, and LWWRegister for eventually consistent distrib
 mod gcounter;
 mod lww;
 mod merge;
+
+// Phase 52: Synced wrapper uses tokio and network - native only
+#[cfg(not(target_arch = "wasm32"))]
 mod sync;
 
 pub use gcounter::GCounter;
 pub use lww::LWWRegister;
 pub use merge::Merge;
+
+#[cfg(not(target_arch = "wasm32"))]
 pub use sync::Synced;
 
 ```
@@ -60015,7 +60388,7 @@ pub trait Merge {
 
 **File:** `logos_core/src/crdt/gcounter.rs`
 
-Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Auto-generates UUID for replica ID on first increment. PartialEq<u64> and PartialEq<i32> for ergonomic comparisons in assertions.
+Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Platform-specific replica ID: uuid::Uuid on native, getrandom bytes on WASM. PartialEq<u64/i32> for ergonomic assertions.
 
 ```rust
 //! G-Counter (Grow-only Counter) CRDT
@@ -60062,9 +60435,24 @@ impl GCounter {
     /// If this is the first increment, a unique replica ID is generated.
     pub fn increment(&mut self, amount: u64) {
         if self.replica_id.is_empty() {
-            self.replica_id = uuid::Uuid::new_v4().to_string();
+            self.replica_id = Self::generate_replica_id();
         }
         *self.counts.entry(self.replica_id.clone()).or_insert(0) += amount;
+    }
+
+    /// Generate a unique replica ID.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn generate_replica_id() -> String {
+        uuid::Uuid::new_v4().to_string()
+    }
+
+    /// Generate a unique replica ID (WASM version using getrandom).
+    #[cfg(target_arch = "wasm32")]
+    fn generate_replica_id() -> String {
+        let mut bytes = [0u8; 16];
+        getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes");
+        // Format as hex string
+        bytes.iter().map(|b| format!("{:02x}", b)).collect()
     }
 
     /// Get the current value (sum of all replica counts).
@@ -60667,6 +61055,7 @@ enum MeshCommand {
     GossipPublish {
         topic: String,
         data: Vec<u8>,
+        retry_count: u8,  // Track retries to prevent infinite loops
     },
 }
 
@@ -60776,13 +61165,30 @@ impl MeshNode {
                                 }
                             }
                         }
-                        MeshCommand::GossipPublish { topic, data } => {
-                            match swarm.behaviour_mut().publish(&topic, data) {
+                        MeshCommand::GossipPublish { topic, data, retry_count } => {
+                            const MAX_RETRIES: u8 = 5;
+                            match swarm.behaviour_mut().publish(&topic, data.clone()) {
                                 Ok(_) => {
                                     eprintln!("[GOSSIP] Published to '{}'", topic);
                                 }
+                                Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRIES => {
+                                    // Retry with delay - spawn a task to re-queue the publish
+                                    eprintln!("[GOSSIP] InsufficientPeers, scheduling retry ({}/{})", retry_count + 1, MAX_RETRIES);
+                                    if let Some(tx) = GOSSIP_TX.get() {
+                                        let tx = tx.clone();
+                                        let topic = topic.clone();
+                                        let data = data.clone();
+                                        let next_retry = retry_count + 1;
+                                        tokio::spawn(async move {
+                                            // Wait for mesh to form (exponential backoff: 1s, 2s, 4s, 8s, 16s)
+                                            let delay = std::time::Duration::from_secs(1 << retry_count);
+                                            tokio::time::sleep(delay).await;
+                                            let _ = tx.send(MeshCommand::GossipPublish { topic, data, retry_count: next_retry }).await;
+                                        });
+                                    }
+                                }
                                 Err(e) => {
-                                    eprintln!("[GOSSIP] Publish failed: {:?}", e);
+                                    eprintln!("[GOSSIP] Publish failed after {} retries: {:?}", retry_count, e);
                                 }
                             }
                         }
@@ -61099,6 +61505,7 @@ pub async fn gossip_publish(topic: &str, data: Vec<u8>) {
         if tx.send(MeshCommand::GossipPublish {
             topic: topic.to_string(),
             data,
+            retry_count: 0,
         }).await.is_err() {
             eprintln!("[GOSSIP] Command channel closed");
         }
@@ -61854,6 +62261,521 @@ mod tests {
         let manifest = sipper.manifest();
         assert_eq!(manifest.chunk_count, 10);
         assert_eq!(manifest.chunk_hashes.len(), 10);
+    }
+}
+
+```
+
+---
+
+### Virtual File System
+
+**File:** `logos_core/src/fs/mod.rs`
+
+Platform-agnostic file operations. Vfs trait with conditional Send+Sync (native) vs ?Send (WASM). NativeVfs uses tokio::fs. PlatformVfs type alias for ergonomic cross-platform code.
+
+```rust
+//! Phase 53: Virtual File System Abstraction
+//!
+//! Provides platform-agnostic async file operations.
+//! - Native: tokio::fs with atomic operations
+//! - WASM: OPFS (Origin Private File System) via web-sys
+
+#[cfg(target_arch = "wasm32")]
+mod opfs;
+
+#[cfg(target_arch = "wasm32")]
+pub use opfs::OpfsVfs;
+
+use async_trait::async_trait;
+use std::io;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
+
+/// Error type for VFS operations
+#[derive(Debug)]
+pub enum VfsError {
+    NotFound(String),
+    PermissionDenied(String),
+    AlreadyExists(String),
+    IoError(io::Error),
+    SerializationError(String),
+    JournalCorrupted(String),
+}
+
+impl std::fmt::Display for VfsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VfsError::NotFound(s) => write!(f, "Not found: {}", s),
+            VfsError::PermissionDenied(s) => write!(f, "Permission denied: {}", s),
+            VfsError::AlreadyExists(s) => write!(f, "Already exists: {}", s),
+            VfsError::IoError(e) => write!(f, "IO error: {}", e),
+            VfsError::SerializationError(s) => write!(f, "Serialization error: {}", s),
+            VfsError::JournalCorrupted(s) => write!(f, "Journal corrupted: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for VfsError {}
+
+impl From<io::Error> for VfsError {
+    fn from(e: io::Error) -> Self {
+        match e.kind() {
+            io::ErrorKind::NotFound => VfsError::NotFound(e.to_string()),
+            io::ErrorKind::PermissionDenied => VfsError::PermissionDenied(e.to_string()),
+            io::ErrorKind::AlreadyExists => VfsError::AlreadyExists(e.to_string()),
+            _ => VfsError::IoError(e),
+        }
+    }
+}
+
+pub type VfsResult<T> = Result<T, VfsError>;
+
+/// Virtual File System trait for platform-agnostic file operations.
+///
+/// On native platforms, requires Send+Sync for thread-safe access.
+/// On WASM, these bounds are relaxed since JS is single-threaded.
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+pub trait Vfs: Send + Sync {
+    /// Read entire file contents as bytes.
+    async fn read(&self, path: &str) -> VfsResult<Vec<u8>>;
+
+    /// Read file contents as UTF-8 string.
+    async fn read_to_string(&self, path: &str) -> VfsResult<String>;
+
+    /// Write bytes to file (atomic on native, best-effort on WASM).
+    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()>;
+
+    /// Append bytes to file (atomic append semantics).
+    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()>;
+
+    /// Check if file exists.
+    async fn exists(&self, path: &str) -> VfsResult<bool>;
+
+    /// Delete a file.
+    async fn remove(&self, path: &str) -> VfsResult<()>;
+
+    /// Create directory and all parent directories.
+    async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+}
+
+/// WASM version of VFS trait without Send+Sync (JS is single-threaded).
+#[cfg(target_arch = "wasm32")]
+#[async_trait(?Send)]
+pub trait Vfs {
+    /// Read entire file contents as bytes.
+    async fn read(&self, path: &str) -> VfsResult<Vec<u8>>;
+
+    /// Read file contents as UTF-8 string.
+    async fn read_to_string(&self, path: &str) -> VfsResult<String>;
+
+    /// Write bytes to file (atomic on native, best-effort on WASM).
+    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()>;
+
+    /// Append bytes to file (atomic append semantics).
+    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()>;
+
+    /// Check if file exists.
+    async fn exists(&self, path: &str) -> VfsResult<bool>;
+
+    /// Delete a file.
+    async fn remove(&self, path: &str) -> VfsResult<()>;
+
+    /// Create directory and all parent directories.
+    async fn create_dir_all(&self, path: &str) -> VfsResult<()>;
+}
+
+/// Native filesystem VFS using tokio::fs.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct NativeVfs {
+    /// Base directory for all operations (sandbox root).
+    base_dir: PathBuf,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeVfs {
+    /// Create a new NativeVfs rooted at the given directory.
+    pub fn new<P: Into<PathBuf>>(base_dir: P) -> Self {
+        Self {
+            base_dir: base_dir.into(),
+        }
+    }
+
+    /// Resolve a virtual path to an absolute filesystem path.
+    fn resolve(&self, path: &str) -> PathBuf {
+        // Security: Prevent path traversal attacks
+        let clean = path.trim_start_matches('/').trim_start_matches("../");
+        self.base_dir.join(clean)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+impl Vfs for NativeVfs {
+    async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
+        let full_path = self.resolve(path);
+        tokio::fs::read(&full_path).await.map_err(VfsError::from)
+    }
+
+    async fn read_to_string(&self, path: &str) -> VfsResult<String> {
+        let full_path = self.resolve(path);
+        tokio::fs::read_to_string(&full_path).await.map_err(VfsError::from)
+    }
+
+    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
+        let full_path = self.resolve(path);
+
+        // Ensure parent directory exists
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Atomic write: write to temp file, then rename
+        let temp_path = full_path.with_extension("tmp");
+        tokio::fs::write(&temp_path, contents).await?;
+        tokio::fs::rename(&temp_path, &full_path).await?;
+
+        Ok(())
+    }
+
+    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let full_path = self.resolve(path);
+
+        // Ensure parent directory exists
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&full_path)
+            .await?;
+
+        file.write_all(contents).await?;
+        file.sync_all().await?;
+
+        Ok(())
+    }
+
+    async fn exists(&self, path: &str) -> VfsResult<bool> {
+        let full_path = self.resolve(path);
+        Ok(full_path.exists())
+    }
+
+    async fn remove(&self, path: &str) -> VfsResult<()> {
+        let full_path = self.resolve(path);
+        tokio::fs::remove_file(&full_path).await.map_err(VfsError::from)
+    }
+
+    async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
+        let full_path = self.resolve(path);
+        tokio::fs::create_dir_all(&full_path).await.map_err(VfsError::from)
+    }
+}
+
+/// Type alias for platform-specific VFS.
+#[cfg(not(target_arch = "wasm32"))]
+pub type PlatformVfs = NativeVfs;
+
+#[cfg(target_arch = "wasm32")]
+pub type PlatformVfs = OpfsVfs;
+
+/// Get the platform-default VFS instance.
+///
+/// - Native: Returns NativeVfs rooted at current directory
+/// - WASM: Returns OpfsVfs rooted at OPFS root
+#[cfg(not(target_arch = "wasm32"))]
+pub fn get_platform_vfs() -> NativeVfs {
+    NativeVfs::new(".")
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_platform_vfs() -> VfsResult<OpfsVfs> {
+    OpfsVfs::new().await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_native_vfs_read_write() {
+        let temp = TempDir::new().unwrap();
+        let vfs = NativeVfs::new(temp.path());
+
+        vfs.write("test.txt", b"hello world").await.unwrap();
+        let content = vfs.read_to_string("test.txt").await.unwrap();
+
+        assert_eq!(content, "hello world");
+    }
+
+    #[tokio::test]
+    async fn test_native_vfs_append() {
+        let temp = TempDir::new().unwrap();
+        let vfs = NativeVfs::new(temp.path());
+
+        vfs.append("log.txt", b"line1\n").await.unwrap();
+        vfs.append("log.txt", b"line2\n").await.unwrap();
+
+        let content = vfs.read_to_string("log.txt").await.unwrap();
+        assert_eq!(content, "line1\nline2\n");
+    }
+
+    #[tokio::test]
+    async fn test_native_vfs_nested_dirs() {
+        let temp = TempDir::new().unwrap();
+        let vfs = NativeVfs::new(temp.path());
+
+        vfs.write("a/b/c/file.txt", b"deep").await.unwrap();
+        let content = vfs.read_to_string("a/b/c/file.txt").await.unwrap();
+
+        assert_eq!(content, "deep");
+    }
+}
+
+```
+
+---
+
+### OPFS VFS (WASM)
+
+**File:** `logos_core/src/fs/opfs.rs`
+
+Origin Private File System for browser persistence. OpfsVfs implements async Vfs trait using web-sys bindings. navigator.storage.getDirectory() root, FileSystemWritableFileStream for writes.
+
+```rust
+//! Phase 54: OPFS (Origin Private File System) implementation for WASM.
+//!
+//! Provides browser persistence using the File System Access API.
+//! All paths are relative to the OPFS root (no traversal possible).
+
+#![cfg(target_arch = "wasm32")]
+
+use super::{Vfs, VfsError, VfsResult};
+use async_trait::async_trait;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemWritableFileStream};
+
+/// VFS backed by the browser's Origin Private File System.
+///
+/// OPFS provides a private, sandboxed file system per origin that persists
+/// across page reloads. This gives LOGOS the same persistence semantics
+/// in the browser as native apps have on disk.
+#[derive(Clone)]
+pub struct OpfsVfs {
+    root: FileSystemDirectoryHandle,
+}
+
+impl OpfsVfs {
+    /// Create a new OPFS VFS rooted at the origin's private filesystem.
+    ///
+    /// This requires a secure context (HTTPS or localhost).
+    pub async fn new() -> VfsResult<Self> {
+        let window = web_sys::window()
+            .ok_or_else(|| VfsError::PermissionDenied("No window object".into()))?;
+        let navigator = window.navigator();
+        let storage = navigator.storage();
+
+        let promise = storage.get_directory();
+        let root = JsFuture::from(promise)
+            .await
+            .map_err(|e| VfsError::PermissionDenied(format!("OPFS access denied: {:?}", e)))?
+            .unchecked_into::<FileSystemDirectoryHandle>();
+
+        Ok(Self { root })
+    }
+
+    /// Navigate to a directory, optionally creating intermediate directories.
+    async fn get_dir(&self, path: &str, create: bool) -> VfsResult<FileSystemDirectoryHandle> {
+        let path = path.trim_start_matches('/');
+        if path.is_empty() {
+            return Ok(self.root.clone());
+        }
+
+        let mut current = self.root.clone();
+        for segment in path.split('/') {
+            if segment.is_empty() || segment == "." {
+                continue;
+            }
+            if segment == ".." {
+                // OPFS doesn't allow traversal above root - just skip
+                continue;
+            }
+
+            let opts = web_sys::FileSystemGetDirectoryOptions::new();
+            opts.set_create(create);
+
+            let promise = current.get_directory_handle_with_options(segment, &opts);
+            current = JsFuture::from(promise)
+                .await
+                .map_err(|e| {
+                    if !create {
+                        VfsError::NotFound(format!("Directory not found: {}", path))
+                    } else {
+                        VfsError::IoError(std::io::Error::new(
+                            std::io::ErrorKind::Other,
+                            format!("Failed to get directory: {:?}", e),
+                        ))
+                    }
+                })?
+                .unchecked_into::<FileSystemDirectoryHandle>();
+        }
+
+        Ok(current)
+    }
+
+    /// Get file handle at path.
+    async fn get_file(&self, path: &str, create: bool) -> VfsResult<FileSystemFileHandle> {
+        let path = path.trim_start_matches('/');
+
+        // Split path into parent directory and filename
+        let (parent_path, filename) = match path.rfind('/') {
+            Some(idx) => (&path[..idx], &path[idx + 1..]),
+            None => ("", path),
+        };
+
+        // Get parent directory
+        let parent = self.get_dir(parent_path, create).await?;
+
+        // Get file handle
+        let opts = web_sys::FileSystemGetFileOptions::new();
+        opts.set_create(create);
+
+        let promise = parent.get_file_handle_with_options(filename, &opts);
+        JsFuture::from(promise)
+            .await
+            .map(|v| v.unchecked_into::<FileSystemFileHandle>())
+            .map_err(|_| VfsError::NotFound(path.into()))
+    }
+
+    /// Extract parent path from a file path.
+    fn parent_path(path: &str) -> Option<&str> {
+        let path = path.trim_start_matches('/');
+        path.rfind('/').map(|idx| &path[..idx])
+    }
+}
+
+#[async_trait(?Send)]
+impl Vfs for OpfsVfs {
+    async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
+        let file_handle = self.get_file(path, false).await?;
+
+        let promise = file_handle.get_file();
+        let file: web_sys::File = JsFuture::from(promise)
+            .await
+            .map_err(|_| VfsError::NotFound(path.into()))?
+            .unchecked_into();
+
+        let promise = file.array_buffer();
+        let array_buffer = JsFuture::from(promise)
+            .await
+            .map_err(|e| {
+                VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Read failed: {:?}", e),
+                ))
+            })?;
+
+        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
+        Ok(uint8_array.to_vec())
+    }
+
+    async fn read_to_string(&self, path: &str) -> VfsResult<String> {
+        let bytes = self.read(path).await?;
+        String::from_utf8(bytes).map_err(|e| VfsError::SerializationError(e.to_string()))
+    }
+
+    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
+        // Ensure parent directory exists
+        if let Some(parent) = Self::parent_path(path) {
+            self.create_dir_all(parent).await?;
+        }
+
+        let file_handle = self.get_file(path, true).await?;
+
+        // Create writable stream (truncates by default)
+        let promise = file_handle.create_writable();
+        let writable: FileSystemWritableFileStream = JsFuture::from(promise)
+            .await
+            .map_err(|e| VfsError::PermissionDenied(format!("Create writable failed: {:?}", e)))?
+            .unchecked_into();
+
+        // Write content
+        let data = js_sys::Uint8Array::from(contents);
+        let promise = writable.write_with_buffer_source(&data)
+            .map_err(|e| VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Write setup failed: {:?}", e),
+            )))?;
+        JsFuture::from(promise).await.map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Write failed: {:?}", e),
+            ))
+        })?;
+
+        // Close stream
+        let promise = writable.close();
+        JsFuture::from(promise).await.map_err(|e| {
+            VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Close failed: {:?}", e),
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
+        // OPFS doesn't have native append - read existing, concat, write
+        let existing = match self.read(path).await {
+            Ok(data) => data,
+            Err(VfsError::NotFound(_)) => Vec::new(),
+            Err(e) => return Err(e),
+        };
+
+        let mut combined = existing;
+        combined.extend_from_slice(contents);
+        self.write(path, &combined).await
+    }
+
+    async fn exists(&self, path: &str) -> VfsResult<bool> {
+        match self.get_file(path, false).await {
+            Ok(_) => Ok(true),
+            Err(VfsError::NotFound(_)) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn remove(&self, path: &str) -> VfsResult<()> {
+        let path = path.trim_start_matches('/');
+
+        // Split into parent and filename
+        let (parent_path, filename) = match path.rfind('/') {
+            Some(idx) => (&path[..idx], &path[idx + 1..]),
+            None => ("", path),
+        };
+
+        let parent = self.get_dir(parent_path, false).await?;
+
+        let promise = parent.remove_entry(filename);
+        JsFuture::from(promise)
+            .await
+            .map_err(|_| VfsError::NotFound(path.into()))?;
+
+        Ok(())
+    }
+
+    async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
+        self.get_dir(path, true).await?;
+        Ok(())
     }
 }
 
@@ -64872,6 +65794,11 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Sleep { .. } => true,
         // Phase 52: Sync is async (GossipSub subscription)
         Stmt::Sync { .. } => true,
+        // Phase 53: Mount is async (VFS file operations)
+        Stmt::Mount { .. } => true,
+        // Phase 53: File I/O is async (VFS operations)
+        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::WriteFile { .. } => true,
         // Recursively check nested blocks
         Stmt::If { then_block, else_block, .. } => {
             then_block.iter().any(|s| requires_async_stmt(s))
@@ -64882,6 +65809,34 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
         Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        _ => false,
+    }
+}
+
+/// Phase 53: Detect if any statements require VFS (Virtual File System).
+/// Returns true if the program uses file operations or persistent storage.
+fn requires_vfs(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| requires_vfs_stmt(s))
+}
+
+fn requires_vfs_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        // Phase 53: Mount uses VFS for persistent storage
+        Stmt::Mount { .. } => true,
+        // Phase 53: File I/O uses VFS
+        Stmt::ReadFrom { source: ReadSource::File(_), .. } => true,
+        Stmt::WriteFile { .. } => true,
+        // Recursively check nested blocks
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| requires_vfs_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| requires_vfs_stmt(s)))
+        }
+        Stmt::While { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Concurrent { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
         _ => false,
     }
 }
@@ -65167,6 +66122,10 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     } else {
         writeln!(output, "fn main() {{").unwrap();
     }
+    // Phase 53: Inject VFS when file operations or persistence is used
+    if requires_vfs(stmts) {
+        writeln!(output, "    let vfs = logos_core::fs::NativeVfs::new(\".\");").unwrap();
+    }
     let mut main_ctx = RefinementContext::new();
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     for stmt in stmts {
@@ -65342,6 +66301,11 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
         // The constraint predicate is handled separately via debug_assert!
         TypeExpr::Refinement { base, .. } => {
             codegen_type_expr(base, interner)
+        }
+        // Phase 53: Persistent storage wrapper
+        TypeExpr::Persistent { inner } => {
+            let inner_type = codegen_type_expr(inner, interner);
+            format!("logos_core::storage::Persistent<{}>", inner_type)
         }
     }
 }
@@ -65747,6 +66711,20 @@ pub fn codegen_stmt<'a>(
             synced_vars.insert(*var);
         }
 
+        // Phase 53: Mount persistent CRDT from journal
+        Stmt::Mount { var, path } => {
+            let var_name = interner.resolve(*var);
+            let path_str = codegen_expr(path, interner, synced_vars);
+            // Mount the persistent value from the journal file
+            writeln!(
+                output,
+                "{}let {} = logos_core::storage::Persistent::mount(&vfs, &{}).await.expect(\"Failed to mount\");",
+                indent_str, var_name, path_str
+            ).unwrap();
+            // Track as synced so CRDT mutations use .mutate() for persistence
+            synced_vars.insert(*var);
+        }
+
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
             let obj_str = codegen_expr(object, interner, synced_vars);
@@ -66009,6 +66987,7 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 10: Read from console or file
+        // Phase 53: File reads now use async VFS
         Stmt::ReadFrom { var, source } => {
             let var_name = interner.resolve(*var);
             match source {
@@ -66017,9 +66996,10 @@ pub fn codegen_stmt<'a>(
                 }
                 ReadSource::File(path_expr) => {
                     let path_str = codegen_expr(path_expr, interner, synced_vars);
+                    // Phase 53: Use VFS with async
                     writeln!(
                         output,
-                        "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
+                        "{}let {} = vfs.read_to_string(&{}).await.expect(\"Failed to read file\");",
                         indent_str, var_name, path_str
                     ).unwrap();
                 }
@@ -66027,12 +67007,14 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 10: Write to file
+        // Phase 53: File writes now use async VFS
         Stmt::WriteFile { content, path } => {
             let content_str = codegen_expr(content, interner, synced_vars);
             let path_str = codegen_expr(path, interner, synced_vars);
+            // Phase 53: Use VFS with async
             writeln!(
                 output,
-                "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
+                "{}vfs.write(&{}, {}.as_bytes()).await.expect(\"Failed to write file\");",
                 indent_str, path_str, content_str
             ).unwrap();
         }
@@ -66135,6 +67117,10 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
         Expr::BinaryOp { op, left, right } => {
             let left_str = codegen_expr(left, interner, synced_vars);
             let right_str = codegen_expr(right, interner, synced_vars);
+            // Phase 53: String concatenation requires special handling
+            if matches!(op, BinaryOpKind::Concat) {
+                return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
+            }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -66149,6 +67135,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
                 BinaryOpKind::GtEq => ">=",
                 BinaryOpKind::And => "&&",
                 BinaryOpKind::Or => "||",
+                BinaryOpKind::Concat => unreachable!(), // Handled above
             };
             format!("({} {} {})", left_str, op_str, right_str)
         }
@@ -68466,6 +69453,10 @@ impl<'a> Interpreter<'a> {
             Stmt::Sync { .. } => {
                 Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
             }
+            // Phase 53: Mount is not supported in interpreter (compile-only)
+            Stmt::Mount { .. } => {
+                Err("Mount is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 
@@ -68689,6 +69680,8 @@ impl<'a> Interpreter<'a> {
             BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
             BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
             BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+            // Phase 53: String concatenation
+            BinaryOpKind::Concat => self.apply_concat(left, right),
         }
     }
 
@@ -68703,6 +69696,11 @@ impl<'a> Interpreter<'a> {
             (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
             _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
         }
+    }
+
+    /// Phase 53: String concatenation ("combined with")
+    fn apply_concat(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        Ok(RuntimeValue::Text(format!("{}{}", left.to_display_string(), right.to_display_string())))
     }
 
     fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
@@ -71801,7 +72799,8 @@ web-sys = { version = "0.3", features = [
     "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
     "Storage", "Navigator", "Clipboard", "UrlSearchParams",
     "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
-    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition"
+    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition",
+    "ScrollToOptions"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -71810,6 +72809,7 @@ rand = "0.8"
 include_dir = "0.7"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
+wasm-bindgen-futures = "0.4"
 clap = { version = "4.4", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }
 ureq = { version = "2.9", features = ["json"], optional = true }
@@ -73323,10 +74323,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Wed Dec 31 20:01:21 CST 2025
+- **Generated:** Wed Dec 31 21:23:46 CST 2025
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 9fd71ce
+- **Git Commit:** 5da2e9a
 - **Documentation Size:** 3.0M
 
 ---

@@ -4,13 +4,15 @@
 //! - Append-only journal for durability
 //! - Automatic replay on mount
 //! - Compaction/snapshot support
+//!
+//! Phase 55: Made cross-platform by using async-lock instead of tokio::sync::Mutex
 
 use crate::crdt::Merge;
 use crate::fs::{Vfs, VfsResult, VfsError};
 use serde::{de::DeserializeOwned, Serialize};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use async_lock::Mutex;  // Phase 55: Cross-platform async mutex
 
 /// Operation recorded in the journal.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -48,9 +50,25 @@ impl JournalHeader {
 ///
 /// `Persistent<T>` wraps any type implementing `Merge + Serialize + DeserializeOwned`
 /// and provides durable storage with crash recovery.
+///
+/// Phase 55: Removed Send bound for WASM compatibility (single-threaded).
+#[cfg(not(target_arch = "wasm32"))]
 pub struct Persistent<T>
 where
     T: Merge + Serialize + DeserializeOwned + Clone + Default + Send + 'static,
+{
+    inner: Arc<Mutex<T>>,
+    vfs: Arc<dyn Vfs + Send + Sync>,
+    journal_path: String,
+    entry_count: Arc<Mutex<u64>>,
+    _marker: PhantomData<T>,
+}
+
+/// WASM version without Send bounds (JS is single-threaded).
+#[cfg(target_arch = "wasm32")]
+pub struct Persistent<T>
+where
+    T: Merge + Serialize + DeserializeOwned + Clone + Default + 'static,
 {
     inner: Arc<Mutex<T>>,
     vfs: Arc<dyn Vfs>,
@@ -59,6 +77,52 @@ where
     _marker: PhantomData<T>,
 }
 
+/// Helper function to replay journal entries (shared between platforms).
+fn replay_journal<T>(data: &[u8]) -> Result<(T, u64), VfsError>
+where
+    T: Merge + Serialize + DeserializeOwned + Clone + Default,
+{
+    let mut state = T::default();
+    let mut entry_count = 0u64;
+    let mut pos = 0;
+
+    while pos + JournalHeader::SIZE <= data.len() {
+        let header_bytes: [u8; 8] = data[pos..pos + 8].try_into().unwrap();
+        let (length, expected_checksum) = JournalHeader::decode(&header_bytes);
+        pos += JournalHeader::SIZE;
+
+        let payload_end = pos + length as usize;
+        if payload_end > data.len() {
+            // Truncated entry - stop replay (WAL semantics)
+            break;
+        }
+
+        let payload = &data[pos..payload_end];
+        let actual_checksum = crc32fast::hash(payload);
+
+        if actual_checksum != expected_checksum {
+            return Err(VfsError::JournalCorrupted(
+                format!("Entry {} checksum mismatch", entry_count)
+            ));
+        }
+
+        let op: JournalOp<T> = bincode::deserialize(payload)
+            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+
+        match op {
+            JournalOp::Snapshot(s) => state = s,
+            JournalOp::Delta(d) => state.merge(&d),
+        }
+
+        pos = payload_end;
+        entry_count += 1;
+    }
+
+    Ok((state, entry_count))
+}
+
+/// Native implementation with Send bounds.
+#[cfg(not(target_arch = "wasm32"))]
 impl<T> Persistent<T>
 where
     T: Merge + Serialize + DeserializeOwned + Clone + Default + Send + 'static,
@@ -67,59 +131,19 @@ where
     ///
     /// If the journal exists, replays all entries to reconstruct state.
     /// If not, creates a new journal with default state.
-    pub async fn mount(vfs: &dyn Vfs, path: &str) -> VfsResult<Self> {
-        let mut state = T::default();
-        let mut entry_count = 0u64;
-
-        // Check if journal exists and replay
-        if vfs.exists(path).await.unwrap_or(false) {
+    ///
+    /// Phase 55: Now accepts Arc<dyn Vfs> directly.
+    pub async fn mount(vfs: Arc<dyn Vfs + Send + Sync>, path: &str) -> VfsResult<Self> {
+        let (state, entry_count) = if vfs.exists(path).await.unwrap_or(false) {
             let data = vfs.read(path).await?;
-            let mut pos = 0;
-
-            while pos + JournalHeader::SIZE <= data.len() {
-                let header_bytes: [u8; 8] = data[pos..pos + 8].try_into().unwrap();
-                let (length, expected_checksum) = JournalHeader::decode(&header_bytes);
-                pos += JournalHeader::SIZE;
-
-                let payload_end = pos + length as usize;
-                if payload_end > data.len() {
-                    // Truncated entry - stop replay (WAL semantics)
-                    break;
-                }
-
-                let payload = &data[pos..payload_end];
-                let actual_checksum = crc32fast::hash(payload);
-
-                if actual_checksum != expected_checksum {
-                    // Corrupted entry - stop replay
-                    return Err(VfsError::JournalCorrupted(
-                        format!("Entry {} checksum mismatch", entry_count)
-                    ));
-                }
-
-                // Deserialize and apply operation
-                let op: JournalOp<T> = bincode::deserialize(payload)
-                    .map_err(|e| VfsError::SerializationError(e.to_string()))?;
-
-                match op {
-                    JournalOp::Snapshot(s) => state = s,
-                    JournalOp::Delta(d) => state.merge(&d),
-                }
-
-                pos = payload_end;
-                entry_count += 1;
-            }
-        }
-
-        // Create Arc'd VFS reference (we need to clone the trait object)
-        // For now, we'll use a simple workaround with Box
-        let vfs_arc: Arc<dyn Vfs> = Arc::new(NativeVfsWrapper {
-            base_dir: std::path::PathBuf::from("."),
-        });
+            replay_journal(&data)?
+        } else {
+            (T::default(), 0)
+        };
 
         Ok(Self {
             inner: Arc::new(Mutex::new(state)),
-            vfs: vfs_arc,
+            vfs,
             journal_path: path.to_string(),
             entry_count: Arc::new(Mutex::new(entry_count)),
             _marker: PhantomData,
@@ -132,9 +156,6 @@ where
     }
 
     /// Mutate the state and persist the delta.
-    ///
-    /// The closure receives mutable access to the inner value.
-    /// After mutation, the state is serialized and appended to the journal.
     pub async fn mutate<F, R>(&self, f: F) -> VfsResult<R>
     where
         F: FnOnce(&mut T) -> R + Send,
@@ -142,7 +163,6 @@ where
         let mut guard = self.inner.lock().await;
         let result = f(&mut *guard);
 
-        // Persist as delta (full state for simplicity)
         let op = JournalOp::Delta(guard.clone());
         let payload = bincode::serialize(&op)
             .map_err(|e| VfsError::SerializationError(e.to_string()))?;
@@ -153,16 +173,12 @@ where
         entry.extend_from_slice(&payload);
 
         self.vfs.append(&self.journal_path, &entry).await?;
-
         *self.entry_count.lock().await += 1;
 
         Ok(result)
     }
 
     /// Compact the journal by writing a snapshot.
-    ///
-    /// This replaces all journal entries with a single snapshot,
-    /// reducing storage and replay time.
     pub async fn compact(&self) -> VfsResult<()> {
         let state = self.inner.lock().await.clone();
 
@@ -175,9 +191,7 @@ where
         entry.extend_from_slice(&header);
         entry.extend_from_slice(&payload);
 
-        // Write snapshot (overwrites journal)
         self.vfs.write(&self.journal_path, &entry).await?;
-
         *self.entry_count.lock().await = 1;
 
         Ok(())
@@ -199,65 +213,94 @@ where
     }
 }
 
-/// Internal wrapper to create Arc<dyn Vfs> from NativeVfs
-/// This is a workaround until we refactor the mount signature
-#[cfg(not(target_arch = "wasm32"))]
-struct NativeVfsWrapper {
-    base_dir: std::path::PathBuf,
-}
+/// WASM implementation without Send bounds (single-threaded).
+#[cfg(target_arch = "wasm32")]
+impl<T> Persistent<T>
+where
+    T: Merge + Serialize + DeserializeOwned + Clone + Default + 'static,
+{
+    /// Mount a persistent value from a journal file.
+    pub async fn mount(vfs: Arc<dyn Vfs>, path: &str) -> VfsResult<Self> {
+        let (state, entry_count) = if vfs.exists(path).await.unwrap_or(false) {
+            let data = vfs.read(path).await?;
+            replay_journal(&data)?
+        } else {
+            (T::default(), 0)
+        };
 
-#[cfg(not(target_arch = "wasm32"))]
-#[async_trait::async_trait]
-impl Vfs for NativeVfsWrapper {
-    async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
-        let full_path = self.base_dir.join(path);
-        tokio::fs::read(&full_path).await.map_err(VfsError::from)
+        Ok(Self {
+            inner: Arc::new(Mutex::new(state)),
+            vfs,
+            journal_path: path.to_string(),
+            entry_count: Arc::new(Mutex::new(entry_count)),
+            _marker: PhantomData,
+        })
     }
 
-    async fn read_to_string(&self, path: &str) -> VfsResult<String> {
-        let full_path = self.base_dir.join(path);
-        tokio::fs::read_to_string(&full_path).await.map_err(VfsError::from)
+    /// Get immutable access to the current state.
+    pub async fn get(&self) -> T {
+        self.inner.lock().await.clone()
     }
 
-    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
-        let full_path = self.base_dir.join(path);
-        if let Some(parent) = full_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::write(&full_path, contents).await.map_err(VfsError::from)
+    /// Mutate the state and persist the delta.
+    pub async fn mutate<F, R>(&self, f: F) -> VfsResult<R>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        let mut guard = self.inner.lock().await;
+        let result = f(&mut *guard);
+
+        let op = JournalOp::Delta(guard.clone());
+        let payload = bincode::serialize(&op)
+            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+
+        let header = JournalHeader::encode(&payload);
+        let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
+        entry.extend_from_slice(&header);
+        entry.extend_from_slice(&payload);
+
+        self.vfs.append(&self.journal_path, &entry).await?;
+        *self.entry_count.lock().await += 1;
+
+        Ok(result)
     }
 
-    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
-        use tokio::io::AsyncWriteExt;
-        let full_path = self.base_dir.join(path);
-        if let Some(parent) = full_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        let mut file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&full_path)
-            .await?;
-        file.write_all(contents).await?;
-        file.sync_all().await?;
+    /// Compact the journal by writing a snapshot.
+    pub async fn compact(&self) -> VfsResult<()> {
+        let state = self.inner.lock().await.clone();
+
+        let op = JournalOp::<T>::Snapshot(state);
+        let payload = bincode::serialize(&op)
+            .map_err(|e| VfsError::SerializationError(e.to_string()))?;
+
+        let header = JournalHeader::encode(&payload);
+        let mut entry = Vec::with_capacity(JournalHeader::SIZE + payload.len());
+        entry.extend_from_slice(&header);
+        entry.extend_from_slice(&payload);
+
+        self.vfs.write(&self.journal_path, &entry).await?;
+        *self.entry_count.lock().await = 1;
+
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> VfsResult<bool> {
-        let full_path = self.base_dir.join(path);
-        Ok(full_path.exists())
+    /// Get the number of journal entries.
+    pub async fn entry_count(&self) -> u64 {
+        *self.entry_count.lock().await
     }
 
-    async fn remove(&self, path: &str) -> VfsResult<()> {
-        let full_path = self.base_dir.join(path);
-        tokio::fs::remove_file(&full_path).await.map_err(VfsError::from)
-    }
-
-    async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
-        let full_path = self.base_dir.join(path);
-        tokio::fs::create_dir_all(&full_path).await.map_err(VfsError::from)
+    /// Automatically compact when entry count exceeds threshold.
+    pub async fn maybe_compact(&self, threshold: u64) -> VfsResult<bool> {
+        if self.entry_count().await > threshold {
+            self.compact().await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 }
+
+// Phase 55: NativeVfsWrapper removed - now using Arc<dyn Vfs> directly
 
 #[cfg(test)]
 mod tests {
@@ -268,9 +311,9 @@ mod tests {
     #[tokio::test]
     async fn test_persistent_mount_empty() {
         let temp = TempDir::new().unwrap();
-        let vfs = crate::fs::NativeVfs::new(temp.path());
+        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
 
-        let counter = Persistent::<GCounter>::mount(&vfs, "counter.journal").await.unwrap();
+        let counter = Persistent::<GCounter>::mount(vfs, "counter.journal").await.unwrap();
 
         assert_eq!(counter.get().await.value(), 0);
     }
@@ -278,9 +321,9 @@ mod tests {
     #[tokio::test]
     async fn test_persistent_mutate() {
         let temp = TempDir::new().unwrap();
-        let vfs = crate::fs::NativeVfs::new(temp.path());
+        let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(crate::fs::NativeVfs::new(temp.path()));
 
-        let counter = Persistent::<GCounter>::mount(&vfs, "counter.journal").await.unwrap();
+        let counter = Persistent::<GCounter>::mount(vfs, "counter.journal").await.unwrap();
 
         counter.mutate(|c| c.increment(5)).await.unwrap();
         counter.mutate(|c| c.increment(3)).await.unwrap();

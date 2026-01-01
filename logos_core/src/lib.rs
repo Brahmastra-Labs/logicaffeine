@@ -2,21 +2,29 @@
 
 pub mod io;
 pub mod types;
-pub mod file;
-pub mod time;
-pub mod random;
-pub mod env;
-pub mod memory;
-// Phase 48: Network primitives
-pub mod network;
-// Phase 49: CRDT primitives
-pub mod crdt;
-// Phase 53: Virtual File System
+// Phase 53: Virtual File System (cross-platform)
 pub mod fs;
-// Phase 53: Persistent Storage
+// Phase 49: CRDT primitives (cross-platform)
+pub mod crdt;
+// Phase 55: Persistent storage (cross-platform, uses async-lock)
 pub mod storage;
 
-// Phase 51: Re-export tokio for async main support
+// Native-only modules
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod time;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod random;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod env;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod memory;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod network;
+
+// Phase 51: Re-export tokio for async main support (native only)
+#[cfg(not(target_arch = "wasm32"))]
 pub use tokio;
 
 pub fn panic_with(reason: &str) -> ! {
@@ -64,19 +72,25 @@ pub mod prelude {
     pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
     pub use crate::panic_with;
     pub use crate::fmt::format;
-    pub use crate::file::{read, write};
-    pub use crate::time::{now, sleep};
-    pub use crate::random::{randomInt, randomFloat};
-    pub use crate::env::{get, args};
     // Phase 43D: Collection indexing helpers
     pub use crate::logos_index;
     pub use crate::logos_index_mut;
-    // Phase 8.5: Zone-based memory management
-    pub use crate::memory::Zone;
-    // Phase 48: Sipping protocol
-    pub use crate::network::{FileSipper, FileManifest, FileChunk};
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
+
+    // Native-only prelude exports
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::file::{read, write};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::time::{now, sleep};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::random::{randomInt, randomFloat};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::env::{get, args};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::memory::Zone;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::network::{FileSipper, FileManifest, FileChunk};
 }
 
 #[cfg(test)]

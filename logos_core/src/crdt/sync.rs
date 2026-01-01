@@ -8,7 +8,7 @@
 //! it's automatically merged into the local state.
 
 use super::Merge;
-use crate::network::gossip;
+use crate::network::{gossip, wire};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -32,19 +32,30 @@ pub struct Synced<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'stat
 impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T> {
     /// Create a new synced wrapper and subscribe to the topic.
     ///
-    /// This spawns a background task that:
-    /// 1. Subscribes to the GossipSub topic
-    /// 2. Listens for incoming messages
-    /// 3. Deserializes and merges them into the local state
+    /// This:
+    /// 1. Subscribes to the GossipSub topic (awaited, ensures mesh membership)
+    /// 2. Spawns a background task to receive and merge incoming messages
     pub async fn new(initial: T, topic: &str) -> Self {
         let inner = Arc::new(Mutex::new(initial));
         let topic_str = topic.to_string();
 
-        // Spawn background merge task
+        // Subscribe FIRST, await completion to ensure mesh membership
+        let mut rx = gossip::subscribe(&topic_str).await;
+
+        // THEN spawn background merge task
         let inner_clone = Arc::clone(&inner);
-        let topic_clone = topic_str.clone();
         tokio::spawn(async move {
-            gossip::subscribe_and_merge::<T>(&topic_clone, inner_clone).await;
+            while let Some(bytes) = rx.recv().await {
+                match wire::decode::<T>(&bytes) {
+                    Ok(incoming) => {
+                        let mut guard = inner_clone.lock().await;
+                        guard.merge(&incoming);
+                    }
+                    Err(e) => {
+                        eprintln!("[gossip] Deserialization failed: {:?}", e);
+                    }
+                }
+            }
         });
 
         Self {

@@ -6,22 +6,25 @@ description = "Runtime library for LOGOS programs"
 
 [workspace]
 
+# Cross-platform dependencies
 [dependencies]
 bumpalo = "3.19.1"
+crc32fast = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+async-trait = "0.1"
+once_cell = "1.19"
+async-lock = "3.4"  # Phase 55: Cross-platform async mutex
+
+# Native-only dependencies
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 memmap2 = "0.9.9"
 rand = "0.8"
-# Phase 9: Structured Concurrency
-# Phase 53: Added "fs" and "io-util" for VFS
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
-# Phase 53: CRC32 for journal checksums
-crc32fast = "1.3"
 rayon = "1.10"
-# Phase 47: Serialization
-serde = { version = "1.0", features = ["derive"] }
-# Phase 48: Sipping Protocol
 sha2 = "0.10"
 uuid = { version = "1.0", features = ["v4"] }
-# Phase 51: P2P Networking (The Mesh)
+futures = "0.3"
 libp2p = { version = "0.54", features = [
     "tcp",
     "quic",
@@ -29,15 +32,24 @@ libp2p = { version = "0.54", features = [
     "yamux",
     "mdns",
     "request-response",
-    "gossipsub",  # Phase 52: GossipSub for CRDT sync
+    "gossipsub",
     "macros",
     "tokio"
 ] }
-bincode = "1.3"
-futures = "0.3"
-async-trait = "0.1"
-# Phase 52: Lazy statics for GossipSub subscriptions
-once_cell = "1.19"
+
+# Phase 54: WASM dependencies for browser persistence
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+getrandom = { version = "0.2", features = ["js"] }
+web-sys = { version = "0.3", features = [
+    "Window", "Navigator", "StorageManager",
+    "FileSystemDirectoryHandle", "FileSystemFileHandle",
+    "FileSystemWritableFileStream", "FileSystemGetFileOptions",
+    "FileSystemGetDirectoryOptions", "FileSystemCreateWritableOptions",
+    "File", "Blob", "DomException"
+]}
 
 [dev-dependencies]
 tempfile = "3.10"

@@ -245,18 +245,22 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                 }
             }
             ExampleMode::Imperative => {
-                // Use the real LOGOS parser + tree-walking interpreter
-                let result = interpret_for_ui(&current_code);
-                if let Some(err) = result.error {
-                    output.set(err);
-                    output_type.set("error".to_string());
-                } else if result.lines.is_empty() {
-                    output.set("(no output)".to_string());
-                    output_type.set("info".to_string());
-                } else {
-                    output.set(result.lines.join("\n"));
-                    output_type.set("success".to_string());
-                }
+                // Phase 55: interpret_for_ui is now async for VFS support
+                spawn(async move {
+                    let result = interpret_for_ui(&current_code).await;
+                    if let Some(err) = result.error {
+                        output.set(err);
+                        output_type.set("error".to_string());
+                    } else if result.lines.is_empty() {
+                        output.set("(no output)".to_string());
+                        output_type.set("info".to_string());
+                    } else {
+                        output.set(result.lines.join("\n"));
+                        output_type.set("success".to_string());
+                    }
+                    is_running.set(false);
+                });
+                return;
             }
         }
 
