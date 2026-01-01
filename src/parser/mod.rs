@@ -4520,6 +4520,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Overloaded tokens that are valid identifiers in code context
             TokenType::Pronoun { .. } |  // "i", "it"
             TokenType::Items |           // "items"
+            TokenType::Values |          // "values"
             TokenType::Item |            // "item"
             TokenType::Nothing |         // "nothing"
             // Phase 38: Adverbs can be function names (now, sleep, etc.)

@@ -188,3 +188,391 @@ Merge c2 into c1.
 Show "merge complete"."#,
     );
 }
+
+// =============================================================================
+// PNCounter Tests (Tally)
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tally_increase_decrease() {
+    assert_output(
+        r#"## Definition
+A Game is Shared and has:
+    a score, which is a Tally.
+
+## Main
+Let mutable g be a new Game.
+Increase g's score by 100.
+Decrease g's score by 30.
+Show g's score."#,
+        "70",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tally_decrease_to_negative() {
+    assert_output(
+        r#"## Definition
+A Temperature is Shared and has:
+    a degrees, which is a Tally.
+
+## Main
+Let mutable t be a new Temperature.
+Increase t's degrees by 10.
+Decrease t's degrees by 25.
+Show t's degrees."#,
+        "-15",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tally_multiple_operations() {
+    assert_output(
+        r#"## Definition
+A Balance is Shared and has:
+    an amount, which is a Tally.
+
+## Main
+Let mutable b be a new Balance.
+Increase b's amount by 100.
+Decrease b's amount by 20.
+Increase b's amount by 50.
+Decrease b's amount by 10.
+Decrease b's amount by 5.
+Show b's amount."#,
+        "115",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tally_decrease_only() {
+    assert_output(
+        r#"## Definition
+A Debt is Shared and has:
+    an owed, which is a Tally.
+
+## Main
+Let mutable d be a new Debt.
+Decrease d's owed by 50.
+Decrease d's owed by 25.
+Show d's owed."#,
+        "-75",
+    );
+}
+
+// =============================================================================
+// ORSet Tests (SharedSet)
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_add() {
+    assert_output(
+        r#"## Definition
+A Party is Shared and has:
+    a guests, which is a SharedSet of Text.
+
+## Main
+Let mutable p be a new Party.
+Add "Alice" to p's guests.
+Add "Bob" to p's guests.
+Show length of p's guests."#,
+        "2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_contains_true() {
+    assert_output(
+        r#"## Definition
+A Team is Shared and has:
+    a members, which is a SharedSet of Text.
+
+## Main
+Let mutable t be a new Team.
+Add "Alice" to t's members.
+If t's members contains "Alice":
+    Show "found".
+Otherwise:
+    Show "not found"."#,
+        "found",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_contains_false() {
+    assert_output(
+        r#"## Definition
+A Team is Shared and has:
+    a members, which is a SharedSet of Text.
+
+## Main
+Let mutable t be a new Team.
+Add "Alice" to t's members.
+If t's members contains "Bob":
+    Show "found".
+Otherwise:
+    Show "not found"."#,
+        "not found",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_remove() {
+    assert_output(
+        r#"## Definition
+A Inventory is Shared and has:
+    an items, which is a SharedSet of Text.
+
+## Main
+Let mutable inv be a new Inventory.
+Add "sword" to inv's items.
+Add "shield" to inv's items.
+Add "potion" to inv's items.
+Remove "shield" from inv's items.
+Show length of inv's items."#,
+        "2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_remove_then_contains() {
+    assert_output(
+        r#"## Definition
+A Blocklist is Shared and has:
+    a blocked, which is a SharedSet of Text.
+
+## Main
+Let mutable bl be a new Blocklist.
+Add "spam@example.com" to bl's blocked.
+Remove "spam@example.com" from bl's blocked.
+If bl's blocked contains "spam@example.com":
+    Show "still blocked".
+Otherwise:
+    Show "unblocked"."#,
+        "unblocked",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_add_duplicate() {
+    assert_output(
+        r#"## Definition
+A Tags is Shared and has:
+    a labels, which is a SharedSet of Text.
+
+## Main
+Let mutable tags be a new Tags.
+Add "important" to tags's labels.
+Add "important" to tags's labels.
+Add "urgent" to tags's labels.
+Show length of tags's labels."#,
+        "2",
+    );
+}
+
+// =============================================================================
+// RGA Tests (SharedSequence)
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_sequence_append() {
+    assert_output(
+        r#"## Definition
+A Document is Shared and has:
+    a lines, which is a SharedSequence of Text.
+
+## Main
+Let mutable doc be a new Document.
+Append "Line 1" to doc's lines.
+Append "Line 2" to doc's lines.
+Append "Line 3" to doc's lines.
+Show length of doc's lines."#,
+        "3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_sequence_empty() {
+    assert_output(
+        r#"## Definition
+A Log is Shared and has:
+    an entries, which is a SharedSequence of Text.
+
+## Main
+Let mutable log be a new Log.
+Show length of log's entries."#,
+        "0",
+    );
+}
+
+// =============================================================================
+// MVRegister Tests (Divergent)
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_divergent_set_show() {
+    assert_output(
+        r#"## Definition
+A WikiPage is Shared and has:
+    a title, which is a Divergent Text.
+
+## Main
+Let mutable page be a new WikiPage.
+Set page's title to "Hello World".
+Show page's title."#,
+        "Hello World",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_divergent_overwrite() {
+    assert_output(
+        r#"## Definition
+A Draft is Shared and has:
+    a content, which is a Divergent Text.
+
+## Main
+Let mutable d be a new Draft.
+Set d's content to "First draft".
+Set d's content to "Second draft".
+Set d's content to "Final".
+Show d's content."#,
+        "Final",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_divergent_resolve() {
+    assert_output(
+        r#"## Definition
+A Config is Shared and has:
+    a value, which is a Divergent Text.
+
+## Main
+Let mutable cfg be a new Config.
+Set cfg's value to "initial".
+Resolve cfg's value to "resolved".
+Show cfg's value."#,
+        "resolved",
+    );
+}
+
+// =============================================================================
+// Mixed CRDT Types in One Struct
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_mixed_crdt_struct() {
+    assert_output(
+        r#"## Definition
+A Dashboard is Shared and has:
+    a views, which is a Tally.
+    a users, which is a SharedSet of Text.
+    a title, which is a Divergent Text.
+
+## Main
+Let mutable dash be a new Dashboard.
+Increase dash's views by 100.
+Add "alice" to dash's users.
+Add "bob" to dash's users.
+Set dash's title to "My Dashboard".
+Decrease dash's views by 10.
+Show dash's views."#,
+        "90",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_crdt_with_regular_fields() {
+    assert_output(
+        r#"## Definition
+A Game is Shared and has:
+    a name, which is Text.
+    a score, which is a Tally.
+    a players, which is a SharedSet of Text.
+
+## Main
+Let mutable g be a new Game with name "Chess Match".
+Increase g's score by 50.
+Add "White" to g's players.
+Add "Black" to g's players.
+Show g's name."#,
+        "Chess Match",
+    );
+}
+
+// =============================================================================
+// Merge Operations with New CRDTs
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tally_merge() {
+    assert_runs(
+        r#"## Definition
+A Score is Shared and has:
+    a points, which is a Tally.
+
+## Main
+Let mutable s1 be a new Score.
+Let mutable s2 be a new Score.
+Increase s1's points by 50.
+Decrease s1's points by 10.
+Increase s2's points by 30.
+Merge s2 into s1.
+Show "merge complete"."#,
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_shared_set_merge() {
+    assert_runs(
+        r#"## Definition
+A Tags is Shared and has:
+    a labels, which is a SharedSet of Text.
+
+## Main
+Let mutable t1 be a new Tags.
+Let mutable t2 be a new Tags.
+Add "red" to t1's labels.
+Add "blue" to t2's labels.
+Merge t2 into t1.
+Show "merged"."#,
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_divergent_merge() {
+    assert_runs(
+        r#"## Definition
+A Page is Shared and has:
+    a content, which is a Divergent Text.
+
+## Main
+Let mutable p1 be a new Page.
+Let mutable p2 be a new Page.
+Set p1's content to "Version A".
+Set p2's content to "Version B".
+Merge p2 into p1.
+Show "merged"."#,
+    );
+}
