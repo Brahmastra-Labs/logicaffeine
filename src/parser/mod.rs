@@ -1602,7 +1602,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     fn check_mutable_keyword(&self) -> bool {
         if let TokenType::Noun(sym) | TokenType::Adjective(sym) = self.peek().kind {
-            self.interner.resolve(sym).eq_ignore_ascii_case("mutable")
+            let word = self.interner.resolve(sym).to_lowercase();
+            word == "mutable" || word == "mut"
         } else {
             false
         }
@@ -3290,9 +3291,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let type_arg = self.expect_identifier()?;
             type_args.push(type_arg);
 
-            // Check for "and" to continue (for multi-param generics like "Result of Int and Text")
-            if self.check(&TokenType::And) {
-                self.advance(); // consume "and"
+            // Check for "and" or "to" to continue (for multi-param generics like "Map of Text to Int")
+            if self.check(&TokenType::And) || self.check_to_preposition() {
+                self.advance(); // consume separator
                 continue;
             }
             break;
@@ -3637,6 +3638,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     self.advance(); // consume ')'
                     inner
+                } else if let TokenType::StringLiteral(sym) = self.peek().kind {
+                    // Phase 57B: String literal key for Map access like item "iron" of prices
+                    let sym = sym;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(sym)))
                 } else if !self.check_preposition_is("of") {
                     // Variable identifier like i, j, idx (any token that's not "of")
                     let sym = self.peek().lexeme;
@@ -3658,8 +3664,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "of"
 
-                // Parse collection
-                let collection = self.parse_imperative_expr()?;
+                // Parse collection as primary expression (identifier or field chain)
+                // Using primary_expr instead of imperative_expr prevents consuming operators
+                let collection = self.parse_primary_expr()?;
 
                 Ok(self.ctx.alloc_imperative_expr(Expr::Index {
                     collection,
