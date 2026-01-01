@@ -1845,6 +1845,21 @@ add_test_description "tests/e2e_zones.rs" \
     "Runtime verification of zone-based memory: allocation, bulk deallocation, escape prevention." \
     "Inside a zone: allocate and use memory."
 
+add_test_description "tests/e2e_sets.rs" \
+    "E2E: Set Collection" \
+    "Runtime verification of Set operations: creation with 'new Set of T', Add/Remove statements, contains check, deduplication, union/intersection algebra, iteration, length." \
+    "Let s be a new Set of Int. Add 1 to s. If s contains 1: Show found."
+
+add_test_description "tests/e2e_tuples.rs" \
+    "E2E: Tuple Type" \
+    "Runtime verification of heterogeneous tuples: creation with (a, b, c) syntax, dual access via brackets t[1] and natural language 'item 1 of t', length, mixed types (Int, Text, Float), arithmetic on elements." \
+    "Let t be (42, hello, 5.9). Show t[1]. Show item 2 of t."
+
+add_test_description "tests/e2e_maps.rs" \
+    "E2E: Map Collection" \
+    "Runtime verification of Map operations: creation with 'new Map of K to V', key-value access via 'item key of map', mutation with Set, multiple keys, key overwriting." \
+    "Let prices be a new Map of Text to Int. Set item iron of prices to 100."
+
 # Other tests
 add_test_description "tests/phase10_io.rs" \
     "Phase 10: I/O Operations" \
@@ -2782,8 +2797,12 @@ add_file "logos_core/src/lib.rs" \
     "Entry point for logos_core crate. Conditional compilation: network, storage, memory, file, time, random, env gated with #[cfg(not(wasm32))] for native-only. CRDT and fs modules work cross-platform."
 
 add_file "logos_core/src/types.rs" \
-    "Type Aliases" \
-    "Rust type aliases per Spec §10.6.1: Nat→u64, Int→i64, Real→f64, Text→String, Bool→bool, Unit→()."
+    "Type Aliases & Collections" \
+    "Type aliases per Spec §10.6.1: Nat→u64, Int→i64, Real→f64, Text→String, Bool→bool, Unit→(), Char→char, Byte→u8. Collections: Seq<T>→Vec<T>, Map<K,V>→HashMap, Set<T>→HashSet. Value enum for heterogeneous tuples with Showable impl and arithmetic operators. LogosContains trait for polymorphic contains."
+
+add_file "logos_core/src/indexing.rs" \
+    "Polymorphic Indexing" \
+    "LogosIndex and LogosIndexMut traits for 1-based indexing. Implementations for Vec<T> (converts 1-based to 0-based) and HashMap<K,V> (key-based). Enables 'item N of collection' and bracket access t[N] syntax."
 
 add_file "logos_core/src/io.rs" \
     "IO Functions" \

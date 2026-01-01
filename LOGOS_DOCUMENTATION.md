@@ -2158,6 +2158,36 @@ Runtime verification of zone-based memory: allocation, bulk deallocation, escape
 
 ---
 
+#### E2E: Set Collection
+
+**File:** `tests/e2e_sets.rs`
+
+Runtime verification of Set operations: creation with 'new Set of T', Add/Remove statements, contains check, deduplication, union/intersection algebra, iteration, length.
+
+**Example:** Let s be a new Set of Int. Add 1 to s. If s contains 1: Show found.
+
+---
+
+#### E2E: Tuple Type
+
+**File:** `tests/e2e_tuples.rs`
+
+Runtime verification of heterogeneous tuples: creation with (a, b, c) syntax, dual access via brackets t[1] and natural language 'item 1 of t', length, mixed types (Int, Text, Float), arithmetic on elements.
+
+**Example:** Let t be (42, hello, 5.9). Show t[1]. Show item 2 of t.
+
+---
+
+#### E2E: Map Collection
+
+**File:** `tests/e2e_maps.rs`
+
+Runtime verification of Map operations: creation with 'new Map of K to V', key-value access via 'item key of map', mutation with Set, multiple keys, key overwriting.
+
+**Example:** Let prices be a new Map of Text to Int. Set item iron of prices to 100.
+
+---
+
 #### Phase 10: I/O Operations
 
 **File:** `tests/phase10_io.rs`
@@ -2202,14 +2232,14 @@ Tests for lexer improvements and edge cases.
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2315 lines
-Parser (ast/, parser/):               13756 lines
+Lexer (token.rs, lexer.rs):           2413 lines
+Parser (ast/, parser/):               13928 lines
 Transpilation:                        1341 lines
-Code Generation:                      2658 lines
+Code Generation:                      2736 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            2613 lines
+Type Analysis (analysis/):            2635 lines
 Support Infrastructure:               4323 lines
-Desktop UI:                              17327 lines
+Desktop UI:                              17598 lines
 CRDT (logos_core/src/crdt/):          497 lines
 Network (logos_core/src/network/):    1493 lines
 VFS (logos_core/src/fs/):             511 lines
@@ -2218,15 +2248,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        56409
-Test lines:          19310
-Total Rust lines: 75719
+Source lines:        57217
+Test lines:          20031
+Total Rust lines: 77248
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   118
+Test files:   123
 ```
 ## Lexicon Data
 
@@ -3173,6 +3203,13 @@ pub enum TokenType {
     Length,   // "length of items" → items.len()
     At,       // "items at i" → items[i]
 
+    // Set Operations
+    Add,          // "Add x to set" (insert)
+    Remove,       // "Remove x from set"
+    Contains,     // "set contains x"
+    Union,        // "a union b"
+    Intersection, // "a intersection b"
+
     // Phase 8.5: Memory Management (Zones)
     Inside,   // "Inside a new zone..."
     Zone,     // "...zone called..."
@@ -3322,6 +3359,9 @@ pub enum TokenType {
 
     // Phase 33: String literals "hello world"
     StringLiteral(Symbol),
+
+    // Character literal: `x` (backtick syntax)
+    CharLiteral(Symbol),
 
     // Index Access (1-indexed)
     Item,
@@ -3926,6 +3966,65 @@ impl<'a> Lexer<'a> {
                     }
                     word_start = if j < chars.len() { j + 1 } else { j };
                 }
+                // Character literals with backticks: `x`
+                '`' => {
+                    // Push any pending word
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+
+                    // Scan for character content and closing backtick
+                    let char_start = i;
+                    let mut j = char_idx + 1;
+                    let mut char_content = String::new();
+
+                    if j < chars.len() {
+                        if chars[j] == '\\' && j + 1 < chars.len() {
+                            // Escape sequence
+                            j += 1;
+                            let escaped_char = match chars[j] {
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                '\\' => '\\',
+                                '`' => '`',
+                                '0' => '\0',
+                                c => c,
+                            };
+                            char_content.push(escaped_char);
+                            j += 1;
+                        } else if chars[j] != '`' {
+                            // Regular character
+                            char_content.push(chars[j]);
+                            j += 1;
+                        }
+                    }
+
+                    // Expect closing backtick
+                    if j < chars.len() && chars[j] == '`' {
+                        j += 1; // skip closing backtick
+                    }
+
+                    // Create a special marker for char literals
+                    items.push(WordItem {
+                        word: format!("\x00CHAR:{}", char_content),
+                        trailing_punct: None,
+                        start: char_start,
+                        end: if j <= chars.len() { char_start + (j - char_idx) } else { char_start + 1 },
+                        punct_pos: None,
+                    });
+
+                    if j > char_idx + 1 {
+                        skip_count = j - char_idx - 1;
+                    }
+                    word_start = char_start + (j - char_idx);
+                }
                 // Phase 38: Handle -> as a single token for return type syntax
                 '-' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '>' => {
                     // Push any pending word first
@@ -4243,6 +4342,16 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            // Check for character literal marker
+            if word.starts_with("\x00CHAR:") {
+                let content = &word[6..]; // Skip the marker prefix
+                let sym = self.interner.intern(content);
+                let span = Span::new(word_start, word_end);
+                tokens.push(Token::new(TokenType::CharLiteral(sym), sym, span));
+                self.pos += 1;
+                continue;
+            }
+
             let kind = self.classify_with_lookahead(&word);
             let lexeme = self.interner.intern(&word);
             let span = Span::new(word_start, word_end);
@@ -4507,12 +4616,20 @@ impl<'a> Lexer<'a> {
             // Numeric literal: starts with digit (may have underscore separators like 1_000)
             return true;
         }
-        // Symbolic numbers like aleph_0, omega_1: letters followed by underscore and digits only
-        // But NOT identifiers like n_left, my_var (which have letters after underscore)
+        // Symbolic numbers: only recognize known mathematical symbols
+        // (aleph, omega, beth) followed by underscore and digits
         if let Some(underscore_pos) = word.rfind('_') {
+            let before_underscore = &word[..underscore_pos];
             let after_underscore = &word[underscore_pos + 1..];
-            // If everything after the last underscore is digits, it's a symbolic number
-            if !after_underscore.is_empty() && after_underscore.chars().all(|c| c.is_ascii_digit()) {
+            // Must be a known mathematical symbol prefix AND digits after underscore
+            let is_math_symbol = matches!(
+                before_underscore.to_lowercase().as_str(),
+                "aleph" | "omega" | "beth"
+            );
+            if is_math_symbol
+                && !after_underscore.is_empty()
+                && after_underscore.chars().all(|c| c.is_ascii_digit())
+            {
                 return true;
             }
         }
@@ -4756,15 +4873,20 @@ impl<'a> Lexer<'a> {
                 return TokenType::Let;
             }
             "set" => {
-                // In Imperative mode, treat "set" as the keyword
-                // In Declarative mode, check if followed by identifier + "to" to disambiguate from noun "set"
-                if self.mode == LexerMode::Imperative {
+                // Check if "set" is used as a type (followed by "of") - "Set of Int"
+                // This takes priority over the assignment keyword
+                if self.peek_word(1).map_or(false, |w| w.to_lowercase() == "of") {
+                    // It's a type like "Set of Int" - don't return keyword, let it be a noun
+                } else if self.mode == LexerMode::Imperative {
+                    // In Imperative mode, treat "set" as the assignment keyword
                     return TokenType::Set;
-                }
-                // Phase 31: Also check positions 3, 4, 5 for "to" (handles field access like "set p's x to")
-                for offset in 2..=5 {
-                    if self.peek_word(offset).map_or(false, |w| w.to_lowercase() == "to") {
-                        return TokenType::Set;
+                } else {
+                    // Phase 31: In Declarative mode, check positions 2-5 for "to"
+                    // (handles field access like "set p's x to")
+                    for offset in 2..=5 {
+                        if self.peek_word(offset).map_or(false, |w| w.to_lowercase() == "to") {
+                            return TokenType::Set;
+                        }
                     }
                 }
             }
@@ -4800,8 +4922,8 @@ impl<'a> Lexer<'a> {
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
-            // Phase 33: Sum type definition (after "is")
-            "either" => return TokenType::Either,
+            // Phase 33: Sum type definition (Declarative mode only - for enum "either...or...")
+            "either" if self.mode == LexerMode::Declarative => return TokenType::Either,
             // Phase 33: Pattern matching statement
             "inspect" if self.mode == LexerMode::Imperative => return TokenType::Inspect,
             // Phase 31: Constructor keyword (Imperative mode only)
@@ -4817,6 +4939,12 @@ impl<'a> Lexer<'a> {
             "through" if self.mode == LexerMode::Imperative => return TokenType::Through,
             "length" if self.mode == LexerMode::Imperative => return TokenType::Length,
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Set operation keywords (Imperative mode only)
+            "add" if self.mode == LexerMode::Imperative => return TokenType::Add,
+            "remove" if self.mode == LexerMode::Imperative => return TokenType::Remove,
+            "contains" if self.mode == LexerMode::Imperative => return TokenType::Contains,
+            "union" if self.mode == LexerMode::Imperative => return TokenType::Union,
+            "intersection" if self.mode == LexerMode::Imperative => return TokenType::Intersection,
             // Phase 8.5: Zone keywords (Imperative mode only)
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             "zone" if self.mode == LexerMode::Imperative => return TokenType::Zone,
@@ -6041,6 +6169,18 @@ pub enum Stmt<'a> {
         into: Option<Symbol>,
     },
 
+    /// Add to set: `Add x to set.`
+    Add {
+        value: &'a Expr<'a>,
+        collection: &'a Expr<'a>,
+    },
+
+    /// Remove from set: `Remove x from set.`
+    Remove {
+        value: &'a Expr<'a>,
+        collection: &'a Expr<'a>,
+    },
+
     /// Index assignment: `Set item N of X to Y.`
     SetIndex {
         collection: &'a Expr<'a>,
@@ -6362,6 +6502,24 @@ pub enum Expr<'a> {
         collection: &'a Expr<'a>,
     },
 
+    /// Set contains: `set contains x` or `x in set`
+    Contains {
+        collection: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
+
+    /// Set union: `a union b`
+    Union {
+        left: &'a Expr<'a>,
+        right: &'a Expr<'a>,
+    },
+
+    /// Set intersection: `a intersection b`
+    Intersection {
+        left: &'a Expr<'a>,
+        right: &'a Expr<'a>,
+    },
+
     /// Phase 48: Get manifest of a zone
     /// `the manifest of Zone` → FileSipper::from_zone(&zone).manifest()
     ManifestOf {
@@ -6377,6 +6535,9 @@ pub enum Expr<'a> {
 
     /// List literal: [1, 2, 3]
     List(Vec<&'a Expr<'a>>),
+
+    /// Tuple literal: (1, "hello", true)
+    Tuple(Vec<&'a Expr<'a>>),
 
     /// Range: 1 to 10 (inclusive)
     Range {
@@ -6411,12 +6572,16 @@ pub enum Expr<'a> {
 pub enum Literal {
     /// Integer literal
     Number(i64),
+    /// Float literal
+    Float(f64),
     /// Text literal
     Text(Symbol),
     /// Boolean literal
     Boolean(bool),
     /// The nothing literal (unit type)
     Nothing,
+    /// Character literal
+    Char(char),
 }
 
 ```
@@ -6751,6 +6916,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Result" => Some(2),    // Result of T and E
                     "Option" => Some(1),    // Option of T
                     "Seq" | "List" | "Vec" => Some(1),  // Seq of T
+                    "Set" | "HashSet" => Some(1), // Set of T
                     "Map" | "HashMap" => Some(2), // Map of K and V
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
@@ -7302,6 +7468,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Pop) {
             return self.parse_pop_statement();
+        }
+        // Set operations
+        if self.check(&TokenType::Add) {
+            return self.parse_add_statement();
+        }
+        if self.check(&TokenType::Remove) {
+            return self.parse_remove_statement();
         }
 
         // Phase 8.5: Memory zone block
@@ -8046,9 +8219,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match expr {
             Expr::Literal(lit) => match lit {
                 crate::ast::Literal::Number(_) => Some("Int"),
+                crate::ast::Literal::Float(_) => Some("Real"),
                 crate::ast::Literal::Text(_) => Some("Text"),
                 crate::ast::Literal::Boolean(_) => Some("Bool"),
                 crate::ast::Literal::Nothing => Some("Unit"),
+                crate::ast::Literal::Char(_) => Some("Char"),
             },
             _ => None, // Can't infer type for non-literals yet
         }
@@ -8059,9 +8234,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match declared {
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 let declared_name = self.interner.resolve(*sym);
-                // Nat is compatible with Int literals
+                // Nat and Byte are compatible with Int literals
                 declared_name.eq_ignore_ascii_case(inferred)
                     || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
+                    || (declared_name.eq_ignore_ascii_case("Byte") && inferred == "Int")
             }
             _ => true, // For generics/functions, skip check for now
         }
@@ -8962,6 +9138,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Pop { collection, into })
+    }
+
+    /// Parse Add statement for Set insertion
+    /// Syntax: Add x to set.
+    fn parse_add_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Add"
+
+        // Parse the value to add
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") && !self.check(&TokenType::To) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse the collection expression
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Add { value, collection })
+    }
+
+    /// Parse Remove statement for Set deletion
+    /// Syntax: Remove x from set.
+    fn parse_remove_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Remove"
+
+        // Parse the value to remove
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "from" preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse the collection expression
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Remove { value, collection })
     }
 
     /// Phase 10: Parse Read statement for console/file input
@@ -10122,7 +10344,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Treat "items" as a variable identifier
                     let sym = token.lexeme;
                     self.advance();
-                    return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                    return self.parse_field_access_chain(base);
                 }
 
                 self.advance(); // consume "items"
@@ -10283,14 +10506,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Number(sym) => {
                 self.advance();
                 let num_str = self.interner.resolve(*sym);
-                let num = num_str.parse::<i64>().unwrap_or(0);
-                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                // Check if it's a float (contains decimal point)
+                if num_str.contains('.') {
+                    let num = num_str.parse::<f64>().unwrap_or(0.0);
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(num))))
+                } else {
+                    let num = num_str.parse::<i64>().unwrap_or(0);
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                }
             }
 
             // Phase 33: String literals
             TokenType::StringLiteral(sym) => {
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym))))
+            }
+
+            // Character literals
+            TokenType::CharLiteral(sym) => {
+                let char_str = self.interner.resolve(*sym);
+                let ch = char_str.chars().next().unwrap_or('\0');
+                self.advance();
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Char(ch))))
             }
 
             // Handle 'nothing' literal
@@ -10435,7 +10672,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Phase 10: IO keywords as function calls (e.g., "read", "write", "file")
-            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console => {
+            // Phase 57: Add/Remove keywords as function calls
+            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console |
+            TokenType::Add | TokenType::Remove => {
                 let sym = token.lexeme;
                 self.advance();
                 if self.check(&TokenType::LParen) {
@@ -10541,18 +10780,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
 
-            // Parenthesized expression: (expr)
+            // Parenthesized expression: (expr) or Tuple literal: (expr, expr, ...)
             TokenType::LParen => {
                 self.advance(); // consume '('
-                let inner = self.parse_imperative_expr()?;
-                if !self.check(&TokenType::RParen) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
-                        span: self.current_span(),
-                    });
+                let first = self.parse_imperative_expr()?;
+
+                // Check if this is a tuple (has comma) or just grouping
+                if self.check(&TokenType::Comma) {
+                    // It's a tuple - parse remaining elements
+                    let mut items = vec![first];
+                    while self.check(&TokenType::Comma) {
+                        self.advance(); // consume ","
+                        items.push(self.parse_imperative_expr()?);
+                    }
+
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+
+                    let base = self.ctx.alloc_imperative_expr(Expr::Tuple(items));
+                    self.parse_field_access_chain(base)
+                } else {
+                    // Just a parenthesized expression
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    Ok(first)
                 }
-                self.advance(); // consume ')'
-                Ok(inner)
             }
 
             _ => {
@@ -10570,19 +10832,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_additive_expr()
     }
 
-    /// Parse additive expressions (+, -, combined with) - left-to-right associative
+    /// Parse additive expressions (+, -, combined with, union, intersection, contains) - left-to-right associative
     fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_multiplicative_expr()?;
 
         loop {
-            let op = match &self.peek().kind {
+            match &self.peek().kind {
                 TokenType::Plus => {
                     self.advance();
-                    BinaryOpKind::Add
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Add,
+                        left,
+                        right,
+                    });
                 }
                 TokenType::Minus => {
                     self.advance();
-                    BinaryOpKind::Subtract
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Subtract,
+                        left,
+                        right,
+                    });
                 }
                 // Phase 53: "combined with" for string concatenation
                 TokenType::Combined => {
@@ -10595,16 +10867,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
                     self.advance(); // consume "with"
-                    BinaryOpKind::Concat
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Concat,
+                        left,
+                        right,
+                    });
+                }
+                // Set operations: union, intersection
+                TokenType::Union => {
+                    self.advance(); // consume "union"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Union {
+                        left,
+                        right,
+                    });
+                }
+                TokenType::Intersection => {
+                    self.advance(); // consume "intersection"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Intersection {
+                        left,
+                        right,
+                    });
+                }
+                // Set membership: "set contains value"
+                TokenType::Contains => {
+                    self.advance(); // consume "contains"
+                    let value = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Contains {
+                        collection: left,
+                        value,
+                    });
                 }
                 _ => break,
-            };
-            let right = self.parse_multiplicative_expr()?;
-            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op,
-                left,
-                right,
-            });
+            }
         }
 
         Ok(left)
@@ -10814,6 +11111,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Merge |
             TokenType::Increase |
             // Phase 54: "first", "second", etc. can be variable names
+            // Phase 57: "add", "remove" can be function names
+            TokenType::Add |
+            TokenType::Remove |
             TokenType::First => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
@@ -24592,11 +24892,15 @@ impl TypeRegistry {
         reg.register(interner.intern("Bool"), TypeDef::Primitive);
         reg.register(interner.intern("Boolean"), TypeDef::Primitive);
         reg.register(interner.intern("Unit"), TypeDef::Primitive);
+        reg.register(interner.intern("Real"), TypeDef::Primitive);  // Floating point
+        reg.register(interner.intern("Char"), TypeDef::Primitive);  // Character
+        reg.register(interner.intern("Byte"), TypeDef::Primitive);  // 8-bit unsigned (0-255)
 
         // Intrinsic Generics
         reg.register(interner.intern("List"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Seq"), TypeDef::Generic { param_count: 1 });  // Phase 30: Sequences
         reg.register(interner.intern("Map"), TypeDef::Generic { param_count: 2 });  // Phase 43D: Key-value maps
+        reg.register(interner.intern("Set"), TypeDef::Generic { param_count: 1 });  // Set collection (HashSet)
         reg.register(interner.intern("Option"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Result"), TypeDef::Generic { param_count: 2 });
 
@@ -26413,7 +26717,7 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(expr, max_depth)?;
             }
 
-            Expr::List(items) => {
+            Expr::List(items) | Expr::Tuple(items) => {
                 for item in items {
                     self.check_no_escape(item, max_depth)?;
                 }
@@ -26443,6 +26747,16 @@ impl<'a> EscapeChecker<'a> {
             Expr::ChunkAt { index, zone } => {
                 self.check_no_escape(index, max_depth)?;
                 self.check_no_escape(zone, max_depth)?;
+            }
+
+            Expr::Contains { collection, value } => {
+                self.check_no_escape(collection, max_depth)?;
+                self.check_no_escape(value, max_depth)?;
+            }
+
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.check_no_escape(left, max_depth)?;
+                self.check_no_escape(right, max_depth)?;
             }
 
             // Literals are always safe
@@ -27017,7 +27331,7 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::List(items) => {
+            Expr::List(items) | Expr::Tuple(items) => {
                 for item in items {
                     self.check_not_moved(item)?;
                 }
@@ -27049,6 +27363,14 @@ impl<'a> OwnershipChecker<'a> {
             Expr::ChunkAt { index, zone } => {
                 self.check_not_moved(index)?;
                 self.check_not_moved(zone)
+            }
+            Expr::Contains { collection, value } => {
+                self.check_not_moved(collection)?;
+                self.check_not_moved(value)
+            }
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.check_not_moved(left)?;
+                self.check_not_moved(right)
             }
             // Literals are always safe
             Expr::Literal(_) => Ok(()),
@@ -27414,6 +27736,18 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
         }
         Stmt::Pop { collection, .. } => {
             // If collection is an identifier, it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Add { collection, .. } => {
+            // If collection is an identifier (Set), it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Remove { collection, .. } => {
+            // If collection is an identifier (Set), it needs to be mutable
             if let Expr::Identifier(sym) = collection {
                 targets.insert(*sym);
             }
@@ -27939,6 +28273,13 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                         "std::collections::HashMap<String, String>".to_string()
                     }
                 }
+                "Set" | "HashSet" => {
+                    if !params_str.is_empty() {
+                        format!("std::collections::HashSet<{}>", params_str[0])
+                    } else {
+                        "std::collections::HashSet<()>".to_string()
+                    }
+                }
                 other => {
                     if params_str.is_empty() {
                         other.to_string()
@@ -27988,6 +28329,8 @@ fn map_type_to_rust(ty: &str) -> String {
         "Text" => "String".to_string(),
         "Bool" | "Boolean" => "bool".to_string(),
         "Real" => "f64".to_string(),
+        "Char" => "char".to_string(),
+        "Byte" => "u8".to_string(),
         "Unit" | "()" => "()".to_string(),
         other => other.to_string(),
     }
@@ -28141,6 +28484,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Text" => "String".to_string(),
                 "Bool" | "Boolean" => "bool".to_string(),
                 "Real" => "f64".to_string(),
+                "Char" => "char".to_string(),
+                "Byte" => "u8".to_string(),
                 "Unit" => "()".to_string(),
                 other => other.to_string(),
             }
@@ -28156,6 +28501,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
+                "Set" => "std::collections::HashSet",
+                "Map" => "std::collections::HashMap",
                 "Option" => "Option",
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
@@ -28726,6 +29073,18 @@ pub fn codegen_stmt<'a>(
             }
         }
 
+        Stmt::Add { value, collection } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
+        }
+
+        Stmt::Remove { value, collection } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
+        }
+
         Stmt::SetIndex { collection, index, value } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
@@ -29072,6 +29431,25 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
             format!("({}.len() as i64)", coll_str)
         }
 
+        Expr::Contains { collection, value } => {
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            // Use LogosContains trait for unified contains across List, Set, Map, Text
+            format!("{}.logos_contains(&{})", coll_str, val_str)
+        }
+
+        Expr::Union { left, right } => {
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
+            format!("{}.union(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+        }
+
+        Expr::Intersection { left, right } => {
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
+            format!("{}.intersection(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+        }
+
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
             let zone_str = codegen_expr(zone, interner, synced_vars);
@@ -29089,6 +29467,14 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
             let item_strs: Vec<String> = items.iter()
                 .map(|i| codegen_expr(i, interner, synced_vars))
                 .collect();
+            format!("vec![{}]", item_strs.join(", "))
+        }
+
+        Expr::Tuple(ref items) => {
+            let item_strs: Vec<String> = items.iter()
+                .map(|i| format!("Value::from({})", codegen_expr(i, interner, synced_vars)))
+                .collect();
+            // Tuples as Vec<Value> for heterogeneous support
             format!("vec![{}]", item_strs.join(", "))
         }
 
@@ -29164,10 +29550,24 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
 fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
         Literal::Number(n) => n.to_string(),
+        Literal::Float(f) => format!("{}f64", f),
         // String literals are converted to String for consistent Text type handling
         Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
+        // Character literals
+        Literal::Char(c) => {
+            // Handle escape sequences for special characters
+            match c {
+                '\n' => "'\\n'".to_string(),
+                '\t' => "'\\t'".to_string(),
+                '\r' => "'\\r'".to_string(),
+                '\\' => "'\\\\'".to_string(),
+                '\'' => "'\\''".to_string(),
+                '\0' => "'\\0'".to_string(),
+                c => format!("'{}'", c),
+            }
+        }
     }
 }
 
@@ -39575,7 +39975,11 @@ pub enum RuntimeValue {
     Float(f64),
     Bool(bool),
     Text(String),
+    Char(char),
     List(Vec<RuntimeValue>),
+    Tuple(Vec<RuntimeValue>),  // Heterogeneous tuple
+    Set(Vec<RuntimeValue>),  // HashSet equivalent - Vec for simplicity in interpreter
+    Map(HashMap<String, RuntimeValue>),
     Struct {
         type_name: String,
         fields: HashMap<String, RuntimeValue>,
@@ -39590,7 +39994,11 @@ impl RuntimeValue {
             RuntimeValue::Float(_) => "Float",
             RuntimeValue::Bool(_) => "Bool",
             RuntimeValue::Text(_) => "Text",
+            RuntimeValue::Char(_) => "Char",
             RuntimeValue::List(_) => "List",
+            RuntimeValue::Tuple(_) => "Tuple",
+            RuntimeValue::Set(_) => "Set",
+            RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct { .. } => "Struct",
             RuntimeValue::Nothing => "Nothing",
         }
@@ -39611,9 +40019,24 @@ impl RuntimeValue {
             RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
             RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::Char(c) => c.to_string(),
             RuntimeValue::List(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Tuple(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("({})", parts.join(", "))
+            }
+            RuntimeValue::Set(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("{{{}}}", parts.join(", "))
+            }
+            RuntimeValue::Map(m) => {
+                let pairs: Vec<String> = m.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                    .collect();
+                format!("{{{}}}", pairs.join(", "))
             }
             RuntimeValue::Struct { type_name, fields } => {
                 if fields.is_empty() {
@@ -39847,24 +40270,68 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
+            Stmt::Add { value, collection } => {
+                let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::Set(ref mut items) = coll_val {
+                        // Only add if not already present
+                        if !items.iter().any(|x| self.values_equal(x, &val)) {
+                            items.push(val);
+                        }
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only add to a Set".to_string());
+                    }
+                } else {
+                    return Err("Add collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Remove { value, collection } => {
+                let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::Set(ref mut items) = coll_val {
+                        items.retain(|x| !self.values_equal(x, &val));
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only remove from a Set".to_string());
+                    }
+                } else {
+                    return Err("Remove collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
             Stmt::SetIndex { collection, index, value } => {
                 let idx_val = self.evaluate_expr(index).await?;
                 let new_val = self.evaluate_expr(value).await?;
-                let idx = match idx_val {
-                    RuntimeValue::Int(n) => n as usize,
-                    _ => return Err("Index must be an integer".to_string()),
-                };
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::List(ref mut items) = coll_val {
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                    match (&mut coll_val, &idx_val) {
+                        (RuntimeValue::List(ref mut items), RuntimeValue::Int(n)) => {
+                            let idx = *n as usize;
+                            if idx == 0 || idx > items.len() {
+                                return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                            }
+                            items[idx - 1] = new_val;
                         }
-                        items[idx - 1] = new_val;
-                        self.assign(*coll_sym, coll_val)?;
-                    } else {
-                        return Err("Can only index into a List".to_string());
+                        (RuntimeValue::Map(ref mut map), RuntimeValue::Text(key)) => {
+                            map.insert(key.clone(), new_val);
+                        }
+                        (RuntimeValue::List(_), _) => {
+                            return Err("List index must be an integer".to_string());
+                        }
+                        (RuntimeValue::Map(_), _) => {
+                            return Err("Map key must be a string".to_string());
+                        }
+                        _ => {
+                            return Err(format!("Cannot index into {}", coll_val.type_name()));
+                        }
                     }
+                    self.assign(*coll_sym, coll_val)?;
                 } else {
                     return Err("SetIndex collection must be an identifier".to_string());
                 }
@@ -40113,12 +40580,25 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(items[idx - 1].clone())
                     }
+                    (RuntimeValue::Tuple(items), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
                     (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
                         let idx = *idx as usize;
                         if idx == 0 || idx > s.len() {
                             return Err(format!("Index {} out of bounds", idx));
                         }
                         Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
+                    }
+                    (RuntimeValue::Map(map), RuntimeValue::Text(key)) => {
+                        match map.get(key) {
+                            Some(val) => Ok(val.clone()),
+                            None => Err(format!("Key '{}' not found in map", key)),
+                        }
                     }
                     _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
                 }
@@ -40147,8 +40627,76 @@ impl<'a> Interpreter<'a> {
                 let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
                     _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Contains { collection, value } => {
+                let coll_val = self.evaluate_expr(collection).await?;
+                let val = self.evaluate_expr(value).await?;
+                match &coll_val {
+                    RuntimeValue::Set(items) => {
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::List(items) => {
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::Map(entries) => {
+                        // For maps, check if key exists (keys are Strings)
+                        if let RuntimeValue::Text(key) = &val {
+                            Ok(RuntimeValue::Bool(entries.contains_key(key)))
+                        } else {
+                            Err(format!("Map key must be Text, got {}", val.type_name()))
+                        }
+                    }
+                    RuntimeValue::Text(s) => {
+                        // For text, check if substring exists
+                        if let RuntimeValue::Text(needle) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
+                        } else if let RuntimeValue::Char(c) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(*c)))
+                        } else {
+                            Err(format!("Cannot check if Text contains {}", val.type_name()))
+                        }
+                    }
+                    _ => Err(format!("Cannot check contains on {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Union { left, right } => {
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let mut result = a.clone();
+                        for item in b.iter() {
+                            if !result.iter().any(|x| self.values_equal(x, item)) {
+                                result.push(item.clone());
+                            }
+                        }
+                        Ok(RuntimeValue::Set(result))
+                    }
+                    _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
+                }
+            }
+
+            Expr::Intersection { left, right } => {
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let result: Vec<RuntimeValue> = a.iter()
+                            .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
+                            .cloned()
+                            .collect();
+                        Ok(RuntimeValue::Set(result))
+                    }
+                    _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
                 }
             }
 
@@ -40159,6 +40707,14 @@ impl<'a> Interpreter<'a> {
                     values.push(self.evaluate_expr(e).await?);
                 }
                 Ok(RuntimeValue::List(values))
+            }
+
+            Expr::Tuple(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr(e).await?);
+                }
+                Ok(RuntimeValue::Tuple(values))
             }
 
             Expr::Range { start, end } => {
@@ -40192,6 +40748,14 @@ impl<'a> Interpreter<'a> {
 
                 if name == "Seq" || name == "List" {
                     return Ok(RuntimeValue::List(vec![]));
+                }
+
+                if name == "Set" || name == "HashSet" {
+                    return Ok(RuntimeValue::Set(vec![]));
+                }
+
+                if name == "Map" || name == "HashMap" {
+                    return Ok(RuntimeValue::Map(HashMap::new()));
                 }
 
                 let mut fields = HashMap::new();
@@ -40228,9 +40792,11 @@ impl<'a> Interpreter<'a> {
     fn evaluate_literal(&self, lit: &Literal) -> Result<RuntimeValue, String> {
         match lit {
             Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
+            Literal::Float(f) => Ok(RuntimeValue::Float(*f)),
             Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),
+            Literal::Char(c) => Ok(RuntimeValue::Char(*c)),
         }
     }
 
@@ -40351,6 +40917,7 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
             (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
             (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
             (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
             _ => false,
         }
@@ -49493,50 +50060,80 @@ const MILESTONE_EXAMPLES: &[&[(&str, &str, &str, &str)]] = &[
             "Display hint to learner",
             "Display(hint, learner)"),
     ],
-    // Phase 3: Codegen Pipeline
+    // Phase 3: Imperative Language
     &[
-        ("Hello World", "To run:\n    Show \"Hello, World!\" to the console.",
-            "fn main() {\n    println!(\"Hello, World!\");\n}",
-            "fn main() -> Result<(), Error> {\n    println!(\"Hello, World!\");\n    Ok(())\n}"),
-        ("Binding", "Let result be the factorial of 10.",
-            "let result = factorial(10);",
-            "let result: u64 = factorial(10);"),
+        ("Function", "## To greet (name: Text) -> Text:\n    Return \"Hello, \" combined with name.",
+            "fn greet(name: &str) -> String { ... }",
+            "fn greet(name: &str) -> String {\n    format!(\"Hello, {}\", name)\n}"),
+        ("Struct", "A Point has:\n    an x which is Int\n    a y which is Int",
+            "struct Point { x: i64, y: i64 }",
+            "struct Point {\n    x: i64,\n    y: i64,\n}"),
+        ("I/O", "Read input from the console.\nShow \"Hello!\" to the console.",
+            "read_line(); println!(\"Hello!\");",
+            "io::stdin().read_line(&mut buf)?;\nprintln!(\"Hello!\");"),
     ],
     // Phase 4: Type System
     &[
-        ("Refinement", "Let age be an Integer where age > 0.",
-            "Age = Int where value > 0",
-            "type Age = { n: Int | n > 0 }"),
-        ("Dependent", "A Vector of n elements.",
-            "Vec<T, n: Nat>",
-            "struct Vec<T, const N: usize>"),
+        ("Refinement", "Let age be an Int where it > 0.",
+            "let age: PosInt = 25; // runtime check",
+            "let age = 25;\ndebug_assert!(age > 0);"),
+        ("Generic", "A Box has: a contents which is Generic.",
+            "struct Box<T> { contents: T }",
+            "struct Box<T> {\n    contents: T,\n}"),
+        ("Enum", "A Color is one of: Red, Green, Blue.",
+            "enum Color { Red, Green, Blue }",
+            "enum Color {\n    Red,\n    Green,\n    Blue,\n}"),
     ],
-    // Phase 5: Proof System
+    // Phase 5: Concurrency
     &[
-        ("Theorem", "The factorial terminates for all naturals.",
-            "For all n in Nat: terminates(factorial(n))",
-            "∀n:ℕ. terminates(factorial(n))"),
-        ("Proof", "By structural induction on n. Auto.",
-            "Proof: induction on n. QED",
-            "induction(n); auto. QED"),
-    ],
-    // Phase 6: Concurrency
-    &[
+        ("Channel", "Let pipe be a new Pipe of Int.\nSend 42 into pipe.",
+            "let (tx, rx) = channel(); tx.send(42);",
+            "let (tx, rx) = channel::<i64>();\ntx.send(42).await;"),
+        ("Agent", "Spawn a Worker called 'w1'.\nSend Ping to 'w1'.",
+            "spawn(Worker, \"w1\"); send(Ping, \"w1\");",
+            "let w1 = tokio::spawn(worker());\ntx.send(Ping).await;"),
         ("Parallel", "Attempt all of the following:\n    Process A.\n    Process B.",
-            "parallel {\n    process_a()\n    process_b()\n}",
-            "join!(process_a(), process_b())"),
-        ("Channel", "Send the message through the channel.",
-            "channel.send(message)",
-            "tx.send(message).await"),
+            "join!(process_a(), process_b())",
+            "tokio::join!(\n    process_a(),\n    process_b()\n);"),
     ],
-    // Phase 7: Standard Library
+    // Phase 6: Distributed Systems
     &[
-        ("I/O", "Read a line from the console.",
-            "read_line(console)",
-            "io::stdin().read_line(&mut buf)"),
-        ("FFI", "Call the external C function.",
-            "external from C",
-            "extern \"C\" { fn external(); }"),
+        ("CRDT", "Let counter be a new Shared GCounter.\nIncrease counter by 10.",
+            "let counter = GCounter::new();\ncounter.increment(10);",
+            "let counter = GCounter::new();\ncounter.increment_by(self_id, 10);"),
+        ("Persist", "Mount data at \"state.json\".",
+            "Persistent::mount(\"state.json\")",
+            "let data = Persistent::<T>::mount(\"state.json\").await?;"),
+        ("Sync", "Sync counter on 'metrics'.",
+            "gossip.sync(counter, \"metrics\")",
+            "gossip.subscribe(\"metrics\");\ngossip.publish(counter);"),
+    ],
+    // Phase 7: Security
+    &[
+        ("Policy", "## Policy\nA User can publish the Document if user's role equals \"editor\".",
+            "fn can_publish(user, doc) -> bool",
+            "impl User {\n    fn can_publish(&self, _: &Document) -> bool {\n        self.role == \"editor\"\n    }\n}"),
+        ("Check", "Check that user can publish the doc.",
+            "check!(user.can_publish(doc))",
+            "if !user.can_publish(&doc) {\n    panic!(\"unauthorized\");\n}"),
+    ],
+    // Phase 8: Proof Assistant
+    &[
+        ("Trust", "Trust that n > 0 because \"positive input\".",
+            "// @requires n > 0",
+            "debug_assert!(n > 0, \"positive input\");"),
+        ("Termination", "While n > 0 (decreasing n):\n    Set n to n minus 1.",
+            "while n > 0 { n -= 1; } // terminates",
+            "// Proven: metric 'n' decreases each iteration\nwhile n > 0 { n -= 1; }"),
+    ],
+    // Phase 9: Universal Compilation
+    &[
+        ("WASM", "Compile for the web.",
+            "largo build --target wasm",
+            "// Coming soon: direct LOGOS → WASM"),
+        ("IDE", "Open the Live Codex.",
+            "largo codex",
+            "// Coming soon: real-time proof visualization"),
     ],
 ];
 
@@ -49657,10 +50254,10 @@ const ROADMAP_STYLE: &str = r#"
     background: linear-gradient(
         180deg,
         #22c55e 0%,
-        #22c55e 28%,
-        #a78bfa 32%,
-        #a78bfa 56%,
-        rgba(255,255,255,0.15) 62%,
+        #22c55e 76%,
+        #a78bfa 80%,
+        #a78bfa 88%,
+        rgba(255,255,255,0.15) 92%,
         rgba(255,255,255,0.08) 100%
     );
     border-radius: 2px;
@@ -50011,7 +50608,7 @@ pub fn Roadmap() -> Element {
 
             section { class: "roadmap-hero",
                 h1 { "LOGOS Roadmap" }
-                p { "From English to executable logic. Track our journey from transpiler to full programming language." }
+                p { "From English sentences to distributed systems. A complete programming language with formal verification." }
             }
 
             div { class: "timeline",
@@ -50024,7 +50621,7 @@ pub fn Roadmap() -> Element {
                             span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "The foundation: parse English, produce First-Order Logic. 901 tests validate 32 linguistic phenomena."
+                            "The foundation: parse English, produce First-Order Logic. 53+ linguistic phenomena from garden paths to discourse."
                         }
                         div { class: "milestone-features",
                             span { class: "feature-tag done", "Lexer" }
@@ -50061,118 +50658,160 @@ pub fn Roadmap() -> Element {
                     }
                 }
 
-                // Phase 3: Codegen Pipeline - IN PROGRESS
+                // Phase 3: Imperative Language - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Codegen Pipeline" }
-                            span { class: "milestone-badge progress", "In Progress" }
+                            span { class: "milestone-title", "Imperative Language" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "From English to native binary. Generate Rust code, compile to executables, target WASM for the web."
+                            "A complete programming language. Functions, structs, enums, pattern matching, standard library, and I/O."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag done", "Rust Codegen" }
                             span { class: "feature-tag done", "Functions" }
                             span { class: "feature-tag done", "Structs" }
-                            span { class: "feature-tag done", "Guards" }
-                            span { class: "feature-tag done", "Iteration" }
-                            span { class: "feature-tag", "Native Compilation" }
-                            span { class: "feature-tag", "WASM Target" }
+                            span { class: "feature-tag done", "Enums" }
+                            span { class: "feature-tag done", "Pattern Matching" }
+                            span { class: "feature-tag done", "Stdlib" }
+                            span { class: "feature-tag done", "I/O" }
                         }
                         MilestoneExamples { index: 2 }
                     }
                 }
 
-                // Phase 4: Type System - IN PROGRESS
+                // Phase 4: Type System - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Type System" }
-                            span { class: "milestone-badge progress", "In Progress" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "Type annotations, inference, and constraints. Catch bugs at compile time with English type syntax."
+                            "Refinement types, generics, and type inference. Catch bugs at compile time with English type syntax."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag done", "Type Annotations" }
-                            span { class: "feature-tag done", "Return Inference" }
-                            span { class: "feature-tag done", "Primitives" }
-                            span { class: "feature-tag", "Dependent Types" }
-                            span { class: "feature-tag", "Refinements" }
+                            span { class: "feature-tag done", "Refinement Types" }
+                            span { class: "feature-tag done", "Generics" }
+                            span { class: "feature-tag done", "Type Inference" }
+                            span { class: "feature-tag done", "Sum Types" }
+                            span { class: "feature-tag done", "Constraints" }
                         }
                         MilestoneExamples { index: 3 }
                     }
                 }
 
-                // Phase 5: Proof System - PLANNED
+                // Phase 5: Concurrency - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot planned" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Proof System" }
-                            span { class: "milestone-badge planned", "Planned" }
+                            span { class: "milestone-title", "Concurrency & Actors" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "Curry-Howard in English. Write proofs as prose. The compiler verifies your reasoning."
+                            "Go-like concurrency with channels, agents, and structured parallelism. Select with timeout, async/await."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag", "Proof Obligations" }
-                            span { class: "feature-tag", "Auto Tactic" }
-                            span { class: "feature-tag", "Induction" }
-                            span { class: "feature-tag", "Totality Checking" }
+                            span { class: "feature-tag done", "Channels" }
+                            span { class: "feature-tag done", "Agents" }
+                            span { class: "feature-tag done", "Tasks" }
+                            span { class: "feature-tag done", "Parallel" }
+                            span { class: "feature-tag done", "Select" }
                         }
                         MilestoneExamples { index: 4 }
                     }
                 }
 
-                // Phase 6: Concurrency - PLANNED
+                // Phase 6: Distributed Systems - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot planned" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Concurrency Model" }
-                            span { class: "milestone-badge planned", "Planned" }
+                            span { class: "milestone-title", "Distributed Systems" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "Structured concurrency with proof obligations. Channels, pipelines, and distributed agents — all verified."
+                            "CRDTs, P2P networking, and persistent storage. Build local-first apps with automatic conflict resolution."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag", "Structured Concurrency" }
-                            span { class: "feature-tag", "Channels" }
-                            span { class: "feature-tag", "Agent Model" }
-                            span { class: "feature-tag", "CSP Processes" }
+                            span { class: "feature-tag done", "CRDTs" }
+                            span { class: "feature-tag done", "P2P" }
+                            span { class: "feature-tag done", "Persistence" }
+                            span { class: "feature-tag done", "GossipSub" }
+                            span { class: "feature-tag done", "Distributed<T>" }
                         }
                         MilestoneExamples { index: 5 }
                     }
                 }
 
-                // Phase 7: Standard Library - PLANNED
+                // Phase 7: Security & Policies - DONE
+                div { class: "milestone",
+                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-content",
+                        div { class: "milestone-header",
+                            span { class: "milestone-title", "Security & Policies" }
+                            span { class: "milestone-badge done", "Complete" }
+                        }
+                        p { class: "milestone-desc",
+                            "Capability-based security with policy blocks. Define who can do what in plain English."
+                        }
+                        div { class: "milestone-features",
+                            span { class: "feature-tag done", "Policy Blocks" }
+                            span { class: "feature-tag done", "Capabilities" }
+                            span { class: "feature-tag done", "Check Guards" }
+                            span { class: "feature-tag done", "Predicates" }
+                        }
+                        MilestoneExamples { index: 6 }
+                    }
+                }
+
+                // Phase 8: Proof Assistant - IN PROGRESS
+                div { class: "milestone",
+                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-content",
+                        div { class: "milestone-header",
+                            span { class: "milestone-title", "Proof Assistant" }
+                            span { class: "milestone-badge progress", "In Progress" }
+                        }
+                        p { class: "milestone-desc",
+                            "Curry-Howard in English. Trust statements, termination proofs, and optional Z3 verification."
+                        }
+                        div { class: "milestone-features",
+                            span { class: "feature-tag done", "Trust Statements" }
+                            span { class: "feature-tag done", "Termination Proofs" }
+                            span { class: "feature-tag done", "Z3 Integration" }
+                            span { class: "feature-tag", "Auto Tactic" }
+                            span { class: "feature-tag", "Induction" }
+                        }
+                        MilestoneExamples { index: 7 }
+                    }
+                }
+
+                // Phase 9: Universal Compilation - PLANNED
                 div { class: "milestone",
                     div { class: "milestone-dot planned" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Standard Library & Beyond" }
+                            span { class: "milestone-title", "Universal Compilation" }
                             span { class: "milestone-badge planned", "Planned" }
                         }
                         p { class: "milestone-desc",
-                            "A complete standard library. FFI for Rust and C. The Live Codex IDE for real-time proof visualization."
+                            "Compile to WASM for the web. The Live Codex IDE for real-time proof visualization."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag", "Core Types" }
-                            span { class: "feature-tag", "I/O Operations" }
-                            span { class: "feature-tag", "FFI" }
+                            span { class: "feature-tag", "WASM Target" }
                             span { class: "feature-tag", "Live Codex IDE" }
                         }
-                        MilestoneExamples { index: 6 }
+                        MilestoneExamples { index: 8 }
                     }
                 }
             }
 
             footer { class: "roadmap-footer",
-                span { "© 2025 Brahmastra Labs LLC  •  Written in Rust 🦀" }
+                span { "© 2026 Brahmastra Labs LLC  •  Written in Rust 🦀" }
                 span { " • " }
                 a {
                     href: "https://github.com/Brahmastra-Labs/logicaffeine",
@@ -56965,7 +57604,17 @@ Use `Set` to change an existing variable. The difference between `Let` and `Set`
 | `Int` | Whole numbers | `5`, `-10`, `0`, `1000000` |
 | `Bool` | True or false | `true`, `false` |
 | `Text` | Strings of characters | `"Hello"`, `"LOGOS"`, `""` |
-| `Float` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+| `Float` / `Real` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+| `Char` | Single character | see examples below |
+| `Byte` | 8-bit unsigned (0-255) | `42: Byte`, `255: Byte` |
+
+### Characters (Char)
+
+Characters represent single Unicode characters, wrapped in backticks. See the example below.
+
+### Bytes (Byte)
+
+Bytes are 8-bit unsigned integers (0-255), useful for binary data and low-level operations.
 
 ### Type Annotations
 
@@ -57007,6 +57656,30 @@ Let first be "Hello".
 Let second be "World".
 Let message be first + ", " + second + "!".
 Show message."#,
+            },
+            CodeExample {
+                id: "char-literals",
+                label: "Character Literals",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let letter be `a`.
+Let newline be `\n`.
+Let tab be `\t`.
+Let escaped be `\\`.
+Show letter.
+Show "Char type uses backticks"."#,
+            },
+            CodeExample {
+                id: "byte-type",
+                label: "Byte Type",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let max: Byte be 255.
+Let min: Byte be 0.
+Let mid: Byte be 128.
+Show max.
+Show min.
+Show mid."#,
             },
         ],
     },
@@ -57245,12 +57918,14 @@ Show factorial(5)."#,
         title: "Collections",
         part: "Part I: Programming in LOGOS",
         content: r#"
-Collections hold multiple values. LOGOS provides two main collection types:
+Collections hold multiple values. LOGOS provides four main collection types:
 
 | Collection | Description | Index Type |
 |------------|-------------|------------|
 | `Seq of T` | Ordered list | Int (1-based) |
 | `Map of K to V` | Key-value pairs | Any key type |
+| `Set of T` | Unique elements | N/A (membership) |
+| `Tuple` | Fixed-size, mixed types | Int (1-based) |
 
 ### Creating Lists
 
@@ -57278,10 +57953,10 @@ Maps store key-value pairs. Unlike lists which use integer indexing, maps use ke
 `Let prices be a new Map of Text to Int.`
 
 **Access a value by key:**
-`Let cost be item "iron" of prices.`
+`Let cost be prices["iron"].`
 
 **Set a value by key:**
-`Set item "iron" of prices to 100.`
+`Set prices["iron"] to 100.`
 
 Maps are useful for lookups, caches, and associating data without needing a struct.
 
@@ -57296,6 +57971,42 @@ Both lists and maps support bracket indexing as an alternative to `item X of`:
 | `Set item "key" of map to val.` | `Set map["key"] to val.` |
 
 Both compile to the same code—use whichever reads better in context.
+
+### Sets
+
+Sets store unique elements with no duplicates. Unlike lists, sets have no order and no index.
+
+**Create a set:**
+`Let numbers be a new Set of Int.`
+
+**Add elements:**
+`Add 5 to numbers.`
+
+**Remove elements:**
+`Remove 5 from numbers.`
+
+**Check membership:**
+`If numbers contains 5:` or `If 5 in numbers:`
+
+**Set operations:**
+- `a union b` — elements in either set
+- `a intersection b` — elements in both sets
+
+### Tuples
+
+Tuples are fixed-size collections that can hold values of different types. Unlike lists, tuples can mix integers, text, and other types in a single collection.
+
+**Create a tuple:**
+`Let point be (10, 20).`
+`Let record be ("Alice", 25, true).`
+
+**Access elements (1-indexed):**
+`Let x be point[1].` or `Let x be item 1 of point.`
+
+**Get length:**
+`Let size be length of record.`
+
+Tuples are useful for returning multiple values from functions or grouping related but differently-typed data without defining a struct.
 "#,
         examples: &[
             CodeExample {
@@ -57352,10 +58063,12 @@ Show "Total: " + total."#,
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Let prices be a new Map of Text to Int.
-Set item "iron" of prices to 10.
-Set item "copper" of prices to 25.
-Set item "gold" of prices to 100.
-Show "Map created with 3 items"."#,
+Set prices["iron"] to 10.
+Set prices["copper"] to 25.
+Set prices["gold"] to 100.
+Show "Iron: " + prices["iron"].
+Show "Copper: " + prices["copper"].
+Show "Gold: " + prices["gold"]."#,
             },
             CodeExample {
                 id: "map-access",
@@ -57363,10 +58076,10 @@ Show "Map created with 3 items"."#,
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Let inventory be a new Map of Text to Int.
-Set item "wood" of inventory to 50.
-Set item "stone" of inventory to 30.
+Set inventory["wood"] to 50.
+Set inventory["stone"] to 30.
 
-Let wood_count be item "wood" of inventory.
+Let wood_count be inventory["wood"].
 Show "Wood: " + wood_count."#,
             },
             CodeExample {
@@ -57375,11 +58088,11 @@ Show "Wood: " + wood_count."#,
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Let scores be a new Map of Text to Int.
-Set item "Alice" of scores to 100.
-Show "Initial: " + item "Alice" of scores.
+Set scores["Alice"] to 100.
+Show "Initial: " + scores["Alice"].
 
-Set item "Alice" of scores to 150.
-Show "Updated: " + item "Alice" of scores."#,
+Set scores["Alice"] to 150.
+Show "Updated: " + scores["Alice"]."#,
             },
             CodeExample {
                 id: "bracket-syntax",
@@ -57396,6 +58109,98 @@ Show items[1].
 Show prices["iron"].
 Set items[2] to 99.
 Show items[2]."#,
+            },
+            CodeExample {
+                id: "set-create",
+                label: "Creating Sets",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be a new Set of Int.
+Add 1 to numbers.
+Add 2 to numbers.
+Add 3 to numbers.
+Add 1 to numbers.
+Show numbers."#,
+            },
+            CodeExample {
+                id: "set-contains",
+                label: "Set Membership",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let primes be a new Set of Int.
+Add 2 to primes.
+Add 3 to primes.
+Add 5 to primes.
+Add 7 to primes.
+
+If primes contains 3:
+    Show "3 is prime".
+If primes contains 4:
+    Show "4 is prime".
+Otherwise:
+    Show "4 is not prime"."#,
+            },
+            CodeExample {
+                id: "set-remove",
+                label: "Adding and Removing",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let colors be a new Set of Text.
+Add "red" to colors.
+Add "green" to colors.
+Add "blue" to colors.
+Show colors.
+
+Remove "green" from colors.
+Show colors."#,
+            },
+            CodeExample {
+                id: "set-operations",
+                label: "Set Operations",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let a be a new Set of Int.
+Let b be a new Set of Int.
+
+Add 1 to a. Add 2 to a. Add 3 to a.
+Add 2 to b. Add 3 to b. Add 4 to b.
+
+Let both be a intersection b.
+Let either be a union b.
+Show "Intersection: " + both.
+Show "Union: " + either."#,
+            },
+            CodeExample {
+                id: "tuple-create",
+                label: "Creating Tuples",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let point be (10, 20).
+Let record be ("Alice", 25, true).
+Show point.
+Show record."#,
+            },
+            CodeExample {
+                id: "tuple-access",
+                label: "Accessing Tuple Elements",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let data be ("answer", 42).
+Let label be data[1].
+Let value be data[2].
+Show label.
+Show value."#,
+            },
+            CodeExample {
+                id: "tuple-mixed",
+                label: "Mixed-Type Tuples",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let person be ("Bob", 30, 5.9).
+Show item 1 of person.
+Show item 2 of person.
+Show item 3 of person.
+Show length of person."#,
             },
         ],
     },
@@ -57675,7 +58480,6 @@ Show "Zone freed!"."#,
                 code: r#"## Main
 Inside a zone called "LargeBuffer" of size 2 MB:
     Let data be [1, 2, 3, 4, 5].
-    Show "Allocated in 2MB zone".
     Show data."#,
             },
             CodeExample {
@@ -57692,10 +58496,13 @@ Inside a zone called "SmallArena" of size 64 KB:
                 id: "zone-mapped",
                 label: "Memory-Mapped Zone (Compiled Only)",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Inside a zone called "FileData" mapped from "data.bin":
-    Show "File mapped into memory".
-Show "Zone unmapped"."#,
+                code: r#"## To process_file (path: Text):
+    Inside a zone called "Data" mapped from path:
+        Show "Processing: " + path.
+
+## Main
+process_file("config.bin").
+process_file("assets.bin")."#,
             },
         ],
     },
@@ -57995,7 +58802,10 @@ A Profile is Shared and has:
 
 ## Main
 Let p be a new Profile.
-Show "Profile created"."#,
+Set p's name to "Alice".
+Set p's score to 100.
+Show p's name.
+Show p's score."#,
             },
             CodeExample {
                 id: "crdt-merge",
@@ -58042,7 +58852,7 @@ A Profile is Shared and has:
 Let mutable p be a new Profile.
 Sync p on "player-data".
 Increase p's level by 1.
-Show "Profile synced"."#,
+Show p's level."#,
             },
             CodeExample {
                 id: "crdt-persistent",
@@ -58226,8 +59036,8 @@ A Greeting is Portable and has:
 ## Main
 Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
 Let msg be a new Greeting with message "Hello, peer!".
-Send msg to remote.
-Show "Message sent"."#,
+Show "Sending: " + msg's message.
+Send msg to remote."#,
             },
         ],
     },
@@ -58378,12 +59188,15 @@ By default, all definitions are public. Mark fields private with no `public` mod
         examples: &[
             CodeExample {
                 id: "module-import",
-                label: "Importing Modules",
+                label: "Importing Modules (Compiled Only)",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "Module syntax:".
-Show "Use Math.".
-Show "Let x be Math's square(5)."."#,
+                code: r#"## To square (n: Int) -> Int:
+    Return n * n.
+
+## Main
+Let x be 5.
+Let result be square(x).
+Show "5 squared = " + result."#,
             },
         ],
     },
@@ -58793,6 +59606,17 @@ Show "Positives: " + positives."#,
 - `A TypeName is either:` ... — Define enum
 - `Inspect x: When Variant:` ... — Pattern match
 
+**Primitive Types:**
+
+| Type | Description | Examples |
+|------|-------------|----------|
+| `Int` | Whole numbers | `5`, `-10`, `0` |
+| `Bool` | True or false | `true`, `false` |
+| `Text` | Strings | `"Hello"`, `""` |
+| `Float` / `Real` | Decimals | `3.14`, `-0.5` |
+| `Char` | Single character | backtick syntax |
+| `Byte` | 8-bit unsigned | `42: Byte`, `255: Byte` |
+
 **Lists (Seq):**
 - `[1, 2, 3]` — List literal
 - `item 1 of items` or `items[1]` — Access (1-indexed)
@@ -58804,6 +59628,20 @@ Show "Positives: " + positives."#,
 - `a new Map of Text to Int` — Create empty map
 - `item "key" of map` or `map["key"]` — Get value by key
 - `Set item "key" of map to val.` or `Set map["key"] to val.` — Set value
+
+**Sets:**
+- `Set of T` — Set type (unique elements)
+- `a new Set of Int` — Create empty set
+- `Add x to set.` — Add element
+- `Remove x from set.` — Remove element
+- `set contains x` — Check membership
+- `a union b` — Elements in either set
+- `a intersection b` — Elements in both sets
+
+**Tuples:**
+- `(1, "two", 3.0)` — Tuple literal (mixed types allowed)
+- `t[1]` or `item 1 of t` — Access (1-indexed)
+- `length of t` — Get tuple size
 
 ### Ownership Verbs
 
@@ -61149,7 +61987,7 @@ pub mod fmt {
 
 pub mod prelude {
     pub use crate::io::{show, read_line, println, eprintln, print, Showable};
-    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq, Map};
+    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Char, Byte, Seq, Map, Set, LogosContains, Value, Tuple};
     pub use crate::panic_with;
     pub use crate::fmt::format;
     // Phase 57: Polymorphic indexing traits
@@ -61206,14 +62044,16 @@ mod tests {
 
 ---
 
-### Type Aliases
+### Type Aliases & Collections
 
 **File:** `logos_core/src/types.rs`
 
-Rust type aliases per Spec §10.6.1: Nat→u64, Int→i64, Real→f64, Text→String, Bool→bool, Unit→().
+Type aliases per Spec §10.6.1: Nat→u64, Int→i64, Real→f64, Text→String, Bool→bool, Unit→(), Char→char, Byte→u8. Collections: Seq<T>→Vec<T>, Map<K,V>→HashMap, Set<T>→HashSet. Value enum for heterogeneous tuples with Showable impl and arithmetic operators. LogosContains trait for polymorphic contains.
 
 ```rust
 //! Core Type Definitions (Spec 3.2)
+
+use std::hash::Hash;
 
 pub type Nat = u64;
 pub type Int = i64;
@@ -61221,12 +62061,317 @@ pub type Real = f64;
 pub type Text = String;
 pub type Bool = bool;
 pub type Unit = ();
+pub type Char = char;
+pub type Byte = u8;
 
 // Phase 30: Collections
 pub type Seq<T> = Vec<T>;
 
 // Phase 57: Map type alias
 pub type Map<K, V> = std::collections::HashMap<K, V>;
+
+// Set collection type
+pub type Set<T> = std::collections::HashSet<T>;
+
+/// Unified contains trait for all collection types
+pub trait LogosContains<T> {
+    fn logos_contains(&self, value: &T) -> bool;
+}
+
+impl<T: PartialEq> LogosContains<T> for Vec<T> {
+    fn logos_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
+impl<T: Eq + Hash> LogosContains<T> for std::collections::HashSet<T> {
+    fn logos_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
+impl<K: Eq + Hash, V> LogosContains<K> for std::collections::HashMap<K, V> {
+    fn logos_contains(&self, key: &K) -> bool {
+        self.contains_key(key)
+    }
+}
+
+impl LogosContains<&str> for String {
+    fn logos_contains(&self, value: &&str) -> bool {
+        self.contains(*value)
+    }
+}
+
+impl LogosContains<char> for String {
+    fn logos_contains(&self, value: &char) -> bool {
+        self.contains(*value)
+    }
+}
+
+/// Dynamic value type for heterogeneous collections (tuples)
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
+    Char(char),
+    Nothing,
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Int(n) => write!(f, "{}", n),
+            Value::Float(n) => write!(f, "{}", n),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Text(s) => write!(f, "{}", s),
+            Value::Char(c) => write!(f, "{}", c),
+            Value::Nothing => write!(f, "nothing"),
+        }
+    }
+}
+
+// Conversion traits for Value
+impl From<i64> for Value {
+    fn from(n: i64) -> Self { Value::Int(n) }
+}
+
+impl From<f64> for Value {
+    fn from(n: f64) -> Self { Value::Float(n) }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self { Value::Bool(b) }
+}
+
+impl From<String> for Value {
+    fn from(s: String) -> Self { Value::Text(s) }
+}
+
+impl From<&str> for Value {
+    fn from(s: &str) -> Self { Value::Text(s.to_string()) }
+}
+
+impl From<char> for Value {
+    fn from(c: char) -> Self { Value::Char(c) }
+}
+
+/// Tuple type: Vec of heterogeneous Values (uses LogosIndex from indexing module)
+pub type Tuple = Vec<Value>;
+
+// Implement Showable for Value
+impl crate::io::Showable for Value {
+    fn format_show(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Value::Int(n) => write!(f, "{}", n),
+            Value::Float(n) => write!(f, "{}", n),
+            Value::Bool(b) => write!(f, "{}", b),
+            Value::Text(s) => write!(f, "{}", s),
+            Value::Char(c) => write!(f, "{}", c),
+            Value::Nothing => write!(f, "nothing"),
+        }
+    }
+}
+
+// Arithmetic operations for Value
+impl std::ops::Add for Value {
+    type Output = Value;
+
+    fn add(self, other: Value) -> Value {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 + b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a + b as f64),
+            (Value::Text(a), Value::Text(b)) => Value::Text(format!("{}{}", a, b)),
+            _ => panic!("Cannot add these value types"),
+        }
+    }
+}
+
+impl std::ops::Sub for Value {
+    type Output = Value;
+
+    fn sub(self, other: Value) -> Value {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 - b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a - b as f64),
+            _ => panic!("Cannot subtract these value types"),
+        }
+    }
+}
+
+impl std::ops::Mul for Value {
+    type Output = Value;
+
+    fn mul(self, other: Value) -> Value {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 * b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a * b as f64),
+            _ => panic!("Cannot multiply these value types"),
+        }
+    }
+}
+
+impl std::ops::Div for Value {
+    type Output = Value;
+
+    fn div(self, other: Value) -> Value {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => Value::Int(a / b),
+            (Value::Float(a), Value::Float(b)) => Value::Float(a / b),
+            (Value::Int(a), Value::Float(b)) => Value::Float(a as f64 / b),
+            (Value::Float(a), Value::Int(b)) => Value::Float(a / b as f64),
+            _ => panic!("Cannot divide these value types"),
+        }
+    }
+}
+
+```
+
+---
+
+### Polymorphic Indexing
+
+**File:** `logos_core/src/indexing.rs`
+
+LogosIndex and LogosIndexMut traits for 1-based indexing. Implementations for Vec<T> (converts 1-based to 0-based) and HashMap<K,V> (key-based). Enables 'item N of collection' and bracket access t[N] syntax.
+
+```rust
+//! Phase 57: Polymorphic Indexing
+//!
+//! Provides trait-based indexing that handles:
+//! - Vec<T> with i64 (1-based, converted to 0-based)
+//! - HashMap<K, V> with K (pass-through)
+
+use std::collections::HashMap;
+use std::hash::Hash;
+
+/// Get element by index (immutable).
+pub trait LogosIndex<I> {
+    type Output;
+    fn logos_get(&self, index: I) -> Self::Output;
+}
+
+/// Set element by index (mutable).
+pub trait LogosIndexMut<I>: LogosIndex<I> {
+    fn logos_set(&mut self, index: I, value: Self::Output);
+}
+
+// === Vec<T> with i64 (1-based indexing) ===
+
+impl<T: Clone> LogosIndex<i64> for Vec<T> {
+    type Output = T;
+
+    fn logos_get(&self, index: i64) -> T {
+        if index < 1 {
+            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
+        }
+        let idx = (index - 1) as usize;
+        if idx >= self.len() {
+            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
+        }
+        self[idx].clone()
+    }
+}
+
+impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
+    fn logos_set(&mut self, index: i64, value: T) {
+        if index < 1 {
+            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
+        }
+        let idx = (index - 1) as usize;
+        if idx >= self.len() {
+            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
+        }
+        self[idx] = value;
+    }
+}
+
+// === HashMap<K, V> with K (key-based indexing) ===
+
+impl<K: Eq + Hash, V: Clone> LogosIndex<K> for HashMap<K, V> {
+    type Output = V;
+
+    fn logos_get(&self, key: K) -> V {
+        self.get(&key).cloned().expect("Key not found in map")
+    }
+}
+
+impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for HashMap<K, V> {
+    fn logos_set(&mut self, key: K, value: V) {
+        self.insert(key, value);
+    }
+}
+
+// === &str convenience for HashMap<String, V> ===
+
+impl<V: Clone> LogosIndex<&str> for HashMap<String, V> {
+    type Output = V;
+
+    fn logos_get(&self, key: &str) -> V {
+        self.get(key).cloned().expect("Key not found in map")
+    }
+}
+
+impl<V: Clone> LogosIndexMut<&str> for HashMap<String, V> {
+    fn logos_set(&mut self, key: &str, value: V) {
+        self.insert(key.to_string(), value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vec_1_based_indexing() {
+        let v = vec![10, 20, 30];
+        assert_eq!(LogosIndex::logos_get(&v, 1i64), 10);
+        assert_eq!(LogosIndex::logos_get(&v, 2i64), 20);
+        assert_eq!(LogosIndex::logos_get(&v, 3i64), 30);
+    }
+
+    #[test]
+    #[should_panic(expected = "1-based indexing")]
+    fn vec_zero_index_panics() {
+        let v = vec![10, 20, 30];
+        let _ = LogosIndex::logos_get(&v, 0i64);
+    }
+
+    #[test]
+    fn vec_set_1_based() {
+        let mut v = vec![10, 20, 30];
+        LogosIndexMut::logos_set(&mut v, 2i64, 99);
+        assert_eq!(v, vec![10, 99, 30]);
+    }
+
+    #[test]
+    fn hashmap_string_key() {
+        let mut m: HashMap<String, i64> = HashMap::new();
+        m.insert("iron".to_string(), 42);
+        assert_eq!(LogosIndex::logos_get(&m, "iron".to_string()), 42);
+    }
+
+    #[test]
+    fn hashmap_str_key() {
+        let mut m: HashMap<String, i64> = HashMap::new();
+        m.insert("iron".to_string(), 42);
+        assert_eq!(LogosIndex::logos_get(&m, "iron"), 42);
+    }
+
+    #[test]
+    fn hashmap_set_key() {
+        let mut m: HashMap<String, i64> = HashMap::new();
+        LogosIndexMut::logos_set(&mut m, "iron", 42i64);
+        assert_eq!(m.get("iron"), Some(&42));
+    }
+}
 
 ```
 
@@ -61281,6 +62426,18 @@ impl Showable for f64 {
 }
 
 impl Showable for bool {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for u8 {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for char {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
@@ -67951,6 +69108,18 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
                 targets.insert(*sym);
             }
         }
+        Stmt::Add { collection, .. } => {
+            // If collection is an identifier (Set), it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Remove { collection, .. } => {
+            // If collection is an identifier (Set), it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
         Stmt::SetIndex { collection, .. } => {
             // If collection is an identifier, it needs to be mutable
             if let Expr::Identifier(sym) = collection {
@@ -68472,6 +69641,13 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                         "std::collections::HashMap<String, String>".to_string()
                     }
                 }
+                "Set" | "HashSet" => {
+                    if !params_str.is_empty() {
+                        format!("std::collections::HashSet<{}>", params_str[0])
+                    } else {
+                        "std::collections::HashSet<()>".to_string()
+                    }
+                }
                 other => {
                     if params_str.is_empty() {
                         other.to_string()
@@ -68521,6 +69697,8 @@ fn map_type_to_rust(ty: &str) -> String {
         "Text" => "String".to_string(),
         "Bool" | "Boolean" => "bool".to_string(),
         "Real" => "f64".to_string(),
+        "Char" => "char".to_string(),
+        "Byte" => "u8".to_string(),
         "Unit" | "()" => "()".to_string(),
         other => other.to_string(),
     }
@@ -68674,6 +69852,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Text" => "String".to_string(),
                 "Bool" | "Boolean" => "bool".to_string(),
                 "Real" => "f64".to_string(),
+                "Char" => "char".to_string(),
+                "Byte" => "u8".to_string(),
                 "Unit" => "()".to_string(),
                 other => other.to_string(),
             }
@@ -68689,6 +69869,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
+                "Set" => "std::collections::HashSet",
+                "Map" => "std::collections::HashMap",
                 "Option" => "Option",
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
@@ -69259,6 +70441,18 @@ pub fn codegen_stmt<'a>(
             }
         }
 
+        Stmt::Add { value, collection } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
+        }
+
+        Stmt::Remove { value, collection } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
+        }
+
         Stmt::SetIndex { collection, index, value } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
@@ -69605,6 +70799,25 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
             format!("({}.len() as i64)", coll_str)
         }
 
+        Expr::Contains { collection, value } => {
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            // Use LogosContains trait for unified contains across List, Set, Map, Text
+            format!("{}.logos_contains(&{})", coll_str, val_str)
+        }
+
+        Expr::Union { left, right } => {
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
+            format!("{}.union(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+        }
+
+        Expr::Intersection { left, right } => {
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
+            format!("{}.intersection(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+        }
+
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
             let zone_str = codegen_expr(zone, interner, synced_vars);
@@ -69622,6 +70835,14 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
             let item_strs: Vec<String> = items.iter()
                 .map(|i| codegen_expr(i, interner, synced_vars))
                 .collect();
+            format!("vec![{}]", item_strs.join(", "))
+        }
+
+        Expr::Tuple(ref items) => {
+            let item_strs: Vec<String> = items.iter()
+                .map(|i| format!("Value::from({})", codegen_expr(i, interner, synced_vars)))
+                .collect();
+            // Tuples as Vec<Value> for heterogeneous support
             format!("vec![{}]", item_strs.join(", "))
         }
 
@@ -69697,10 +70918,24 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
 fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
     match lit {
         Literal::Number(n) => n.to_string(),
+        Literal::Float(f) => format!("{}f64", f),
         // String literals are converted to String for consistent Text type handling
         Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
+        // Character literals
+        Literal::Char(c) => {
+            // Handle escape sequences for special characters
+            match c {
+                '\n' => "'\\n'".to_string(),
+                '\t' => "'\\t'".to_string(),
+                '\r' => "'\\r'".to_string(),
+                '\\' => "'\\\\'".to_string(),
+                '\'' => "'\\''".to_string(),
+                '\0' => "'\\0'".to_string(),
+                c => format!("'{}'", c),
+            }
+        }
     }
 }
 
@@ -71490,7 +72725,11 @@ pub enum RuntimeValue {
     Float(f64),
     Bool(bool),
     Text(String),
+    Char(char),
     List(Vec<RuntimeValue>),
+    Tuple(Vec<RuntimeValue>),  // Heterogeneous tuple
+    Set(Vec<RuntimeValue>),  // HashSet equivalent - Vec for simplicity in interpreter
+    Map(HashMap<String, RuntimeValue>),
     Struct {
         type_name: String,
         fields: HashMap<String, RuntimeValue>,
@@ -71505,7 +72744,11 @@ impl RuntimeValue {
             RuntimeValue::Float(_) => "Float",
             RuntimeValue::Bool(_) => "Bool",
             RuntimeValue::Text(_) => "Text",
+            RuntimeValue::Char(_) => "Char",
             RuntimeValue::List(_) => "List",
+            RuntimeValue::Tuple(_) => "Tuple",
+            RuntimeValue::Set(_) => "Set",
+            RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct { .. } => "Struct",
             RuntimeValue::Nothing => "Nothing",
         }
@@ -71526,9 +72769,24 @@ impl RuntimeValue {
             RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
             RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::Char(c) => c.to_string(),
             RuntimeValue::List(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Tuple(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("({})", parts.join(", "))
+            }
+            RuntimeValue::Set(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("{{{}}}", parts.join(", "))
+            }
+            RuntimeValue::Map(m) => {
+                let pairs: Vec<String> = m.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                    .collect();
+                format!("{{{}}}", pairs.join(", "))
             }
             RuntimeValue::Struct { type_name, fields } => {
                 if fields.is_empty() {
@@ -71762,24 +73020,68 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
+            Stmt::Add { value, collection } => {
+                let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::Set(ref mut items) = coll_val {
+                        // Only add if not already present
+                        if !items.iter().any(|x| self.values_equal(x, &val)) {
+                            items.push(val);
+                        }
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only add to a Set".to_string());
+                    }
+                } else {
+                    return Err("Add collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Remove { value, collection } => {
+                let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::Set(ref mut items) = coll_val {
+                        items.retain(|x| !self.values_equal(x, &val));
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only remove from a Set".to_string());
+                    }
+                } else {
+                    return Err("Remove collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
             Stmt::SetIndex { collection, index, value } => {
                 let idx_val = self.evaluate_expr(index).await?;
                 let new_val = self.evaluate_expr(value).await?;
-                let idx = match idx_val {
-                    RuntimeValue::Int(n) => n as usize,
-                    _ => return Err("Index must be an integer".to_string()),
-                };
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::List(ref mut items) = coll_val {
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                    match (&mut coll_val, &idx_val) {
+                        (RuntimeValue::List(ref mut items), RuntimeValue::Int(n)) => {
+                            let idx = *n as usize;
+                            if idx == 0 || idx > items.len() {
+                                return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                            }
+                            items[idx - 1] = new_val;
                         }
-                        items[idx - 1] = new_val;
-                        self.assign(*coll_sym, coll_val)?;
-                    } else {
-                        return Err("Can only index into a List".to_string());
+                        (RuntimeValue::Map(ref mut map), RuntimeValue::Text(key)) => {
+                            map.insert(key.clone(), new_val);
+                        }
+                        (RuntimeValue::List(_), _) => {
+                            return Err("List index must be an integer".to_string());
+                        }
+                        (RuntimeValue::Map(_), _) => {
+                            return Err("Map key must be a string".to_string());
+                        }
+                        _ => {
+                            return Err(format!("Cannot index into {}", coll_val.type_name()));
+                        }
                     }
+                    self.assign(*coll_sym, coll_val)?;
                 } else {
                     return Err("SetIndex collection must be an identifier".to_string());
                 }
@@ -72028,12 +73330,25 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(items[idx - 1].clone())
                     }
+                    (RuntimeValue::Tuple(items), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
                     (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
                         let idx = *idx as usize;
                         if idx == 0 || idx > s.len() {
                             return Err(format!("Index {} out of bounds", idx));
                         }
                         Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
+                    }
+                    (RuntimeValue::Map(map), RuntimeValue::Text(key)) => {
+                        match map.get(key) {
+                            Some(val) => Ok(val.clone()),
+                            None => Err(format!("Key '{}' not found in map", key)),
+                        }
                     }
                     _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
                 }
@@ -72062,8 +73377,76 @@ impl<'a> Interpreter<'a> {
                 let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
                     _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Contains { collection, value } => {
+                let coll_val = self.evaluate_expr(collection).await?;
+                let val = self.evaluate_expr(value).await?;
+                match &coll_val {
+                    RuntimeValue::Set(items) => {
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::List(items) => {
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::Map(entries) => {
+                        // For maps, check if key exists (keys are Strings)
+                        if let RuntimeValue::Text(key) = &val {
+                            Ok(RuntimeValue::Bool(entries.contains_key(key)))
+                        } else {
+                            Err(format!("Map key must be Text, got {}", val.type_name()))
+                        }
+                    }
+                    RuntimeValue::Text(s) => {
+                        // For text, check if substring exists
+                        if let RuntimeValue::Text(needle) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
+                        } else if let RuntimeValue::Char(c) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(*c)))
+                        } else {
+                            Err(format!("Cannot check if Text contains {}", val.type_name()))
+                        }
+                    }
+                    _ => Err(format!("Cannot check contains on {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Union { left, right } => {
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let mut result = a.clone();
+                        for item in b.iter() {
+                            if !result.iter().any(|x| self.values_equal(x, item)) {
+                                result.push(item.clone());
+                            }
+                        }
+                        Ok(RuntimeValue::Set(result))
+                    }
+                    _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
+                }
+            }
+
+            Expr::Intersection { left, right } => {
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let result: Vec<RuntimeValue> = a.iter()
+                            .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
+                            .cloned()
+                            .collect();
+                        Ok(RuntimeValue::Set(result))
+                    }
+                    _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
                 }
             }
 
@@ -72074,6 +73457,14 @@ impl<'a> Interpreter<'a> {
                     values.push(self.evaluate_expr(e).await?);
                 }
                 Ok(RuntimeValue::List(values))
+            }
+
+            Expr::Tuple(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr(e).await?);
+                }
+                Ok(RuntimeValue::Tuple(values))
             }
 
             Expr::Range { start, end } => {
@@ -72107,6 +73498,14 @@ impl<'a> Interpreter<'a> {
 
                 if name == "Seq" || name == "List" {
                     return Ok(RuntimeValue::List(vec![]));
+                }
+
+                if name == "Set" || name == "HashSet" {
+                    return Ok(RuntimeValue::Set(vec![]));
+                }
+
+                if name == "Map" || name == "HashMap" {
+                    return Ok(RuntimeValue::Map(HashMap::new()));
                 }
 
                 let mut fields = HashMap::new();
@@ -72143,9 +73542,11 @@ impl<'a> Interpreter<'a> {
     fn evaluate_literal(&self, lit: &Literal) -> Result<RuntimeValue, String> {
         match lit {
             Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
+            Literal::Float(f) => Ok(RuntimeValue::Float(*f)),
             Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),
+            Literal::Char(c) => Ok(RuntimeValue::Char(*c)),
         }
     }
 
@@ -72266,6 +73667,7 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
             (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
             (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
             (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
             _ => false,
         }
@@ -76813,11 +78215,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Thu Jan  1 00:29:00 CST 2026
+- **Generated:** Thu Jan  1 02:26:49 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 349bb21
-- **Documentation Size:** 3.0M
+- **Git Commit:** 577975a
+- **Documentation Size:** 2.6M
 
 ---
 
