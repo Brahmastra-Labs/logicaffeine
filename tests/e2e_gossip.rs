@@ -15,6 +15,7 @@ use common::run_logos;
 /// through automatic CRDT replication - no explicit Send required.
 ///
 /// This test runs two separate processes to ensure proper mDNS discovery.
+/// Uses a unique topic per test run to prevent cross-talk in parallel CI.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn test_crdt_gossip_convergence() {
@@ -22,42 +23,46 @@ fn test_crdt_gossip_convergence() {
     use std::thread;
     use std::time::Duration;
 
+    // Generate unique topic ID to prevent cross-talk between parallel test runs
+    let topic_id = format!("game_sync_{}_{}", std::process::id(), std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());
+
     // Node A: Publishes after discovering peers and mesh formation
     // Listen on 0.0.0.0 with random port to avoid conflicts
-    let source_a = r#"## Definition
+    let source_a = format!(r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
 ## Main
 Listen on "/ip4/0.0.0.0/tcp/0".
 Let state be a new GameState.
-Sync state on "game_sync".
-Sleep 8000.
+Sync state on "{}".
+Sleep 10000.
 Increase state's clicks by 5.
 Show "NODE_A: published 5".
-Sleep 4000.
-"#;
+Sleep 5000.
+"#, topic_id);
 
     // Node B: Waits and reads the synced value
-    let source_b = r#"## Definition
+    let source_b = format!(r#"## Definition
 A GameState is Shared and has:
     clicks: ConvergentCount.
 
 ## Main
 Listen on "/ip4/0.0.0.0/tcp/0".
 Let state be a new GameState.
-Sync state on "game_sync".
-Sleep 14000.
+Sync state on "{}".
+Sleep 17000.
 Show state's clicks.
 If state's clicks equals 5:
     Show "SYNC_SUCCESS".
-"#;
+"#, topic_id);
 
     // Compile both programs
-    let result_a = common::compile_logos(source_a);
+    let result_a = common::compile_logos(&source_a);
     assert!(result_a.success, "Node A should compile: {}", result_a.stderr);
 
-    let result_b = common::compile_logos(source_b);
+    let result_b = common::compile_logos(&source_b);
     assert!(result_b.success, "Node B should compile: {}", result_b.stderr);
 
     // Run both as separate processes
