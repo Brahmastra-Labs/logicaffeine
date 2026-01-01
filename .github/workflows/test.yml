@@ -8,9 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Reduce linker memory usage
-  CARGO_BUILD_JOBS: 2
-  RUSTFLAGS: "-C link-arg=-Wl,--threads=1"
+  # Reduce parallel compilation to save memory
+  CARGO_BUILD_JOBS: 1
 
 jobs:
   test:
@@ -21,13 +20,25 @@ jobs:
       - name: Add swap space
         run: |
           sudo swapoff -a
-          sudo fallocate -l 8G /swapfile
+          sudo fallocate -l 16G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
 
+      - name: Install mold linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mold
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure mold linker
+        run: |
+          mkdir -p .cargo
+          echo '[target.x86_64-unknown-linux-gnu]' >> .cargo/config.toml
+          echo 'linker = "clang"' >> .cargo/config.toml
+          echo 'rustflags = ["-C", "link-arg=-fuse-ld=mold"]' >> .cargo/config.toml
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -38,10 +49,10 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-mold-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build
 
       - name: Run tests
-        run: cargo test --jobs 1 -- --skip e2e --test-threads=1
+        run: cargo test --jobs 1 -- --skip e2e --test-threads=2
