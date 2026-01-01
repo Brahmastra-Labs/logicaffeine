@@ -49,7 +49,7 @@ impl PartialOrd for YataId {
 }
 
 /// A YATA item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct YataItem<T> {
     pub id: YataId,
     pub value: T,
@@ -64,7 +64,7 @@ pub struct YataItem<T> {
 ///
 /// Better handling of interleaving for collaborative text editing
 /// compared to RGA.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct YATA<T> {
     items: Vec<YataItem<T>>,
     clock: u64,

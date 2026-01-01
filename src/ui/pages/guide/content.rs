@@ -1271,15 +1271,49 @@ Mark a struct as `Shared` to enable automatic merge support. The compiler genera
 | Type | Description | Operations |
 |------|-------------|------------|
 | `ConvergentCount` | Counter that only grows | `Increase` |
-| `LastWriteWins of T` | Register with timestamp-based conflict resolution | Assignment |
+| `Tally` | Counter that grows and shrinks | `Increase`, `Decrease` |
+| `LastWriteWins of T` | Register with timestamp-based conflict resolution | `Set` |
+| `Divergent T` | Register that preserves concurrent values | `Set`, `Resolve` |
+| `SharedSet of T` | Set with add/remove support | `Add`, `Remove`, `contains` |
+| `SharedSequence of T` | Ordered list (RGA algorithm) | `Append`, `length of` |
+| `CollaborativeSequence of T` | Text-optimized sequence (YATA) | `Append`, `length of` |
+| `SharedMap from K to V` | Key-value CRDT map | `[]` access and assignment |
 
 ### ConvergentCount
 
-A grow-only counter. Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+A grow-only counter (G-Counter). Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+
+### Tally
+
+A bidirectional counter (PN-Counter) that supports both increment and decrement. Unlike ConvergentCount, values can go up and down—even negative. Useful for scores, balances, and temperatures.
 
 ### LastWriteWins
 
 A register that resolves conflicts by timestamp. The most recent write wins. Works with any type: `Text`, `Int`, `Bool`, etc.
+
+### Divergent
+
+A multi-value register that preserves all concurrent writes instead of silently picking a winner. When replicas write different values concurrently, both are kept until you explicitly `Resolve` the conflict. Useful for collaborative editing where conflicts should be visible.
+
+### SharedSet
+
+An observed-remove set (OR-Set) that supports both adding and removing elements. By default uses **add-wins** semantics: if one replica adds while another removes, the element stays.
+
+**Configuring bias:**
+- `SharedSet (AddWins) of T` — concurrent add beats remove (default)
+- `SharedSet (RemoveWins) of T` — concurrent remove beats add
+
+### SharedSequence
+
+An ordered CRDT list using the RGA (Replicated Growable Array) algorithm. Elements maintain their order across replicas. Useful for ordered lists, chat history, and document lines.
+
+### CollaborativeSequence
+
+A text-optimized sequence using the YATA algorithm. Better conflict resolution for concurrent insertions at the same position. Ideal for collaborative text editing. Alternative syntax: `SharedSequence (YATA) of T`.
+
+### SharedMap
+
+A key-value CRDT map (OR-Map). Keys can be added and removed, and values are themselves CRDTs that merge recursively. Alternative syntax: `ORMap from K to V`.
 
 ### Merge Operations
 
@@ -1418,6 +1452,112 @@ Let mutable c: Persistent Counter be mounted at "counter.lsf".
 Increase c's value by 1.
 Show c's value."#,
             },
+            CodeExample {
+                id: "crdt-tally",
+                label: "Tally (Bidirectional Counter)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Score is Shared and has:
+    a points, which is a Tally.
+
+## Main
+Let mutable s be a new Score.
+Increase s's points by 100.
+Decrease s's points by 30.
+Show s's points."#,
+            },
+            CodeExample {
+                id: "crdt-divergent",
+                label: "Divergent (Multi-Value Register)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A WikiPage is Shared and has:
+    a title, which is Divergent Text.
+
+## Main
+Let mutable page be a new WikiPage.
+Set page's title to "Draft".
+Show page's title.
+Resolve page's title to "Final".
+Show page's title."#,
+            },
+            CodeExample {
+                id: "crdt-sharedset",
+                label: "SharedSet (Add/Remove Set)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Party is Shared and has:
+    a guests, which is a SharedSet of Text.
+
+## Main
+Let mutable p be a new Party.
+Add "Alice" to p's guests.
+Add "Bob" to p's guests.
+Remove "Alice" from p's guests.
+If p's guests contains "Bob":
+    Show "Bob is invited".
+Show length of p's guests."#,
+            },
+            CodeExample {
+                id: "crdt-sharedset-bias",
+                label: "SharedSet with Bias",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Moderation is Shared and has:
+    a tags, which is a SharedSet (AddWins) of Text.
+    a blocked, which is a SharedSet (RemoveWins) of Text.
+
+## Main
+Let mutable m be a new Moderation.
+Add "safe" to m's tags.
+Add "spammer" to m's blocked.
+Show m's tags.
+Show m's blocked."#,
+            },
+            CodeExample {
+                id: "crdt-sequence",
+                label: "SharedSequence (Ordered List)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Document is Shared and has:
+    a lines, which is a SharedSequence of Text.
+
+## Main
+Let mutable doc be a new Document.
+Append "Line 1" to doc's lines.
+Append "Line 2" to doc's lines.
+Append "Line 3" to doc's lines.
+Show length of doc's lines."#,
+            },
+            CodeExample {
+                id: "crdt-collaborative",
+                label: "CollaborativeSequence (Text)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Editor is Shared and has:
+    a text, which is a CollaborativeSequence of Text.
+
+## Main
+Let mutable e be a new Editor.
+Append "Hello" to e's text.
+Append " " to e's text.
+Append "World" to e's text.
+Show length of e's text."#,
+            },
+            CodeExample {
+                id: "crdt-sharedmap",
+                label: "SharedMap (Key-Value CRDT)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Inventory is Shared and has:
+    an items, which is a SharedMap from Text to Int.
+
+## Main
+Let mutable inv be a new Inventory.
+Set inv's items["wood"] to 50.
+Set inv's items["stone"] to 30.
+Show inv's items["wood"]."#,
+            },
         ],
     },
 
@@ -1527,6 +1667,7 @@ LOGOS includes built-in peer-to-peer networking primitives for building distribu
 | **Connect** | Dial a peer at an address |
 | **PeerAgent** | A handle to a remote peer |
 | **Send** | Transmit a message to a peer |
+| **Sync** | Subscribe a CRDT to a GossipSub topic |
 
 ### Portable Types
 
@@ -1541,6 +1682,36 @@ LOGOS uses libp2p multiaddresses:
 | `/ip4/0.0.0.0/tcp/8000` | Listen on all interfaces, port 8000 |
 | `/ip4/127.0.0.1/tcp/8000` | Localhost only, port 8000 |
 | `/ip4/192.168.1.5/tcp/8000` | Specific IP address |
+| `/ip4/0.0.0.0/tcp/0` | Listen on any available port |
+
+### Automatic Peer Discovery (mDNS)
+
+When you `Listen`, LOGOS automatically enables **mDNS** (multicast DNS) for local network peer discovery. Peers on the same LAN will discover each other without manual configuration.
+
+- Works on WiFi networks, local development
+- No configuration required—just Listen
+- Peers are auto-connected when discovered
+
+### GossipSub (Pub/Sub)
+
+The `Sync` statement uses **GossipSub**, a pub/sub protocol for broadcasting messages to topic subscribers:
+
+- Topics are strings (e.g., `"game-scores"`, `"player-data"`)
+- When you mutate a synced variable, the full state broadcasts to all subscribers
+- Incoming messages are automatically merged in the background
+- Retry with exponential backoff: 1s, 2s, 4s, 8s, 16s
+
+### File Transfer
+
+For large file transfers, LOGOS provides **FileSipper**—a chunked transfer protocol:
+
+| Component | Description |
+|-----------|-------------|
+| **FileSipper** | Zero-copy file chunker (1 MB default chunks) |
+| **FileManifest** | Describes file: chunk count, SHA256 hashes |
+| **FileChunk** | Individual chunk with verification hash |
+
+This enables resumable transfers over unreliable networks.
 
 ### Building a P2P Application
 
@@ -1549,6 +1720,7 @@ LOGOS uses libp2p multiaddresses:
 3. Connect to peers (client)
 4. Create PeerAgent handles
 5. Send messages
+6. Use `Sync` for automatic CRDT replication
 "#,
         examples: &[
             CodeExample {
@@ -1589,6 +1761,55 @@ Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
 Let msg be a new Greeting with message "Hello, peer!".
 Show "Sending: " + msg's message.
 Send msg to remote."#,
+            },
+            CodeExample {
+                id: "network-distributed",
+                label: "Persistent + Synced (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a value, which is ConvergentCount.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/0".
+Let mutable c: Persistent Counter be mounted at "counter.lsf".
+Sync c on "shared-counter".
+Increase c's value by 1.
+Show c's value."#,
+            },
+            CodeExample {
+                id: "network-mdns",
+                label: "Automatic Peer Discovery",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A GameState is Shared and has:
+    a score, which is ConvergentCount.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/0".
+Show "Listening... mDNS will auto-discover peers".
+
+Let mutable state be a new GameState.
+Sync state on "game-session".
+Show "Synced to game-session topic"."#,
+            },
+            CodeExample {
+                id: "network-file-transfer",
+                label: "File Transfer Pattern",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A FileRequest is Portable and has:
+    a filename: Text.
+    a chunk_index: Int.
+
+A FileResponse is Portable and has:
+    a data: Text.
+    a is_last: Bool.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/8000".
+Show "File server ready".
+Show "Supports resumable chunked transfers"."#,
             },
         ],
     },
@@ -2240,11 +2461,29 @@ Show "Positives: " + positives."#,
 
 **Shared Structs:**
 - `A Counter is Shared and has:` — CRDT-enabled struct
-- `ConvergentCount` — Grow-only counter type
-- `LastWriteWins of T` — Timestamp-based register
+
+**CRDT Field Types:**
+- `ConvergentCount` — Grow-only counter (`Increase`)
+- `Tally` — Bidirectional counter (`Increase`, `Decrease`)
+- `LastWriteWins of T` — Timestamp-based register (`Set`)
+- `Divergent T` — Multi-value register (`Set`, `Resolve`)
+- `SharedSet of T` — Add/remove set (`Add`, `Remove`, `contains`)
+- `SharedSet (AddWins) of T` — Set where add wins conflicts
+- `SharedSet (RemoveWins) of T` — Set where remove wins conflicts
+- `SharedSequence of T` — Ordered list RGA (`Append`)
+- `CollaborativeSequence of T` — Text-optimized YATA (`Append`)
+- `SharedSequence (YATA) of T` — Alternate YATA syntax
+- `SharedMap from K to V` — Key-value CRDT (`[]` access)
+- `ORMap from K to V` — Alternate map syntax
 
 **CRDT Operations:**
-- `Increase x's field by amount.` — Increment a ConvergentCount
+- `Increase x's field by amount.` — Increment counter
+- `Decrease x's field by amount.` — Decrement Tally
+- `Set x's field to value.` — Set register value
+- `Resolve x's field to value.` — Resolve Divergent conflict
+- `Add value to x's field.` — Add to SharedSet
+- `Remove value from x's field.` — Remove from SharedSet
+- `Append value to x's field.` — Append to sequence
 - `Merge source into target.` — Combine two CRDT instances
 
 **Persistence (Compiled Only):**
@@ -2259,12 +2498,26 @@ Show "Positives: " + positives."#,
 
 **Server/Client:**
 - `Listen on "/ip4/0.0.0.0/tcp/8000".` — Bind to address
+- `Listen on "/ip4/0.0.0.0/tcp/0".` — Listen on any available port
 - `Connect to addr.` — Dial a peer
 - `Let remote be a PeerAgent at addr.` — Create remote handle
 - `Send msg to remote.` — Transmit message
 
 **Portable Types:**
 - `A Message is Portable and has:` — Network-serializable struct
+
+**Automatic Discovery:**
+- mDNS auto-discovers peers on local network when you Listen
+- Peers are automatically connected when discovered
+
+**GossipSub (via Sync):**
+- Topics broadcast state changes to all subscribers
+- Retry with exponential backoff (1s, 2s, 4s, 8s, 16s)
+
+**File Transfer:**
+- FileSipper for chunked transfers (1 MB chunks)
+- FileManifest with SHA256 hashes for verification
+- Enables resumable transfers
 
 ### Security
 

@@ -176,6 +176,7 @@ pub enum TokenType {
     Tally,          // "which is a Tally" -> PNCounter type
     SharedSet,      // "which is a SharedSet of T" -> ORSet type
     SharedSequence, // "which is a SharedSequence of T" -> RGA type
+    CollaborativeSequence, // "which is a CollaborativeSequence of T" -> YATA type
     SharedMap,      // "which is a SharedMap from K to V" -> ORMap type
     Divergent,      // "which is a Divergent T" -> MVRegister type
     Append,         // "Append x to seq" -> RGA append

@@ -814,25 +814,83 @@ impl<'a> DiscoveryPass<'a> {
         }
 
         if let Some(name) = self.consume_noun_or_proper() {
+            let name_str = self.interner.resolve(name);
+
+            // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
+            let modified_name = if name_str == "SharedSet" || name_str == "ORSet" {
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_removewins() {
+                        self.advance(); // consume "RemoveWins"
+                        Some("SharedSet_RemoveWins")
+                    } else if self.check_addwins() {
+                        self.advance(); // consume "AddWins"
+                        Some("SharedSet_AddWins")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else if name_str == "SharedSequence" {
+                // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_yata() {
+                        self.advance(); // consume "YATA"
+                        Some("SharedSequence_YATA")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use modified name if we found a modifier, otherwise use original
+            let final_name = modified_name.unwrap_or(name);
+            let final_name_str = self.interner.resolve(final_name);
+
+            // Phase 49c: Handle "SharedMap from K to V" / "ORMap from K to V" syntax
+            if (final_name_str == "SharedMap" || final_name_str == "ORMap") && self.check_from() {
+                self.advance(); // consume "from"
+                let key_type = self.consume_field_type();
+                // Expect "to" (can be TokenType::To or preposition)
+                if self.check_to() {
+                    self.advance(); // consume "to"
+                }
+                let value_type = self.consume_field_type();
+                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+            }
+
             // Check for generic: "List of Int", "Seq of Text"
             if self.check_preposition("of") {
                 self.advance();
                 let param = self.consume_field_type();
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
-            let name_str = self.interner.resolve(name);
-            if name_str == "Divergent" {
+            if final_name_str == "Divergent" {
                 // Next token should be the inner type
                 let param = self.consume_field_type();
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Check if primitive
-            match name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
-                _ => FieldType::Named(name),
+            match final_name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                _ => FieldType::Named(final_name),
             }
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))
@@ -930,6 +988,10 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(self.interner.intern("SharedSequence"))
             }
+            TokenType::CollaborativeSequence => {
+                self.advance();
+                Some(self.interner.intern("CollaborativeSequence"))
+            }
             TokenType::SharedMap => {
                 self.advance();
                 Some(self.interner.intern("SharedMap"))
@@ -995,6 +1057,43 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_rparen(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+    }
+
+    /// Phase 49c: Check for AddWins token
+    fn check_addwins(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::AddWins, .. }))
+    }
+
+    /// Phase 49c: Check for RemoveWins token
+    fn check_removewins(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::RemoveWins, .. }))
+    }
+
+    /// Phase 49c: Check for YATA token
+    fn check_yata(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::YATA, .. }))
+    }
+
+    /// Phase 49c: Check for "to" (either TokenType::To or preposition "to")
+    fn check_to(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::To, .. }) => true,
+            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
+                self.interner.resolve(*sym) == "to"
+            }
+            _ => false,
+        }
+    }
+
+    /// Phase 49c: Check for "from" (either TokenType::From or preposition "from")
+    fn check_from(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::From, .. }) => true,
+            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
+                self.interner.resolve(*sym) == "from"
+            }
+            _ => false,
+        }
     }
 
     /// Phase 47: Check for Portable token
@@ -1065,25 +1164,83 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::TypeParam(name);
             }
 
+            let name_str = self.interner.resolve(name);
+
+            // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
+            let modified_name = if name_str == "SharedSet" || name_str == "ORSet" {
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_removewins() {
+                        self.advance(); // consume "RemoveWins"
+                        Some("SharedSet_RemoveWins")
+                    } else if self.check_addwins() {
+                        self.advance(); // consume "AddWins"
+                        Some("SharedSet_AddWins")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else if name_str == "SharedSequence" {
+                // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_yata() {
+                        self.advance(); // consume "YATA"
+                        Some("SharedSequence_YATA")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use modified name if we found a modifier, otherwise use original
+            let final_name = modified_name.unwrap_or(name);
+            let final_name_str = self.interner.resolve(final_name);
+
+            // Phase 49c: Handle "SharedMap from K to V" / "ORMap from K to V" syntax
+            if (final_name_str == "SharedMap" || final_name_str == "ORMap") && self.check_from() {
+                self.advance(); // consume "from"
+                let key_type = self.consume_field_type_with_params(type_params);
+                // Expect "to" (can be TokenType::To or preposition)
+                if self.check_to() {
+                    self.advance(); // consume "to"
+                }
+                let value_type = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+            }
+
             // Check for generic: "List of Int", "Seq of Text", "List of T"
             if self.check_preposition("of") {
                 self.advance();
                 let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
-            let name_str = self.interner.resolve(name);
-            if name_str == "Divergent" {
+            if final_name_str == "Divergent" {
                 // Next token should be the inner type
                 let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Check if primitive
-            match name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
-                _ => FieldType::Named(name),
+            match final_name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                _ => FieldType::Named(final_name),
             }
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))

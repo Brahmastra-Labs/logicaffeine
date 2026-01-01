@@ -281,6 +281,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Tally => Ok(self.interner.intern("Tally")),
             TokenType::SharedSet => Ok(self.interner.intern("SharedSet")),
             TokenType::SharedSequence => Ok(self.interner.intern("SharedSequence")),
+            TokenType::CollaborativeSequence => Ok(self.interner.intern("CollaborativeSequence")),
             TokenType::SharedMap => Ok(self.interner.intern("SharedMap")),
             TokenType::Divergent => Ok(self.interner.intern("Divergent")),
             other => Err(ParseError {
@@ -305,7 +306,49 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
-        let base = self.consume_type_name()?;
+        let mut base = self.consume_type_name()?;
+
+        // Phase 49c: Check for bias modifier on SharedSet: "SharedSet (RemoveWins) of T"
+        let base_name = self.interner.resolve(base);
+        if base_name == "SharedSet" || base_name == "ORSet" {
+            if self.check(&TokenType::LParen) {
+                self.advance(); // consume "("
+                if self.check(&TokenType::RemoveWins) {
+                    self.advance(); // consume "RemoveWins"
+                    base = self.interner.intern("SharedSet_RemoveWins");
+                } else if self.check(&TokenType::AddWins) {
+                    self.advance(); // consume "AddWins"
+                    // AddWins is default, but we can be explicit
+                    base = self.interner.intern("SharedSet_AddWins");
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+            }
+        }
+
+        // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+        let base_name = self.interner.resolve(base);
+        if base_name == "SharedSequence" || base_name == "RGA" {
+            if self.check(&TokenType::LParen) {
+                self.advance(); // consume "("
+                if self.check(&TokenType::YATA) {
+                    self.advance(); // consume "YATA"
+                    base = self.interner.intern("SharedSequence_YATA");
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+            }
+        }
 
         // Phase 36: Check for "from Module" qualification
         let base_type = if self.check(&TokenType::From) {
@@ -330,8 +373,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
                     // Phase 49b: CRDT generic types
-                    "SharedSet" | "ORSet" => Some(1),      // SharedSet of T
-                    "SharedSequence" | "RGA" => Some(1),   // SharedSequence of T
+                    "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" => Some(1),
+                    "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => Some(1),
                     "SharedMap" | "ORMap" => Some(2),      // SharedMap from K to V
                     "Divergent" | "MVRegister" => Some(1), // Divergent T
                     _ => None,

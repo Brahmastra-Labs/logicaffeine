@@ -1488,6 +1488,7 @@ impl<'a> Lexer<'a> {
             "tally" => return TokenType::Tally,
             "sharedset" => return TokenType::SharedSet,
             "sharedsequence" => return TokenType::SharedSequence,
+            "collaborativesequence" => return TokenType::CollaborativeSequence,
             "sharedmap" => return TokenType::SharedMap,
             "divergent" => return TokenType::Divergent,
             "removewins" => return TokenType::RemoveWins,

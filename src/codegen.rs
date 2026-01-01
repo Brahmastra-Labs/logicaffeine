@@ -1011,8 +1011,8 @@ fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
             let name = interner.resolve(*base);
             matches!(name,
                 "LastWriteWins" | "LWWRegister" |
-                "SharedSet" | "ORSet" |
-                "SharedSequence" | "RGA" |
+                "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" |
+                "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" |
                 "SharedMap" | "ORMap" |
                 "Divergent" | "MVRegister"
             )
@@ -1094,7 +1094,28 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
             }
         }
         FieldType::Generic { base, params } => {
-            let base_str = match interner.resolve(*base) {
+            let base_name = interner.resolve(*base);
+            let param_strs: Vec<String> = params.iter()
+                .map(|p| codegen_field_type(p, interner))
+                .collect();
+
+            // Phase 49c: Handle CRDT types with bias/algorithm modifiers
+            match base_name {
+                // SharedSet with explicit bias
+                "SharedSet_RemoveWins" => {
+                    return format!("logos_core::crdt::ORSet<{}, logos_core::crdt::RemoveWins>", param_strs.join(", "));
+                }
+                "SharedSet_AddWins" => {
+                    return format!("logos_core::crdt::ORSet<{}, logos_core::crdt::AddWins>", param_strs.join(", "));
+                }
+                // SharedSequence with YATA algorithm
+                "SharedSequence_YATA" | "CollaborativeSequence" => {
+                    return format!("logos_core::crdt::YATA<{}>", param_strs.join(", "));
+                }
+                _ => {}
+            }
+
+            let base_str = match base_name {
                 "List" | "Seq" => "Vec",
                 "Set" => "std::collections::HashSet",
                 "Map" => "std::collections::HashMap",
@@ -1102,16 +1123,13 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logos_core::crdt::LWWRegister",
-                // Phase 49b: New CRDT generic types (Wave 5)
+                // Phase 49b: New CRDT generic types (Wave 5) - default to AddWins for ORSet
                 "SharedSet" | "ORSet" => "logos_core::crdt::ORSet",
                 "SharedSequence" | "RGA" => "logos_core::crdt::RGA",
                 "SharedMap" | "ORMap" => "logos_core::crdt::ORMap",
                 "Divergent" | "MVRegister" => "logos_core::crdt::MVRegister",
                 other => other,
             };
-            let param_strs: Vec<String> = params.iter()
-                .map(|p| codegen_field_type(p, interner))
-                .collect();
             format!("{}<{}>", base_str, param_strs.join(", "))
         }
         // Phase 34: Type parameter reference (T, U, etc.)
