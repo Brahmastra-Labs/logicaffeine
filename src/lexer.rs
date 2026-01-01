@@ -1321,6 +1321,12 @@ impl<'a> Lexer<'a> {
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
             "check" => return TokenType::Check,  // Phase 50: Security check
+            // Phase 51: P2P Networking keywords (Imperative mode only)
+            "listen" if self.mode == LexerMode::Imperative => return TokenType::Listen,
+            "connect" if self.mode == LexerMode::Imperative => return TokenType::NetConnect,
+            "sleep" if self.mode == LexerMode::Imperative => return TokenType::Sleep,
+            // Phase 52: GossipSub keywords (Imperative mode only)
+            "sync" if self.mode == LexerMode::Imperative => return TokenType::Sync,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,

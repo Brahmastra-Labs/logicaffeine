@@ -83,7 +83,12 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
     - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
-    - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
+    - [Phase 46: Agents](#phase-46-agents)
+    - [Phase 48: Network Primitives](#phase-48-network-primitives)
+    - [Phase 49: CRDT](#phase-49-crdt)
+    - [Phase 50: Security Policies](#phase-50-security-policies)
+    - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
+    - [Phase 52: The Sync](#phase-52-the-sync)
     - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
@@ -209,6 +214,13 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
 - **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
 - **Z3 Static Verification** - Smart Full Mapping: Int/Bool direct, Object uninterpreted sort, Predicates/Modals/Temporals → Apply; \`compile_to_rust_verified()\` opt-in; graceful degradation for complex linguistic constructs
+- **CRDT types** - GCounter (grow-only), LWWRegister (last-write-wins) for distributed state; \`Shared\` modifier generates Merge impl
+- **Policy-based security** - Predicate definitions (is_admin), capability checks (can_publish), Check statement for mandatory enforcement
+- **Check vs Assert** - Check never optimized out (security); Assert becomes debug_assert (logic)
+- **libp2p Mesh** - QUIC-first transport with TCP fallback, Noise encryption, Yamux multiplexing, mDNS peer discovery
+- **Bincode Wire Protocol** - LogosWire trait for serialize/deserialize; /logos/mesh/1.0.0 protocol with 16MB max message size
+- **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
+- **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1333,16 +1345,6 @@ Subsective adjectives (S(x, ^E) format) and generalized quantifiers (MANY, MOST,
 
 ---
 
-#### Phase 7: De Re/De Dicto
-
-**File:** `tests/intensionality_tests.rs`
-
-Intensional ambiguity with opaque verbs. Tests both readings for sentences with seek, want, believe, need, fear.
-
-**Example:** "John seeks a unicorn." → De Re: ∃x(U(x) ∧ Seek(j,x)) vs De Dicto: Seek(j, ^Unicorn)
-
----
-
 #### Phase 8: Degrees & Comparatives
 
 **File:** `tests/phase8_degrees.rs`
@@ -1380,16 +1382,6 @@ Zero-derivation (noun→verb): tabled, emailed, googled. Morphological heuristic
 Concurrent and parallel execution blocks. 'Attempt all of the following:' generates tokio::join! (async, I/O-bound). 'Simultaneously:' generates rayon::join (CPU-bound, 2 tasks) or thread::spawn (3+ tasks). Let bindings destructure into tuples.
 
 **Example:** Simultaneously: Let a be 1. Let b be 2. → let (a, b) = rayon::join(|| 1, || 2);
-
----
-
-#### Diagnostic Bridge Tests
-
-**File:** `tests/diagnostic_bridge.rs`
-
-Verifies rustc ownership errors translate to Socratic LOGOS messages. Tests E0382 (use-after-move) produces 'Cannot use X after giving it away' instead of raw rustc output. Ensures users never see cryptic compiler errors.
-
-**Example:** Let a be s. Let b be s. → 'Cannot use s after giving it away'
 
 ---
 
@@ -1913,13 +1905,63 @@ Stack-like collection operations for LOGOS. Push/Pop statements, length/copy exp
 
 ---
 
-#### Grand Challenge: Mergesort
+#### Phase 46: Agent System
 
-**File:** `tests/grand_challenge_mergesort.rs`
+**File:** `tests/phase46_agents.rs`
 
-Showcase test demonstrating full language capability: compiles and executes a complete recursive mergesort algorithm. Tests comparison operators (is less than, is greater than, is at most, is at least, <, <=, >, >=), compound conditions with 'and' (→ &&), collection operations (length of, item X of, Push, copy of, slicing with 'through'), typed function definitions with Seq of Int parameters and returns, recursive function calls, and full E2E execution to working Rust.
+Autonomous agent definitions with goals and behaviors. Agent blocks define reactive entities that respond to events.
 
-**Example:** ## To MergeSort (items: Seq of Int) -> Seq of Int: ... Let sorted be MergeSort(numbers). → Compiles and runs actual sorting algorithm
+**Example:** ## Agent called Greeter: When receiving a Message: Respond with greeting.
+
+---
+
+#### Phase 48: Network Primitives
+
+**File:** `tests/phase48_network.rs`
+
+Low-level networking operations. File chunking with FileSipper, FileManifest for resumable transfers, SHA256 chunk verification.
+
+**Example:** Fetch from url. Send data to endpoint.
+
+---
+
+#### Phase 49: CRDT (Conflict-free Replicated Data Types)
+
+**File:** `tests/phase49_crdt.rs`
+
+Distributed state synchronization without conflicts. Shared structs with ConvergentCount (GCounter) and LastWriteWins of T (LWWRegister) field types. Merge trait with commutative, associative, idempotent properties. Increase statement for counter operations.
+
+**Example:** ## Shared Counter { count: ConvergentCount, name: LastWriteWins of Text } → impl Merge with per-field merge
+
+---
+
+#### Phase 50: Policy-based Security
+
+**File:** `tests/phase50_security.rs`
+
+Declarative security policies with predicates and capabilities. Predicate definitions (is admin if role equals 'admin'), capability definitions (can publish Document if...), Check statement for mandatory runtime enforcement (never optimized), Assert for debug-only. Logical composition with AND/OR.
+
+**Example:** ## Policy { A User is admin if the user's role equals 'admin'. } Check that user is admin.
+
+---
+
+#### Phase 51: P2P Mesh Networking
+
+**File:** `tests/phase51_mesh.rs`
+
+Distributed peer-to-peer networking with libp2p. Listen statement binds to multiaddr, Connect to dials remote peer, PeerAgent represents remote endpoint, Send to transmits Portable messages. QUIC-first transport with TCP fallback, Noise encryption, mDNS discovery.
+
+**Example:** Listen on '/ip4/0.0.0.0/tcp/8000'. Connect to remote_addr. Let peer be a PeerAgent at addr. Send msg to peer.
+
+---
+
+#### Phase 52: The Sync (GossipSub)
+
+**File:** `tests/phase52_sync.rs`
+
+Automatic CRDT synchronization over GossipSub. Sync binds a CRDT variable to a pub/sub topic for auto-replication. Synced<T> wrapper auto-publishes on mutation, auto-merges on receive.
+
+**Example:** Let mutable c be a new Counter. Sync c on "room". Increase c's clicks by 5.
 
 ---
 
@@ -2053,53 +2095,93 @@ Runtime verification of variable operations: Let bindings, Set mutation, scoping
 
 ---
 
-#### Aktionsart/Vendler Classes
+#### E2E: CRDT Runtime
 
-**File:** `tests/aktionsart_tests.rs`
+**File:** `tests/e2e_crdt.rs`
 
-Tests for Vendler's lexical aspect classes and their interaction with aspectual operators.
+Runtime verification of CRDT operations: GCounter increment, LWWRegister updates, struct-level and field-level merge operations.
 
-**Example:** State (know), Activity (run), Accomplishment (build), Achievement (win), Semelfactive (knock)
-
----
-
-#### Complex Operator Chains
-
-**File:** `tests/complex_combinations.rs`
-
-Tests for complex modal + aspect + tense chains with proper operator nesting.
-
-**Example:** Perfect + Passive + Progressive stacking
+**Example:** Increase counter's count. Merge replica1 with replica2.
 
 ---
 
-#### Parser Stress Tests
+#### E2E: Policy Enforcement
 
-**File:** `tests/torture_tests.rs`
+**File:** `tests/e2e_policy.rs`
 
-Edge case stress tests: deeply nested structures, unusual word orders, boundary conditions.
+Runtime verification of security policies: predicate evaluation, capability checks, Check statement failure behavior with meaningful error messages.
 
-**Example:** Deeply nested relative clauses and coordinations
-
----
-
-#### Core Integration Tests
-
-**File:** `tests/integration_tests.rs`
-
-Comprehensive tests covering quantifiers, modals, temporal logic, relative clauses, and basic parsing.
-
-**Example:** Universal, existential, and generic quantification patterns
+**Example:** Check that user can publish the document. → RuntimeError: Security check failed
 
 ---
 
-#### E2E Test Harness
+#### E2E: Mesh Networking
 
-**File:** `tests/common/mod.rs`
+**File:** `tests/e2e_mesh.rs`
 
-Shared test utilities for E2E tests. Provides run_logos() function that compiles LOGOS source to Rust, creates a temp Cargo project, builds and runs it, and returns E2EResult with stdout/stderr/success/rust_code.
+Runtime verification of P2P mesh: node connection, message exchange, peer discovery.
 
-**Example:** run_logos(source) -> E2EResult { stdout, stderr, success, rust_code }
+**Example:** Listen, Connect, Send messages between peers.
+
+---
+
+#### E2E: Refinement Types
+
+**File:** `tests/e2e_refinement.rs`
+
+Runtime verification of refinement type constraints and debug_assert enforcement.
+
+**Example:** Let x: Int where x > 0 be 5.
+
+---
+
+#### E2E: Zone Memory
+
+**File:** `tests/e2e_zones.rs`
+
+Runtime verification of zone-based memory: allocation, bulk deallocation, escape prevention.
+
+**Example:** Inside a zone: allocate and use memory.
+
+---
+
+#### Phase 10: I/O Operations
+
+**File:** `tests/phase10_io.rs`
+
+Input/output operations for LOGOS programs.
+
+**Example:** Read from file. Write to output.
+
+---
+
+#### Ownership Analysis
+
+**File:** `tests/phase_ownership.rs`
+
+Rust-style ownership tracking: moves, borrows, lifetimes.
+
+**Example:** Give x to f. Show x to g.
+
+---
+
+#### Totality Analysis
+
+**File:** `tests/phase_totality.rs`
+
+Function totality checking for termination guarantees.
+
+**Example:** Verify recursive functions terminate.
+
+---
+
+#### Lexer Refactoring Tests
+
+**File:** `tests/phase_lexer_refactor.rs`
+
+Tests for lexer improvements and edge cases.
+
+**Example:** Lexer stress tests and edge cases.
 
 ---
 
@@ -2107,28 +2189,30 @@ Shared test utilities for E2E tests. Provides run_logos() function that compiles
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2263 lines
-Parser (ast/, parser/):               12682 lines
+Lexer (token.rs, lexer.rs):           2283 lines
+Parser (ast/, parser/):               13052 lines
 Transpilation:                        1341 lines
-Code Generation:                      1775 lines
+Code Generation:                      2158 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            2069 lines
+Type Analysis (analysis/):            2613 lines
 Support Infrastructure:               4322 lines
-Desktop UI:                              15246 lines
+Desktop UI:                              16970 lines
+CRDT (logos_core/src/crdt/):          466 lines
+Network (logos_core/src/network/):    1437 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        51560
-Test lines:          16508
-Total Rust lines: 68068
+Source lines:        54672
+Test lines:          18231
+Total Rust lines: 72903
 ```
 
 ### File Counts
 ```
-Source files: 119
-Test files:   106
+Source files: 121
+Test files:   113
 ```
 ## Lexicon Data
 
@@ -2988,6 +3072,7 @@ pub enum BlockType {
     Note,
     Function,  // Phase 32: ## To blocks
     TypeDef,   // Inline type definitions: ## A Point has:, ## A Color is one of:
+    Policy,    // Phase 50: ## Policy blocks for security rules
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3102,6 +3187,17 @@ pub enum TokenType {
     Shared,   // "A Counter is Shared and has:" -> CRDT struct
     Merge,    // "Merge remote into local" -> CRDT merge
     Increase, // "Increase x's count by 10" -> GCounter increment
+
+    // Phase 50: Security Keywords
+    Check,    // "Check that user is admin" -> mandatory runtime guard
+
+    // Phase 51: P2P Networking Keywords
+    Listen,   // "Listen on [addr]" -> bind to network address
+    NetConnect,  // "Connect to [addr]" -> dial a peer (NetConnect to avoid conflict)
+    Sleep,    // "Sleep N." -> pause execution for N milliseconds
+
+    // Phase 52: GossipSub Keywords
+    Sync,     // "Sync x on 'topic'" -> automatic CRDT replication
 
     // Block Scoping
     Colon,
@@ -4407,6 +4503,7 @@ impl<'a> Lexer<'a> {
                 "note" => BlockType::Note,
                 "to" => BlockType::Function,  // Phase 32: ## To blocks
                 "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
+                "policy" => BlockType::Policy,  // Phase 50: Security policy definitions
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -4647,6 +4744,13 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "check" => return TokenType::Check,  // Phase 50: Security check
+            // Phase 51: P2P Networking keywords (Imperative mode only)
+            "listen" if self.mode == LexerMode::Imperative => return TokenType::Listen,
+            "connect" if self.mode == LexerMode::Imperative => return TokenType::NetConnect,
+            "sleep" if self.mode == LexerMode::Imperative => return TokenType::Sleep,
+            // Phase 52: GossipSub keywords (Imperative mode only)
+            "sync" if self.mode == LexerMode::Imperative => return TokenType::Sync,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
@@ -5971,6 +6075,62 @@ pub enum Stmt<'a> {
         field: Symbol,
         amount: &'a Expr<'a>,
     },
+
+    /// Phase 50: Security check - mandatory runtime guard
+    /// `Check that user is admin.`
+    /// `Check that user can publish the document.`
+    /// Semantics: NEVER optimized out. Panics if condition is false.
+    Check {
+        /// The subject being checked (e.g., "user")
+        subject: Symbol,
+        /// The predicate name (e.g., "admin") or action (e.g., "publish")
+        predicate: Symbol,
+        /// True if this is a capability check (can [action])
+        is_capability: bool,
+        /// For capabilities: the object being acted on (e.g., "document")
+        object: Option<Symbol>,
+        /// Original English text for error message
+        source_text: String,
+        /// Source location for error reporting
+        span: crate::token::Span,
+    },
+
+    /// Phase 51: Listen on network address
+    /// `Listen on "/ip4/127.0.0.1/tcp/8000".`
+    /// Semantics: Bind to address, start accepting connections via libp2p
+    Listen {
+        address: &'a Expr<'a>,
+    },
+
+    /// Phase 51: Connect to remote peer
+    /// `Connect to "/ip4/127.0.0.1/tcp/8000".`
+    /// Semantics: Dial peer via libp2p
+    ConnectTo {
+        address: &'a Expr<'a>,
+    },
+
+    /// Phase 51: Create PeerAgent remote handle
+    /// `Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".`
+    /// Semantics: Create handle for remote agent communication
+    LetPeerAgent {
+        var: Symbol,
+        address: &'a Expr<'a>,
+    },
+
+    /// Phase 51: Sleep for milliseconds
+    /// `Sleep 1000.` or `Sleep delay.`
+    /// Semantics: Pause execution for N milliseconds (async)
+    Sleep {
+        milliseconds: &'a Expr<'a>,
+    },
+
+    /// Phase 52: Sync CRDT variable on topic
+    /// `Sync x on "topic".`
+    /// Semantics: Subscribe to GossipSub topic, auto-publish on mutation, auto-merge on receive
+    Sync {
+        var: Symbol,
+        topic: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).
@@ -6563,7 +6723,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef => ParserMode::Declarative,
+                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
+                    BlockType::Policy => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -6833,6 +6994,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.skip_type_def_content();
                         continue;
                     }
+                    BlockType::Policy => {
+                        // Phase 50: Policy definitions are handled by DiscoveryPass
+                        // Skip content until next block header
+                        in_definition_block = true;  // Reuse flag to skip content
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
                     _ => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -6872,6 +7041,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        // Phase 32: Function definitions can appear inside Main block
+        // Handle both TokenType::To and Preposition("to")
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            return self.parse_function_def();
+        }
         if self.check(&TokenType::Let) {
             return self.parse_let_statement();
         }
@@ -6890,6 +7064,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 35: Trust statement
         if self.check(&TokenType::Trust) {
             return self.parse_trust_statement();
+        }
+        // Phase 50: Security Check statement
+        if self.check(&TokenType::Check) {
+            return self.parse_check_statement();
+        }
+        // Phase 51: P2P Networking statements
+        if self.check(&TokenType::Listen) {
+            return self.parse_listen_statement();
+        }
+        if self.check(&TokenType::NetConnect) {
+            return self.parse_connect_statement();
+        }
+        if self.check(&TokenType::Sleep) {
+            return self.parse_sleep_statement();
+        }
+        // Phase 52: GossipSub sync statement
+        if self.check(&TokenType::Sync) {
+            return self.parse_sync_statement();
         }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
@@ -7372,6 +7564,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // "is not X" → NotEq
                 self.advance(); // consume "not"
                 Some(BinaryOpKind::NotEq)
+            } else if self.check_word("equal") {
+                // "is equal to X" → Eq
+                self.advance(); // consume "equal"
+                if self.check_preposition_is("to") {
+                    self.advance(); // consume "to"
+                    Some(BinaryOpKind::Eq)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
             } else {
                 self.current = saved_pos;
                 None
@@ -7437,6 +7639,45 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             });
         }
         self.advance(); // consume "be"
+
+        // Phase 51: Check for "a PeerAgent at [addr]" pattern
+        if self.check_article() {
+            let saved_pos = self.current;
+            self.advance(); // consume article
+
+            // Check if next word is "PeerAgent" (case insensitive)
+            if let TokenType::Noun(sym) | TokenType::ProperName(sym) = self.peek().kind {
+                let word = self.interner.resolve(sym).to_lowercase();
+                if word == "peeragent" {
+                    self.advance(); // consume "PeerAgent"
+
+                    // Check for "at" keyword
+                    if self.check(&TokenType::At) || self.check_preposition_is("at") {
+                        self.advance(); // consume "at"
+
+                        // Parse address expression
+                        let address = self.parse_imperative_expr()?;
+
+                        // Bind in ScopeStack if context available
+                        if let Some(ctx) = self.context.as_mut() {
+                            use crate::context::{Entity, Gender, Number, OwnershipState};
+                            let var_name = self.interner.resolve(var).to_string();
+                            ctx.register(Entity {
+                                symbol: var_name.clone(),
+                                gender: Gender::Neuter,
+                                number: Number::Singular,
+                                noun_class: var_name,
+                                ownership: OwnershipState::Owned,
+                            });
+                        }
+
+                        return Ok(Stmt::LetPeerAgent { var, address });
+                    }
+                }
+            }
+            // Not a PeerAgent, backtrack
+            self.current = saved_pos;
+        }
 
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
@@ -7633,6 +7874,224 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Trust { proposition, justification })
+    }
+
+    /// Phase 50: Parse Check statement - mandatory security guard
+    /// Syntax: Check that [subject] is [predicate].
+    /// Syntax: Check that [subject] can [action] the [object].
+    fn parse_check_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_span = self.current_span();
+        self.advance(); // consume "Check"
+
+        // Optionally consume "that"
+        if self.check(&TokenType::That) {
+            self.advance();
+        }
+
+        // Consume optional "the"
+        if matches!(self.peek().kind, TokenType::Article(_)) {
+            self.advance();
+        }
+
+        // Parse subject identifier (e.g., "user")
+        let subject = match &self.peek().kind {
+            TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                // Try to get an identifier
+                let tok = self.peek();
+                let s = tok.lexeme;
+                self.advance();
+                s
+            }
+        };
+
+        // Determine if this is a predicate check ("is admin") or capability check ("can publish")
+        let is_capability;
+        let predicate;
+        let object;
+
+        if self.check(&TokenType::Is) || self.check(&TokenType::Are) {
+            // Predicate check: "user is admin"
+            is_capability = false;
+            self.advance(); // consume "is" / "are"
+
+            // Parse predicate name (e.g., "admin")
+            predicate = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = None;
+        } else if self.check(&TokenType::Can) {
+            // Capability check: "user can publish the document"
+            is_capability = true;
+            self.advance(); // consume "can"
+
+            // Parse action (e.g., "publish", "edit", "delete")
+            predicate = match &self.peek().kind {
+                TokenType::Verb { lemma, .. } => {
+                    let s = *lemma;
+                    self.advance();
+                    s
+                }
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+
+            // Consume optional "the"
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                self.advance();
+            }
+
+            // Parse object (e.g., "document")
+            let obj = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = Some(obj);
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "is/can".to_string() },
+                span: self.current_span(),
+            });
+        }
+
+        // Build source text for error message
+        let source_text = if is_capability {
+            let obj_name = self.interner.resolve(object.unwrap());
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} can {} the {}", subj_name, pred_name, obj_name)
+        } else {
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} is {}", subj_name, pred_name)
+        };
+
+        Ok(Stmt::Check {
+            subject,
+            predicate,
+            is_capability,
+            object,
+            source_text,
+            span: start_span,
+        })
+    }
+
+    /// Phase 51: Parse Listen statement - bind to network address
+    /// Syntax: Listen on [address].
+    fn parse_listen_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Listen"
+
+        // Expect "on" preposition
+        if !self.check_preposition_is("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Parse address expression (string literal or variable)
+        let address = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Listen { address })
+    }
+
+    /// Phase 51: Parse Connect statement - dial remote peer
+    /// Syntax: Connect to [address].
+    fn parse_connect_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Connect"
+
+        // Expect "to" (can be TokenType::To or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse address expression
+        let address = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ConnectTo { address })
+    }
+
+    /// Phase 51: Parse Sleep statement - pause execution
+    /// Syntax: Sleep [milliseconds].
+    fn parse_sleep_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Sleep"
+
+        // Parse milliseconds expression (number or variable)
+        let milliseconds = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Sleep { milliseconds })
+    }
+
+    /// Phase 52: Parse Sync statement - automatic CRDT replication
+    /// Syntax: Sync [var] on [topic].
+    fn parse_sync_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Sync"
+
+        // Parse variable name (must be an identifier)
+        let var = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "on" preposition
+        if !self.check_preposition_is("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Parse topic expression (string literal or variable)
+        let topic = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Sync { var, topic })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -8564,9 +9023,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Phase 32: Parse function definition after `## To` header
     /// Phase 32/38: Parse function definition
-    /// Syntax: [native] name (a: Type) [and (b: Type)] [-> ReturnType]
+    /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        // Consume "To" if present (when called from parse_statement)
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            self.advance();
+        }
+
         // Phase 38: Check for native modifier
         let is_native = if self.check(&TokenType::Native) {
             self.advance(); // consume "native"
@@ -8578,25 +9042,37 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse function name (first identifier after ## To [native])
         let name = self.expect_identifier()?;
 
-        // Parse parameters: (name: Type) groups separated by "and"
+        // Parse parameters: (name: Type) groups separated by "and", or comma-separated in one group
         let mut params = Vec::new();
         while self.check(&TokenType::LParen) {
             self.advance(); // consume (
 
-            let param_name = self.expect_identifier()?;
+            // Parse parameters in this group (possibly comma-separated)
+            loop {
+                let param_name = self.expect_identifier()?;
 
-            // Expect colon
-            if !self.check(&TokenType::Colon) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                    span: self.current_span(),
-                });
+                // Expect colon
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume :
+
+                // Phase 38: Parse full type expression instead of simple identifier
+                let param_type_expr = self.parse_type_expression()?;
+                let param_type = self.ctx.alloc_type_expr(param_type_expr);
+
+                params.push((param_name, param_type));
+
+                // Check for comma (more params in this group) or ) (end of group)
+                if self.check(&TokenType::Comma) {
+                    self.advance(); // consume ,
+                    continue;
+                }
+                break;
             }
-            self.advance(); // consume :
-
-            // Phase 38: Parse full type expression instead of simple identifier
-            let param_type_expr = self.parse_type_expression()?;
-            let param_type = self.ctx.alloc_type_expr(param_type_expr);
 
             // Expect )
             if !self.check(&TokenType::RParen) {
@@ -8607,9 +9083,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume )
 
-            params.push((param_name, param_type));
-
-            // Check for "and", preposition, or "from" between parameters
+            // Check for "and", preposition, or "from" between parameter groups
             // Allows: "## To withdraw (amount: Int) from (balance: Int)"
             if self.check_word("and") || self.check_preposition() || self.check(&TokenType::From) {
                 self.advance();
@@ -23204,12 +23678,14 @@ pub mod discovery;
 pub mod dependencies;
 pub mod escape;
 pub mod ownership;
+pub mod policy;
 
 pub use registry::{TypeRegistry, TypeDef};
-pub use discovery::DiscoveryPass;
+pub use discovery::{DiscoveryPass, DiscoveryResult};
 pub use dependencies::{scan_dependencies, Dependency};
 pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
 pub use ownership::{OwnershipChecker, OwnershipError, OwnershipErrorKind, VarState};
+pub use policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use discovery::discover_with_imports;
@@ -23407,6 +23883,7 @@ First pass of two-pass compilation. DiscoveryPass scans source for ## Definition
 use crate::token::{Token, TokenType, BlockType};
 use crate::intern::{Interner, Symbol};
 use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
+use super::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use super::dependencies::scan_dependencies;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -23414,12 +23891,20 @@ use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::project::Loader;
 
+/// Result of running the discovery pass
+pub struct DiscoveryResult {
+    pub types: TypeRegistry,
+    pub policies: PolicyRegistry,
+}
+
 /// Discovery pass that scans tokens before main parsing to build a TypeRegistry.
 ///
 /// This pass looks for type definitions in `## Definition` blocks:
 /// - "A Stack is a generic collection." → Generic type
 /// - "A User is a structure." → Struct type
 /// - "A Shape is an enum." → Enum type
+///
+/// Phase 50: Also scans `## Policy` blocks for security predicates and capabilities.
 pub struct DiscoveryPass<'a> {
     tokens: &'a [Token],
     pos: usize,
@@ -23432,25 +23917,39 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     /// Run discovery pass, returning populated TypeRegistry
+    /// (Backward compatible - returns only TypeRegistry)
     pub fn run(&mut self) -> TypeRegistry {
-        let mut registry = TypeRegistry::with_primitives(self.interner);
+        self.run_full().types
+    }
+
+    /// Phase 50: Run discovery pass, returning both TypeRegistry and PolicyRegistry
+    pub fn run_full(&mut self) -> DiscoveryResult {
+        let mut type_registry = TypeRegistry::with_primitives(self.interner);
+        let mut policy_registry = PolicyRegistry::new();
 
         while self.pos < self.tokens.len() {
             // Look for Definition blocks
             if self.check_block_header(BlockType::Definition) {
                 self.advance(); // consume ## Definition
-                self.scan_definition_block(&mut registry);
+                self.scan_definition_block(&mut type_registry);
             } else if self.check_block_header(BlockType::TypeDef) {
                 // Inline type definition: ## A Point has: or ## A Color is one of:
                 // The article is part of the block header, so don't skip it
                 self.advance(); // consume ## A/An
-                self.parse_type_definition_inline(&mut registry);
+                self.parse_type_definition_inline(&mut type_registry);
+            } else if self.check_block_header(BlockType::Policy) {
+                // Phase 50: Security policy definitions
+                self.advance(); // consume ## Policy
+                self.scan_policy_block(&mut policy_registry);
             } else {
                 self.advance();
             }
         }
 
-        registry
+        DiscoveryResult {
+            types: type_registry,
+            policies: policy_registry,
+        }
     }
 
     fn check_block_header(&self, expected: BlockType) -> bool {
@@ -23474,6 +23973,320 @@ impl<'a> DiscoveryPass<'a> {
             } else {
                 self.advance();
             }
+        }
+    }
+
+    /// Phase 50: Scan policy block for predicate and capability definitions
+    /// Patterns:
+    /// - "A User is admin if the user's role equals \"admin\"."
+    /// - "A User can publish the Document if the user is admin OR the user equals the document's owner."
+    fn scan_policy_block(&mut self, registry: &mut PolicyRegistry) {
+        while self.pos < self.tokens.len() {
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+
+            // Skip newlines and indentation
+            if self.check_newline() || self.check_indent() || self.check_dedent() {
+                self.advance();
+                continue;
+            }
+
+            // Look for "A [Type] is [predicate] if..." or "A [Type] can [action] ..."
+            if self.check_article() {
+                self.try_parse_policy_definition(registry);
+            } else {
+                self.advance();
+            }
+        }
+    }
+
+    /// Phase 50: Parse a policy definition
+    fn try_parse_policy_definition(&mut self, registry: &mut PolicyRegistry) {
+        self.advance(); // consume article
+
+        // Get subject type name (e.g., "User")
+        let subject_type = match self.consume_noun_or_proper() {
+            Some(sym) => sym,
+            None => return,
+        };
+
+        // Determine if predicate ("is admin") or capability ("can publish")
+        if self.check_copula() {
+            // "A User is admin if..."
+            self.advance(); // consume "is"
+
+            // Get predicate name (e.g., "admin")
+            let predicate_name = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return,
+            };
+
+            // Expect "if"
+            if !self.check_word("if") {
+                self.skip_to_period();
+                return;
+            }
+            self.advance(); // consume "if"
+
+            // Handle multi-line condition (colon followed by indented lines)
+            if self.check_colon() {
+                self.advance();
+            }
+            if self.check_newline() {
+                self.advance();
+            }
+            if self.check_indent() {
+                self.advance();
+            }
+
+            // Parse condition
+            let condition = self.parse_policy_condition(subject_type, None);
+
+            registry.register_predicate(PredicateDef {
+                subject_type,
+                predicate_name,
+                condition,
+            });
+
+            self.skip_to_period();
+        } else if self.check_word("can") {
+            // "A User can publish the Document if..."
+            self.advance(); // consume "can"
+
+            // Get action name (e.g., "publish")
+            let action = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => {
+                    // Try verb token
+                    if let Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) = self.peek() {
+                        let sym = *lemma;
+                        self.advance();
+                        sym
+                    } else {
+                        return;
+                    }
+                }
+            };
+
+            // Skip "the" article if present
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Get object type (e.g., "Document")
+            let object_type = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return,
+            };
+
+            // Expect "if"
+            if !self.check_word("if") {
+                self.skip_to_period();
+                return;
+            }
+            self.advance(); // consume "if"
+
+            // Parse condition (may include colon for multi-line)
+            if self.check_colon() {
+                self.advance();
+            }
+            if self.check_newline() {
+                self.advance();
+            }
+            if self.check_indent() {
+                self.advance();
+            }
+
+            let condition = self.parse_policy_condition(subject_type, Some(object_type));
+
+            registry.register_capability(CapabilityDef {
+                subject_type,
+                action,
+                object_type,
+                condition,
+            });
+
+            // Skip to end of definition (may span multiple lines)
+            self.skip_policy_definition();
+        } else {
+            self.skip_to_period();
+        }
+    }
+
+    /// Phase 50: Parse a policy condition
+    /// Handles: field comparisons, predicate references, and OR/AND combinators
+    fn parse_policy_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+        let first = self.parse_atomic_condition(subject_type, object_type);
+
+        // Check for OR/AND combinators
+        loop {
+            // Skip newlines between conditions
+            while self.check_newline() {
+                self.advance();
+            }
+
+            // Handle ", AND" or ", OR" patterns
+            if self.check_comma() {
+                self.advance(); // consume comma
+                // Skip whitespace after comma
+                while self.check_newline() {
+                    self.advance();
+                }
+            }
+
+            if self.check_word("AND") {
+                self.advance();
+                // Skip newlines after AND
+                while self.check_newline() {
+                    self.advance();
+                }
+                let right = self.parse_atomic_condition(subject_type, object_type);
+                return PolicyCondition::And(Box::new(first), Box::new(right));
+            } else if self.check_word("OR") {
+                self.advance();
+                // Skip newlines after OR
+                while self.check_newline() {
+                    self.advance();
+                }
+                let right = self.parse_atomic_condition(subject_type, object_type);
+                return PolicyCondition::Or(Box::new(first), Box::new(right));
+            } else {
+                break;
+            }
+        }
+
+        first
+    }
+
+    /// Phase 50: Parse an atomic condition
+    fn parse_atomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+        // Skip "The" article if present
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Get the subject reference (e.g., "user" or "user's role")
+        let subject_ref = match self.consume_noun_or_proper() {
+            Some(sym) => sym,
+            None => return PolicyCondition::FieldEquals {
+                field: self.interner.intern("unknown"),
+                value: self.interner.intern("unknown"),
+                is_string_literal: false,
+            },
+        };
+
+        // Check if it's a field access ("'s role") or a predicate ("is admin")
+        if self.check_possessive() {
+            self.advance(); // consume "'s"
+
+            // Get field name
+            let field = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                },
+            };
+
+            // Expect "equals"
+            if self.check_word("equals") {
+                self.advance();
+
+                // Get value (string literal or identifier)
+                let (value, is_string_literal) = self.consume_value();
+
+                return PolicyCondition::FieldEquals { field, value, is_string_literal };
+            }
+        } else if self.check_copula() {
+            // "user is admin"
+            self.advance(); // consume "is"
+
+            // Get predicate name
+            let predicate = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                },
+            };
+
+            return PolicyCondition::Predicate {
+                subject: subject_ref,
+                predicate,
+            };
+        } else if self.check_word("equals") {
+            // "user equals the document's owner"
+            self.advance(); // consume "equals"
+
+            // Skip "the" if present
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Check for object field reference: "document's owner"
+            if let Some(obj_ref) = self.consume_noun_or_proper() {
+                if self.check_possessive() {
+                    self.advance(); // consume "'s"
+                    if let Some(field) = self.consume_noun_or_proper() {
+                        return PolicyCondition::ObjectFieldEquals {
+                            subject: subject_ref,
+                            object: obj_ref,
+                            field,
+                        };
+                    }
+                }
+            }
+        }
+
+        // Fallback: unknown condition
+        PolicyCondition::FieldEquals {
+            field: self.interner.intern("unknown"),
+            value: self.interner.intern("unknown"),
+            is_string_literal: false,
+        }
+    }
+
+    /// Consume a value (string literal or identifier), returning the symbol and whether it was a string literal
+    fn consume_value(&mut self) -> (Symbol, bool) {
+        if let Some(Token { kind: TokenType::StringLiteral(sym), .. }) = self.peek() {
+            let s = *sym;
+            self.advance();
+            (s, true)
+        } else if let Some(sym) = self.consume_noun_or_proper() {
+            (sym, false)
+        } else {
+            (self.interner.intern("unknown"), false)
+        }
+    }
+
+    /// Check for possessive marker ('s)
+    fn check_possessive(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Possessive, .. }))
+    }
+
+    /// Skip to end of a multi-line policy definition
+    fn skip_policy_definition(&mut self) {
+        let mut depth = 0;
+        while self.pos < self.tokens.len() {
+            if self.check_indent() {
+                depth += 1;
+            } else if self.check_dedent() {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+            }
+            if self.check_period() && depth == 0 {
+                self.advance();
+                break;
+            }
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+            self.advance();
         }
     }
 
@@ -23803,61 +24616,66 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse field: "a [public] name, which is Type." or "an x: Int."
-            if self.check_article() {
+            // Parse field: "a [public] name, which is Type." or "name: Type." (no article)
+            // Check for article (optional for concise syntax)
+            let has_article = self.check_article();
+            if has_article {
                 self.advance(); // consume "a"/"an"
+            }
 
-                // Check for "public" modifier
-                let has_public_keyword = if self.check_word("public") {
-                    self.advance();
-                    true
-                } else {
-                    false
-                };
-                // Visibility determined later based on syntax used
-                let mut is_public = has_public_keyword;
+            // Check for "public" modifier
+            let has_public_keyword = if self.check_word("public") {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            // Visibility determined later based on syntax used
+            let mut is_public = has_public_keyword;
 
-                // Get field name
-                if let Some(field_name) = self.consume_noun_or_proper() {
-                    // Support both syntaxes:
-                    // 1. "name: Type." (concise) - public by default (no visibility syntax)
-                    // 2. "name, which is Type." (natural) - private unless "public" keyword
-                    let ty = if self.check_colon() {
-                        // Concise syntax: "x: Int" - public by default
-                        is_public = true;
-                        self.advance(); // consume ":"
-                        self.consume_field_type_with_params(type_params)
-                    } else if self.check_comma() {
-                        // Natural syntax: uses has_public_keyword for visibility
-                        self.advance(); // consume ","
-                        // Consume "which"
-                        if self.check_word("which") {
-                            self.advance();
-                        }
-                        // Consume "is"
-                        if self.check_copula() {
-                            self.advance();
-                        }
-                        self.consume_field_type_with_params(type_params)
-                    } else {
-                        // Fallback: unknown type
-                        FieldType::Primitive(self.interner.intern("Unknown"))
-                    };
-
-                    fields.push(FieldDef {
-                        name: field_name,
-                        ty,
-                        is_public,
-                    });
-
-                    // Consume period
-                    if self.check_period() {
+            // Get field name - try to parse if we had article OR if next token looks like identifier
+            if let Some(field_name) = self.consume_noun_or_proper() {
+                // Support both syntaxes:
+                // 1. "name: Type." (concise) - public by default
+                // 2. "name, which is Type." (natural) - public by default
+                let ty = if self.check_colon() {
+                    // Concise syntax: "x: Int" - public by default
+                    is_public = true;
+                    self.advance(); // consume ":"
+                    self.consume_field_type_with_params(type_params)
+                } else if self.check_comma() {
+                    // Natural syntax: "name, which is Type" - also public by default
+                    is_public = true;
+                    self.advance(); // consume ","
+                    // Consume "which"
+                    if self.check_word("which") {
                         self.advance();
                     }
+                    // Consume "is"
+                    if self.check_copula() {
+                        self.advance();
+                    }
+                    self.consume_field_type_with_params(type_params)
+                } else if !has_article {
+                    // No colon and no article - this wasn't a field, skip
+                    continue;
                 } else {
-                    self.advance(); // skip malformed token
+                    // Fallback: unknown type
+                    FieldType::Primitive(self.interner.intern("Unknown"))
+                };
+
+                fields.push(FieldDef {
+                    name: field_name,
+                    ty,
+                    is_public,
+                });
+
+                // Consume period
+                if self.check_period() {
+                    self.advance();
                 }
-            } else {
+            } else if !has_article {
+                // Didn't have article and couldn't get field name - skip this token
                 self.advance();
             }
         }
@@ -23915,7 +24733,15 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     fn check_copula(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Is | TokenType::Are, .. }))
+        match self.peek() {
+            Some(Token { kind: TokenType::Is | TokenType::Are, .. }) => true,
+            // Also match "is" when tokenized as a verb (common in declarative mode)
+            Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) => {
+                let word = self.interner.resolve(*lemma).to_lowercase();
+                word == "is" || word == "are"
+            }
+            _ => false,
+        }
     }
 
     fn check_preposition(&self, word: &str) -> bool {
@@ -23952,17 +24778,14 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
-            // Phase 49: Accept Verb tokens that look like type names (uppercase, e.g., "Setting")
-            // These are -ing words that get classified as verbs but could be type names
+            // Phase 49/50: Accept Verb tokens as identifiers
+            // - Uppercase verbs like "Setting" are type names
+            // - Lowercase verbs like "trusted", "privileged" are predicate names
+            // Use lexeme to preserve the original word (not lemma which strips suffixes)
             TokenType::Verb { .. } => {
-                let lexeme_str = self.interner.resolve(t.lexeme);
-                if lexeme_str.chars().next().map_or(false, |c| c.is_uppercase()) {
-                    let sym = t.lexeme;
-                    self.advance();
-                    Some(sym)
-                } else {
-                    None
-                }
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
             }
             _ => None
         }
@@ -24936,6 +25759,610 @@ mod tests {
 
 ---
 
+### Policy Analysis
+
+**File:** `src/analysis/policy.rs`
+
+PolicyRegistry for storing predicate and capability definitions. PolicyCondition enum for rule composition: FieldEquals, FieldBool, Predicate, ObjectFieldEquals, Or, And. PredicateDef and CapabilityDef structs. Integrated with DiscoveryPass for ## Policy block scanning.
+
+```rust
+//! Phase 50: Security Policy Registry
+//!
+//! Stores predicate and capability definitions parsed from `## Policy` blocks.
+//! These are used to generate security methods on structs and enforce them
+//! with the `Check` statement.
+
+use std::collections::HashMap;
+use crate::intern::Symbol;
+
+/// Condition in a policy definition.
+/// Represents the predicate logic for security rules.
+#[derive(Debug, Clone)]
+pub enum PolicyCondition {
+    /// Field comparison: `the user's role equals "admin"`
+    FieldEquals {
+        field: Symbol,
+        value: Symbol,
+        /// Whether the value came from a string literal (needs quotes in codegen)
+        is_string_literal: bool,
+    },
+    /// Boolean field: `the user's verified equals true`
+    FieldBool {
+        field: Symbol,
+        value: bool,
+    },
+    /// Predicate call: `the user is admin`
+    Predicate {
+        subject: Symbol,
+        predicate: Symbol,
+    },
+    /// Object field comparison: `the user equals the document's owner`
+    ObjectFieldEquals {
+        subject: Symbol,
+        object: Symbol,
+        field: Symbol,
+    },
+    /// Logical OR: `A OR B`
+    Or(Box<PolicyCondition>, Box<PolicyCondition>),
+    /// Logical AND: `A AND B`
+    And(Box<PolicyCondition>, Box<PolicyCondition>),
+}
+
+/// A predicate definition: `A User is admin if the user's role equals "admin".`
+#[derive(Debug, Clone)]
+pub struct PredicateDef {
+    /// The type this predicate applies to (e.g., "User")
+    pub subject_type: Symbol,
+    /// The predicate name (e.g., "admin")
+    pub predicate_name: Symbol,
+    /// The condition that must be true
+    pub condition: PolicyCondition,
+}
+
+/// A capability definition: `A User can publish the Document if...`
+#[derive(Debug, Clone)]
+pub struct CapabilityDef {
+    /// The type that has this capability (e.g., "User")
+    pub subject_type: Symbol,
+    /// The action name (e.g., "publish")
+    pub action: Symbol,
+    /// The object type the action applies to (e.g., "Document")
+    pub object_type: Symbol,
+    /// The condition that must be true
+    pub condition: PolicyCondition,
+}
+
+/// Registry for security policies defined in `## Policy` blocks.
+#[derive(Debug, Default, Clone)]
+pub struct PolicyRegistry {
+    /// Predicates indexed by subject type
+    predicates: HashMap<Symbol, Vec<PredicateDef>>,
+    /// Capabilities indexed by subject type
+    capabilities: HashMap<Symbol, Vec<CapabilityDef>>,
+}
+
+impl PolicyRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a predicate definition
+    pub fn register_predicate(&mut self, def: PredicateDef) {
+        self.predicates
+            .entry(def.subject_type)
+            .or_insert_with(Vec::new)
+            .push(def);
+    }
+
+    /// Register a capability definition
+    pub fn register_capability(&mut self, def: CapabilityDef) {
+        self.capabilities
+            .entry(def.subject_type)
+            .or_insert_with(Vec::new)
+            .push(def);
+    }
+
+    /// Get predicates for a type
+    pub fn get_predicates(&self, subject_type: Symbol) -> Option<&[PredicateDef]> {
+        self.predicates.get(&subject_type).map(|v| v.as_slice())
+    }
+
+    /// Get capabilities for a type
+    pub fn get_capabilities(&self, subject_type: Symbol) -> Option<&[CapabilityDef]> {
+        self.capabilities.get(&subject_type).map(|v| v.as_slice())
+    }
+
+    /// Check if a type has any predicates
+    pub fn has_predicates(&self, subject_type: Symbol) -> bool {
+        self.predicates.contains_key(&subject_type)
+    }
+
+    /// Check if a type has any capabilities
+    pub fn has_capabilities(&self, subject_type: Symbol) -> bool {
+        self.capabilities.contains_key(&subject_type)
+    }
+
+    /// Iterate over all types with predicates (for codegen)
+    pub fn iter_predicates(&self) -> impl Iterator<Item = (&Symbol, &Vec<PredicateDef>)> {
+        self.predicates.iter()
+    }
+
+    /// Iterate over all types with capabilities (for codegen)
+    pub fn iter_capabilities(&self) -> impl Iterator<Item = (&Symbol, &Vec<CapabilityDef>)> {
+        self.capabilities.iter()
+    }
+
+    /// Check if registry has any policies
+    pub fn is_empty(&self) -> bool {
+        self.predicates.is_empty() && self.capabilities.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::intern::Interner;
+
+    #[test]
+    fn registry_stores_predicates() {
+        let mut interner = Interner::new();
+        let mut registry = PolicyRegistry::new();
+
+        let user = interner.intern("User");
+        let admin = interner.intern("admin");
+        let role = interner.intern("role");
+        let admin_val = interner.intern("admin");
+
+        let def = PredicateDef {
+            subject_type: user,
+            predicate_name: admin,
+            condition: PolicyCondition::FieldEquals {
+                field: role,
+                value: admin_val,
+                is_string_literal: true,
+            },
+        };
+
+        registry.register_predicate(def);
+
+        assert!(registry.has_predicates(user));
+        let preds = registry.get_predicates(user).unwrap();
+        assert_eq!(preds.len(), 1);
+        assert_eq!(preds[0].predicate_name, admin);
+    }
+
+    #[test]
+    fn registry_stores_capabilities() {
+        let mut interner = Interner::new();
+        let mut registry = PolicyRegistry::new();
+
+        let user = interner.intern("User");
+        let doc = interner.intern("Document");
+        let publish = interner.intern("publish");
+        let admin = interner.intern("admin");
+        let user_var = interner.intern("user");
+
+        let def = CapabilityDef {
+            subject_type: user,
+            action: publish,
+            object_type: doc,
+            condition: PolicyCondition::Predicate {
+                subject: user_var,
+                predicate: admin,
+            },
+        };
+
+        registry.register_capability(def);
+
+        assert!(registry.has_capabilities(user));
+        let caps = registry.get_capabilities(user).unwrap();
+        assert_eq!(caps.len(), 1);
+        assert_eq!(caps[0].action, publish);
+        assert_eq!(caps[0].object_type, doc);
+    }
+}
+
+```
+
+---
+
+### Ownership Analysis (Phase 45)
+
+**File:** `src/analysis/ownership.rs`
+
+Control-flow-aware ownership tracking. Move detection in branches, use-after-move errors, Give/Show semantics. OwnershipState tracks Live/Moved/MaybeValid states per variable. Merges states at control flow joins.
+
+```rust
+//! Phase 45: Native Ownership Analysis
+//!
+//! Lightweight data-flow analysis for use-after-move detection.
+//! Catches the 90% common cases at check-time (milliseconds), before Rust compilation.
+//!
+//! This pass tracks `Owned`, `Moved`, and `Borrowed` states through control flow
+//! to catch use-after-move errors instantly.
+
+use std::collections::HashMap;
+use crate::ast::stmt::{Stmt, Expr};
+use crate::intern::{Interner, Symbol};
+use crate::token::Span;
+
+/// Ownership state for a variable
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VarState {
+    /// Variable is owned and can be used
+    Owned,
+    /// Variable has been moved (Give)
+    Moved,
+    /// Variable might be moved (conditional branch)
+    MaybeMoved,
+    /// Variable is borrowed (Show) - still usable
+    Borrowed,
+}
+
+/// Error type for ownership violations
+#[derive(Debug, Clone)]
+pub struct OwnershipError {
+    pub kind: OwnershipErrorKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum OwnershipErrorKind {
+    /// Use after move
+    UseAfterMove { variable: String },
+    /// Use after potential move (in conditional)
+    UseAfterMaybeMove { variable: String, branch: String },
+    /// Double move
+    DoubleMoved { variable: String },
+}
+
+impl std::fmt::Display for OwnershipError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.kind {
+            OwnershipErrorKind::UseAfterMove { variable } => {
+                write!(f, "Cannot use '{}' after giving it away.\n\n\
+                    You transferred ownership of '{}' with Give.\n\
+                    Once given, you cannot use it anymore.\n\n\
+                    Tip: Use Show instead to lend without giving up ownership.",
+                    variable, variable)
+            }
+            OwnershipErrorKind::UseAfterMaybeMove { variable, branch } => {
+                write!(f, "Cannot use '{}' - it might have been given away in {}.\n\n\
+                    If the {} branch executes, '{}' will be moved.\n\
+                    Using it afterward is not safe.\n\n\
+                    Tip: Move the usage inside the branch, or restructure to ensure ownership.",
+                    variable, branch, branch, variable)
+            }
+            OwnershipErrorKind::DoubleMoved { variable } => {
+                write!(f, "Cannot give '{}' twice.\n\n\
+                    You already transferred ownership of '{}' with Give.\n\
+                    You cannot give it again.\n\n\
+                    Tip: Consider using Copy to duplicate the value.",
+                    variable, variable)
+            }
+        }
+    }
+}
+
+impl std::error::Error for OwnershipError {}
+
+/// Ownership checker - tracks variable states through control flow
+pub struct OwnershipChecker<'a> {
+    /// Maps variable symbols to their current ownership state
+    state: HashMap<Symbol, VarState>,
+    /// String interner for resolving symbols
+    interner: &'a Interner,
+}
+
+impl<'a> OwnershipChecker<'a> {
+    pub fn new(interner: &'a Interner) -> Self {
+        Self {
+            state: HashMap::new(),
+            interner,
+        }
+    }
+
+    /// Check a program for ownership violations
+    pub fn check_program(&mut self, stmts: &[Stmt<'_>]) -> Result<(), OwnershipError> {
+        self.check_block(stmts)
+    }
+
+    fn check_block(&mut self, stmts: &[Stmt<'_>]) -> Result<(), OwnershipError> {
+        for stmt in stmts {
+            self.check_stmt(stmt)?;
+        }
+        Ok(())
+    }
+
+    fn check_stmt(&mut self, stmt: &Stmt<'_>) -> Result<(), OwnershipError> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                // Check the value expression first
+                self.check_not_moved(value)?;
+                // Register variable as Owned
+                self.state.insert(*var, VarState::Owned);
+            }
+
+            Stmt::Give { object, .. } => {
+                // Check if object is already moved
+                if let Expr::Identifier(sym) = object {
+                    let current = self.state.get(sym).copied().unwrap_or(VarState::Owned);
+                    match current {
+                        VarState::Moved => {
+                            return Err(OwnershipError {
+                                kind: OwnershipErrorKind::DoubleMoved {
+                                    variable: self.interner.resolve(*sym).to_string(),
+                                },
+                                span: Span::default(),
+                            });
+                        }
+                        VarState::MaybeMoved => {
+                            return Err(OwnershipError {
+                                kind: OwnershipErrorKind::UseAfterMaybeMove {
+                                    variable: self.interner.resolve(*sym).to_string(),
+                                    branch: "a previous branch".to_string(),
+                                },
+                                span: Span::default(),
+                            });
+                        }
+                        _ => {
+                            self.state.insert(*sym, VarState::Moved);
+                        }
+                    }
+                } else {
+                    // For complex expressions, just check they're not moved
+                    self.check_not_moved(object)?;
+                }
+            }
+
+            Stmt::Show { object, .. } => {
+                // Check if object is moved before borrowing
+                self.check_not_moved(object)?;
+                // Mark as borrowed (still usable)
+                if let Expr::Identifier(sym) = object {
+                    let current = self.state.get(sym).copied();
+                    if current == Some(VarState::Owned) || current.is_none() {
+                        self.state.insert(*sym, VarState::Borrowed);
+                    }
+                }
+            }
+
+            Stmt::If { then_block, else_block, .. } => {
+                // Clone state before branching
+                let state_before = self.state.clone();
+
+                // Check then branch
+                self.check_block(then_block)?;
+                let state_after_then = self.state.clone();
+
+                // Check else branch (if exists)
+                let state_after_else = if let Some(else_b) = else_block {
+                    self.state = state_before.clone();
+                    self.check_block(else_b)?;
+                    self.state.clone()
+                } else {
+                    state_before.clone()
+                };
+
+                // Merge states: MaybeMoved if moved in any branch
+                self.state = self.merge_states(&state_after_then, &state_after_else);
+            }
+
+            Stmt::While { body, .. } => {
+                // Clone state before loop
+                let state_before = self.state.clone();
+
+                // Check body once
+                self.check_block(body)?;
+                let state_after_body = self.state.clone();
+
+                // Merge: if moved in body, mark as MaybeMoved
+                // (loop might not execute, or might execute multiple times)
+                self.state = self.merge_states(&state_before, &state_after_body);
+            }
+
+            Stmt::Repeat { body, .. } => {
+                // Check body once
+                self.check_block(body)?;
+            }
+
+            Stmt::Zone { body, .. } => {
+                self.check_block(body)?;
+            }
+
+            Stmt::Inspect { arms, .. } => {
+                if arms.is_empty() {
+                    return Ok(());
+                }
+
+                // Clone state before branches
+                let state_before = self.state.clone();
+                let mut branch_states = Vec::new();
+
+                for arm in arms {
+                    self.state = state_before.clone();
+                    self.check_block(arm.body)?;
+                    branch_states.push(self.state.clone());
+                }
+
+                // Merge all branch states
+                if let Some(first) = branch_states.first() {
+                    let mut merged = first.clone();
+                    for state in branch_states.iter().skip(1) {
+                        merged = self.merge_states(&merged, state);
+                    }
+                    self.state = merged;
+                }
+            }
+
+            Stmt::Return { value: Some(expr) } => {
+                self.check_not_moved(expr)?;
+            }
+
+            Stmt::Return { value: None } => {}
+
+            Stmt::Set { value, .. } => {
+                self.check_not_moved(value)?;
+            }
+
+            Stmt::Call { args, .. } => {
+                for arg in args {
+                    self.check_not_moved(arg)?;
+                }
+            }
+
+            // Other statements don't affect ownership
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Check that an expression doesn't reference a moved variable
+    fn check_not_moved(&self, expr: &Expr<'_>) -> Result<(), OwnershipError> {
+        match expr {
+            Expr::Identifier(sym) => {
+                match self.state.get(sym).copied() {
+                    Some(VarState::Moved) => {
+                        Err(OwnershipError {
+                            kind: OwnershipErrorKind::UseAfterMove {
+                                variable: self.interner.resolve(*sym).to_string(),
+                            },
+                            span: Span::default(),
+                        })
+                    }
+                    Some(VarState::MaybeMoved) => {
+                        Err(OwnershipError {
+                            kind: OwnershipErrorKind::UseAfterMaybeMove {
+                                variable: self.interner.resolve(*sym).to_string(),
+                                branch: "a conditional branch".to_string(),
+                            },
+                            span: Span::default(),
+                        })
+                    }
+                    _ => Ok(())
+                }
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.check_not_moved(left)?;
+                self.check_not_moved(right)?;
+                Ok(())
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.check_not_moved(object)
+            }
+            Expr::Index { collection, index } => {
+                self.check_not_moved(collection)?;
+                self.check_not_moved(index)?;
+                Ok(())
+            }
+            Expr::Slice { collection, start, end } => {
+                self.check_not_moved(collection)?;
+                self.check_not_moved(start)?;
+                self.check_not_moved(end)?;
+                Ok(())
+            }
+            Expr::Call { args, .. } => {
+                for arg in args {
+                    self.check_not_moved(arg)?;
+                }
+                Ok(())
+            }
+            Expr::List(items) => {
+                for item in items {
+                    self.check_not_moved(item)?;
+                }
+                Ok(())
+            }
+            Expr::Range { start, end } => {
+                self.check_not_moved(start)?;
+                self.check_not_moved(end)?;
+                Ok(())
+            }
+            Expr::New { init_fields, .. } => {
+                for (_, field_expr) in init_fields {
+                    self.check_not_moved(field_expr)?;
+                }
+                Ok(())
+            }
+            Expr::NewVariant { fields, .. } => {
+                for (_, field_expr) in fields {
+                    self.check_not_moved(field_expr)?;
+                }
+                Ok(())
+            }
+            Expr::Copy { expr } | Expr::Length { collection: expr } => {
+                self.check_not_moved(expr)
+            }
+            Expr::ManifestOf { zone } => {
+                self.check_not_moved(zone)
+            }
+            Expr::ChunkAt { index, zone } => {
+                self.check_not_moved(index)?;
+                self.check_not_moved(zone)
+            }
+            // Literals are always safe
+            Expr::Literal(_) => Ok(()),
+        }
+    }
+
+    /// Merge two branch states - if moved in either, mark as MaybeMoved
+    fn merge_states(
+        &self,
+        state_a: &HashMap<Symbol, VarState>,
+        state_b: &HashMap<Symbol, VarState>,
+    ) -> HashMap<Symbol, VarState> {
+        let mut merged = state_a.clone();
+
+        // Merge keys from state_b
+        for (sym, state_b_val) in state_b {
+            let state_a_val = state_a.get(sym).copied().unwrap_or(VarState::Owned);
+
+            let merged_val = match (state_a_val, *state_b_val) {
+                // Both moved = definitely moved
+                (VarState::Moved, VarState::Moved) => VarState::Moved,
+                // One moved, one not = maybe moved
+                (VarState::Moved, _) | (_, VarState::Moved) => VarState::MaybeMoved,
+                // Any maybe moved = maybe moved
+                (VarState::MaybeMoved, _) | (_, VarState::MaybeMoved) => VarState::MaybeMoved,
+                // Both borrowed = borrowed
+                (VarState::Borrowed, VarState::Borrowed) => VarState::Borrowed,
+                // Borrowed + Owned = Borrowed (conservative)
+                (VarState::Borrowed, _) | (_, VarState::Borrowed) => VarState::Borrowed,
+                // Both owned = owned
+                (VarState::Owned, VarState::Owned) => VarState::Owned,
+            };
+
+            merged.insert(*sym, merged_val);
+        }
+
+        // Also check keys only in state_a
+        for sym in state_a.keys() {
+            if !state_b.contains_key(sym) {
+                // Variable exists in one branch but not other - keep state_a value
+                // (already in merged)
+            }
+        }
+
+        merged
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ownership_checker_basic() {
+        let interner = Interner::new();
+        let checker = OwnershipChecker::new(&interner);
+        assert!(checker.state.is_empty());
+    }
+}
+
+```
+
+---
+
 ## Code Generation
 
 Rust code emission from imperative AST.
@@ -24953,6 +26380,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+use crate::analysis::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
@@ -24966,14 +26394,21 @@ use crate::registry::SymbolRegistry;
 /// Tracks refinement type constraints across scopes for mutation enforcement.
 /// When a variable with a refinement type is defined, we register its constraint.
 /// When that variable is mutated via `Set`, we re-emit the assertion.
+/// Phase 50: Also tracks variable types for capability Check resolution.
 pub struct RefinementContext<'a> {
     /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
     scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+    /// Phase 50: Maps variable name Symbol to type name (for capability resolution)
+    /// e.g., "doc" -> "Document" allows "Check that user can publish the document" to resolve to &doc
+    variable_types: HashMap<Symbol, String>,
 }
 
 impl<'a> RefinementContext<'a> {
     pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()] }
+        Self {
+            scopes: vec![HashMap::new()],
+            variable_types: HashMap::new(),
+        }
     }
 
     fn push_scope(&mut self) {
@@ -24994,6 +26429,22 @@ impl<'a> RefinementContext<'a> {
         for scope in self.scopes.iter().rev() {
             if let Some(entry) = scope.get(&var) {
                 return Some(*entry);
+            }
+        }
+        None
+    }
+
+    /// Phase 50: Register a variable with its type for capability resolution
+    fn register_variable_type(&mut self, var: Symbol, type_name: String) {
+        self.variable_types.insert(var, type_name);
+    }
+
+    /// Phase 50: Find a variable name by its type (for resolving "the document" to "doc")
+    fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
+        let type_lower = type_name.to_lowercase();
+        for (var_sym, var_type) in &self.variable_types {
+            if var_type.to_lowercase() == type_lower {
+                return Some(interner.resolve(*var_sym).to_string());
             }
         }
         None
@@ -25038,6 +26489,36 @@ fn replace_word(text: &str, from: &str, to: &str) -> String {
         result.push_str(if word == from { to } else { &word });
     }
     result
+}
+
+/// Phase 51: Detect if any statements require async execution.
+/// Returns true if the program needs #[tokio::main] async fn main().
+fn requires_async(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| requires_async_stmt(s))
+}
+
+fn requires_async_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        // Phase 9: Concurrent blocks use tokio::join!
+        Stmt::Concurrent { tasks } => true,
+        // Phase 51: Network operations and Sleep are async
+        Stmt::Listen { .. } => true,
+        Stmt::ConnectTo { .. } => true,
+        Stmt::Sleep { .. } => true,
+        // Phase 52: Sync is async (GossipSub subscription)
+        Stmt::Sync { .. } => true,
+        // Recursively check nested blocks
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| requires_async_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| requires_async_stmt(s)))
+        }
+        Stmt::While { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        _ => false,
+    }
 }
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
@@ -25111,15 +26592,141 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
     }
 }
 
+// =============================================================================
+// Phase 50: Policy Method Generation
+// =============================================================================
+
+/// Generate impl blocks with predicate and capability methods for security policies.
+fn codegen_policy_impls(policies: &PolicyRegistry, interner: &Interner) -> String {
+    let mut output = String::new();
+
+    // Collect all types that have policies
+    let mut type_predicates: HashMap<Symbol, Vec<&PredicateDef>> = HashMap::new();
+    let mut type_capabilities: HashMap<Symbol, Vec<&CapabilityDef>> = HashMap::new();
+
+    for (type_sym, predicates) in policies.iter_predicates() {
+        type_predicates.entry(*type_sym).or_insert_with(Vec::new).extend(predicates.iter());
+    }
+
+    for (type_sym, capabilities) in policies.iter_capabilities() {
+        type_capabilities.entry(*type_sym).or_insert_with(Vec::new).extend(capabilities.iter());
+    }
+
+    // Get all types that have any policies
+    let mut all_types: HashSet<Symbol> = HashSet::new();
+    all_types.extend(type_predicates.keys().copied());
+    all_types.extend(type_capabilities.keys().copied());
+
+    // Generate impl block for each type
+    for type_sym in all_types {
+        let type_name = interner.resolve(type_sym);
+
+        writeln!(output, "impl {} {{", type_name).unwrap();
+
+        // Generate predicate methods
+        if let Some(predicates) = type_predicates.get(&type_sym) {
+            for pred in predicates {
+                let pred_name = interner.resolve(pred.predicate_name).to_lowercase();
+                writeln!(output, "    pub fn is_{}(&self) -> bool {{", pred_name).unwrap();
+                let condition_code = codegen_policy_condition(&pred.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        // Generate capability methods
+        if let Some(capabilities) = type_capabilities.get(&type_sym) {
+            for cap in capabilities {
+                let action_name = interner.resolve(cap.action).to_lowercase();
+                let object_type = interner.resolve(cap.object_type);
+                let object_param = object_type.to_lowercase();
+
+                writeln!(output, "    pub fn can_{}(&self, {}: &{}) -> bool {{",
+                         action_name, object_param, object_type).unwrap();
+                let condition_code = codegen_policy_condition(&cap.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        writeln!(output, "}}\n").unwrap();
+    }
+
+    output
+}
+
+/// Generate Rust code for a policy condition.
+fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) -> String {
+    match condition {
+        PolicyCondition::FieldEquals { field, value, is_string_literal } => {
+            let field_name = interner.resolve(*field);
+            let value_str = interner.resolve(*value);
+            if *is_string_literal {
+                format!("self.{} == \"{}\"", field_name, value_str)
+            } else {
+                format!("self.{} == {}", field_name, value_str)
+            }
+        }
+        PolicyCondition::FieldBool { field, value } => {
+            let field_name = interner.resolve(*field);
+            format!("self.{} == {}", field_name, value)
+        }
+        PolicyCondition::Predicate { subject: _, predicate } => {
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+            format!("self.is_{}()", pred_name)
+        }
+        PolicyCondition::ObjectFieldEquals { subject: _, object, field } => {
+            let object_name = interner.resolve(*object).to_lowercase();
+            let field_name = interner.resolve(*field);
+            format!("self == &{}.{}", object_name, field_name)
+        }
+        PolicyCondition::Or(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} || {}", left_code, right_code)
+        }
+        PolicyCondition::And(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} && {}", left_code, right_code)
+        }
+    }
+}
+
+/// Collect LWWRegister field paths for special handling in SetField codegen.
+/// Returns a set of (type_name, field_name) pairs where the field is an LWWRegister.
+fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String)> {
+    let mut lww_fields = HashSet::new();
+    for (type_sym, def) in registry.iter_types() {
+        if let TypeDef::Struct { fields, .. } = def {
+            let type_name = interner.resolve(*type_sym).to_string();
+            for field in fields {
+                if let FieldType::Generic { base, .. } = &field.ty {
+                    let base_name = interner.resolve(*base);
+                    if base_name == "LastWriteWins" {
+                        let field_name = interner.resolve(field.name).to_string();
+                        lww_fields.insert((type_name.clone(), field_name));
+                    }
+                }
+            }
+        }
+    }
+    lww_fields
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
 /// Phase 32: Function definitions are emitted before main.
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) -> String {
+/// Phase 50: Accepts PolicyRegistry to generate security predicate methods.
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner) -> String {
     let mut output = String::new();
 
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
+
+    // Phase 49: Collect LWWRegister fields for special SetField handling
+    let lww_fields = collect_lww_fields(registry, interner);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -25168,10 +26775,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "use user_types::*;\n").unwrap();
     }
 
+    // Phase 50: Generate policy impl blocks with predicate and capability methods
+    output.push_str(&codegen_policy_impls(policies, interner));
+
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields));
         }
     }
 
@@ -25185,14 +26795,21 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     }
 
     // Main function
-    writeln!(output, "fn main() {{").unwrap();
+    // Phase 51: Use async main when async operations are present
+    if requires_async(stmts) {
+        writeln!(output, "#[tokio::main]").unwrap();
+        writeln!(output, "async fn main() {{").unwrap();
+    } else {
+        writeln!(output, "fn main() {{").unwrap();
+    }
     let mut main_ctx = RefinementContext::new();
+    let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -25200,6 +26817,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
 
 /// Phase 32/38: Generate a function definition.
 /// Phase 38: Updated for native functions and TypeExpr types.
+/// Phase 49: Accepts lww_fields for LWWRegister SetField handling.
 fn codegen_function_def(
     name: Symbol,
     params: &[(Symbol, &TypeExpr)],
@@ -25207,6 +26825,7 @@ fn codegen_function_def(
     return_type: Option<&TypeExpr>,
     is_native: bool,
     interner: &Interner,
+    lww_fields: &HashSet<(String, String)>,
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
@@ -25225,15 +26844,19 @@ fn codegen_function_def(
         .map(|t| codegen_type_expr(t, interner))
         .or_else(|| infer_return_type_from_body(body, interner));
 
+    // Phase 51: Check if function body requires async
+    let is_async = body.iter().any(|s| requires_async_stmt(s));
+    let fn_keyword = if is_async { "async fn" } else { "fn" };
+
     // Build function signature
     let signature = if let Some(ref ret_ty) = return_type_str {
         if ret_ty != "()" {
-            format!("fn {}({}) -> {}", func_name, params_str.join(", "), ret_ty)
+            format!("{} {}({}) -> {}", fn_keyword, func_name, params_str.join(", "), ret_ty)
         } else {
-            format!("fn {}({})", func_name, params_str.join(", "))
+            format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
         }
     } else {
-        format!("fn {}({})", func_name, params_str.join(", "))
+        format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
     };
 
     // Phase 38: Handle native functions
@@ -25254,8 +26877,16 @@ fn codegen_function_def(
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
+        let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
+
+        // Phase 50: Register parameter types for capability Check resolution
+        for (param_name, param_type) in params {
+            let type_name = codegen_type_expr(param_type, interner);
+            func_ctx.register_variable_type(*param_name, type_name);
+        }
+
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -25394,10 +27025,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is
     };
 
     // Phase 47: Add Serialize, Deserialize derives if portable
-    if is_portable {
-        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    // Phase 50: Add PartialEq for policy equality comparisons
+    // Phase 52: Shared types also need Serialize/Deserialize for Synced<T>
+    if is_portable || is_shared {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]", ind).unwrap();
     } else {
-        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+        writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq)]", ind).unwrap();
     }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
@@ -25558,6 +27191,8 @@ pub fn codegen_stmt<'a>(
     indent: usize,
     mutable_vars: &HashSet<Symbol>,
     ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -25565,7 +27200,7 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
 
             // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
@@ -25587,7 +27222,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
 
             // Phase 43C: Check if this variable has a refinement constraint
@@ -25598,23 +27233,23 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
             writeln!(output, "{}{}({});", indent_str, func_name, args_str.join(", ")).unwrap();
         }
 
         Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr(cond, interner);
+            let cond_str = codegen_expr(cond, interner, synced_vars);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
                 }
                 ctx.pop_scope();
             }
@@ -25623,11 +27258,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::While { cond, body, decreasing: _ } => {
             // decreasing is compile-time only, ignored at runtime
-            let cond_str = codegen_expr(cond, interner);
+            let cond_str = codegen_expr(cond, interner, synced_vars);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -25635,11 +27270,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Repeat { var, iterable, body } => {
             let var_name = interner.resolve(*var);
-            let iter_str = codegen_expr(iterable, interner);
+            let iter_str = codegen_expr(iterable, interner, synced_vars);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -25647,7 +27282,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr(v, interner);
+                let value_str = codegen_expr(v, interner, synced_vars);
                 writeln!(output, "{}return {};", indent_str, value_str).unwrap();
             } else {
                 writeln!(output, "{}return;", indent_str).unwrap();
@@ -25670,29 +27305,110 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::RuntimeAssert { condition } => {
-            let cond_str = codegen_expr(condition, interner);
+            let cond_str = codegen_expr(condition, interner, synced_vars);
             writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
+        }
+
+        // Phase 50: Security Check - mandatory runtime guard (NEVER optimized out)
+        Stmt::Check { subject, predicate, is_capability, object, source_text, span } => {
+            let subj_name = interner.resolve(*subject);
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+
+            let call = if *is_capability {
+                let obj_sym = object.expect("capability must have object");
+                let obj_word = interner.resolve(obj_sym);
+
+                // Phase 50: Type-based resolution
+                // "Check that user can publish the document" -> find variable of type Document
+                // First try to find a variable whose type matches the object word
+                let obj_name = ctx.find_variable_by_type(obj_word, interner)
+                    .unwrap_or_else(|| obj_word.to_string());
+
+                format!("{}.can_{}(&{})", subj_name, pred_name, obj_name)
+            } else {
+                format!("{}.is_{}()", subj_name, pred_name)
+            };
+
+            writeln!(output, "{}if !({}) {{", indent_str, call).unwrap();
+            writeln!(output, "{}    logos_core::panic_with(\"Security Check Failed at line {}: {}\");",
+                     indent_str, span.start, source_text).unwrap();
+            writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Listen on network address
+        Stmt::Listen { address } => {
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}logos_core::network::listen(&{}).await.expect(\"Failed to listen\");",
+                     indent_str, addr_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Connect to remote peer
+        Stmt::ConnectTo { address } => {
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}logos_core::network::connect(&{}).await.expect(\"Failed to connect\");",
+                     indent_str, addr_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Create PeerAgent remote handle
+        Stmt::LetPeerAgent { var, address } => {
+            let var_name = interner.resolve(*var);
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}let {} = logos_core::network::PeerAgent::new(&{}).expect(\"Invalid address\");",
+                     indent_str, var_name, addr_str).unwrap();
+        }
+
+        // Phase 51: Sleep for milliseconds
+        Stmt::Sleep { milliseconds } => {
+            let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+            // Use tokio async sleep
+            writeln!(output, "{}tokio::time::sleep(std::time::Duration::from_millis({} as u64)).await;",
+                     indent_str, ms_str).unwrap();
+        }
+
+        // Phase 52: Sync CRDT variable on topic
+        Stmt::Sync { var, topic } => {
+            let var_name = interner.resolve(*var);
+            let topic_str = codegen_expr(topic, interner, synced_vars);
+            // Wrap the variable in Synced<T> for automatic GossipSub replication
+            writeln!(
+                output,
+                "{}let {} = logos_core::crdt::Synced::new({}, &{}).await;",
+                indent_str, var_name, var_name, topic_str
+            ).unwrap();
+            // Track this variable as synced for subsequent field access
+            synced_vars.insert(*var);
         }
 
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
-            let obj_str = codegen_expr(object, interner);
-            let recv_str = codegen_expr(recipient, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            let recv_str = codegen_expr(recipient, interner, synced_vars);
             writeln!(output, "{}{}({});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::Show { object, recipient } => {
             // Borrow semantics: pass immutable reference
-            let obj_str = codegen_expr(object, interner);
-            let recv_str = codegen_expr(recipient, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            let recv_str = codegen_expr(recipient, interner, synced_vars);
             writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::SetField { object, field, value } => {
-            let obj_str = codegen_expr(object, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr(value, interner);
-            writeln!(output, "{}{}.{} = {};", indent_str, obj_str, field_name, value_str).unwrap();
+            let value_str = codegen_expr(value, interner, synced_vars);
+
+            // Phase 49: Check if this field is an LWWRegister - use .set() instead of =
+            // We check if ANY type has this field as LWW (heuristic - works for most cases)
+            let is_lww = lww_fields.iter().any(|(_, f)| f == field_name);
+            if is_lww {
+                writeln!(output, "{}{}.{}.set({});", indent_str, obj_str, field_name, value_str).unwrap();
+            } else {
+                writeln!(output, "{}{}.{} = {};", indent_str, obj_str, field_name, value_str).unwrap();
+            }
         }
 
         Stmt::StructDef { .. } => {
@@ -25704,7 +27420,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Inspect { target, arms, .. } => {
-            let target_str = codegen_expr(target, interner);
+            let target_str = codegen_expr(target, interner, synced_vars);
             writeln!(output, "{}match {} {{", indent_str, target_str).unwrap();
 
             for arm in arms {
@@ -25740,7 +27456,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -25750,13 +27466,13 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr(value, interner);
-            let coll_str = codegen_expr(collection, interner);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Pop { collection, into } => {
-            let coll_str = codegen_expr(collection, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             match into {
                 Some(var) => {
                     let var_name = interner.resolve(*var);
@@ -25770,9 +27486,9 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SetIndex { collection, index, value } => {
-            let coll_str = codegen_expr(collection, interner);
-            let index_str = codegen_expr(index, interner);
-            let value_str = codegen_expr(value, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
+            let value_str = codegen_expr(value, interner, synced_vars);
             // 1-based indexing: item 2 of items → items[1]
             writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
@@ -25806,7 +27522,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
 
             ctx.pop_scope();
@@ -25815,6 +27531,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 9: Concurrent execution block (async, I/O-bound)
         // Generates tokio::join! for concurrent task execution
+        // Phase 51: Variables used across multiple tasks are cloned to avoid move issues
         Stmt::Concurrent { tasks } => {
             // Collect Let statements to generate tuple destructuring
             let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
@@ -25822,6 +27539,21 @@ pub fn codegen_stmt<'a>(
                     Some(interner.resolve(*var).to_string())
                 } else {
                     None
+                }
+            }).collect();
+
+            // Collect variables used in Call statements across all tasks
+            let used_vars: HashSet<String> = tasks.iter().flat_map(|s| {
+                if let Stmt::Call { args, .. } = s {
+                    args.iter().filter_map(|arg| {
+                        if let Expr::Identifier(sym) = arg {
+                            Some(interner.resolve(*sym).to_string())
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>()
+                } else {
+                    vec![]
                 }
             }).collect();
 
@@ -25833,9 +27565,29 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
-                // Wrap each statement in an async block
-                write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+
+                // Convert call statements to awaited calls for async context
+                let inner_awaited = if let Stmt::Call { .. } = stmt {
+                    // Add .await before the semicolon for function calls
+                    inner.trim().trim_end_matches(';').to_string() + ".await;"
+                } else {
+                    inner.trim().to_string()
+                };
+
+                // For tasks that use shared variables, wrap in a block that clones them
+                if !used_vars.is_empty() && i < tasks.len() - 1 {
+                    // Clone variables for all tasks except the last one
+                    let clones: Vec<String> = used_vars.iter()
+                        .map(|v| format!("let {} = {}.clone();", v, v))
+                        .collect();
+                    write!(output, "{}    {{ {} async move {{ {} }} }}",
+                           indent_str, clones.join(" "), inner_awaited).unwrap();
+                } else {
+                    // Last task can use original variables
+                    write!(output, "{}    async {{ {} }}", indent_str, inner_awaited).unwrap();
+                }
+
                 if i < tasks.len() - 1 {
                     writeln!(output, ",").unwrap();
                 } else {
@@ -25867,7 +27619,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -25881,7 +27633,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -25899,7 +27651,7 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}let {} = logos_core::io::read_line();", indent_str, var_name).unwrap();
                 }
                 ReadSource::File(path_expr) => {
-                    let path_str = codegen_expr(path_expr, interner);
+                    let path_str = codegen_expr(path_expr, interner, synced_vars);
                     writeln!(
                         output,
                         "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
@@ -25911,8 +27663,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 10: Write to file
         Stmt::WriteFile { content, path } => {
-            let content_str = codegen_expr(content, interner);
-            let path_str = codegen_expr(path, interner);
+            let content_str = codegen_expr(content, interner, synced_vars);
+            let path_str = codegen_expr(path, interner, synced_vars);
             writeln!(
                 output,
                 "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
@@ -25934,8 +27686,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Send message to agent
         Stmt::SendMessage { message, destination } => {
-            let msg_str = codegen_expr(message, interner);
-            let dest_str = codegen_expr(destination, interner);
+            let msg_str = codegen_expr(message, interner, synced_vars);
+            let dest_str = codegen_expr(destination, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.send({}).await.expect(\"Failed to send message\");",
@@ -25945,7 +27697,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Await response from agent
         Stmt::AwaitMessage { source, into } => {
-            let src_str = codegen_expr(source, interner);
+            let src_str = codegen_expr(source, interner, synced_vars);
             let var_name = interner.resolve(*into);
             writeln!(
                 output,
@@ -25956,8 +27708,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49: Merge CRDT state
         Stmt::MergeCrdt { source, target } => {
-            let src_str = codegen_expr(source, interner);
-            let tgt_str = codegen_expr(target, interner);
+            let src_str = codegen_expr(source, interner, synced_vars);
+            let tgt_str = codegen_expr(target, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.merge(&{});",
@@ -25966,10 +27718,28 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 49: Increment GCounter
+        // Phase 52: If object is synced, wrap in .mutate() for auto-publish
         Stmt::IncreaseCrdt { object, field, amount } => {
-            let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr(amount, interner);
+            let amount_str = codegen_expr(amount, interner, synced_vars);
+
+            // Check if the root object is synced
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    // Synced: use .mutate() for auto-publish
+                    let obj_name = interner.resolve(sym);
+                    writeln!(
+                        output,
+                        "{}{}.mutate(|inner| inner.{}.increment({} as u64)).await;",
+                        indent_str, obj_name, field_name, amount_str
+                    ).unwrap();
+                    return output;
+                }
+            }
+
+            // Not synced: direct access
+            let obj_str = codegen_expr(object, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.{}.increment({} as u64);",
@@ -25981,15 +27751,25 @@ pub fn codegen_stmt<'a>(
     output
 }
 
-pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
+/// Phase 52: Extract the root identifier from an expression.
+/// For `x.field.subfield`, returns `x`.
+fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => get_root_identifier(object),
+        _ => None,
+    }
+}
+
+pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
     match expr {
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
         Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
 
         Expr::BinaryOp { op, left, right } => {
-            let left_str = codegen_expr(left, interner);
-            let right_str = codegen_expr(right, interner);
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -26010,83 +27790,94 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 
         Expr::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
             format!("{}({})", func_name, args_str.join(", "))
         }
 
         Expr::Index { collection, index } => {
-            let coll_str = codegen_expr(collection, interner);
-            let index_str = codegen_expr(index, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
             // Phase 43D: 1-based indexing with runtime bounds check
             format!("logos_index(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
-            let coll_str = codegen_expr(collection, interner);
-            let start_str = codegen_expr(start, interner);
-            let end_str = codegen_expr(end, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let start_str = codegen_expr(start, interner, synced_vars);
+            let end_str = codegen_expr(end, interner, synced_vars);
             // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
             // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
             format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
         }
 
         Expr::Copy { expr } => {
-            let expr_str = codegen_expr(expr, interner);
+            let expr_str = codegen_expr(expr, interner, synced_vars);
             // Phase 43D: Explicit clone to owned Vec
             format!("{}.to_vec()", expr_str)
         }
 
         Expr::Length { collection } => {
-            let coll_str = codegen_expr(collection, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
         }
 
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
-            let zone_str = codegen_expr(zone, interner);
+            let zone_str = codegen_expr(zone, interner, synced_vars);
             format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
         }
 
         Expr::ChunkAt { index, zone } => {
-            let zone_str = codegen_expr(zone, interner);
-            let index_str = codegen_expr(index, interner);
+            let zone_str = codegen_expr(zone, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
             // LOGOS uses 1-indexed, Rust uses 0-indexed
             format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| codegen_expr(i, interner))
+                .map(|i| codegen_expr(i, interner, synced_vars))
                 .collect();
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Range { start, end } => {
-            let start_str = codegen_expr(start, interner);
-            let end_str = codegen_expr(end, interner);
+            let start_str = codegen_expr(start, interner, synced_vars);
+            let end_str = codegen_expr(end, interner, synced_vars);
             format!("({}..={})", start_str, end_str)
         }
 
         Expr::FieldAccess { object, field } => {
-            let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
+
+            // Phase 52: Check if root object is synced - use .get().await
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    let obj_name = interner.resolve(sym);
+                    return format!("{}.get().await.{}", obj_name, field_name);
+                }
+            }
+
+            let obj_str = codegen_expr(object, interner, synced_vars);
             format!("{}.{}", obj_str, field_name)
         }
 
         Expr::New { type_name, type_args, init_fields } => {
             let type_str = interner.resolve(*type_name);
             if !init_fields.is_empty() {
-                // Struct initialization with fields: Point { x: 10, y: 20 }
+                // Struct initialization with fields: Point { x: 10, y: 20, ..Default::default() }
+                // Always add ..Default::default() to handle partial initialization (e.g., CRDT fields)
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
-                        let value_str = codegen_expr(value, interner);
+                        let value_str = codegen_expr(value, interner, synced_vars);
                         format!("{}: {}", field_name, value_str)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{} {{ {} }}", type_str, fields_str)
+                format!("{} {{ {}, ..Default::default() }}", type_str, fields_str)
             } else if type_args.is_empty() {
                 format!("{}::default()", type_str)
             } else {
@@ -26110,7 +27901,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 let fields_str: Vec<String> = fields.iter()
                     .map(|(field_name, value)| {
                         let name = interner.resolve(*field_name);
-                        let val = codegen_expr(value, interner);
+                        let val = codegen_expr(value, interner, synced_vars);
                         format!("{}: {}", name, val)
                     })
                     .collect();
@@ -26179,21 +27970,24 @@ mod tests {
     #[test]
     fn test_literal_number() {
         let interner = Interner::new();
+        let synced_vars = HashSet::new();
         let expr = Expr::Literal(Literal::Number(42));
-        assert_eq!(codegen_expr(&expr, &interner), "42");
+        assert_eq!(codegen_expr(&expr, &interner, &synced_vars), "42");
     }
 
     #[test]
     fn test_literal_boolean() {
         let interner = Interner::new();
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(true)), &interner), "true");
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(false)), &interner), "false");
+        let synced_vars = HashSet::new();
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(true)), &interner, &synced_vars), "true");
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(false)), &interner, &synced_vars), "false");
     }
 
     #[test]
     fn test_literal_nothing() {
         let interner = Interner::new();
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Nothing), &interner), "()");
+        let synced_vars = HashSet::new();
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Nothing), &interner, &synced_vars), "()");
     }
 }
 
@@ -26231,7 +28025,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -26250,13 +28044,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -26302,7 +28098,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -26317,13 +28113,15 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -26371,7 +28169,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -26388,13 +28186,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -26444,7 +28244,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -26593,7 +28393,17 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
     let codegen_registry = type_registry.clone();
 
-    // Tokenize the main file
+    // Phase 50: Also discover policies from the main file
+    // (discover_with_imports doesn't handle policies yet, so we do a separate pass)
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+    let policy_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run_full().policies
+    };
+    let codegen_policies = policy_registry.clone();
+
+    // Re-tokenize for parsing (interner may have been modified)
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
@@ -26623,7 +28433,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     // Pass 2: Parse with type context (includes imported types)
     let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -27949,285 +29759,6 @@ mod tests {
         let temp = tempdir().unwrap();
         let found = find_project_root(temp.path());
         assert!(found.is_none());
-    }
-}
-
-```
-
----
-
-### Project Module
-
-**File:** `src/project/mod.rs`
-
-Phase 36/37/39 project infrastructure exports. Provides Loader, Manifest, BuildConfig, Credentials, and RegistryClient. Feature-gated: loader always available, others require 'cli' feature.
-
-```rust
-//! Phase 36/37/39: Project Module System
-//!
-//! Provides infrastructure for multi-file LOGOS projects, including:
-//! - Module loading from various URI schemes (file:, logos:, https:)
-//! - Caching of loaded modules
-//! - Standard library embedding
-//! - Project manifests and build orchestration (Phase 37)
-//! - Package registry client and credentials (Phase 39)
-
-pub mod loader;
-#[cfg(feature = "cli")]
-pub mod manifest;
-#[cfg(feature = "cli")]
-pub mod build;
-#[cfg(feature = "cli")]
-pub mod credentials;
-#[cfg(feature = "cli")]
-pub mod registry;
-
-pub use loader::{Loader, ModuleSource};
-#[cfg(feature = "cli")]
-pub use manifest::{Manifest, ManifestError};
-#[cfg(feature = "cli")]
-pub use build::{build, find_project_root, run, BuildConfig, BuildError, BuildResult};
-#[cfg(feature = "cli")]
-pub use credentials::{Credentials, get_token as get_registry_token};
-#[cfg(feature = "cli")]
-pub use registry::{RegistryClient, create_tarball, is_git_dirty};
-
-```
-
----
-
-### Module Loader
-
-**File:** `src/project/loader.rs`
-
-Phase 36 module resolution. Supports file:./path.md (local), logos:std/core (built-in), https:// (remote registry). Caches loaded modules, resolves relative paths, embeds std lib at compile time.
-
-```rust
-//! Phase 36: Module Loader
-//!
-//! Handles resolution and loading of module sources from various URI schemes:
-//! - `file:./path.md` - Local filesystem relative to current file
-//! - `logos:std` - Built-in standard library (embedded at compile time)
-//! - `https://logicaffeine.dev/...` - Remote registry (Phase 37)
-
-use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-
-/// A loaded module's source content and metadata.
-#[derive(Debug, Clone)]
-pub struct ModuleSource {
-    /// The source content of the module
-    pub content: String,
-    /// The resolved path (for error reporting and relative resolution)
-    pub path: PathBuf,
-}
-
-/// Module loader that handles multiple URI schemes.
-///
-/// Caches loaded modules to prevent duplicate loading and supports
-/// cycle detection through the cache.
-pub struct Loader {
-    /// Cache of loaded modules (URI -> ModuleSource)
-    cache: HashMap<String, ModuleSource>,
-    /// Root directory of the project (for relative path resolution)
-    root_path: PathBuf,
-}
-
-impl Loader {
-    /// Creates a new Loader with the given root path.
-    pub fn new(root_path: PathBuf) -> Self {
-        Loader {
-            cache: HashMap::new(),
-            root_path,
-        }
-    }
-
-    /// Resolves a URI to a module source.
-    ///
-    /// Supports:
-    /// - `file:./path.md` - Local filesystem (relative to base_path)
-    /// - `logos:std` - Built-in standard library
-    /// - `logos:core` - Built-in core types
-    /// - `https://logicaffeine.dev/...` - Remote registry (returns error for now)
-    pub fn resolve(&mut self, base_path: &Path, uri: &str) -> Result<&ModuleSource, String> {
-        // Normalize the URI for caching
-        let cache_key = self.normalize_uri(base_path, uri)?;
-
-        // Check cache first
-        if self.cache.contains_key(&cache_key) {
-            return Ok(&self.cache[&cache_key]);
-        }
-
-        // Load based on scheme
-        let source = if uri.starts_with("file:") {
-            self.load_file(base_path, uri)?
-        } else if uri.starts_with("logos:") {
-            self.load_intrinsic(uri)?
-        } else if uri.starts_with("https://") || uri.starts_with("http://") {
-            self.load_remote(uri)?
-        } else {
-            // Default to file: scheme if no scheme provided
-            self.load_file(base_path, &format!("file:{}", uri))?
-        };
-
-        // Cache and return
-        self.cache.insert(cache_key.clone(), source);
-        Ok(&self.cache[&cache_key])
-    }
-
-    /// Normalizes a URI for consistent caching.
-    fn normalize_uri(&self, base_path: &Path, uri: &str) -> Result<String, String> {
-        if uri.starts_with("file:") {
-            let path_str = uri.trim_start_matches("file:");
-            let base_dir = base_path.parent().unwrap_or(&self.root_path);
-            let resolved = base_dir.join(path_str);
-            Ok(format!("file:{}", resolved.display()))
-        } else {
-            Ok(uri.to_string())
-        }
-    }
-
-    /// Loads a module from the local filesystem.
-    fn load_file(&self, base_path: &Path, uri: &str) -> Result<ModuleSource, String> {
-        let path_str = uri.trim_start_matches("file:");
-
-        // Resolve relative to the base file's directory
-        let base_dir = base_path.parent().unwrap_or(&self.root_path);
-        let resolved_path = base_dir.join(path_str);
-
-        // Security: Check that we're not escaping the root path
-        // (Basic check - a real implementation would canonicalize paths)
-        let canonical_root = self.root_path.canonicalize()
-            .unwrap_or_else(|_| self.root_path.clone());
-
-        // Read the file
-        let content = fs::read_to_string(&resolved_path)
-            .map_err(|e| format!("Failed to read '{}': {}", resolved_path.display(), e))?;
-
-        // Check if escaping root (after we know the file exists)
-        if let Ok(canonical_path) = resolved_path.canonicalize() {
-            if !canonical_path.starts_with(&canonical_root) {
-                return Err(format!(
-                    "Security: Cannot load '{}' - path escapes project root",
-                    uri
-                ));
-            }
-        }
-
-        Ok(ModuleSource {
-            content,
-            path: resolved_path,
-        })
-    }
-
-    /// Loads a built-in module (embedded at compile time).
-    fn load_intrinsic(&self, uri: &str) -> Result<ModuleSource, String> {
-        let name = uri.trim_start_matches("logos:");
-
-        match name {
-            "std" => Ok(ModuleSource {
-                content: include_str!("../../assets/std/std.md").to_string(),
-                path: PathBuf::from("logos:std"),
-            }),
-            "core" => Ok(ModuleSource {
-                content: include_str!("../../assets/std/core.md").to_string(),
-                path: PathBuf::from("logos:core"),
-            }),
-            _ => Err(format!("Unknown intrinsic module: '{}'", uri)),
-        }
-    }
-
-    /// Loads a module from a remote URL (Phase 37).
-    fn load_remote(&self, uri: &str) -> Result<ModuleSource, String> {
-        // Phase 37: Implement actual HTTP fetching with caching and lockfile
-        // For now, return an error directing users to use local imports
-        Err(format!(
-            "Remote module loading not yet implemented for '{}'. \
-             Use 'logos fetch' to download dependencies locally first. \
-             (Full remote support coming in Phase 37)",
-            uri
-        ))
-    }
-
-    /// Checks if a module has already been loaded (for cycle detection).
-    pub fn is_loaded(&self, uri: &str) -> bool {
-        self.cache.contains_key(uri)
-    }
-
-    /// Returns all loaded module URIs (for debugging).
-    pub fn loaded_modules(&self) -> Vec<&str> {
-        self.cache.keys().map(|s| s.as_str()).collect()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_file_scheme_resolution() {
-        let temp_dir = tempdir().unwrap();
-        let geo_path = temp_dir.path().join("geo.md");
-        fs::write(&geo_path, "## Definition\nA Point has:\n    an x, which is Int.\n").unwrap();
-
-        let mut loader = Loader::new(temp_dir.path().to_path_buf());
-        let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
-
-        assert!(result.is_ok(), "Should resolve file: scheme: {:?}", result);
-        assert!(result.unwrap().content.contains("Point"));
-    }
-
-    #[test]
-    fn test_logos_std_scheme() {
-        let mut loader = Loader::new(PathBuf::from("."));
-        let result = loader.resolve(&PathBuf::from("main.md"), "logos:std");
-
-        assert!(result.is_ok(), "Should resolve logos:std: {:?}", result);
-    }
-
-    #[test]
-    fn test_logos_core_scheme() {
-        let mut loader = Loader::new(PathBuf::from("."));
-        let result = loader.resolve(&PathBuf::from("main.md"), "logos:core");
-
-        assert!(result.is_ok(), "Should resolve logos:core: {:?}", result);
-    }
-
-    #[test]
-    fn test_unknown_intrinsic() {
-        let mut loader = Loader::new(PathBuf::from("."));
-        let result = loader.resolve(&PathBuf::from("main.md"), "logos:unknown");
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Unknown intrinsic"));
-    }
-
-    #[test]
-    fn test_caching() {
-        let temp_dir = tempdir().unwrap();
-        let geo_path = temp_dir.path().join("geo.md");
-        fs::write(&geo_path, "content").unwrap();
-
-        let mut loader = Loader::new(temp_dir.path().to_path_buf());
-
-        // First load
-        let _ = loader.resolve(&temp_dir.path().join("main.md"), "file:./geo.md");
-
-        // Should be cached now
-        assert!(loader.loaded_modules().len() == 1);
-    }
-
-    #[test]
-    fn test_missing_file() {
-        let temp_dir = tempdir().unwrap();
-        let mut loader = Loader::new(temp_dir.path().to_path_buf());
-
-        let result = loader.resolve(&temp_dir.path().join("main.md"), "file:./nonexistent.md");
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Failed to read"));
     }
 }
 
@@ -33162,7 +34693,11 @@ impl<'a> VerificationPass<'a> {
             | Stmt::Concurrent { .. }
             | Stmt::Parallel { .. }
             | Stmt::ReadFrom { .. }
-            | Stmt::WriteFile { .. } => Ok(()),
+            | Stmt::WriteFile { .. }
+            // Phase 51: P2P Networking
+            | Stmt::Listen { .. }
+            | Stmt::ConnectTo { .. }
+            | Stmt::LetPeerAgent { .. } => Ok(()),
         }
     }
 
@@ -36757,6 +38292,1989 @@ pub fn clear() {
 
 ---
 
+### LOGOS Interpreter
+
+**File:** `src/interpreter.rs`
+
+Direct AST interpretation without compilation. Used for REPL, debugging, and rapid prototyping. Evaluates expressions and statements in a runtime environment.
+
+```rust
+//! Tree-walking interpreter for LOGOS imperative code.
+//!
+//! This module provides runtime execution of parsed LOGOS programs,
+//! walking the AST and executing statements/expressions directly.
+
+use std::collections::HashMap;
+
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, Stmt, TypeExpr};
+use crate::intern::{Interner, Symbol};
+
+/// Runtime values during interpretation.
+#[derive(Debug, Clone)]
+pub enum RuntimeValue {
+    Int(i64),
+    Float(f64),
+    Bool(bool),
+    Text(String),
+    List(Vec<RuntimeValue>),
+    Struct {
+        type_name: String,
+        fields: HashMap<String, RuntimeValue>,
+    },
+    Nothing,
+}
+
+impl RuntimeValue {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            RuntimeValue::Int(_) => "Int",
+            RuntimeValue::Float(_) => "Float",
+            RuntimeValue::Bool(_) => "Bool",
+            RuntimeValue::Text(_) => "Text",
+            RuntimeValue::List(_) => "List",
+            RuntimeValue::Struct { .. } => "Struct",
+            RuntimeValue::Nothing => "Nothing",
+        }
+    }
+
+    pub fn is_truthy(&self) -> bool {
+        match self {
+            RuntimeValue::Bool(b) => *b,
+            RuntimeValue::Int(n) => *n != 0,
+            RuntimeValue::Nothing => false,
+            _ => true,
+        }
+    }
+
+    pub fn to_display_string(&self) -> String {
+        match self {
+            RuntimeValue::Int(n) => n.to_string(),
+            RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
+            RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
+            RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::List(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Struct { type_name, fields } => {
+                if fields.is_empty() {
+                    // Unit variant - just show the name
+                    type_name.clone()
+                } else {
+                    let field_strs: Vec<String> = fields
+                        .iter()
+                        .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                        .collect();
+                    format!("{} {{ {} }}", type_name, field_strs.join(", "))
+                }
+            }
+            RuntimeValue::Nothing => "nothing".to_string(),
+        }
+    }
+}
+
+/// Control flow signals for statement execution.
+pub enum ControlFlow {
+    Continue,
+    Return(RuntimeValue),
+    Break,
+}
+
+/// Stored function definition for user-defined functions.
+pub struct FunctionDef<'a> {
+    pub params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+    pub body: Block<'a>,
+    pub return_type: Option<&'a TypeExpr<'a>>,
+}
+
+/// Tree-walking interpreter for LOGOS programs.
+pub struct Interpreter<'a> {
+    interner: &'a Interner,
+    /// Scope stack - each HashMap is a scope level
+    env: Vec<HashMap<Symbol, RuntimeValue>>,
+    /// User-defined functions
+    functions: HashMap<Symbol, FunctionDef<'a>>,
+    /// Struct type definitions (for constructor validation)
+    struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
+    /// Output lines from show() calls
+    pub output: Vec<String>,
+}
+
+impl<'a> Interpreter<'a> {
+    pub fn new(interner: &'a Interner) -> Self {
+        Interpreter {
+            interner,
+            env: vec![HashMap::new()], // Global scope
+            functions: HashMap::new(),
+            struct_defs: HashMap::new(),
+            output: Vec::new(),
+        }
+    }
+
+    /// Execute a program (list of statements).
+    pub fn run(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        for stmt in stmts {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Return(_) => break,
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// Execute a single statement.
+    fn execute_stmt(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                let val = self.evaluate_expr(value)?;
+                self.define(*var, val);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Set { target, value } => {
+                let val = self.evaluate_expr(value)?;
+                self.assign(*target, val)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Call { function, args } => {
+                self.call_function(*function, args)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::If { cond, then_block, else_block } => {
+                let condition = self.evaluate_expr(cond)?;
+                if condition.is_truthy() {
+                    let flow = self.execute_block(then_block)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow); // Propagate Return/Break from If block
+                    }
+                } else if let Some(else_stmts) = else_block {
+                    let flow = self.execute_block(else_stmts)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow); // Propagate Return/Break from Otherwise block
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::While { cond, body, .. } => {
+                loop {
+                    let condition = self.evaluate_expr(cond)?;
+                    if !condition.is_truthy() {
+                        break;
+                    }
+                    match self.execute_block(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                        ControlFlow::Continue => {}
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Repeat { var, iterable, body } => {
+                let iter_val = self.evaluate_expr(iterable)?;
+                let items = match iter_val {
+                    RuntimeValue::List(list) => list,
+                    RuntimeValue::Text(s) => {
+                        s.chars().map(|c| RuntimeValue::Text(c.to_string())).collect()
+                    }
+                    _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
+                };
+
+                self.push_scope();
+                for item in items {
+                    self.define(*var, item);
+                    match self.execute_block(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => {
+                            self.pop_scope();
+                            return Ok(ControlFlow::Return(v));
+                        }
+                        ControlFlow::Continue => {}
+                    }
+                }
+                self.pop_scope();
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Return { value } => {
+                let ret_val = match value {
+                    Some(expr) => self.evaluate_expr(expr)?,
+                    None => RuntimeValue::Nothing,
+                };
+                Ok(ControlFlow::Return(ret_val))
+            }
+
+            Stmt::FunctionDef { name, params, body, return_type, .. } => {
+                let func = FunctionDef {
+                    params: params.clone(),
+                    body: *body,
+                    return_type: *return_type,
+                };
+                self.functions.insert(*name, func);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::StructDef { name, fields, .. } => {
+                self.struct_defs.insert(*name, fields.clone());
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetField { object, field, value } => {
+                let new_val = self.evaluate_expr(value)?;
+                // Get the object identifier
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+                    if let RuntimeValue::Struct { fields, .. } = &mut obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err(format!("Cannot set field on non-struct value"));
+                    }
+                } else {
+                    return Err("SetField target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Push { value, collection } => {
+                let val = self.evaluate_expr(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        items.push(val);
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only push to a List".to_string());
+                    }
+                } else {
+                    return Err("Push collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Pop { collection, into } => {
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        let popped = items.pop().unwrap_or(RuntimeValue::Nothing);
+                        self.assign(*coll_sym, coll_val)?;
+                        if let Some(into_var) = into {
+                            self.define(*into_var, popped);
+                        }
+                    } else {
+                        return Err("Can only pop from a List".to_string());
+                    }
+                } else {
+                    return Err("Pop collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetIndex { collection, index, value } => {
+                let idx_val = self.evaluate_expr(index)?;
+                let new_val = self.evaluate_expr(value)?;
+                let idx = match idx_val {
+                    RuntimeValue::Int(n) => n as usize,
+                    _ => return Err("Index must be an integer".to_string()),
+                };
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::List(ref mut items) = coll_val {
+                        // 1-indexed
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                        }
+                        items[idx - 1] = new_val;
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only index into a List".to_string());
+                    }
+                } else {
+                    return Err("SetIndex collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Inspect { target, arms, .. } => {
+                let target_val = self.evaluate_expr(target)?;
+                self.execute_inspect(&target_val, arms)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Zone { name, body, .. } => {
+                // Zones create a new scope
+                self.push_scope();
+                // Define the zone handle (as Nothing for now)
+                self.define(*name, RuntimeValue::Nothing);
+                let result = self.execute_block(body);
+                self.pop_scope();
+                result?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+                // In WASM, execute sequentially
+                for task in tasks.iter() {
+                    self.execute_stmt(task)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Assert { .. } | Stmt::Trust { .. } => {
+                // Logic assertions - for now, just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::RuntimeAssert { condition } => {
+                let val = self.evaluate_expr(condition)?;
+                if !val.is_truthy() {
+                    return Err("Assertion failed".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Give { .. } => {
+                // Ownership semantics - in interpreter, just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Show { object, recipient } => {
+                // Show statement: "Show x." or "Show x to console."
+                // The recipient is the show function by default
+                let obj_val = self.evaluate_expr(object)?;
+
+                // Check if recipient is the "show" function (default)
+                if let Expr::Identifier(sym) = recipient {
+                    let name = self.interner.resolve(*sym);
+                    if name == "show" {
+                        // Output the value
+                        self.output.push(obj_val.to_display_string());
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::ReadFrom { var, .. } => {
+                // No filesystem in WASM - return empty string
+                self.define(*var, RuntimeValue::Text(String::new()));
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::WriteFile { .. } => {
+                // No filesystem in WASM - just continue
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Spawn { name, .. } => {
+                // No agents in WASM - create a placeholder
+                self.define(*name, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SendMessage { .. } => {
+                // No agents in WASM
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::AwaitMessage { into, .. } => {
+                // No agents in WASM - define the into variable as Nothing
+                self.define(*into, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            // Phase 49: CRDT operations - not supported in interpreter (compile-only)
+            Stmt::MergeCrdt { .. } => {
+                Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::IncreaseCrdt { .. } => {
+                Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            // Phase 50: Security Check - not supported in interpreter (compile-only)
+            Stmt::Check { .. } => {
+                Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            // Phase 51: P2P Networking - not supported in interpreter (compile-only)
+            Stmt::Listen { .. } => {
+                Err("Listen is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::ConnectTo { .. } => {
+                Err("Connect is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::LetPeerAgent { .. } => {
+                Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::Sleep { .. } => {
+                Err("Sleep is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            // Phase 52: Sync is not supported in interpreter (compile-only)
+            Stmt::Sync { .. } => {
+                Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+        }
+    }
+
+    /// Execute a block of statements, returning control flow.
+    fn execute_block(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
+        self.push_scope();
+        for stmt in block.iter() {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Continue => {}
+                flow => {
+                    self.pop_scope();
+                    return Ok(flow);
+                }
+            }
+        }
+        self.pop_scope();
+        Ok(ControlFlow::Continue)
+    }
+
+    /// Execute Inspect (pattern matching).
+    fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
+        for arm in arms {
+            if arm.variant.is_none() {
+                // Otherwise arm - always matches
+                self.execute_block(arm.body)?;
+                return Ok(());
+            }
+            // For now, simplified matching - just check type name
+            if let RuntimeValue::Struct { type_name, fields } = target {
+                if let Some(variant) = arm.variant {
+                    let variant_name = self.interner.resolve(variant);
+                    if type_name == variant_name {
+                        // Bind fields
+                        self.push_scope();
+                        for (field_name, binding_name) in &arm.bindings {
+                            let field_str = self.interner.resolve(*field_name);
+                            if let Some(val) = fields.get(field_str) {
+                                self.define(*binding_name, val.clone());
+                            }
+                        }
+                        let result = self.execute_block(arm.body);
+                        self.pop_scope();
+                        result?;
+                        return Ok(());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Evaluate an expression to a runtime value.
+    fn evaluate_expr(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        match expr {
+            Expr::Literal(lit) => self.evaluate_literal(lit),
+
+            Expr::Identifier(sym) => {
+                self.lookup(*sym).cloned()
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                let left_val = self.evaluate_expr(left)?;
+                let right_val = self.evaluate_expr(right)?;
+                self.apply_binary_op(*op, left_val, right_val)
+            }
+
+            Expr::Call { function, args } => {
+                self.call_function(*function, args)
+            }
+
+            Expr::Index { collection, index } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                let idx_val = self.evaluate_expr(index)?;
+                match (&coll_val, &idx_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
+                        // 1-indexed
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
+                    (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > s.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
+                    }
+                    _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
+                }
+            }
+
+            Expr::Slice { collection, start, end } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                let start_val = self.evaluate_expr(start)?;
+                let end_val = self.evaluate_expr(end)?;
+                match (&coll_val, &start_val, &end_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let start = (*s as usize).saturating_sub(1);
+                        let end = *e as usize;
+                        let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
+                        Ok(RuntimeValue::List(slice))
+                    }
+                    _ => Err("Slice requires List and Int indices".to_string()),
+                }
+            }
+
+            Expr::Copy { expr: inner } => {
+                // Copy just evaluates and clones
+                self.evaluate_expr(inner)
+            }
+
+            Expr::Length { collection } => {
+                let coll_val = self.evaluate_expr(collection)?;
+                match &coll_val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::List(items) => {
+                let values: Result<Vec<RuntimeValue>, String> = items
+                    .iter()
+                    .map(|e| self.evaluate_expr(e))
+                    .collect();
+                Ok(RuntimeValue::List(values?))
+            }
+
+            Expr::Range { start, end } => {
+                let start_val = self.evaluate_expr(start)?;
+                let end_val = self.evaluate_expr(end)?;
+                match (&start_val, &end_val) {
+                    (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let range: Vec<RuntimeValue> = (*s..=*e)
+                            .map(RuntimeValue::Int)
+                            .collect();
+                        Ok(RuntimeValue::List(range))
+                    }
+                    _ => Err("Range requires Int bounds".to_string()),
+                }
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_val = self.evaluate_expr(object)?;
+                match &obj_val {
+                    RuntimeValue::Struct { fields, .. } => {
+                        let field_name = self.interner.resolve(*field);
+                        fields.get(field_name).cloned()
+                            .ok_or_else(|| format!("Field '{}' not found", field_name))
+                    }
+                    _ => Err(format!("Cannot access field on {}", obj_val.type_name())),
+                }
+            }
+
+            Expr::New { type_name, init_fields, .. } => {
+                let name = self.interner.resolve(*type_name).to_string();
+
+                // Check if this is a collection type (Seq or List)
+                if name == "Seq" || name == "List" {
+                    return Ok(RuntimeValue::List(vec![]));
+                }
+
+                // Otherwise create a struct
+                let mut fields = HashMap::new();
+                for (field_sym, field_expr) in init_fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr(field_expr)?;
+                    fields.insert(field_name, field_val);
+                }
+                Ok(RuntimeValue::Struct { type_name: name, fields })
+            }
+
+            Expr::NewVariant { variant, fields, .. } => {
+                let name = self.interner.resolve(*variant).to_string();
+                let mut field_map = HashMap::new();
+                for (field_sym, field_expr) in fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr(field_expr)?;
+                    field_map.insert(field_name, field_val);
+                }
+                Ok(RuntimeValue::Struct { type_name: name, fields: field_map })
+            }
+
+            Expr::ManifestOf { .. } => {
+                // Phase 48: Zone manifests not available in WASM
+                Ok(RuntimeValue::List(vec![]))
+            }
+
+            Expr::ChunkAt { .. } => {
+                // Phase 48: Zone chunks not available in WASM
+                Ok(RuntimeValue::Nothing)
+            }
+        }
+    }
+
+    /// Evaluate a literal to a runtime value.
+    fn evaluate_literal(&self, lit: &Literal) -> Result<RuntimeValue, String> {
+        match lit {
+            Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
+            Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
+            Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
+            Literal::Nothing => Ok(RuntimeValue::Nothing),
+        }
+    }
+
+    /// Apply a binary operator.
+    fn apply_binary_op(&self, op: BinaryOpKind, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match op {
+            BinaryOpKind::Add => self.apply_add(left, right),
+            BinaryOpKind::Subtract => self.apply_subtract(left, right),
+            BinaryOpKind::Multiply => self.apply_multiply(left, right),
+            BinaryOpKind::Divide => self.apply_divide(left, right),
+            BinaryOpKind::Modulo => self.apply_modulo(left, right),
+            BinaryOpKind::Eq => Ok(RuntimeValue::Bool(self.values_equal(&left, &right))),
+            BinaryOpKind::NotEq => Ok(RuntimeValue::Bool(!self.values_equal(&left, &right))),
+            BinaryOpKind::Lt => self.apply_comparison(left, right, |a, b| a < b),
+            BinaryOpKind::Gt => self.apply_comparison(left, right, |a, b| a > b),
+            BinaryOpKind::LtEq => self.apply_comparison(left, right, |a, b| a <= b),
+            BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
+            BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
+            BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+        }
+    }
+
+    fn apply_add(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a + b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a + b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 + b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a + *b as f64)),
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", a, b))),
+            (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(format!("{}{}", a, other.to_display_string()))),
+            (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
+            _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a - b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a - b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 - b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a - *b as f64)),
+            _ => Err(format!("Cannot subtract {} from {}", right.type_name(), left.type_name())),
+        }
+    }
+
+    fn apply_multiply(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a * b)),
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a * b)),
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 * b)),
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a * *b as f64)),
+            _ => Err(format!("Cannot multiply {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_divide(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Int(a / b))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
+                if *b == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(a / b))
+            }
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
+                if *b == 0.0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(*a as f64 / b))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Division by zero".to_string());
+                }
+                Ok(RuntimeValue::Float(a / *b as f64))
+            }
+            _ => Err(format!("Cannot divide {} by {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_modulo(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                if *b == 0 {
+                    return Err("Modulo by zero".to_string());
+                }
+                Ok(RuntimeValue::Int(a % b))
+            }
+            _ => Err(format!("Cannot compute modulo of {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn apply_comparison<F>(&self, left: RuntimeValue, right: RuntimeValue, cmp: F) -> Result<RuntimeValue, String>
+    where
+        F: Fn(i64, i64) -> bool,
+    {
+        match (&left, &right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            _ => Err(format!("Cannot compare {} and {}", left.type_name(), right.type_name())),
+        }
+    }
+
+    fn values_equal(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
+        match (left, right) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+            _ => false,
+        }
+    }
+
+    /// Call a function (built-in or user-defined).
+    fn call_function(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+        let func_name = self.interner.resolve(function);
+
+        // Built-in functions
+        match func_name {
+            "show" => {
+                for arg in args {
+                    let val = self.evaluate_expr(arg)?;
+                    self.output.push(val.to_display_string());
+                }
+                return Ok(RuntimeValue::Nothing);
+            }
+            "length" => {
+                if args.len() != 1 {
+                    return Err("length() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return match &val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", val.type_name())),
+                };
+            }
+            "format" => {
+                if args.is_empty() {
+                    return Ok(RuntimeValue::Text(String::new()));
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(RuntimeValue::Text(val.to_display_string()));
+            }
+            "abs" => {
+                if args.len() != 1 {
+                    return Err("abs() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return match val {
+                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
+                    RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
+                    _ => Err(format!("abs() requires a number, got {}", val.type_name())),
+                };
+            }
+            "min" => {
+                if args.len() != 2 {
+                    return Err("min() takes exactly 2 arguments".to_string());
+                }
+                let a = self.evaluate_expr(args[0])?;
+                let b = self.evaluate_expr(args[1])?;
+                return match (&a, &b) {
+                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
+                    _ => Err("min() requires integers".to_string()),
+                };
+            }
+            "max" => {
+                if args.len() != 2 {
+                    return Err("max() takes exactly 2 arguments".to_string());
+                }
+                let a = self.evaluate_expr(args[0])?;
+                let b = self.evaluate_expr(args[1])?;
+                return match (&a, &b) {
+                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
+                    _ => Err("max() requires integers".to_string()),
+                };
+            }
+            "copy" => {
+                if args.len() != 1 {
+                    return Err("copy() takes exactly 1 argument".to_string());
+                }
+                let val = self.evaluate_expr(args[0])?;
+                return Ok(val.clone());
+            }
+            _ => {}
+        }
+
+        // User-defined function lookup
+        // Need to get the function separately to avoid borrow conflicts
+        let func_data = self.functions.get(&function)
+            .map(|f| (f.params.clone(), f.body))
+            .ok_or_else(|| format!("Unknown function: {}", func_name))?;
+
+        let (params, body) = func_data;
+
+        if args.len() != params.len() {
+            return Err(format!(
+                "Function {} expects {} arguments, got {}",
+                func_name,
+                params.len(),
+                args.len()
+            ));
+        }
+
+        // Evaluate arguments before pushing scope
+        let mut arg_values = Vec::new();
+        for arg in args {
+            arg_values.push(self.evaluate_expr(arg)?);
+        }
+
+        // Push new scope and bind parameters
+        self.push_scope();
+        for ((param_name, _), arg_val) in params.iter().zip(arg_values) {
+            self.define(*param_name, arg_val);
+        }
+
+        // Execute function body
+        let mut return_value = RuntimeValue::Nothing;
+        for stmt in body.iter() {
+            match self.execute_stmt(stmt)? {
+                ControlFlow::Return(val) => {
+                    return_value = val;
+                    break;
+                }
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+
+        self.pop_scope();
+        Ok(return_value)
+    }
+
+    // Scope management
+
+    fn push_scope(&mut self) {
+        self.env.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if self.env.len() > 1 {
+            self.env.pop();
+        }
+    }
+
+    fn define(&mut self, name: Symbol, value: RuntimeValue) {
+        if let Some(scope) = self.env.last_mut() {
+            scope.insert(name, value);
+        }
+    }
+
+    fn assign(&mut self, name: Symbol, value: RuntimeValue) -> Result<(), String> {
+        // Search from innermost to outermost scope
+        for scope in self.env.iter_mut().rev() {
+            if scope.contains_key(&name) {
+                scope.insert(name, value);
+                return Ok(());
+            }
+        }
+        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+
+    fn lookup(&self, name: Symbol) -> Result<&RuntimeValue, String> {
+        // Search from innermost to outermost scope
+        for scope in self.env.iter().rev() {
+            if let Some(value) = scope.get(&name) {
+                return Ok(value);
+            }
+        }
+        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+}
+
+/// Result from interpretation.
+#[derive(Debug, Clone)]
+pub struct InterpreterResult {
+    pub lines: Vec<String>,
+    pub error: Option<String>,
+}
+
+```
+
+---
+
+### Learning State Management
+
+**File:** `src/learn_state.rs`
+
+Tracks user progress: lesson completion, XP, streaks, achievements. Persisted to local storage. LearningState struct with serializable progress data.
+
+```rust
+//! Tab & Focus State Management for Learn Page
+//!
+//! Manages the state for the integrated learn page experience:
+//! - Tab modes (Lesson, Examples, Practice, Test)
+//! - Focus state (which era/module is expanded)
+//! - Exercise navigation within modes
+
+/// The four tab modes available for each module
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabMode {
+    #[default]
+    Lesson,
+    Examples,
+    Practice,
+    Test,
+}
+
+impl TabMode {
+    /// Get display label for the tab
+    pub fn label(&self) -> &'static str {
+        match self {
+            TabMode::Lesson => "LESSON",
+            TabMode::Examples => "EXAMPLES",
+            TabMode::Practice => "PRACTICE",
+            TabMode::Test => "TEST",
+        }
+    }
+
+    /// Get all tab modes in order
+    pub fn all() -> [TabMode; 4] {
+        [TabMode::Lesson, TabMode::Examples, TabMode::Practice, TabMode::Test]
+    }
+}
+
+/// State for a single module's tab interface
+#[derive(Debug, Clone, Default)]
+pub struct ModuleTabState {
+    pub module_id: String,
+    pub current_tab: TabMode,
+    pub exercise_index: usize,
+    pub submitted: bool,
+}
+
+impl ModuleTabState {
+    pub fn new(module_id: &str) -> Self {
+        Self {
+            module_id: module_id.to_string(),
+            current_tab: TabMode::Lesson,
+            exercise_index: 0,
+            submitted: false,
+        }
+    }
+
+    /// Switch to a new tab, resetting exercise state
+    pub fn switch_tab(&mut self, tab: TabMode) {
+        self.current_tab = tab;
+        self.exercise_index = 0;
+        self.submitted = false;
+    }
+
+    /// Reset exercise state without changing tab
+    pub fn reset_exercise(&mut self) {
+        self.exercise_index = 0;
+        self.submitted = false;
+    }
+}
+
+/// Tracks which era is currently focused (expanded)
+#[derive(Debug, Clone, Default)]
+pub struct FocusState {
+    /// The currently focused era (None = no focus, all eras visible)
+    pub focused_era: Option<String>,
+    /// The currently expanded module within the focused era
+    pub expanded_module: Option<(String, String)>, // (era_id, module_id)
+}
+
+impl FocusState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Focus on a specific era
+    pub fn focus_era(&mut self, era_id: &str) {
+        self.focused_era = Some(era_id.to_string());
+    }
+
+    /// Expand a module within an era
+    pub fn expand_module(&mut self, era_id: &str, module_id: &str) {
+        self.focused_era = Some(era_id.to_string());
+        self.expanded_module = Some((era_id.to_string(), module_id.to_string()));
+    }
+
+    /// Collapse the current module (but keep era focused)
+    pub fn collapse_module(&mut self) {
+        self.expanded_module = None;
+    }
+
+    /// Unfocus completely (show all eras)
+    pub fn unfocus(&mut self) {
+        self.focused_era = None;
+        self.expanded_module = None;
+    }
+
+    /// Check if a specific era is visible (either focused or no focus)
+    pub fn is_era_visible(&self, era_id: &str) -> bool {
+        match &self.focused_era {
+            None => true,
+            Some(focused) => focused == era_id,
+        }
+    }
+
+    /// Check if a specific module is expanded
+    pub fn is_module_expanded(&self, era_id: &str, module_id: &str) -> bool {
+        match &self.expanded_module {
+            None => false,
+            Some((e, m)) => e == era_id && m == module_id,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tab_modes_all_four_exist() {
+        let tabs = TabMode::all();
+        assert_eq!(tabs.len(), 4);
+        assert_eq!(tabs[0], TabMode::Lesson);
+        assert_eq!(tabs[1], TabMode::Examples);
+        assert_eq!(tabs[2], TabMode::Practice);
+        assert_eq!(tabs[3], TabMode::Test);
+    }
+
+    #[test]
+    fn test_initial_tab_is_lesson() {
+        let state = ModuleTabState::new("test-module");
+        assert_eq!(state.current_tab, TabMode::Lesson);
+    }
+
+    #[test]
+    fn test_tab_switch_resets_exercise_index() {
+        let mut state = ModuleTabState::new("test-module");
+        state.exercise_index = 5;
+        state.submitted = true;
+
+        state.switch_tab(TabMode::Practice);
+
+        assert_eq!(state.current_tab, TabMode::Practice);
+        assert_eq!(state.exercise_index, 0);
+        assert!(!state.submitted);
+    }
+
+    #[test]
+    fn test_focus_state_toggles_era() {
+        let mut focus = FocusState::new();
+        assert!(focus.focused_era.is_none());
+
+        focus.focus_era("first-steps");
+        assert_eq!(focus.focused_era, Some("first-steps".to_string()));
+
+        focus.unfocus();
+        assert!(focus.focused_era.is_none());
+    }
+
+    #[test]
+    fn test_is_era_visible_when_focused() {
+        let mut focus = FocusState::new();
+
+        // No focus = all eras visible
+        assert!(focus.is_era_visible("first-steps"));
+        assert!(focus.is_era_visible("mastery"));
+
+        // Focus on one era = only that era visible
+        focus.focus_era("first-steps");
+        assert!(focus.is_era_visible("first-steps"));
+        assert!(!focus.is_era_visible("mastery"));
+    }
+
+    #[test]
+    fn test_module_expansion() {
+        let mut focus = FocusState::new();
+
+        focus.expand_module("first-steps", "introduction");
+        assert!(focus.is_module_expanded("first-steps", "introduction"));
+        assert!(!focus.is_module_expanded("first-steps", "syllogistic"));
+
+        focus.collapse_module();
+        assert!(!focus.is_module_expanded("first-steps", "introduction"));
+        // Era should still be focused
+        assert!(focus.is_era_visible("first-steps"));
+    }
+}
+
+```
+
+---
+
+### Struggle Detection
+
+**File:** `src/struggle.rs`
+
+Identifies areas where users need help. Tracks error patterns, offers adaptive hints. StruggleTracker monitors repeated failures on specific concepts.
+
+```rust
+//! Struggle Detection Logic
+//!
+//! Detects when a user is struggling with an exercise based on:
+//! - Inactivity (no answer attempt after threshold time)
+//! - Wrong attempts (incorrect answers)
+
+/// Reasons why a user might be struggling
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StruggleReason {
+    Inactivity,
+    WrongAttempt,
+}
+
+impl StruggleReason {
+    /// Get a message describing the struggle reason
+    pub fn message(&self) -> &'static str {
+        match self {
+            StruggleReason::Inactivity => "Taking your time? Here's a hint to help you along.",
+            StruggleReason::WrongAttempt => "Not quite! Let me help you think through this.",
+        }
+    }
+}
+
+/// Configuration for struggle detection
+#[derive(Debug, Clone, Copy)]
+pub struct StruggleConfig {
+    /// Seconds of inactivity before considering the user stuck
+    pub inactivity_threshold_secs: u64,
+    /// Number of wrong attempts before showing help
+    pub wrong_attempt_threshold: u32,
+}
+
+impl Default for StruggleConfig {
+    fn default() -> Self {
+        Self {
+            inactivity_threshold_secs: 5,
+            wrong_attempt_threshold: 1,
+        }
+    }
+}
+
+/// Tracks struggle state for an exercise
+#[derive(Debug, Clone, Default)]
+pub struct StruggleDetector {
+    pub config: StruggleConfig,
+    pub is_struggling: bool,
+    pub reason: Option<StruggleReason>,
+    pub wrong_attempts: u32,
+    pub inactivity_triggered: bool,
+}
+
+impl StruggleDetector {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_config(config: StruggleConfig) -> Self {
+        Self {
+            config,
+            ..Default::default()
+        }
+    }
+
+    /// Record a wrong attempt - may trigger struggle state
+    pub fn record_wrong_attempt(&mut self) {
+        self.wrong_attempts += 1;
+        if self.wrong_attempts >= self.config.wrong_attempt_threshold {
+            self.is_struggling = true;
+            self.reason = Some(StruggleReason::WrongAttempt);
+        }
+    }
+
+    /// Record a correct attempt - resets inactivity but keeps struggle state for hints
+    pub fn record_correct_attempt(&mut self) {
+        // User got it right - they're no longer struggling
+        self.is_struggling = false;
+        self.inactivity_triggered = false;
+    }
+
+    /// Record user activity (typing, clicking) - resets inactivity timer
+    pub fn record_activity(&mut self) {
+        // Activity resets inactivity detection
+        self.inactivity_triggered = false;
+    }
+
+    /// Called when inactivity threshold is reached
+    pub fn trigger_inactivity(&mut self) {
+        if !self.inactivity_triggered {
+            self.inactivity_triggered = true;
+            self.is_struggling = true;
+            // Only set reason if not already struggling from wrong attempts
+            if self.reason.is_none() {
+                self.reason = Some(StruggleReason::Inactivity);
+            }
+        }
+    }
+
+    /// Reset struggle state (e.g., when moving to next exercise)
+    pub fn reset(&mut self) {
+        self.is_struggling = false;
+        self.reason = None;
+        self.wrong_attempts = 0;
+        self.inactivity_triggered = false;
+    }
+
+    /// Check if we should show hints
+    pub fn should_show_hints(&self) -> bool {
+        self.is_struggling
+    }
+
+    /// Get the current struggle reason
+    pub fn reason(&self) -> Option<StruggleReason> {
+        self.reason
+    }
+
+    /// Get the current struggle reason for display
+    pub fn struggle_message(&self) -> Option<&'static str> {
+        match self.reason {
+            Some(StruggleReason::Inactivity) => Some("Taking your time? Here's a hint to help you along."),
+            Some(StruggleReason::WrongAttempt) => Some("Not quite! Let me help you think through this."),
+            None => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_no_struggle_initially() {
+        let detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
+    }
+
+    #[test]
+    fn test_struggle_after_5s_inactivity() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+
+        detector.trigger_inactivity();
+
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::Inactivity));
+    }
+
+    #[test]
+    fn test_struggle_after_wrong_attempt() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+
+        detector.record_wrong_attempt();
+
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::WrongAttempt));
+    }
+
+    #[test]
+    fn test_reset_clears_struggle() {
+        let mut detector = StruggleDetector::new();
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+
+        detector.reset();
+
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
+        assert_eq!(detector.wrong_attempts, 0);
+    }
+
+    #[test]
+    fn test_configurable_threshold() {
+        let config = StruggleConfig {
+            inactivity_threshold_secs: 10,
+            wrong_attempt_threshold: 2,
+        };
+        let mut detector = StruggleDetector::with_config(config);
+
+        // First wrong attempt shouldn't trigger with threshold of 2
+        detector.record_wrong_attempt();
+        assert!(!detector.is_struggling);
+
+        // Second wrong attempt should trigger
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+    }
+
+    #[test]
+    fn test_inactivity_only_triggers_once() {
+        let mut detector = StruggleDetector::new();
+
+        detector.trigger_inactivity();
+        assert!(detector.inactivity_triggered);
+
+        // Triggering again shouldn't change the reason
+        detector.reason = None;
+        detector.trigger_inactivity();
+        assert!(detector.reason.is_none()); // Didn't set it again
+    }
+
+    #[test]
+    fn test_should_show_hints() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.should_show_hints());
+
+        detector.record_wrong_attempt();
+        assert!(detector.should_show_hints());
+    }
+
+    #[test]
+    fn test_struggle_message() {
+        let mut detector = StruggleDetector::new();
+        assert!(detector.struggle_message().is_none());
+
+        detector.trigger_inactivity();
+        assert!(detector.struggle_message().is_some());
+        assert!(detector.struggle_message().unwrap().contains("hint"));
+    }
+}
+
+```
+
+---
+
+### Symbol Dictionary
+
+**File:** `src/symbol_dict.rs`
+
+Runtime symbol table for interactive features. Maps symbols to definitions and types. Used by workspace for autocomplete and hover info.
+
+```rust
+//! Symbol Dictionary Extraction
+//!
+//! Extracts logical symbols from FOL strings for display in a symbol dictionary.
+//! Groups symbols by kind and provides descriptions.
+
+use std::collections::HashSet;
+
+/// Categories of logical symbols
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SymbolKind {
+    Quantifier,
+    Connective,
+    Variable,
+    Predicate,
+    Constant,
+    Modal,
+    Identity,
+    Punctuation,
+    Temporal,
+}
+
+impl SymbolKind {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SymbolKind::Quantifier => "Quantifier",
+            SymbolKind::Connective => "Connective",
+            SymbolKind::Variable => "Variable",
+            SymbolKind::Predicate => "Predicate",
+            SymbolKind::Constant => "Constant",
+            SymbolKind::Modal => "Modal",
+            SymbolKind::Identity => "Identity",
+            SymbolKind::Punctuation => "Punctuation",
+            SymbolKind::Temporal => "Temporal",
+        }
+    }
+}
+
+/// A single symbol entry in the dictionary
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SymbolEntry {
+    pub symbol: String,
+    pub kind: SymbolKind,
+    pub description: String,
+}
+
+/// Extract symbols from a FOL logic string
+pub fn extract_symbols(logic: &str) -> Vec<SymbolEntry> {
+    let mut entries = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    // Quantifiers
+    if logic.contains("∀") && seen.insert("∀".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∀".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Universal quantifier: \"for all\"".to_string(),
+        });
+    }
+    if logic.contains("∃") && seen.insert("∃".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Existential quantifier: \"there exists\"".to_string(),
+        });
+    }
+    if logic.contains("∃!") && seen.insert("∃!".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃!".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Unique existence: \"there exists exactly one\"".to_string(),
+        });
+    }
+    if logic.contains("MOST") && seen.insert("MOST".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "MOST".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"most\"".to_string(),
+        });
+    }
+    if logic.contains("FEW") && seen.insert("FEW".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "FEW".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"few\"".to_string(),
+        });
+    }
+
+    // Connectives
+    if logic.contains("∧") && seen.insert("∧".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∧".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Conjunction: \"and\"".to_string(),
+        });
+    }
+    if logic.contains("∨") && seen.insert("∨".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∨".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Disjunction: \"or\"".to_string(),
+        });
+    }
+    if logic.contains("→") && seen.insert("→".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "→".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Implication: \"if...then\"".to_string(),
+        });
+    }
+    if logic.contains("↔") && seen.insert("↔".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "↔".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Biconditional: \"if and only if\"".to_string(),
+        });
+    }
+    if logic.contains("¬") && seen.insert("¬".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "¬".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Negation: \"not\"".to_string(),
+        });
+    }
+
+    // Modal operators
+    if logic.contains("□") && seen.insert("□".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "□".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Necessity: \"it is necessary that\"".to_string(),
+        });
+    }
+    if logic.contains("◇") && seen.insert("◇".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "◇".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Possibility: \"it is possible that\"".to_string(),
+        });
+    }
+    if logic.contains("O_") && seen.insert("O".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "O".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Deontic obligation: \"it ought to be that\"".to_string(),
+        });
+    }
+
+    // Identity
+    if logic.contains(" = ") && seen.insert("=".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "=".to_string(),
+            kind: SymbolKind::Identity,
+            description: "Identity: \"is identical to\"".to_string(),
+        });
+    }
+
+    // Extract predicates (uppercase letters followed by parenthesis)
+    extract_predicates(logic, &mut entries, &mut seen);
+
+    // Extract variables (lowercase x, y, z, etc.)
+    extract_variables(logic, &mut entries, &mut seen);
+
+    // Extract constants (uppercase single letters not followed by parenthesis)
+    extract_constants(logic, &mut entries, &mut seen);
+
+    entries
+}
+
+fn extract_predicates(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Match patterns like "Dog(", "Mortal(", "Loves("
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            if i < chars.len() && chars[i] == '(' {
+                let predicate: String = chars[start..i].iter().collect();
+                if seen.insert(format!("pred_{}", predicate)) {
+                    entries.push(SymbolEntry {
+                        symbol: predicate.clone(),
+                        kind: SymbolKind::Predicate,
+                        description: format!("Predicate: {}", predicate),
+                    });
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+fn extract_variables(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Variables are lowercase letters typically x, y, z, w
+    for var in ['x', 'y', 'z', 'w', 'e'] {
+        let var_str = var.to_string();
+        // Check if variable appears in context (not as part of a word)
+        if logic.contains(&format!("({})", var))
+            || logic.contains(&format!("({},", var))
+            || logic.contains(&format!(", {})", var))
+            || logic.contains(&format!("{}.", var))
+            || logic.contains(&format!(" {}", var))
+        {
+            if seen.insert(format!("var_{}", var)) {
+                entries.push(SymbolEntry {
+                    symbol: var_str,
+                    kind: SymbolKind::Variable,
+                    description: "Bound variable".to_string(),
+                });
+            }
+        }
+    }
+}
+
+fn extract_constants(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Constants are uppercase letters like J (John), M (Mary), etc.
+    // But not predicates (followed by parenthesis)
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            // Collect the full name (may have numbers like J2)
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric()) {
+                i += 1;
+            }
+            // Check if NOT followed by parenthesis (would be predicate)
+            if i >= chars.len() || chars[i] != '(' {
+                let constant: String = chars[start..i].iter().collect();
+                // Skip very long names (likely predicates) and known quantifiers
+                if constant.len() <= 3
+                    && !["MOST", "FEW", "ALL", "THE"].contains(&constant.as_str())
+                    && seen.insert(format!("const_{}", constant))
+                {
+                    entries.push(SymbolEntry {
+                        symbol: constant.clone(),
+                        kind: SymbolKind::Constant,
+                        description: format!("Constant: {}", constant),
+                    });
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+/// Get symbols grouped by kind for display
+pub fn group_symbols_by_kind(entries: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
+    let kinds = [
+        SymbolKind::Quantifier,
+        SymbolKind::Connective,
+        SymbolKind::Modal,
+        SymbolKind::Identity,
+        SymbolKind::Predicate,
+        SymbolKind::Variable,
+        SymbolKind::Constant,
+    ];
+
+    kinds
+        .iter()
+        .filter_map(|&kind| {
+            let matching: Vec<_> = entries.iter().filter(|e| e.kind == kind).collect();
+            if matching.is_empty() {
+                None
+            } else {
+                Some((kind, matching))
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_quantifier_symbols() {
+        let logic = "∀x(Dog(x) → Mortal(x))";
+        let symbols = extract_symbols(logic);
+
+        let quantifiers: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Quantifier).collect();
+        assert!(quantifiers.iter().any(|s| s.symbol == "∀"), "Should find universal quantifier");
+    }
+
+    #[test]
+    fn test_extract_existential() {
+        let logic = "∃x(Cat(x) ∧ Black(x))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "∃"), "Should find existential quantifier");
+    }
+
+    #[test]
+    fn test_extract_connective_symbols() {
+        let logic = "∀x(Dog(x) → (Loyal(x) ∧ Friendly(x)))";
+        let symbols = extract_symbols(logic);
+
+        let connectives: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Connective).collect();
+        assert!(connectives.iter().any(|s| s.symbol == "∧"), "Should find conjunction");
+        assert!(connectives.iter().any(|s| s.symbol == "→"), "Should find implication");
+    }
+
+    #[test]
+    fn test_extract_predicate_names() {
+        let logic = "∀x(Dog(x) → Mammal(x))";
+        let symbols = extract_symbols(logic);
+
+        let predicates: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Predicate).collect();
+        assert!(predicates.iter().any(|s| s.symbol == "Dog"), "Should find Dog predicate");
+        assert!(predicates.iter().any(|s| s.symbol == "Mammal"), "Should find Mammal predicate");
+    }
+
+    #[test]
+    fn test_extract_variable_names() {
+        let logic = "∀x∃y(Loves(x, y))";
+        let symbols = extract_symbols(logic);
+
+        let variables: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Variable).collect();
+        assert!(variables.iter().any(|s| s.symbol == "x"), "Should find variable x");
+        assert!(variables.iter().any(|s| s.symbol == "y"), "Should find variable y");
+    }
+
+    #[test]
+    fn test_no_duplicate_symbols() {
+        let logic = "∀x(Dog(x) → Dog(x))";
+        let symbols = extract_symbols(logic);
+
+        let dog_count = symbols.iter().filter(|s| s.symbol == "Dog").count();
+        assert_eq!(dog_count, 1, "Should not have duplicate predicates");
+    }
+
+    #[test]
+    fn test_symbol_has_description() {
+        let logic = "∀x(P(x))";
+        let symbols = extract_symbols(logic);
+
+        for symbol in &symbols {
+            assert!(!symbol.description.is_empty(), "Every symbol should have a description");
+        }
+    }
+
+    #[test]
+    fn test_modal_symbols() {
+        let logic = "□(P(x)) ∧ ◇(Q(y))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "□"), "Should find necessity operator");
+        assert!(symbols.iter().any(|s| s.symbol == "◇"), "Should find possibility operator");
+    }
+
+    #[test]
+    fn test_group_symbols_by_kind() {
+        let logic = "∀x(Dog(x) → ∃y(Loves(x, y)))";
+        let symbols = extract_symbols(logic);
+        let grouped = group_symbols_by_kind(&symbols);
+
+        // Should have multiple groups
+        assert!(!grouped.is_empty(), "Should have grouped symbols");
+
+        // Check quantifiers group exists
+        assert!(grouped.iter().any(|(k, _)| *k == SymbolKind::Quantifier), "Should have quantifier group");
+    }
+}
+
+```
+
+---
+
+### Content Unlocking
+
+**File:** `src/unlock.rs`
+
+Progressive disclosure system. Lessons unlock based on prerequisites and mastery. UnlockState tracks completed lessons and available content.
+
+```rust
+//! Module Unlock Logic
+//!
+//! Rules:
+//! - First module in each era is always unlocked
+//! - Subsequent modules unlock when the previous module is completed
+//! - Last two modules in each era are locked until at least one module has 100% completion
+
+use crate::content::ContentEngine;
+use crate::progress::UserProgress;
+
+/// State of a module for the user
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleState {
+    /// Module is locked and cannot be accessed
+    Locked,
+    /// Module is unlocked but not started
+    Available,
+    /// Module has been started (score < 50%)
+    Started,
+    /// Module is in progress (50-89% score)
+    Progressing,
+    /// Module has been completed but not perfected (90%+ score)
+    Completed,
+    /// Module has been perfected (100% or 3 stars)
+    Perfected,
+}
+
+/// Get the current state of a module for the user
+pub fn get_module_state(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+    module_id: &str,
+) -> ModuleState {
+    // Check if locked
+    if !check_module_unlocked(progress, engine, era_id, module_id) {
+        return ModuleState::Locked;
+    }
+
+    // Check progress
+    match progress.modules.get(module_id) {
+        None => ModuleState::Available,
+        Some(mp) => {
+            if mp.completed && (mp.best_score >= 90 || mp.stars >= 3) {
+                ModuleState::Perfected
+            } else if mp.completed {
+                ModuleState::Completed
+            } else if mp.best_score >= 50 {
+                ModuleState::Progressing
+            } else if mp.attempts > 0 || mp.best_score > 0 {
+                ModuleState::Started
+            } else {
+                ModuleState::Available
+            }
+        }
+    }
+}
+
+/// Check if a specific module is unlocked for the user
+pub fn check_module_unlocked(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+    module_id: &str,
+) -> bool {
+    let Some(era) = engine.get_era(era_id) else {
+        return false;
+    };
+
+    let module_ids: Vec<&str> = era.modules.iter().map(|m| m.meta.id.as_str()).collect();
+    let Some(module_index) = module_ids.iter().position(|&id| id == module_id) else {
+        return false;
+    };
+
+    let total_modules = module_ids.len();
+
+    // First module is always unlocked
+    if module_index == 0 {
+        return true;
+    }
+
+    // Check if this is one of the last two modules
+    let is_final_module = total_modules >= 2 && module_index >= total_modules - 2;
+
+    if is_final_module {
+        // Last two modules require at least one module to be 100% complete
+        let has_perfect_completion = module_ids.iter().take(total_modules.saturating_sub(2)).any(|&mid| {
+            progress.modules.get(mid).map_or(false, |mp| mp.completed && mp.best_score >= 100)
+        });
+
+        if !has_perfect_completion {
+            return false;
+        }
+    }
+
+    // Check if previous module is completed
+    let prev_module_id = module_ids[module_index - 1];
+    progress.modules.get(prev_module_id).map_or(false, |mp| mp.completed)
+}
+
+/// Get list of locked module IDs for an era
+pub fn get_locked_module_ids(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+) -> Vec<String> {
+    let Some(era) = engine.get_era(era_id) else {
+        return Vec::new();
+    };
+
+    era.modules
+        .iter()
+        .filter(|m| !check_module_unlocked(progress, engine, era_id, &m.meta.id))
+        .map(|m| m.meta.id.clone())
+        .collect()
+}
+
+/// Check if any module in the era has 100% completion
+pub fn has_perfect_module(progress: &UserProgress, engine: &ContentEngine, era_id: &str) -> bool {
+    let Some(era) = engine.get_era(era_id) else {
+        return false;
+    };
+
+    era.modules.iter().any(|m| {
+        progress.modules.get(&m.meta.id).map_or(false, |mp| mp.completed && mp.best_score >= 100)
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::progress::ModuleProgress;
+
+    fn make_progress_with_completed(completed_modules: &[(&str, bool, u32)]) -> UserProgress {
+        let mut progress = UserProgress::new();
+        for (id, completed, score) in completed_modules {
+            progress.modules.insert(id.to_string(), ModuleProgress {
+                module_id: id.to_string(),
+                unlocked: true,
+                completed: *completed,
+                stars: 0,
+                best_score: *score,
+                attempts: 1,
+            });
+        }
+        progress
+    }
+
+    #[test]
+    fn test_first_module_always_unlocked() {
+        let progress = UserProgress::new();
+        let engine = ContentEngine::new();
+
+        // First module of first era should always be unlocked
+        if let Some(era) = engine.eras().first() {
+            if let Some(module) = era.modules.first() {
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, &module.meta.id));
+            }
+        }
+    }
+
+    #[test]
+    fn test_module_locked_until_previous_complete() {
+        let engine = ContentEngine::new();
+
+        if let Some(era) = engine.eras().first() {
+            if era.modules.len() >= 2 {
+                let first_id = &era.modules[0].meta.id;
+                let second_id = &era.modules[1].meta.id;
+
+                // Without completing first module, second should be locked
+                let progress = UserProgress::new();
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, second_id));
+
+                // After completing first module, second should be unlocked
+                let progress = make_progress_with_completed(&[(first_id.as_str(), true, 80)]);
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, second_id));
+            }
+        }
+    }
+
+    #[test]
+    fn test_last_two_locked_until_one_module_100_complete() {
+        let engine = ContentEngine::new();
+
+        // Find an era with at least 4 modules
+        for era in engine.eras() {
+            if era.modules.len() >= 4 {
+                let module_ids: Vec<&str> = era.modules.iter().map(|m| m.meta.id.as_str()).collect();
+                let last_module_id = module_ids[module_ids.len() - 1];
+                let second_last_id = module_ids[module_ids.len() - 2];
+
+                // Complete all modules except last two, but none at 100%
+                let mut completed: Vec<(&str, bool, u32)> = module_ids[..module_ids.len()-2]
+                    .iter()
+                    .map(|id| (*id, true, 80u32))
+                    .collect();
+
+                let progress = make_progress_with_completed(&completed);
+
+                // Last two should still be locked (no 100% completion)
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, second_last_id),
+                    "Second-to-last module should be locked without 100% completion");
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, last_module_id),
+                    "Last module should be locked without 100% completion");
+
+                // Now complete one module at 100%
+                completed[0].2 = 100;
+                let progress = make_progress_with_completed(&completed);
+
+                // Second-to-last should now be unlocked
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, second_last_id),
+                    "Second-to-last module should be unlocked with 100% completion");
+
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_locked_module_ids() {
+        let progress = UserProgress::new();
+        let engine = ContentEngine::new();
+
+        if let Some(era) = engine.eras().first() {
+            let locked = get_locked_module_ids(&progress, &engine, &era.meta.id);
+
+            // All modules except the first should be locked initially
+            assert_eq!(locked.len(), era.modules.len() - 1);
+
+            // First module should NOT be in the locked list
+            if let Some(first_module) = era.modules.first() {
+                assert!(!locked.contains(&first_module.meta.id));
+            }
+        }
+    }
+}
+
+```
+
+---
+
 ## Entry Point
 
 Command-line interface and REPL for interactive use.
@@ -37227,16 +40745,13 @@ Dioxus Router with routes: / (Home), /pricing (Pricing), /studio (Studio), /lear
 
 ```rust
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Pricing, Privacy, Roadmap, Success, Terms, Workspace, Studio, Guide};
+use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
     #[route("/")]
     Landing {},
-
-    #[route("/home")]
-    Home {},
 
     #[route("/pricing")]
     Pricing {},
@@ -37264,6 +40779,9 @@ pub enum Route {
     #[route("/learn")]
     Learn {},
 
+    #[route("/profile")]
+    Profile {},
+
     #[route("/workspace/:subject")]
     Workspace { subject: String },
 
@@ -37286,7 +40804,7 @@ fn NotFound(route: Vec<String>) -> Element {
             h1 { style: "font-size: 48px; margin-bottom: 16px;", "404" }
             p { style: "color: #888; margin-bottom: 24px;", "Page not found: /{route.join(\"/\")}" }
             Link {
-                to: Route::Home {},
+                to: Route::Landing {},
                 style: "padding: 12px 24px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; color: white; text-decoration: none;",
                 "Go Home"
             }
@@ -37924,426 +41442,6 @@ pub fn css_variables() -> &'static str {
         --radius-full: 9999px;
     }
     "#
-}
-
-```
-
----
-
-### Page: Home
-
-**File:** `src/ui/pages/home.rs`
-
-Quadrivium landing page with 4 subject portals (Logic, English, Coding, Mathematics) and Fair Source license banner with honor system toggle.
-
-```rust
-use dioxus::prelude::*;
-use crate::ui::router::Route;
-use crate::ui::components::logic_output::highlight_logic;
-use crate::ui::components::main_nav::{MainNav, ActivePage};
-
-const HOME_STYLE: &str = r#"
-.home-wrapper {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    min-height: 100vh;
-    padding: 60px 20px;
-    background: radial-gradient(circle at top center, #1e293b 0%, #0f172a 100%);
-}
-
-.brand-header {
-    text-align: center;
-    margin-bottom: 60px;
-    animation: fadeIn 1s ease;
-}
-
-.brand-header h1 {
-    font-size: 56px;
-    font-weight: 800;
-    margin-bottom: 12px;
-    background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    letter-spacing: -1px;
-}
-
-.brand-header p {
-    font-size: 18px;
-    color: #94a3b8;
-}
-
-.portal-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 30px;
-    max-width: 1000px;
-    width: 100%;
-}
-
-.portal-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 20px;
-    padding: 40px 30px;
-    text-align: left;
-    text-decoration: none;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
-}
-
-.portal-card:hover {
-    transform: translateY(-5px);
-    background: rgba(255, 255, 255, 0.05);
-    border-color: rgba(129, 140, 248, 0.3);
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-}
-
-.portal-card .icon {
-    font-size: 42px;
-    margin-bottom: 20px;
-    background: rgba(255, 255, 255, 0.1);
-    width: 80px;
-    height: 80px;
-    border-radius: 16px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.portal-card h2 {
-    color: #fff;
-    font-size: 24px;
-    margin-bottom: 10px;
-}
-
-.portal-card p {
-    color: #94a3b8;
-    line-height: 1.5;
-    font-size: 15px;
-}
-
-.portal-card .arrow {
-    position: absolute;
-    bottom: 30px;
-    right: 30px;
-    opacity: 0;
-    transition: all 0.3s ease;
-    color: #818cf8;
-    font-size: 24px;
-}
-
-.portal-card:hover .arrow {
-    opacity: 1;
-    transform: translateX(5px);
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(20px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
-@media (max-width: 600px) {
-    .portal-grid {
-        grid-template-columns: 1fr;
-    }
-    .brand-header h1 {
-        font-size: 40px;
-    }
-    .example-showcase {
-        padding: 20px;
-    }
-    .example-sentence {
-        font-size: 16px !important;
-    }
-    .example-output {
-        font-size: 14px !important;
-    }
-}
-
-.example-showcase {
-    max-width: 800px;
-    width: 100%;
-    margin-bottom: 50px;
-    animation: fadeIn 1s ease 0.2s both;
-}
-
-.example-tabs {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-
-.example-tab {
-    padding: 10px 20px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    background: rgba(255, 255, 255, 0.03);
-    color: #94a3b8;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    font-size: 14px;
-    font-weight: 500;
-}
-
-.example-tab:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: #e8e8e8;
-}
-
-.example-tab.active {
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    color: white;
-    border-color: transparent;
-}
-
-.example-content {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    padding: 30px;
-    text-align: center;
-}
-
-.example-sentence {
-    font-size: 20px;
-    color: #e8e8e8;
-    font-style: italic;
-    margin-bottom: 0;
-    line-height: 1.5;
-}
-
-.example-arrow {
-    color: #667eea;
-    font-size: 28px;
-    margin: 20px 0;
-}
-
-.example-output {
-    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 18px;
-    line-height: 1.6;
-    text-align: left;
-    background: rgba(0, 0, 0, 0.2);
-    padding: 20px;
-    border-radius: 8px;
-    overflow-x: auto;
-}
-
-.logic-quantifier { color: #c678dd; font-weight: 600; }
-.logic-connective { color: #56b6c2; }
-.logic-variable { color: #61afef; }
-.logic-predicate { color: #98c379; }
-.logic-constant { color: #e5c07b; }
-.logic-paren { color: #abb2bf; }
-
-@keyframes slideIn {
-    from { opacity: 0; transform: translateX(20px); }
-    to { opacity: 1; transform: translateX(0); }
-}
-
-.example-content {
-    animation: slideIn 0.3s ease;
-}
-
-.example-nav {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 20px;
-    margin-top: 20px;
-}
-
-.nav-arrow {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.05);
-    color: #94a3b8;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-}
-
-.nav-arrow:hover:not(:disabled) {
-    background: rgba(102, 126, 234, 0.3);
-    border-color: #667eea;
-    color: white;
-}
-
-.nav-arrow:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
-
-.nav-dots {
-    display: flex;
-    gap: 8px;
-}
-
-.nav-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.2);
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.nav-dot:hover {
-    background: rgba(255, 255, 255, 0.4);
-}
-
-.nav-dot.active {
-    background: #667eea;
-    transform: scale(1.2);
-}
-"#;
-
-const EXAMPLES: &[(&str, &str, &str)] = &[
-    (
-        "Universal",
-        "Every user who has a key enters the room.",
-        "∃y(∀x(((User(x) ∧ (Key(y) ∧ Have(x, y))) → Enter(x, Room))))"
-    ),
-    (
-        "Conditional",
-        "If a user enters the room, the alarm triggers.",
-        "(Enter(User, Room) → Trigger(Alarm))"
-    ),
-    (
-        "Negation",
-        "No user who lacks a key can enter the room.",
-        "∀x(((User(x) ∧ (Key(y) ∧ Lack(x, y))) → ¬Enter(x)))"
-    ),
-    (
-        "Donkey",
-        "If a farmer owns a donkey, he beats it.",
-        "∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x, y)) → Beat(x, y))"
-    ),
-    (
-        "Focus",
-        "Only John ate the cake.",
-        "Only(John, ∃e(Eat(e) ∧ Agent(e, John) ∧ Theme(e, Cake)))"
-    ),
-];
-
-#[component]
-pub fn Home() -> Element {
-    let mut active_tab = use_signal(|| 0usize);
-
-    rsx! {
-        style { "{HOME_STYLE}" }
-
-        MainNav { active: ActivePage::Home, show_nav_links: true }
-
-        div { class: "home-wrapper",
-            div { class: "brand-header",
-                h1 { "LOGICAFFEINE" }
-                p { "Choose your path to logical mastery." }
-            }
-
-            div { class: "example-showcase",
-                div { class: "example-tabs",
-                    for (i, (label, _, _)) in EXAMPLES.iter().enumerate() {
-                        button {
-                            key: "{i}",
-                            class: if active_tab() == i { "example-tab active" } else { "example-tab" },
-                            onclick: move |_| active_tab.set(i),
-                            "{label}"
-                        }
-                    }
-                }
-                div {
-                    key: "{active_tab()}",
-                    class: "example-content",
-                    p { class: "example-sentence",
-                        "\"{EXAMPLES[active_tab()].1}\""
-                    }
-                    div { class: "example-arrow", "↓" }
-                    div {
-                        class: "example-output",
-                        dangerous_inner_html: highlight_logic(EXAMPLES[active_tab()].2)
-                    }
-                }
-                div { class: "example-nav",
-                    button {
-                        class: "nav-arrow",
-                        disabled: active_tab() == 0,
-                        onclick: move |_| {
-                            if active_tab() > 0 {
-                                active_tab.set(active_tab() - 1);
-                            }
-                        },
-                        "←"
-                    }
-                    div { class: "nav-dots",
-                        for i in 0..EXAMPLES.len() {
-                            div {
-                                key: "{i}",
-                                class: if active_tab() == i { "nav-dot active" } else { "nav-dot" },
-                                onclick: move |_| active_tab.set(i),
-                            }
-                        }
-                    }
-                    button {
-                        class: "nav-arrow",
-                        disabled: active_tab() == EXAMPLES.len() - 1,
-                        onclick: move |_| {
-                            if active_tab() < EXAMPLES.len() - 1 {
-                                active_tab.set(active_tab() + 1);
-                            }
-                        },
-                        "→"
-                    }
-                }
-            }
-
-            div { class: "portal-grid",
-                Link {
-                    to: Route::Learn {},
-                    class: "portal-card",
-                    div { class: "icon", "🎓" }
-                    h2 { "Curriculum" }
-                    p { "Step-by-step interactive lessons from basics to advanced logic." }
-                    div { class: "arrow", "→" }
-                }
-
-                Link {
-                    to: Route::Studio {},
-                    class: "portal-card",
-                    div { class: "icon", "⚙️" }
-                    h2 { "Studio" }
-                    p { "Free-form sandbox. Type English, get Logic. Inspect the AST." }
-                    div { class: "arrow", "→" }
-                }
-
-                Link {
-                    to: Route::Learn {},
-                    class: "portal-card",
-                    div { class: "icon", "🔄" }
-                    h2 { "Daily Review" }
-                    p { "Spaced repetition practice to keep your skills sharp." }
-                    div { class: "arrow", "→" }
-                }
-
-                Link {
-                    to: Route::Pricing {},
-                    class: "portal-card",
-                    div { class: "icon", "💼" }
-                    h2 { "Enterprise" }
-                    p { "Commercial licensing and team management features." }
-                    div { class: "arrow", "→" }
-                }
-            }
-        }
-    }
 }
 
 ```
@@ -39018,7 +42116,7 @@ pub fn Landing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            MainNav { active: ActivePage::Home }
+            MainNav { active: ActivePage::Other }
 
             main { class: "container",
                 section { class: "hero",
@@ -39321,7 +42419,6 @@ To run:
                         }
                         div { class: "hero-ctas",
                             Link { to: Route::Learn {}, class: "btn btn-primary", "Start Learning" }
-                            Link { to: Route::Home {}, class: "btn", "Launch App" }
                             Link { to: Route::Pricing {}, class: "btn btn-ghost", "View Licenses" }
                         }
                     }
@@ -39354,8 +42451,6 @@ To run:
                             span { "  •  " }
                             Link { to: Route::Pricing {}, "Pricing" }
                             span { "  •  " }
-                            Link { to: Route::Home {}, "App" }
-                            span { "  •  " }
                             Link { to: Route::Learn {}, "Learn" }
                         }
                     }
@@ -39380,15 +42475,18 @@ use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::learn_sidebar::{LearnSidebar, ModuleInfo};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
+use crate::ui::components::vocab_reference::VocabReference;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::pages::guide::content::ExampleMode;
 use crate::content::ContentEngine;
 use crate::generator::{Generator, AnswerType, Challenge};
 use crate::grader::check_answer;
-use crate::struggle::{StruggleDetector, StruggleReason};
+use crate::struggle::StruggleDetector;
+use crate::unlock::check_module_unlocked;
+use crate::progress::UserProgress;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 const LEARN_STYLE: &str = r#"
 .learn-page {
@@ -39532,6 +42630,43 @@ const LEARN_STYLE: &str = r#"
     border-color: rgba(255,255,255,0.12);
 }
 
+.learn-module-card.locked {
+    opacity: 0.6;
+    cursor: not-allowed;
+    position: relative;
+}
+
+.learn-module-card.locked:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.08);
+}
+
+.learn-module-card.locked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-xl);
+    pointer-events: none;
+}
+
+.locked-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: rgba(251, 146, 60, 0.15);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: #fb923c;
+}
+
+.locked-badge-icon {
+    font-size: 12px;
+}
+
 .learn-module-header {
     display: flex;
     justify-content: space-between;
@@ -39670,6 +42805,324 @@ const LEARN_STYLE: &str = r#"
     border-top: 1px solid rgba(255,255,255,0.08);
 }
 
+/* Mode selector inline card header */
+.mode-selector-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-lg);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+}
+
+.mode-selector-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.mode-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    border: 1px solid transparent;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-secondary);
+}
+
+.mode-tab-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-primary);
+}
+
+.mode-tab-btn.active {
+    background: linear-gradient(135deg, rgba(96,165,250,0.2), rgba(167,139,250,0.2));
+    border-color: rgba(96,165,250,0.3);
+    color: var(--color-accent-blue);
+}
+
+.mode-tab-btn.test {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+}
+
+.mode-stats {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+
+.mode-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-body-sm);
+}
+
+.mode-stat-value {
+    font-weight: 700;
+    color: var(--color-accent-blue);
+}
+
+.mode-stat-value.streak {
+    color: #fbbf24;
+}
+
+.mode-stat-label {
+    color: var(--text-tertiary);
+}
+
+.combo-multiplier {
+    font-weight: 700;
+    color: #4ade80;
+    margin-left: 2px;
+}
+
+.mode-stat.combo {
+    background: rgba(251, 191, 36, 0.1);
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+/* Content tab selector */
+.content-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xl);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: var(--spacing-md);
+}
+
+.content-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.content-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.content-tab-btn.active {
+    color: var(--color-accent-blue);
+    border-bottom-color: var(--color-accent-blue);
+}
+
+/* Lesson section styling */
+.lesson-section {
+    margin-bottom: var(--spacing-xxl);
+    padding-bottom: var(--spacing-xl);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.lesson-section:last-child {
+    border-bottom: none;
+}
+
+.lesson-section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.lesson-section-number {
+    font-size: 1rem;
+    color: var(--color-accent-blue);
+    font-weight: 600;
+}
+
+.lesson-paragraph {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.75;
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-definition {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-definition-term {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-accent-purple);
+    margin-bottom: var(--spacing-xs);
+}
+
+.lesson-definition-text {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.65;
+}
+
+.lesson-example {
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-example-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-accent-blue);
+    margin-bottom: var(--spacing-md);
+}
+
+.lesson-example-premise {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    padding-left: var(--spacing-lg);
+    margin-bottom: var(--spacing-xs);
+    line-height: 1.6;
+}
+
+.lesson-example-conclusion {
+    font-size: 1rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-top: var(--spacing-md);
+    padding-left: var(--spacing-lg);
+}
+
+.lesson-example-note {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* Symbol glossary block */
+.lesson-symbols {
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+.lesson-symbols-title {
+    font-weight: 700;
+    color: #60a5fa;
+    margin-bottom: var(--spacing-md);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.lesson-symbols-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.lesson-symbol-item {
+    display: flex;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm);
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-md);
+}
+
+.lesson-symbol-glyph {
+    font-size: 1.5rem;
+    font-family: var(--font-mono);
+    color: #60a5fa;
+    min-width: 40px;
+    text-align: center;
+}
+
+.lesson-symbol-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.lesson-symbol-meaning {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+}
+
+.lesson-symbol-example {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.8rem;
+    font-style: italic;
+    margin-top: 4px;
+}
+
+/* Quiz block */
+.lesson-quiz {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+.lesson-quiz-question {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    font-size: 1rem;
+}
+
+.lesson-quiz-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.lesson-quiz-option {
+    text-align: left;
+    padding: var(--spacing-md);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.lesson-quiz-option:hover {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.2);
+    color: var(--text-primary);
+}
+
+.lesson-quiz-explanation {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    display: none;
+}
+
 .learn-module-close {
     position: absolute;
     top: var(--spacing-lg);
@@ -39715,6 +43168,50 @@ const LEARN_STYLE: &str = r#"
     color: var(--text-secondary);
 }
 
+/* Examples panel */
+.tab-panel-examples {
+    padding: var(--spacing-lg) 0;
+}
+
+.examples-intro {
+    margin-bottom: var(--spacing-xl);
+}
+
+.examples-intro h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.examples-intro p {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.6;
+}
+
+.examples-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.example-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+}
+
+.example-card .example-sentence {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .exercise-card {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
@@ -39723,19 +43220,12 @@ const LEARN_STYLE: &str = r#"
     margin-bottom: var(--spacing-lg);
 }
 
-.exercise-prompt {
-    font-size: var(--font-caption-md);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-tertiary);
-    margin-bottom: var(--spacing-sm);
-}
-
 .exercise-sentence {
-    font-size: var(--font-heading-sm);
+    font-size: 1.15rem;
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: var(--spacing-lg);
+    line-height: 1.5;
 }
 
 .exercise-input-row {
@@ -39812,16 +43302,6 @@ const LEARN_STYLE: &str = r#"
     border-radius: var(--radius-md);
     color: var(--color-accent-blue);
     margin: var(--spacing-lg) 0;
-}
-
-/* Focus mode - fade other eras */
-.learn-era.faded {
-    opacity: 0.3;
-    pointer-events: none;
-}
-
-.learn-era.faded .learn-module-card {
-    pointer-events: none;
 }
 
 /* Responsive */
@@ -40081,6 +43561,10 @@ pub fn Learn() -> Element {
 
     let eras = get_curriculum_data();
 
+    // For module unlock checking
+    let content_engine = ContentEngine::new();
+    let user_progress = UserProgress::new(); // TODO: Load from storage
+
     // Build module info for sidebar
     let sidebar_modules: Vec<ModuleInfo> = eras.iter().flat_map(|era| {
         era.modules.iter().map(|m| ModuleInfo {
@@ -40226,7 +43710,8 @@ pub fn Learn() -> Element {
                                 }
 
                                 // Era section
-                                section { class: "learn-era",
+                                section {
+                                    class: "learn-era",
                                     div { class: "learn-era-header",
                                         h2 { "{era.title}" }
                                         p { "{era.description}" }
@@ -40239,15 +43724,18 @@ pub fn Learn() -> Element {
                                                 let module_id = module.id.to_string();
                                                 let module_number = idx + 1;
 
+                                                // Check if this module is locked
+                                                let is_unlocked = check_module_unlocked(&user_progress, &content_engine, &era_id, &module_id);
+
                                                 // Check if this module is expanded
                                                 let is_expanded = expanded_module.read().as_ref()
                                                     .map(|(e, m)| e == era.id && m == module.id)
                                                     .unwrap_or(false);
 
-                                                let card_class = if is_expanded {
-                                                    "learn-module-card expanded"
-                                                } else {
-                                                    "learn-module-card"
+                                                let card_class = match (is_expanded, is_unlocked) {
+                                                    (true, _) => "learn-module-card expanded",
+                                                    (false, true) => "learn-module-card",
+                                                    (false, false) => "learn-module-card locked",
                                                 };
 
                                                 rsx! {
@@ -40290,30 +43778,40 @@ pub fn Learn() -> Element {
 
                                                         // Show preview only when collapsed
                                                         if !is_expanded {
-                                                            if let Some(preview) = module.preview_code {
-                                                                div { class: "learn-module-preview",
-                                                                    div { class: "learn-preview-label", "Try an Example" }
-                                                                    GuideCodeBlock {
-                                                                        id: format!("preview-{}", module.id),
-                                                                        label: "Example".to_string(),
-                                                                        mode: ExampleMode::Logic,
-                                                                        initial_code: preview.to_string(),
+                                                            if is_unlocked {
+                                                                if let Some(preview) = module.preview_code {
+                                                                    div { class: "learn-module-preview",
+                                                                        div { class: "learn-preview-label", "Try an Example" }
+                                                                        GuideCodeBlock {
+                                                                            id: format!("preview-{}", module.id),
+                                                                            label: "Example".to_string(),
+                                                                            mode: ExampleMode::Logic,
+                                                                            initial_code: preview.to_string(),
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
 
-                                                            // Action buttons (only when collapsed)
-                                                            div { class: "learn-module-actions",
-                                                                button {
-                                                                    class: "learn-action-btn primary",
-                                                                    onclick: {
-                                                                        let era = era_id.clone();
-                                                                        let module = module_id.clone();
-                                                                        move |_| {
-                                                                            expanded_module.set(Some((era.clone(), module.clone())));
-                                                                        }
-                                                                    },
-                                                                    "Start Learning"
+                                                                // Action buttons (only when collapsed and unlocked)
+                                                                div { class: "learn-module-actions",
+                                                                    button {
+                                                                        class: "learn-action-btn primary",
+                                                                        onclick: {
+                                                                            let era = era_id.clone();
+                                                                            let module = module_id.clone();
+                                                                            move |_| {
+                                                                                expanded_module.set(Some((era.clone(), module.clone())));
+                                                                            }
+                                                                        },
+                                                                        "Start Learning"
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                // Locked module - show lock badge
+                                                                div { class: "learn-module-actions",
+                                                                    div { class: "locked-badge",
+                                                                        span { class: "locked-badge-icon", "\u{1F512}" }
+                                                                        "Complete previous module to unlock"
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -40338,6 +43836,9 @@ pub fn Learn() -> Element {
                     }
                 }
             }
+
+            // Floating vocab reference panel
+            VocabReference {}
         }
     }
 }
@@ -40366,11 +43867,26 @@ enum PracticeMode {
     Test,
 }
 
+/// Content view tab state - corresponds to the 4 tabs
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum ContentView {
+    #[default]
+    Lesson,
+    Examples,
+    Practice,
+    Test,
+}
+
 /// Interactive exercise panel with reveal buttons instead of tabs
 #[component]
 fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
+    use crate::content::{ContentBlock, Section};
+
     let engine = ContentEngine::new();
     let generator = Generator::new();
+
+    // Content view state (Lesson vs Practice)
+    let mut content_view = use_signal(ContentView::default);
 
     // Exercise state
     let mut current_exercise_idx = use_signal(|| 0usize);
@@ -40386,6 +43902,14 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let mut exercise_attempts = use_signal(|| std::collections::HashMap::<usize, u32>::new());
     // Track which exercises have been completed (earned XP) - prevents double XP
     let mut completed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+    // Track which exercises have had their answer revealed (forfeits XP)
+    let mut answer_revealed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+
+    // Priority queue for wrong answers - re-queue at position +3
+    // When wrong, insert exercise index to be shown again after 3 more exercises
+    let mut retry_queue = use_signal(|| std::collections::VecDeque::<usize>::new());
+    // Count exercises since last retry to trigger queue pop after 3
+    let mut exercises_since_retry = use_signal(|| 0usize);
 
     // Test mode state
     let mut test_question = use_signal(|| 0usize);
@@ -40445,8 +43969,226 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let is_test_mode = *practice_mode.read() == PracticeMode::Test;
     let current_test_q = *test_question.read();
 
+    // Get sections for lesson content
+    let sections: Vec<Section> = module_opt.as_ref()
+        .map(|m| m.sections.clone())
+        .unwrap_or_default();
+    let has_sections = !sections.is_empty();
+    let current_view = *content_view.read();
+
     rsx! {
         div { class: "interactive-exercise-panel",
+            // Content tabs (Lesson | Examples | Practice | Test)
+            div { class: "content-tabs",
+                button {
+                    class: if current_view == ContentView::Lesson { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| content_view.set(ContentView::Lesson),
+                    "Lesson"
+                }
+                button {
+                    class: if current_view == ContentView::Examples { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| content_view.set(ContentView::Examples),
+                    "Examples"
+                }
+                button {
+                    class: if current_view == ContentView::Practice { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Practice);
+                        practice_mode.set(PracticeMode::Practice);
+                    },
+                    "Practice"
+                }
+                button {
+                    class: if current_view == ContentView::Test { "content-tab-btn active test" } else { "content-tab-btn" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Test);
+                        practice_mode.set(PracticeMode::Test);
+                        test_question.set(0);
+                        test_answers.set(Vec::new());
+                        test_complete.set(false);
+                        user_answer.set(String::new());
+                        feedback.set(None);
+                    },
+                    "Test"
+                }
+            }
+
+            // Lesson content view
+            if current_view == ContentView::Lesson {
+                div { class: "tab-panel-lesson",
+                    if has_sections {
+                        for section in sections.iter() {
+                            div { class: "lesson-section",
+                                h3 { class: "lesson-section-title",
+                                    span { class: "lesson-section-number", "{section.id}" }
+                                    "{section.title}"
+                                }
+
+                                // Render content blocks
+                                for block in section.content.iter() {
+                                    match block {
+                                        ContentBlock::Paragraph { text } => rsx! {
+                                            p { class: "lesson-paragraph",
+                                                dangerous_inner_html: text.replace("**", "<strong>").replace("**", "</strong>").replace("*", "<em>").replace("*", "</em>")
+                                            }
+                                        },
+                                        ContentBlock::Definition { term, definition } => rsx! {
+                                            div { class: "lesson-definition",
+                                                div { class: "lesson-definition-term", "{term}" }
+                                                div { class: "lesson-definition-text", "{definition}" }
+                                            }
+                                        },
+                                        ContentBlock::Example { title, premises, conclusion, note } => rsx! {
+                                            div { class: "lesson-example",
+                                                div { class: "lesson-example-title", "{title}" }
+                                                for premise in premises.iter() {
+                                                    div { class: "lesson-example-premise", "• {premise}" }
+                                                }
+                                                if let Some(concl) = conclusion {
+                                                    div { class: "lesson-example-conclusion", "{concl}" }
+                                                }
+                                                if let Some(n) = note {
+                                                    div { class: "lesson-example-note", "{n}" }
+                                                }
+                                            }
+                                        },
+                                        ContentBlock::Symbols { title, symbols } => rsx! {
+                                            div { class: "lesson-symbols",
+                                                div { class: "lesson-symbols-title", "{title}" }
+                                                div { class: "lesson-symbols-grid",
+                                                    for sym in symbols.iter() {
+                                                        div { class: "lesson-symbol-item",
+                                                            span { class: "lesson-symbol-glyph", "{sym.symbol}" }
+                                                            div { class: "lesson-symbol-info",
+                                                                div { class: "lesson-symbol-name", "{sym.name}" }
+                                                                div { class: "lesson-symbol-meaning", "{sym.meaning}" }
+                                                                if let Some(example) = &sym.example {
+                                                                    div { class: "lesson-symbol-example", "Example: {example}" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        ContentBlock::Quiz { question, options, correct, explanation } => rsx! {
+                                            div { class: "lesson-quiz",
+                                                div { class: "lesson-quiz-question", "{question}" }
+                                                div { class: "lesson-quiz-options",
+                                                    for (i, opt) in options.iter().enumerate() {
+                                                        button {
+                                                            class: "lesson-quiz-option",
+                                                            "data-correct": if i == *correct { "true" } else { "false" },
+                                                            "{opt}"
+                                                        }
+                                                    }
+                                                }
+                                                if let Some(expl) = explanation {
+                                                    div { class: "lesson-quiz-explanation", "{expl}" }
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+
+                            }
+                        }
+
+                        // Start practicing button
+                        div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                            button {
+                                class: "learn-action-btn primary",
+                                onclick: move |_| content_view.set(ContentView::Examples),
+                                "Try Examples →"
+                            }
+                        }
+                    } else {
+                        p { style: "color: var(--text-tertiary); text-align: center; padding: var(--spacing-xl);",
+                            "Lesson content coming soon. Click Examples to see interactive demos."
+                        }
+                    }
+                }
+            } else if current_view == ContentView::Examples {
+                // Examples view - Interactive code execution
+                div { class: "tab-panel-examples",
+                    div { class: "examples-intro",
+                        h3 { "Interactive Examples" }
+                        p { "Try translating sentences and see how logic notation works. The symbol dictionary will explain each symbol used." }
+                    }
+
+                    // Example sentences to try
+                    div { class: "examples-list",
+                        {
+                            let examples: Vec<(&str, &str)> = vec![
+                                ("ex1", "All cats are mammals."),
+                                ("ex2", "Socrates is mortal."),
+                                ("ex3", "If it rains, the ground is wet."),
+                                ("ex4", "Some birds can fly."),
+                                ("ex5", "No reptiles are mammals."),
+                            ];
+
+                            rsx! {
+                                for (id, sentence) in examples {
+                                    div { class: "example-card",
+                                        key: "{id}",
+                                        div { class: "example-sentence", "{sentence}" }
+                                        GuideCodeBlock {
+                                            id: id.to_string(),
+                                            label: "Try it".to_string(),
+                                            mode: ExampleMode::Logic,
+                                            initial_code: sentence.to_string(),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Navigation to Practice
+                    div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                        button {
+                            class: "learn-action-btn primary",
+                            onclick: move |_| {
+                                content_view.set(ContentView::Practice);
+                                practice_mode.set(PracticeMode::Practice);
+                            },
+                            "Start Practice →"
+                        }
+                    }
+                }
+            } else {
+                // Practice/Test view
+                // Stats header
+                div { class: "mode-stats",
+                    div { class: "mode-stat",
+                        span { class: "mode-stat-value", "{score}" }
+                        span { class: "mode-stat-label", " XP" }
+                    }
+                    if *streak.read() > 0 {
+                        {
+                            let s = *streak.read();
+                            let mult = match s {
+                                0 => "1x",
+                                1 => "1.25x",
+                                2 => "1.5x",
+                                3 => "1.75x",
+                                _ => "2x",
+                            };
+                            rsx! {
+                                div { class: "mode-stat combo",
+                                    span { class: "mode-stat-value streak", "{s}" }
+                                    span { class: "mode-stat-label", " streak " }
+                                    span { class: "combo-multiplier", "({mult})" }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "mode-stat",
+                        span { class: "mode-stat-value", "{correct_count}" }
+                        span { class: "mode-stat-label", " correct" }
+                    }
+                }
+
             // Test mode header
             if is_test_mode {
                 if *test_complete.read() {
@@ -40528,8 +44270,6 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
             if !(is_test_mode && *test_complete.read()) {
             if let Some(challenge) = current_challenge.as_ref() {
                 div { class: "exercise-card",
-                    // Exercise prompt
-                    div { class: "exercise-prompt", "{challenge.prompt}" }
                     div { class: "exercise-sentence", "{challenge.sentence}" }
 
                     // Answer input based on exercise type
@@ -40543,13 +44283,79 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                         None => "exercise-input",
                                     },
                                     r#type: "text",
-                                    placeholder: "Enter your logic translation...",
+                                    placeholder: "Enter your logic translation... (Enter to submit)",
                                     value: "{user_answer}",
                                     oninput: {
                                         move |e: Event<FormData>| {
                                             user_answer.set(e.value());
                                             // Record activity to reset inactivity timer
                                             struggle_detector.write().record_activity();
+                                        }
+                                    },
+                                    onkeydown: {
+                                        let golden = golden_answer.clone();
+                                        move |e: Event<KeyboardData>| {
+                                            if e.key() == Key::Enter {
+                                                e.prevent_default();
+                                                // Trigger submit logic - same as Check button
+                                                let answer = user_answer.read().clone();
+                                                if !answer.is_empty() {
+                                                    if let Some(ref expected) = golden {
+                                                        let result = check_answer(&answer, expected);
+                                                        if result.correct {
+                                                            // Handle correct answer
+                                                            let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+                                                            let already_completed = if is_test_mode { false } else { completed_exercises.read().contains(&current_idx) };
+
+                                                            if answer_was_revealed {
+                                                                let cc = *correct_count.read();
+                                                                correct_count.set(cc + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                            } else if !already_completed {
+                                                                let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
+                                                                let base_xp = 10u32.saturating_sub(wrong_count * 5);
+                                                                if base_xp > 0 {
+                                                                    let cs = *streak.read();
+                                                                    let sc = *score.read();
+                                                                    let cc = *correct_count.read();
+                                                                    let multiplier = match cs { 0 => 1.0, 1 => 1.25, 2 => 1.5, 3 => 1.75, _ => 2.0 };
+                                                                    let xp = ((base_xp as f64) * multiplier).round() as u32;
+                                                                    score.set(sc + xp);
+                                                                    streak.set(cs + 1);
+                                                                    correct_count.set(cc + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    let msg = if multiplier > 1.0 { format!("Correct! +{} XP ({}x combo)", xp, multiplier) } else { format!("Correct! +{} XP", xp) };
+                                                                    feedback.set(Some((true, msg)));
+                                                                } else {
+                                                                    let cc = *correct_count.read();
+                                                                    correct_count.set(cc + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    feedback.set(Some((true, "Correct! (no XP - too many attempts)".to_string())));
+                                                                }
+                                                            } else {
+                                                                feedback.set(Some((true, "Correct! (already completed)".to_string())));
+                                                            }
+                                                            struggle_detector.write().record_correct_attempt();
+                                                            show_socratic_hint.set(false);
+                                                        } else {
+                                                            // Wrong answer
+                                                            let attempts = exercise_attempts.read().get(&current_idx).copied().unwrap_or(0);
+                                                            exercise_attempts.write().insert(current_idx, attempts + 1);
+                                                            let remaining = 10u32.saturating_sub((attempts + 1) * 5);
+                                                            let penalty_msg = if remaining > 0 { format!(" (-5 XP, {} remaining)", remaining) } else { " (no XP remaining)".to_string() };
+                                                            feedback.set(Some((false, format!("{}{}", result.feedback, penalty_msg))));
+                                                            struggle_detector.write().record_wrong_attempt();
+                                                            show_socratic_hint.set(true);
+                                                            streak.set(0);
+                                                            if !is_test_mode {
+                                                                let mut queue = retry_queue.write();
+                                                                if !queue.contains(&current_idx) { queue.push_back(current_idx); }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     },
                                 }
@@ -40564,9 +44370,23 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                     // Use the real grader
                                                     let result = check_answer(&answer, expected);
                                                     if result.correct {
-                                                        // Only award XP if this exercise hasn't been completed yet
-                                                        let already_completed = completed_exercises.read().contains(&current_idx);
-                                                        if !already_completed {
+                                                        // Check if answer was revealed (forfeits XP)
+                                                        let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+
+                                                        // Only check completed_exercises in practice mode, not test mode
+                                                        let already_completed = if is_test_mode {
+                                                            false // Test mode always gives fresh XP
+                                                        } else {
+                                                            completed_exercises.read().contains(&current_idx)
+                                                        };
+
+                                                        if answer_was_revealed {
+                                                            // Answer was revealed - no XP
+                                                            let current_correct = *correct_count.read();
+                                                            correct_count.set(current_correct + 1);
+                                                            completed_exercises.write().insert(current_idx);
+                                                            feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                        } else if !already_completed {
                                                             // Calculate XP based on wrong attempts (each wrong costs 5 XP)
                                                             let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
                                                             let base_xp = 10u32.saturating_sub(wrong_count * 5);
@@ -40575,13 +44395,28 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                                 let current_streak = *streak.read();
                                                                 let current_score = *score.read();
                                                                 let current_correct = *correct_count.read();
-                                                                let bonus = (current_streak as u32).min(5);
-                                                                let xp = base_xp + bonus;
+
+                                                                // Combo multiplier: 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+                                                                let multiplier = match current_streak {
+                                                                    0 => 1.0,
+                                                                    1 => 1.25,
+                                                                    2 => 1.5,
+                                                                    3 => 1.75,
+                                                                    _ => 2.0, // Max 2x
+                                                                };
+                                                                let xp = ((base_xp as f64) * multiplier).round() as u32;
+
                                                                 score.set(current_score + xp);
                                                                 streak.set(current_streak + 1);
                                                                 correct_count.set(current_correct + 1);
                                                                 completed_exercises.write().insert(current_idx);
-                                                                feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+
+                                                                let msg = if multiplier > 1.0 {
+                                                                    format!("Correct! +{} XP ({}x combo)", xp, multiplier)
+                                                                } else {
+                                                                    format!("Correct! +{} XP", xp)
+                                                                };
+                                                                feedback.set(Some((true, msg)));
                                                             } else {
                                                                 // Too many wrong attempts - no XP but still mark complete
                                                                 let current_correct = *correct_count.read();
@@ -40611,6 +44446,15 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                         struggle_detector.write().record_wrong_attempt();
                                                         show_socratic_hint.set(true);
                                                         streak.set(0);
+
+                                                        // In practice mode, add wrong exercise to retry queue (at +3 position)
+                                                        if !is_test_mode {
+                                                            let mut queue = retry_queue.write();
+                                                            // Only add if not already in queue
+                                                            if !queue.contains(&current_idx) {
+                                                                queue.push_back(current_idx);
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -40646,9 +44490,23 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                     move |_| {
                                                         user_answer.set(opt.clone());
                                                         if correct {
-                                                            // Only award XP if this exercise hasn't been completed yet
-                                                            let already_completed = completed_exercises.read().contains(&current_idx);
-                                                            if !already_completed {
+                                                            // Check if answer was revealed (forfeits XP)
+                                                            let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+
+                                                            // Only check completed_exercises in practice mode, not test mode
+                                                            let already_completed = if is_test_mode {
+                                                                false // Test mode always gives fresh XP
+                                                            } else {
+                                                                completed_exercises.read().contains(&current_idx)
+                                                            };
+
+                                                            if answer_was_revealed {
+                                                                // Answer was revealed - no XP
+                                                                let current_correct = *correct_count.read();
+                                                                correct_count.set(current_correct + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                            } else if !already_completed {
                                                                 // Calculate XP based on wrong attempts (each wrong costs 5 XP)
                                                                 let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
                                                                 let base_xp = 10u32.saturating_sub(wrong_count * 5);
@@ -40657,13 +44515,28 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                                     let current_streak = *streak.read();
                                                                     let current_score = *score.read();
                                                                     let current_correct = *correct_count.read();
-                                                                    let bonus = (current_streak as u32).min(5);
-                                                                    let xp = base_xp + bonus;
+
+                                                                    // Combo multiplier: 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+                                                                    let multiplier = match current_streak {
+                                                                        0 => 1.0,
+                                                                        1 => 1.25,
+                                                                        2 => 1.5,
+                                                                        3 => 1.75,
+                                                                        _ => 2.0, // Max 2x
+                                                                    };
+                                                                    let xp = ((base_xp as f64) * multiplier).round() as u32;
+
                                                                     score.set(current_score + xp);
                                                                     streak.set(current_streak + 1);
                                                                     correct_count.set(current_correct + 1);
                                                                     completed_exercises.write().insert(current_idx);
-                                                                    feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+
+                                                                    let msg = if multiplier > 1.0 {
+                                                                        format!("Correct! +{} XP ({}x combo)", xp, multiplier)
+                                                                    } else {
+                                                                        format!("Correct! +{} XP", xp)
+                                                                    };
+                                                                    feedback.set(Some((true, msg)));
                                                                 } else {
                                                                     // Too many wrong attempts - no XP but still mark complete
                                                                     let current_correct = *correct_count.read();
@@ -40692,6 +44565,14 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                             struggle_detector.write().record_wrong_attempt();
                                                             show_socratic_hint.set(true);
                                                             streak.set(0);
+
+                                                            // In practice mode, add wrong exercise to retry queue
+                                                            if !is_test_mode {
+                                                                let mut queue = retry_queue.write();
+                                                                if !queue.contains(&current_idx) {
+                                                                    queue.push_back(current_idx);
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 },
@@ -40754,14 +44635,18 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 "💡 Show Hint"
                             }
 
-                            // Show Answer button - toggles independently
+                            // Show Answer button - toggles independently, forfeits XP when revealed
                             button {
                                 class: if reveal_state.read().answer { "reveal-btn active" } else { "reveal-btn" },
                                 onclick: move |_| {
                                     let current = reveal_state.read().answer;
+                                    if !current {
+                                        // Revealing answer for first time - forfeit XP for this exercise
+                                        answer_revealed_exercises.write().insert(current_idx);
+                                    }
                                     reveal_state.write().answer = !current;
                                 },
-                                "✓ Show Answer"
+                                "✓ Show Answer (No XP)"
                             }
 
                             // Symbol Dictionary button (only for FreeForm/Ambiguity) - toggles independently
@@ -40866,12 +44751,25 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                             class: "learn-action-btn secondary",
                             onclick: {
                                 move |_| {
-                                    // Move to next exercise
-                                    let next = current_idx + 1;
-                                    if next < total_exercises {
-                                        current_exercise_idx.set(next);
+                                    // Check retry queue - pop after 3 exercises since last retry
+                                    let since_retry = *exercises_since_retry.read();
+                                    let has_retry = !retry_queue.read().is_empty();
+
+                                    if has_retry && since_retry >= 3 {
+                                        // Pop from retry queue
+                                        if let Some(retry_idx) = retry_queue.write().pop_front() {
+                                            current_exercise_idx.set(retry_idx);
+                                            exercises_since_retry.set(0);
+                                        }
                                     } else {
-                                        current_exercise_idx.set(0); // Loop back
+                                        // Normal next exercise
+                                        let next = current_idx + 1;
+                                        if next < total_exercises {
+                                            current_exercise_idx.set(next);
+                                        } else {
+                                            current_exercise_idx.set(0); // Loop back
+                                        }
+                                        exercises_since_retry.set(since_retry + 1);
                                     }
                                     // Reset state
                                     user_answer.set(String::new());
@@ -40889,11 +44787,25 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 class: "learn-action-btn primary",
                                 onclick: {
                                     move |_| {
-                                        let next = current_idx + 1;
-                                        if next < total_exercises {
-                                            current_exercise_idx.set(next);
+                                        // Check retry queue - pop after 3 exercises since last retry
+                                        let since_retry = *exercises_since_retry.read();
+                                        let has_retry = !retry_queue.read().is_empty();
+
+                                        if has_retry && since_retry >= 3 {
+                                            // Pop from retry queue
+                                            if let Some(retry_idx) = retry_queue.write().pop_front() {
+                                                current_exercise_idx.set(retry_idx);
+                                                exercises_since_retry.set(0);
+                                            }
                                         } else {
-                                            current_exercise_idx.set(0);
+                                            // Normal next exercise
+                                            let next = current_idx + 1;
+                                            if next < total_exercises {
+                                                current_exercise_idx.set(next);
+                                            } else {
+                                                current_exercise_idx.set(0);
+                                            }
+                                            exercises_since_retry.set(since_retry + 1);
                                         }
                                         user_answer.set(String::new());
                                         feedback.set(None);
@@ -40930,6 +44842,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                 p { "Loading exercises..." }
             }
             } // end if !(is_test_mode && test_complete)
+            } // end else (Practice view)
         }
     }
 }
@@ -42024,7 +45937,6 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
 Page module exports for Home, Pricing, Workspace, Learn, Lesson, and Studio pages.
 
 ```rust
-pub mod home;
 pub mod landing;
 pub mod learn;
 // Lesson and Review pages are deprecated - functionality moved to Learn page
@@ -42040,8 +45952,8 @@ pub mod terms;
 pub mod workspace;
 pub mod studio;
 pub mod guide;
+pub mod profile;
 
-pub use home::Home;
 pub use landing::Landing;
 pub use learn::Learn;
 pub use pricing::Pricing;
@@ -42052,6 +45964,7 @@ pub use terms::Terms;
 pub use workspace::Workspace;
 pub use studio::Studio;
 pub use guide::Guide;
+pub use profile::Profile;
 
 ```
 
@@ -43061,6 +46974,350 @@ pub fn Privacy() -> Element {
 
 ---
 
+### Page: profile
+
+**File:** `src/ui/pages/profile.rs`
+
+Application page component.
+
+```rust
+//! User Profile page
+//!
+//! Displays user statistics, progress, and achievements.
+
+use dioxus::prelude::*;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::progress::UserProgress;
+use crate::content::ContentEngine;
+
+const PROFILE_STYLE: &str = r#"
+.profile-page {
+    min-height: 100vh;
+    color: var(--text-primary);
+    background:
+        radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.14), transparent 60%),
+        radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.14), transparent 60%),
+        radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.08), transparent 62%),
+        linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
+    font-family: var(--font-sans);
+}
+
+.profile-hero {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 60px var(--spacing-xl) 40px;
+    text-align: center;
+}
+
+.profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    margin: 0 auto var(--spacing-lg);
+    box-shadow: 0 8px 32px rgba(96, 165, 250, 0.3);
+}
+
+.profile-name {
+    font-size: var(--font-heading-lg);
+    font-weight: 900;
+    margin-bottom: var(--spacing-sm);
+    background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.78) 65%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.profile-title {
+    font-size: var(--font-body-lg);
+    color: var(--color-accent-purple);
+    font-weight: 600;
+}
+
+.profile-content {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-xl) 80px;
+}
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-xxl);
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-xl);
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateY(-2px);
+}
+
+.stat-value {
+    font-size: var(--font-display-md);
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-value.xp {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.stat-value.streak {
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.stat-value.level {
+    background: linear-gradient(135deg, var(--color-accent-purple), #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.stat-label {
+    font-size: var(--font-body-md);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.profile-section {
+    margin-bottom: var(--spacing-xxl);
+}
+
+.profile-section-title {
+    font-size: var(--font-heading-sm);
+    font-weight: 700;
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.progress-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+}
+
+.progress-era-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.progress-bar-container {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-bottom: var(--spacing-xs);
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-accent-blue), var(--color-accent-purple));
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    font-size: var(--font-caption-md);
+    color: var(--text-tertiary);
+}
+
+.achievements-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.achievement-badge {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.achievement-badge:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: scale(1.02);
+}
+
+.achievement-badge.locked {
+    opacity: 0.4;
+    filter: grayscale(100%);
+}
+
+.achievement-icon {
+    font-size: 32px;
+    margin-bottom: var(--spacing-sm);
+}
+
+.achievement-name {
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-xxl);
+    color: var(--text-tertiary);
+}
+"#;
+
+#[component]
+pub fn Profile() -> Element {
+    let progress = UserProgress::new(); // TODO: Load from storage
+    let engine = ContentEngine::new();
+
+    // Calculate totals
+    let total_exercises: usize = engine.eras()
+        .iter()
+        .flat_map(|e| e.modules.iter())
+        .map(|m| m.exercises.len())
+        .sum();
+
+    let completed_modules = progress.modules.values().filter(|m| m.completed).count();
+    let total_modules: usize = engine.eras().iter().map(|e| e.modules.len()).sum();
+
+    rsx! {
+        style { "{PROFILE_STYLE}" }
+        div { class: "profile-page",
+            MainNav { active: ActivePage::Profile }
+
+            // Hero section
+            div { class: "profile-hero",
+                div { class: "profile-avatar", "L" }
+                h1 { class: "profile-name", "Logic Learner" }
+                p { class: "profile-title",
+                    if progress.title.is_some() {
+                        "{progress.title.as_ref().unwrap()}"
+                    } else {
+                        "Apprentice Logician"
+                    }
+                }
+            }
+
+            // Content
+            div { class: "profile-content",
+                // Stats grid
+                div { class: "profile-stats",
+                    div { class: "stat-card",
+                        div { class: "stat-value xp", "{progress.xp}" }
+                        div { class: "stat-label", "Total XP" }
+                    }
+                    div { class: "stat-card",
+                        div { class: "stat-value level", "Level {progress.level}" }
+                        div { class: "stat-label", "Current Level" }
+                    }
+                    div { class: "stat-card",
+                        div { class: "stat-value streak", "{progress.streak_days}" }
+                        div { class: "stat-label", "Day Streak" }
+                    }
+                    div { class: "stat-card",
+                        div { class: "stat-value", "{completed_modules}/{total_modules}" }
+                        div { class: "stat-label", "Modules Completed" }
+                    }
+                }
+
+                // Era Progress
+                div { class: "profile-section",
+                    h2 { class: "profile-section-title", "Progress by Era" }
+
+                    for era in engine.eras() {
+                        {
+                            let era_modules = era.modules.len();
+                            let era_completed = era.modules.iter()
+                                .filter(|m| progress.modules.get(&m.meta.id).map_or(false, |p| p.completed))
+                                .count();
+                            let percent = if era_modules > 0 { (era_completed * 100) / era_modules } else { 0 };
+
+                            rsx! {
+                                div { class: "progress-card",
+                                    div { class: "progress-era-name", "{era.meta.title}" }
+                                    div { class: "progress-bar-container",
+                                        div {
+                                            class: "progress-bar",
+                                            style: "width: {percent}%;",
+                                        }
+                                    }
+                                    div { class: "progress-text", "{era_completed} of {era_modules} modules completed" }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Achievements
+                div { class: "profile-section",
+                    h2 { class: "profile-section-title", "Achievements" }
+
+                    if progress.achievements.is_empty() {
+                        div { class: "empty-state",
+                            p { "Complete modules and practice exercises to earn achievements!" }
+                        }
+                    } else {
+                        div { class: "achievements-grid",
+                            for achievement in progress.achievements.iter() {
+                                div { class: "achievement-badge",
+                                    div { class: "achievement-icon", "🏆" }
+                                    div { class: "achievement-name", "{achievement}" }
+                                }
+                            }
+                        }
+                    }
+
+                    // Show locked achievements
+                    div { class: "achievements-grid", style: "margin-top: var(--spacing-lg);",
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "🎯" }
+                            div { class: "achievement-name", "First Blood" }
+                        }
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "🔥" }
+                            div { class: "achievement-name", "7-Day Streak" }
+                        }
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "💯" }
+                            div { class: "achievement-name", "Perfect Score" }
+                        }
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "🧠" }
+                            div { class: "achievement-name", "Logic Master" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+```
+
+---
+
 ### Page: review
 
 **File:** `src/ui/pages/review.rs`
@@ -43464,8 +47721,8 @@ pub fn Review() -> Element {
                                 p { "No exercises are due for review right now." }
                                 Link {
                                     class: "back-btn",
-                                    to: Route::Home {},
-                                    "← Back to Dashboard"
+                                    to: Route::Landing {},
+                                    "← Back to Home"
                                 }
                             }
                         }
@@ -43476,8 +47733,8 @@ pub fn Review() -> Element {
                                 p { "You reviewed {total_due} items." }
                                 Link {
                                     class: "back-btn",
-                                    to: Route::Home {},
-                                    "← Back to Dashboard"
+                                    to: Route::Landing {},
+                                    "← Back to Home"
                                 }
                             }
                         }
@@ -46912,7 +51169,7 @@ pub fn AppNavbar(props: AppNavbarProps) -> Element {
         nav { class: "app-navbar",
             Link {
                 class: "app-navbar-brand",
-                to: Route::Home {},
+                to: Route::Landing {},
                 div { class: "app-navbar-logo" }
                 span { class: "app-navbar-title", "{title}" }
             }
@@ -46920,8 +51177,8 @@ pub fn AppNavbar(props: AppNavbarProps) -> Element {
             div { class: "app-navbar-nav",
                 Link {
                     class: "app-navbar-link site-link",
-                    to: Route::Home {},
-                    "← Dashboard"
+                    to: Route::Landing {},
+                    "← Home"
                 }
             }
         }
@@ -47525,7 +51782,7 @@ const CODE_BLOCK_STYLE: &str = r#"
 
 .guide-code-textarea {
     width: 100%;
-    min-height: 120px;
+    min-height: 80px;
     padding: 16px;
     background: transparent;
     border: none;
@@ -47567,8 +51824,6 @@ const CODE_BLOCK_STYLE: &str = r#"
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 300px;
-    overflow-y: auto;
 }
 
 .guide-code-output-content.success {
@@ -47721,6 +51976,10 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
         ExampleMode::Imperative => "Run",
     };
 
+    // Calculate rows based on code line count for textarea auto-sizing
+    let line_count = code.read().lines().count();
+    let rows = (line_count + 2).max(4) as i64; // minimum 4 rows, +2 for editing room
+
     rsx! {
         style { "{CODE_BLOCK_STYLE}" }
 
@@ -47768,6 +52027,7 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
             div { class: "guide-code-editor",
                 textarea {
                     class: "guide-code-textarea",
+                    rows: rows,
                     value: "{code}",
                     oninput: move |evt| code.set(evt.value()),
                     spellcheck: "false",
@@ -48764,6 +53024,9 @@ Reusable UI component.
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 
+/// Embedded logo SVG
+const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
+
 /// Navigation item definition
 #[derive(Clone, PartialEq)]
 pub struct NavItem {
@@ -48775,13 +53038,13 @@ pub struct NavItem {
 #[derive(Clone, Copy, PartialEq, Default)]
 pub enum ActivePage {
     #[default]
-    Home,
     Guide,
     Learn,
     Studio,
     Roadmap,
     Pricing,
     Registry,
+    Profile,
     Other,
 }
 
@@ -48789,8 +53052,7 @@ impl ActivePage {
     /// Determine the active page from a Route
     pub fn from_route(route: &Route) -> Self {
         match route {
-            Route::Landing {} => ActivePage::Home,
-            Route::Home {} => ActivePage::Home,
+            Route::Landing {} => ActivePage::Other,
             Route::Guide {} => ActivePage::Guide,
             Route::Learn {} => ActivePage::Learn,
             Route::Studio {} => ActivePage::Studio,
@@ -48800,6 +53062,7 @@ impl ActivePage {
             Route::Success {} => ActivePage::Pricing,
             Route::Registry {} => ActivePage::Registry,
             Route::PackageDetail { .. } => ActivePage::Registry,
+            Route::Profile {} => ActivePage::Profile,
             _ => ActivePage::Other,
         }
     }
@@ -48834,15 +53097,16 @@ const MAIN_NAV_STYLE: &str = r#"
 }
 
 .main-nav-logo {
-    width: 36px;
-    height: 36px;
+    width: 64px;
+    height: 64px;
     border-radius: var(--radius-lg);
-    background:
-        radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
-        radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
-        rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.10);
-    box-shadow: 0 14px 35px rgba(0,0,0,0.35);
+    overflow: hidden;
+}
+
+.main-nav-logo svg {
+    width: 100%;
+    height: 100%;
+    filter: invert(1);
 }
 
 .main-nav-brand-text {
@@ -48995,12 +53259,6 @@ pub fn MainNav(
     /// Whether to show the full nav links (default true)
     #[props(default = true)]
     show_nav_links: bool,
-    /// Primary CTA button text (default "Launch App")
-    #[props(default = "Launch App")]
-    primary_cta: &'static str,
-    /// Primary CTA route
-    #[props(default = Route::Home {})]
-    primary_cta_route: Route,
 ) -> Element {
     rsx! {
         style { "{MAIN_NAV_STYLE}" }
@@ -49011,7 +53269,10 @@ pub fn MainNav(
                 Link {
                     to: Route::Landing {},
                     class: "main-nav-brand",
-                    div { class: "main-nav-logo" }
+                    div {
+                        class: "main-nav-logo",
+                        dangerous_inner_html: "{LOGO_SVG}"
+                    }
                     div { class: "main-nav-brand-text",
                         span { class: "main-nav-brand-name", "LOGICAFFEINE" }
                         if let Some(sub) = subtitle {
@@ -49069,11 +53330,18 @@ pub fn MainNav(
                             }
                         }
                     }
-                    // Primary CTA
+                    // Profile button
                     Link {
-                        to: primary_cta_route,
-                        class: "main-nav-btn primary",
-                        "{primary_cta}"
+                        to: Route::Profile {},
+                        class: if active == ActivePage::Profile { "main-nav-btn main-nav-btn-icon active" } else { "main-nav-btn main-nav-btn-icon" },
+                        title: "Your Profile",
+                        svg {
+                            xmlns: "http://www.w3.org/2000/svg",
+                            view_box: "0 0 24 24",
+                            path {
+                                d: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
+                            }
+                        }
                     }
                 }
             }
@@ -49146,6 +53414,7 @@ pub mod learn_sidebar;
 pub mod main_nav;
 pub mod module_tabs;
 pub mod symbol_dictionary;
+pub mod vocab_reference;
 
 ```
 
@@ -50220,6 +54489,8 @@ pub fn SymbolDictionary(props: SymbolDictionaryProps) -> Element {
                                 SymbolKind::Variable => "variable",
                                 SymbolKind::Constant => "constant",
                                 SymbolKind::Temporal => "temporal",
+                                SymbolKind::Identity => "connective",
+                                SymbolKind::Punctuation => "variable",
                             };
 
                             rsx! {
@@ -50271,6 +54542,487 @@ mod tests {
     fn test_symbol_kind_class_names() {
         assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
         assert_eq!(SymbolKind::Connective.label(), "Connective");
+    }
+}
+
+```
+
+---
+
+### Component: vocab_reference
+
+**File:** `src/ui/components/vocab_reference.rs`
+
+Reusable UI component.
+
+```rust
+//! Vocabulary Reference component
+//!
+//! A collapsible reference panel showing all common logic symbols
+//! and vocabulary terms, accessible from anywhere in the learning experience.
+
+use dioxus::prelude::*;
+
+const VOCAB_REFERENCE_STYLE: &str = r#"
+.vocab-reference-toggle {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    border: none;
+    color: #060814;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px rgba(96, 165, 250, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    z-index: 1000;
+}
+
+.vocab-reference-toggle:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 24px rgba(96, 165, 250, 0.4);
+}
+
+.vocab-reference-toggle.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.vocab-reference-panel {
+    position: fixed;
+    bottom: 84px;
+    right: 24px;
+    width: 360px;
+    max-height: 70vh;
+    background: linear-gradient(180deg, #0d1424 0%, #0a0f1a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 30px rgba(96, 165, 250, 0.1);
+    z-index: 999;
+    overflow: hidden;
+    animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.vocab-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.vocab-panel-title {
+    font-size: var(--font-body-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.vocab-panel-close {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.vocab-panel-close:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+}
+
+.vocab-panel-content {
+    padding: var(--spacing-lg);
+    max-height: calc(70vh - 60px);
+    overflow-y: auto;
+}
+
+.vocab-section {
+    margin-bottom: var(--spacing-xl);
+}
+
+.vocab-section:last-child {
+    margin-bottom: 0;
+}
+
+.vocab-section-title {
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.vocab-section-title.quantifiers {
+    color: #60a5fa;
+}
+
+.vocab-section-title.connectives {
+    color: #f472b6;
+}
+
+.vocab-section-title.predicates {
+    color: #4ade80;
+}
+
+.vocab-section-title.terms {
+    color: #a78bfa;
+}
+
+.vocab-items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.vocab-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    transition: background 0.15s ease;
+}
+
+.vocab-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.vocab-symbol {
+    font-family: var(--font-mono);
+    font-size: var(--font-body-lg);
+    min-width: 36px;
+    text-align: center;
+    font-weight: 600;
+}
+
+.vocab-symbol.quantifier {
+    color: #60a5fa;
+}
+
+.vocab-symbol.connective {
+    color: #f472b6;
+}
+
+.vocab-symbol.predicate {
+    color: #4ade80;
+}
+
+.vocab-info {
+    flex: 1;
+}
+
+.vocab-name {
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.vocab-meaning {
+    font-size: var(--font-caption-md);
+    color: var(--text-tertiary);
+}
+
+.vocab-term-item {
+    padding: var(--spacing-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm);
+}
+
+.vocab-term-name {
+    font-weight: 600;
+    color: var(--color-accent-purple);
+    margin-bottom: var(--spacing-xs);
+}
+
+.vocab-term-def {
+    font-size: var(--font-body-sm);
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* Search box */
+.vocab-search {
+    margin-bottom: var(--spacing-lg);
+}
+
+.vocab-search-input {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: var(--font-body-sm);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.vocab-search-input:focus {
+    border-color: var(--color-accent-blue);
+}
+
+.vocab-search-input::placeholder {
+    color: var(--text-tertiary);
+}
+"#;
+
+/// Symbol entry for the reference
+struct SymbolRef {
+    symbol: &'static str,
+    name: &'static str,
+    meaning: &'static str,
+    category: &'static str,
+}
+
+/// Vocabulary term entry
+struct VocabTerm {
+    term: &'static str,
+    definition: &'static str,
+}
+
+/// Get all reference symbols
+fn get_symbols() -> Vec<SymbolRef> {
+    vec![
+        // Quantifiers
+        SymbolRef { symbol: "∀", name: "Universal", meaning: "for all", category: "quantifier" },
+        SymbolRef { symbol: "∃", name: "Existential", meaning: "there exists", category: "quantifier" },
+        SymbolRef { symbol: "∃!", name: "Unique", meaning: "there exists exactly one", category: "quantifier" },
+        // Connectives
+        SymbolRef { symbol: "∧", name: "Conjunction", meaning: "and", category: "connective" },
+        SymbolRef { symbol: "∨", name: "Disjunction", meaning: "or", category: "connective" },
+        SymbolRef { symbol: "→", name: "Implication", meaning: "if...then", category: "connective" },
+        SymbolRef { symbol: "↔", name: "Biconditional", meaning: "if and only if", category: "connective" },
+        SymbolRef { symbol: "¬", name: "Negation", meaning: "not", category: "connective" },
+        // Modal
+        SymbolRef { symbol: "□", name: "Necessity", meaning: "necessarily", category: "connective" },
+        SymbolRef { symbol: "◇", name: "Possibility", meaning: "possibly", category: "connective" },
+        // Identity
+        SymbolRef { symbol: "=", name: "Identity", meaning: "equals", category: "predicate" },
+        SymbolRef { symbol: "≠", name: "Non-identity", meaning: "not equal to", category: "predicate" },
+    ]
+}
+
+/// Get vocabulary terms
+fn get_vocab_terms() -> Vec<VocabTerm> {
+    vec![
+        VocabTerm {
+            term: "Predicate",
+            definition: "A property or relation, written as a capitalized name with arguments in parentheses. E.g., Happy(alice)"
+        },
+        VocabTerm {
+            term: "Constant",
+            definition: "A name for a specific individual, written in lowercase. E.g., alice, bob, socrates"
+        },
+        VocabTerm {
+            term: "Variable",
+            definition: "A placeholder that can refer to any individual, typically x, y, z"
+        },
+        VocabTerm {
+            term: "Valid Argument",
+            definition: "An argument where the conclusion necessarily follows from the premises"
+        },
+        VocabTerm {
+            term: "Sound Argument",
+            definition: "A valid argument with premises that are actually true"
+        },
+        VocabTerm {
+            term: "Domain",
+            definition: "The set of all objects that variables can refer to"
+        },
+        VocabTerm {
+            term: "Scope",
+            definition: "The part of a formula to which a quantifier or connective applies"
+        },
+    ]
+}
+
+/// Props for VocabReference
+#[derive(Props, Clone, PartialEq)]
+pub struct VocabReferenceProps {
+    /// Whether to show the panel initially
+    #[props(default = false)]
+    pub initial_open: bool,
+}
+
+/// Vocabulary Reference floating panel
+#[component]
+pub fn VocabReference(props: VocabReferenceProps) -> Element {
+    let mut is_open = use_signal(|| props.initial_open);
+    let mut search_query = use_signal(|| String::new());
+
+    let symbols = get_symbols();
+    let vocab_terms = get_vocab_terms();
+
+    // Filter based on search
+    let query = search_query.read().to_lowercase();
+    let filtered_symbols: Vec<_> = if query.is_empty() {
+        symbols.iter().collect()
+    } else {
+        symbols.iter().filter(|s| {
+            s.symbol.to_lowercase().contains(&query) ||
+            s.name.to_lowercase().contains(&query) ||
+            s.meaning.to_lowercase().contains(&query)
+        }).collect()
+    };
+
+    let filtered_terms: Vec<_> = if query.is_empty() {
+        vocab_terms.iter().collect()
+    } else {
+        vocab_terms.iter().filter(|t| {
+            t.term.to_lowercase().contains(&query) ||
+            t.definition.to_lowercase().contains(&query)
+        }).collect()
+    };
+
+    // Group symbols by category
+    let quantifiers: Vec<_> = filtered_symbols.iter().filter(|s| s.category == "quantifier").collect();
+    let connectives: Vec<_> = filtered_symbols.iter().filter(|s| s.category == "connective").collect();
+    let predicates: Vec<_> = filtered_symbols.iter().filter(|s| s.category == "predicate").collect();
+
+    rsx! {
+        style { "{VOCAB_REFERENCE_STYLE}" }
+
+        // Toggle button
+        button {
+            class: if *is_open.read() { "vocab-reference-toggle active" } else { "vocab-reference-toggle" },
+            onclick: move |_| {
+                let current = *is_open.read();
+                is_open.set(!current);
+            },
+            title: "Symbol & Vocabulary Reference",
+            if *is_open.read() { "×" } else { "📖" }
+        }
+
+        // Panel
+        if *is_open.read() {
+            div { class: "vocab-reference-panel",
+                // Header
+                div { class: "vocab-panel-header",
+                    div { class: "vocab-panel-title",
+                        "📖 Reference"
+                    }
+                    button {
+                        class: "vocab-panel-close",
+                        onclick: move |_| is_open.set(false),
+                        "×"
+                    }
+                }
+
+                // Content
+                div { class: "vocab-panel-content",
+                    // Search
+                    div { class: "vocab-search",
+                        input {
+                            class: "vocab-search-input",
+                            r#type: "text",
+                            placeholder: "Search symbols or terms...",
+                            value: "{search_query}",
+                            oninput: move |e| search_query.set(e.value()),
+                        }
+                    }
+
+                    // Quantifiers
+                    if !quantifiers.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title quantifiers", "Quantifiers" }
+                            div { class: "vocab-items",
+                                for sym in quantifiers {
+                                    div { class: "vocab-item",
+                                        span { class: "vocab-symbol quantifier", "{sym.symbol}" }
+                                        div { class: "vocab-info",
+                                            div { class: "vocab-name", "{sym.name}" }
+                                            div { class: "vocab-meaning", "{sym.meaning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Connectives
+                    if !connectives.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title connectives", "Connectives" }
+                            div { class: "vocab-items",
+                                for sym in connectives {
+                                    div { class: "vocab-item",
+                                        span { class: "vocab-symbol connective", "{sym.symbol}" }
+                                        div { class: "vocab-info",
+                                            div { class: "vocab-name", "{sym.name}" }
+                                            div { class: "vocab-meaning", "{sym.meaning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Predicates
+                    if !predicates.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title predicates", "Predicates & Relations" }
+                            div { class: "vocab-items",
+                                for sym in predicates {
+                                    div { class: "vocab-item",
+                                        span { class: "vocab-symbol predicate", "{sym.symbol}" }
+                                        div { class: "vocab-info",
+                                            div { class: "vocab-name", "{sym.name}" }
+                                            div { class: "vocab-meaning", "{sym.meaning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Vocabulary Terms
+                    if !filtered_terms.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title terms", "Key Terms" }
+                            for term in filtered_terms {
+                                div { class: "vocab-term-item",
+                                    div { class: "vocab-term-name", "{term.term}" }
+                                    div { class: "vocab-term-def", "{term.definition}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -50415,6 +55167,2689 @@ pub fn XpPopup(reward: XpReward, on_dismiss: EventHandler<()>) -> Element {
             }
         }
     }
+}
+
+```
+
+---
+
+### Hooks: Module
+
+**File:** `src/ui/hooks/mod.rs`
+
+Custom React-style hooks for Dioxus. Reusable stateful logic patterns.
+
+```rust
+//! Custom Dioxus hooks for the Logicaffeine UI.
+//!
+//! This module provides reusable hooks for common UI patterns.
+
+pub mod use_inactivity_timer;
+
+pub use use_inactivity_timer::{use_inactivity_timer, InactivityState};
+
+```
+
+---
+
+### Hook: Inactivity Timer
+
+**File:** `src/ui/hooks/use_inactivity_timer.rs`
+
+Detects user inactivity for session timeout warnings and auto-save triggers.
+
+```rust
+//! Inactivity timer hook for detecting when users need help.
+//!
+//! This hook monitors user activity and triggers a callback when the user
+//! has been inactive for a specified duration. Used to trigger Socratic hints
+//! when students are struggling.
+
+use dioxus::prelude::*;
+
+/// Default inactivity threshold (5 seconds)
+pub const DEFAULT_INACTIVITY_THRESHOLD_MS: u64 = 5000;
+
+/// State returned by the inactivity timer hook
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InactivityState {
+    /// Whether the user is currently inactive (threshold exceeded)
+    pub is_inactive: bool,
+    /// Duration of inactivity in milliseconds
+    pub inactive_duration_ms: u64,
+}
+
+impl Default for InactivityState {
+    fn default() -> Self {
+        Self {
+            is_inactive: false,
+            inactive_duration_ms: 0,
+        }
+    }
+}
+
+/// Hook that tracks user inactivity and triggers when threshold is exceeded.
+///
+/// # Arguments
+/// * `threshold_ms` - Milliseconds of inactivity before triggering
+/// * `on_inactive` - Callback invoked when user becomes inactive
+///
+/// # Returns
+/// A tuple of:
+/// - `InactivityState` - Current inactivity state
+/// - `reset_fn` - Function to call when user performs an action
+///
+/// # Example
+/// ```ignore
+/// let (inactivity, reset_activity) = use_inactivity_timer(5000, move || {
+///     // Show hint to user
+/// });
+///
+/// // In input handler:
+/// oninput: move |_| reset_activity(),
+/// ```
+#[cfg(target_arch = "wasm32")]
+pub fn use_inactivity_timer(
+    threshold_ms: u64,
+    on_inactive: impl Fn() + 'static,
+) -> (Signal<InactivityState>, impl FnMut()) {
+    use gloo_timers::callback::Interval;
+
+    let mut state = use_signal(InactivityState::default);
+    let mut last_activity_time = use_signal(|| js_sys::Date::now());
+    let mut callback_triggered = use_signal(|| false);
+
+    // Store the callback in a resource that lives for the component lifetime
+    let on_inactive = std::rc::Rc::new(on_inactive);
+    let on_inactive_clone = on_inactive.clone();
+
+    // Set up interval to check inactivity
+    use_effect(move || {
+        let on_inactive = on_inactive_clone.clone();
+
+        let interval = Interval::new(1000, move || {
+            let now = js_sys::Date::now();
+            let last = *last_activity_time.read();
+            let elapsed_ms = (now - last) as u64;
+
+            let is_inactive = elapsed_ms >= threshold_ms;
+
+            // Update state
+            state.set(InactivityState {
+                is_inactive,
+                inactive_duration_ms: elapsed_ms,
+            });
+
+            // Trigger callback once when becoming inactive
+            if is_inactive && !*callback_triggered.read() {
+                callback_triggered.set(true);
+                on_inactive();
+            }
+        });
+
+        // Keep interval alive by forgetting it (cleanup handled by component unmount)
+        std::mem::forget(interval);
+    });
+
+    // Reset function to call when user is active
+    let reset_activity = move || {
+        #[cfg(target_arch = "wasm32")]
+        {
+            last_activity_time.set(js_sys::Date::now());
+        }
+        callback_triggered.set(false);
+        state.set(InactivityState::default());
+    };
+
+    (state, reset_activity)
+}
+
+/// Non-WASM fallback that does nothing (for testing)
+#[cfg(not(target_arch = "wasm32"))]
+pub fn use_inactivity_timer(
+    _threshold_ms: u64,
+    _on_inactive: impl Fn() + 'static,
+) -> (Signal<InactivityState>, impl FnMut()) {
+    let state = use_signal(InactivityState::default);
+    let reset_activity = || {};
+    (state, reset_activity)
+}
+
+/// Simpler version that just returns whether user is inactive
+#[cfg(target_arch = "wasm32")]
+pub fn use_is_inactive(threshold_ms: u64) -> Signal<bool> {
+    use gloo_timers::callback::Interval;
+
+    let mut is_inactive = use_signal(|| false);
+    let mut last_activity_time = use_signal(|| js_sys::Date::now());
+
+    use_effect(move || {
+        let interval = Interval::new(1000, move || {
+            let now = js_sys::Date::now();
+            let last = *last_activity_time.read();
+            let elapsed_ms = (now - last) as u64;
+
+            is_inactive.set(elapsed_ms >= threshold_ms);
+        });
+
+        // Keep interval alive by forgetting it (cleanup handled by component unmount)
+        std::mem::forget(interval);
+    });
+
+    is_inactive
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn use_is_inactive(_threshold_ms: u64) -> Signal<bool> {
+    use_signal(|| false)
+}
+
+/// Hook to get a function that resets the activity timer
+/// Call this in oninput, onclick, onkeydown handlers
+#[cfg(target_arch = "wasm32")]
+pub fn use_activity_resetter() -> (Signal<f64>, impl FnMut()) {
+    let last_activity = use_signal(|| js_sys::Date::now());
+
+    let reset = {
+        let mut last_activity = last_activity;
+        move || {
+            last_activity.set(js_sys::Date::now());
+        }
+    };
+
+    (last_activity, reset)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn use_activity_resetter() -> (Signal<f64>, impl FnMut()) {
+    let last_activity = use_signal(|| 0.0);
+    let reset = || {};
+    (last_activity, reset)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inactivity_state_default() {
+        let state = InactivityState::default();
+        assert!(!state.is_inactive);
+        assert_eq!(state.inactive_duration_ms, 0);
+    }
+
+    #[test]
+    fn test_default_threshold() {
+        assert_eq!(DEFAULT_INACTIVITY_THRESHOLD_MS, 5000);
+    }
+}
+
+```
+
+---
+
+### Guide: Content
+
+**File:** `src/ui/pages/guide/content.rs`
+
+Markdown content and examples for guide sections. Static documentation data.
+
+```rust
+//! Embedded guide content for the Programmer's Guide page.
+//!
+//! Contains all 24 sections from PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
+//! WASM cannot read files at runtime, so we embed the content at compile time.
+
+/// Mode for code examples - determines how "Run" executes them
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ExampleMode {
+    /// Logic mode: compile to First-Order Logic (FOL)
+    Logic,
+    /// Imperative mode: execute via WASM interpreter
+    Imperative,
+}
+
+/// A code example within a section
+#[derive(Clone, Debug)]
+pub struct CodeExample {
+    pub id: &'static str,
+    pub label: &'static str,
+    pub mode: ExampleMode,
+    pub code: &'static str,
+}
+
+/// A section of the guide
+#[derive(Clone, Debug)]
+pub struct Section {
+    pub id: &'static str,
+    pub number: u8,
+    pub title: &'static str,
+    pub part: &'static str,
+    pub content: &'static str,
+    pub examples: &'static [CodeExample],
+}
+
+/// All guide sections organized by part
+pub const SECTIONS: &[Section] = &[
+    // ============================================================
+    // Part I: Programming in LOGOS (Sections 1-17)
+    // ============================================================
+
+    Section {
+        id: "introduction",
+        number: 1,
+        title: "Introduction",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### What is LOGOS?
+
+LOGOS is a programming language where you write code in natural English. Instead of cryptic symbols and arcane syntax, you express your ideas in sentences that read like plain prose—and those sentences compile into efficient, executable programs.
+
+LOGOS has two modes:
+
+| Mode | What It Does | Output |
+|------|--------------|--------|
+| **Imperative Mode** | Write executable programs | Rust code (compiled to native binaries) |
+| **Logic Mode** | Translate English to formal logic | First-Order Logic notation |
+
+This guide focuses primarily on **Imperative Mode**—using LOGOS as a programming language. Part III covers Logic Mode for those interested in formal semantics.
+
+### The Vision
+
+The name LOGOS comes from the Greek λόγος, meaning "word," "reason," and "principle." In LOGOS, these concepts unify:
+
+- **Words** become executable code
+- **Reason** becomes verifiable logic
+- **Principles** become formal proofs
+
+When you write LOGOS, you're not writing comments that describe code—you're writing sentences that *are* the code.
+
+### How to Read This Guide
+
+**If you're new to programming:**
+- Read each section in order
+- Try every example yourself
+- Don't skip ahead—each concept builds on the previous
+
+**If you're an experienced programmer:**
+- Use the Table of Contents to jump to what interests you
+- The Quick Reference section provides rapid lookup
+- The Complete Examples show real-world patterns
+"#,
+        examples: &[],
+    },
+
+    Section {
+        id: "getting-started",
+        number: 2,
+        title: "Getting Started",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### Hello World
+
+Every programming journey begins with Hello World. In LOGOS:
+"#,
+        examples: &[
+            CodeExample {
+                id: "hello-world",
+                label: "Hello World",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Show "Hello, World!"."#,
+            },
+            CodeExample {
+                id: "program-structure",
+                label: "Program Structure",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Point has:
+    an x: Int.
+    a y: Int.
+
+## To greet (name: Text) -> Text:
+    Return "Hello, " + name + "!".
+
+## Main
+Let p be a new Point with x 10 and y 20.
+Let message be greet("World").
+Show message."#,
+            },
+            CodeExample {
+                id: "first-program",
+                label: "Your First Real Program",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let name be "Alice".
+Let age be 25.
+Show "Name: " + name.
+Show "Age: " + age."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "variables-and-types",
+        number: 3,
+        title: "Variables and Types",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Variables are containers that hold values. In LOGOS, you create and modify variables using natural English sentences.
+
+### Creating Variables
+
+Use `Let` to create a new variable. The word `be` assigns a value to the variable.
+
+### Changing Values
+
+Use `Set` to change an existing variable. The difference between `Let` and `Set`:
+- `Let` creates a *new* variable
+- `Set` modifies an *existing* variable
+
+### Primitive Types
+
+| Type | Description | Examples |
+|------|-------------|----------|
+| `Int` | Whole numbers | `5`, `-10`, `0`, `1000000` |
+| `Bool` | True or false | `true`, `false` |
+| `Text` | Strings of characters | `"Hello"`, `"LOGOS"`, `""` |
+| `Float` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+
+### Type Annotations
+
+Usually, LOGOS infers the type from the value you assign. But you can be explicit with `: Type`.
+"#,
+        examples: &[
+            CodeExample {
+                id: "creating-variables",
+                label: "Creating Variables",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let x be 5.
+Let name be "Bob".
+Let is_active be true.
+Let temperature be 98.6.
+Show x.
+Show name."#,
+            },
+            CodeExample {
+                id: "changing-variables",
+                label: "Changing Variables",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let x be 5.
+Show x.
+
+Set x to 10.
+Show x.
+
+Set x to x + 1.
+Show x."#,
+            },
+            CodeExample {
+                id: "text-concat",
+                label: "Text Concatenation",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let first be "Hello".
+Let second be "World".
+Let message be first + ", " + second + "!".
+Show message."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "operators",
+        number: 4,
+        title: "Operators and Expressions",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Operators let you combine values into expressions. LOGOS supports both symbolic operators (like `+`) and English words (like `plus`).
+
+### Arithmetic
+
+| Operation | Symbol | English |
+|-----------|--------|---------|
+| Addition | `+` | `plus` |
+| Subtraction | `-` | `minus` |
+| Multiplication | `*` | `times` |
+| Division | `/` | `divided by` |
+| Modulo | `%` | `modulo` |
+
+### Comparisons
+
+| Operation | Symbol | English |
+|-----------|--------|---------|
+| Less than | `<` | `is less than` |
+| Greater than | `>` | `is greater than` |
+| Less or equal | `<=` | `is at most` |
+| Greater or equal | `>=` | `is at least` |
+| Equal | `==` | `equals` |
+| Not equal | `!=` | `is not` |
+
+### Logical Operators
+
+| Operation | Keyword | Meaning |
+|-----------|---------|---------|
+| AND | `and` | Both must be true |
+| OR | `or` | At least one must be true |
+| NOT | `not` | Inverts true/false |
+"#,
+        examples: &[
+            CodeExample {
+                id: "arithmetic",
+                label: "Arithmetic Operations",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let a be 10.
+Let b be 3.
+
+Let sum be a + b.
+Let diff be a - b.
+Let prod be a * b.
+Let quot be a / b.
+Let rem be a % b.
+
+Show "Sum: " + sum.
+Show "Difference: " + diff.
+Show "Product: " + prod.
+Show "Quotient: " + quot.
+Show "Remainder: " + rem."#,
+            },
+            CodeExample {
+                id: "comparisons",
+                label: "Comparisons",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let x be 5.
+Let y be 10.
+
+Show x is less than y.
+Show x is greater than y.
+Show x equals 5.
+Show x is at most 5.
+Show x is at least 5."#,
+            },
+            CodeExample {
+                id: "logical",
+                label: "Logical Operators",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let a be true.
+Let b be false.
+
+Show a and b.
+Show a or b.
+Show not a."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "control-flow",
+        number: 5,
+        title: "Control Flow",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Control flow determines which code runs and in what order. LOGOS provides conditionals and loops using natural English syntax.
+
+### Conditionals
+
+Use `If` to execute code only when a condition is true. The colon (`:`) after the condition opens an indented block.
+
+### If/Otherwise
+
+Use `Otherwise` to handle the false case.
+
+### While Loops
+
+Use `While` to repeat code as long as a condition is true.
+
+### For-Each Loops
+
+Use `Repeat for` to iterate over collections.
+"#,
+        examples: &[
+            CodeExample {
+                id: "if-otherwise",
+                label: "If/Otherwise",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let temperature be 72.
+
+If temperature is greater than 80:
+    Show "It's hot!".
+Otherwise:
+    Show "It's comfortable."."#,
+            },
+            CodeExample {
+                id: "while-loop",
+                label: "While Loop",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let count be 1.
+
+While count is at most 5:
+    Show count.
+    Set count to count + 1."#,
+            },
+            CodeExample {
+                id: "for-each",
+                label: "For-Each Loop",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be [1, 2, 3, 4, 5].
+
+Repeat for n in numbers:
+    Show n."#,
+            },
+            CodeExample {
+                id: "grading",
+                label: "Grading Example",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let score be 85.
+
+If score is at least 90:
+    Show "Grade: A".
+If score is at least 80 and score is less than 90:
+    Show "Grade: B".
+If score is at least 70 and score is less than 80:
+    Show "Grade: C".
+If score is less than 70:
+    Show "Grade: F"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "functions",
+        number: 6,
+        title: "Functions",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Functions are reusable blocks of code. In LOGOS, you define functions using natural English headers that describe what the function does.
+
+### Defining Functions
+
+A function definition starts with `## To` followed by the function name.
+
+### Parameters
+
+Functions can accept parameters—values passed in when the function is called. Use `and` to separate multiple parameters.
+
+### Return Values
+
+Use `-> Type` to specify what the function returns.
+
+### Recursion
+
+Functions can call themselves. This is called recursion. Every recursive function needs:
+1. A **base case** — when to stop recursing
+2. A **recursive case** — calling itself with a "smaller" problem
+"#,
+        examples: &[
+            CodeExample {
+                id: "simple-function",
+                label: "Simple Function",
+                mode: ExampleMode::Imperative,
+                code: r#"## To greet (name: Text):
+    Show "Hello, " + name + "!".
+
+## Main
+greet("Alice").
+greet("Bob")."#,
+            },
+            CodeExample {
+                id: "function-return",
+                label: "Function with Return",
+                mode: ExampleMode::Imperative,
+                code: r#"## To add (a: Int) and (b: Int) -> Int:
+    Return a + b.
+
+## Main
+Let sum be add(3, 5).
+Show sum."#,
+            },
+            CodeExample {
+                id: "factorial",
+                label: "Recursive Factorial",
+                mode: ExampleMode::Imperative,
+                code: r#"## To factorial (n: Int) -> Int:
+    If n is at most 1:
+        Return 1.
+    Return n * factorial(n - 1).
+
+## Main
+Show factorial(5)."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "collections",
+        number: 7,
+        title: "Collections",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Collections hold multiple values. The primary collection type in LOGOS is `Seq` (sequence), similar to lists or arrays in other languages.
+
+### Creating Lists
+
+Create a list with square brackets, or create an empty list with a type.
+
+### Accessing Elements
+
+LOGOS uses **1-based indexing**. The first element is at position 1, not 0. Why? Because that's how humans count.
+
+### Modifying Collections
+
+- `Push` to add an element to the end
+- `Pop` to remove and get the last element
+- `copy of` to create a deep copy
+
+### Slicing
+
+Extract a portion of a list with `through`. Slicing is **inclusive** on both ends.
+"#,
+        examples: &[
+            CodeExample {
+                id: "creating-lists",
+                label: "Creating Lists",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be [1, 2, 3, 4, 5].
+Let names be ["Alice", "Bob", "Charlie"].
+Show numbers.
+Show names."#,
+            },
+            CodeExample {
+                id: "accessing-elements",
+                label: "Accessing Elements (1-indexed)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let fruits be ["apple", "banana", "cherry"].
+
+Let first be item 1 of fruits.
+Let second be item 2 of fruits.
+Let third be item 3 of fruits.
+
+Show first.
+Show second.
+Show third."#,
+            },
+            CodeExample {
+                id: "push-pop",
+                label: "Push and Pop",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be [1, 2, 3].
+Push 4 to numbers.
+Push 5 to numbers.
+Show numbers."#,
+            },
+            CodeExample {
+                id: "list-iteration",
+                label: "Iterating and Accumulating",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be [10, 20, 30, 40, 50].
+Let total be 0.
+
+Repeat for n in numbers:
+    Set total to total + n.
+
+Show "Total: " + total."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "user-types",
+        number: 8,
+        title: "User-Defined Types",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Beyond primitive types and collections, LOGOS lets you define your own types to model your problem domain.
+
+### Structs
+
+A struct (structure) groups related values together. Define one in a `## Definition` block using `A [TypeName] has:` syntax.
+
+### Creating Instances
+
+Use `a new [Type] with [fields]` to create instances.
+
+### Accessing Fields
+
+Use `'s` (possessive) to access fields.
+
+### Enums
+
+An enum (enumeration) defines a type that can be one of several variants using `A [TypeName] is either:` syntax.
+
+### Pattern Matching
+
+Use `Inspect` to handle different enum variants with `When` clauses.
+"#,
+        examples: &[
+            CodeExample {
+                id: "struct-basic",
+                label: "Basic Struct",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Point has:
+    an x: Int.
+    a y: Int.
+
+## Main
+Let p be a new Point with x 10 and y 20.
+Show p's x.
+Show p's y."#,
+            },
+            CodeExample {
+                id: "struct-person",
+                label: "Person Struct",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Person has:
+    a name: Text.
+    an age: Int.
+
+## Main
+Let alice be a new Person with name "Alice" and age 25.
+Show alice's name.
+Show alice's age."#,
+            },
+            CodeExample {
+                id: "enum-direction",
+                label: "Simple Enum",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Direction is either:
+    North.
+    South.
+    East.
+    West.
+
+## Main
+Let heading be North.
+Show heading."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "generics",
+        number: 9,
+        title: "Generics",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+Generics let you write types and functions that work with any type, not just specific ones.
+
+### Generic Types
+
+Define a generic type with `[T]` in the type name. The `[T]` is a placeholder that gets replaced with a real type when you use it.
+
+### Multiple Type Parameters
+
+You can have multiple type parameters like `[A]` and `[B]`.
+
+### Generic Collections
+
+Collections are generic types. `Seq of Int` is a sequence of integers.
+
+### Nested Generics
+
+You can nest generic types like `Seq of (Seq of Int)` for a matrix.
+"#,
+        examples: &[
+            CodeExample {
+                id: "generic-box",
+                label: "Generic Box",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Box of [T] has:
+    a contents: T.
+
+## Main
+Let int_box be a new Box of Int with contents 42.
+Let text_box be a new Box of Text with contents "Hello".
+
+Show int_box's contents.
+Show text_box's contents."#,
+            },
+            CodeExample {
+                id: "generic-pair",
+                label: "Generic Pair",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Pair of [A] and [B] has:
+    a first: A.
+    a second: B.
+
+## Main
+Let p be a new Pair of Int and Text with first 1 and second "one".
+Show p's first.
+Show p's second."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "memory-ownership",
+        number: 10,
+        title: "Memory and Ownership",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+LOGOS provides memory safety through an ownership system expressed in natural English. Instead of cryptic symbols, you use verbs that describe what you're doing with data.
+
+### The Three Verbs
+
+| Verb | Meaning | What Happens |
+|------|---------|--------------|
+| `Give` | Transfer ownership | The original variable can no longer be used |
+| `Show` | Temporary read access | The function can look but not modify |
+| `Let modify` | Temporary write access | The function can change the data |
+
+### Ownership Rules
+
+1. **Single Owner:** Every value has exactly one owner at a time
+2. **Move Semantics:** `Give` transfers ownership—you can't use it after
+3. **Borrow Checking:** References (`Show`) can't outlive the owner
+4. **Exclusive Mutation:** Only one `Let modify` at a time
+
+### Common Patterns
+
+- Copy first, then give
+- Show multiple times (all OK - just reading)
+- Sequential mutation
+
+### The `copy of` Expression
+
+Use `copy of` to create a deep clone of a value. This lets you keep using the original while giving away the copy.
+"#,
+        examples: &[
+            CodeExample {
+                id: "ownership-show",
+                label: "Show (Borrow)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To display (data: Text):
+    Show "Displaying: " + data.
+
+## Main
+Let profile be "User Profile Data".
+Show profile to display.
+Show profile."#,
+            },
+            CodeExample {
+                id: "ownership-give",
+                label: "Give (Move Ownership)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To consume (data: Text):
+    Show "Consumed: " + data.
+
+## Main
+Let message be "Important data".
+Give message to consume.
+Show "Message was transferred"."#,
+            },
+            CodeExample {
+                id: "ownership-copy",
+                label: "Copy Before Giving",
+                mode: ExampleMode::Imperative,
+                code: r#"## To process (data: Text):
+    Show "Processing: " + data.
+
+## Main
+Let original be "Keep this".
+Let duplicate be copy of original.
+Give duplicate to process.
+Show "Original still here: " + original."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "zones",
+        number: 11,
+        title: "The Zone System",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+For high-performance scenarios, LOGOS provides **Zones**—memory regions where allocations are fast and cleanup is instant.
+
+### Why Zones?
+
+| Operation | Normal Heap | Zone |
+|-----------|-------------|------|
+| Allocate | O(log n) | O(1) |
+| Deallocate individual | O(log n) | N/A |
+| Free everything | O(n) | O(1) |
+
+### The Hotel California Rule
+
+**"What happens in the Zone, stays in the Zone."**
+
+References to zone-allocated data cannot escape. To get data out of a zone, make an explicit copy.
+
+### Zone Configuration
+
+**Default size:** 4 KB (4096 bytes) when not specified.
+
+**Specifying size:** Use `of size` with units:
+
+| Unit | Example | Bytes |
+|------|---------|-------|
+| B | `of size 256 B` | 256 |
+| KB | `of size 64 KB` | 65,536 |
+| MB | `of size 2 MB` | 2,097,152 |
+| GB | `of size 1 GB` | 1,073,741,824 |
+
+### Zone Types
+
+| Zone Type | Syntax | Access | Use Case |
+|-----------|--------|--------|----------|
+| Heap | `Inside a zone called "X":` | Read/Write | Temporary data |
+| Heap (sized) | `Inside a zone called "X" of size 2 MB:` | Read/Write | Large temporary data |
+| Mapped | `Inside a zone called "X" mapped from "file.bin":` | Read-only | Large file processing |
+
+### When to Use Zones
+
+Use zones when:
+- Processing large amounts of temporary data
+- Performance is critical (games, simulations)
+- Memory allocation patterns are predictable
+- You want instant cleanup
+"#,
+        examples: &[
+            CodeExample {
+                id: "zone-basic",
+                label: "Basic Zone (4KB default)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "WorkSpace":
+    Let temp_data be [1, 2, 3, 4, 5].
+    Show temp_data.
+Show "Zone freed!"."#,
+            },
+            CodeExample {
+                id: "zone-sized-mb",
+                label: "Zone with Size (MB)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "LargeBuffer" of size 2 MB:
+    Let data be [1, 2, 3, 4, 5].
+    Show "Allocated in 2MB zone".
+    Show data."#,
+            },
+            CodeExample {
+                id: "zone-sized-kb",
+                label: "Zone with Size (KB)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "SmallArena" of size 64 KB:
+    Let x be 42.
+    Let y be 100.
+    Show x + y."#,
+            },
+            CodeExample {
+                id: "zone-mapped",
+                label: "Memory-Mapped Zone (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "FileData" mapped from "data.bin":
+    Show "File mapped into memory".
+Show "Zone unmapped"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "concurrency",
+        number: 12,
+        title: "Concurrency",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+LOGOS provides safe concurrency through structured patterns. No data races, no deadlocks.
+
+### Two Kinds of Concurrent Work
+
+| Pattern | Syntax | Use For | Compiles To |
+|---------|--------|---------|-------------|
+| **Async** | `Attempt all of the following:` | I/O-bound tasks (network, files) | tokio::join! |
+| **Parallel** | `Simultaneously:` | CPU-bound tasks (computation) | rayon::join / threads |
+
+### Attempt All (Async I/O)
+
+Use `Attempt all of the following:` for I/O operations that wait on external resources. All operations run concurrently, and the program waits until all complete.
+
+Variables declared in concurrent blocks are captured and returned as a tuple.
+
+### Simultaneously (Parallel CPU)
+
+Use `Simultaneously:` for CPU-intensive work. Computations run in parallel on different CPU cores.
+
+- 2 tasks → uses `rayon::join` (work-stealing thread pool)
+- 3+ tasks → uses `std::thread::spawn` (dedicated threads)
+
+### Ownership and Concurrency
+
+The ownership system prevents data races. Multiple reads are OK, but concurrent writes are prevented.
+"#,
+        examples: &[
+            CodeExample {
+                id: "concurrent-async",
+                label: "Async Concurrent (Attempt All)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Attempt all of the following:
+    Let a be 10.
+    Let b be 20.
+Show "a = " + a.
+Show "b = " + b.
+Show "Sum: " + (a + b)."#,
+            },
+            CodeExample {
+                id: "parallel-cpu",
+                label: "Parallel CPU (Simultaneously)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Simultaneously:
+    Let x be 100.
+    Let y be 200.
+Show "x = " + x.
+Show "y = " + y.
+Show "Product: " + (x * y)."#,
+            },
+            CodeExample {
+                id: "parallel-three-tasks",
+                label: "Three Parallel Tasks",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Simultaneously:
+    Let a be 1.
+    Let b be 2.
+    Let c be 3.
+Show "Sum: " + (a + b + c)."#,
+            },
+            CodeExample {
+                id: "concurrent-in-function",
+                label: "Concurrency in Functions",
+                mode: ExampleMode::Imperative,
+                code: r#"## To compute_parallel -> Int:
+    Simultaneously:
+        Let x be 5.
+        Let y be 10.
+    Return x + y.
+
+## Main
+Let result be compute_parallel().
+Show "Result: " + result."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "crdt",
+        number: 13,
+        title: "Distributed Types (CRDTs)",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### What are CRDTs?
+
+CRDTs (Conflict-free Replicated Data Types) are data structures that can be replicated across multiple computers and merged without coordination. No matter what order updates arrive, the final state converges to the same result.
+
+### Why CRDTs Matter
+
+| Challenge | Traditional Approach | CRDT Approach |
+|-----------|---------------------|---------------|
+| Network partition | Data loss or conflicts | Automatic merge |
+| Concurrent edits | Last-write-wins (data loss) | Semantic merge |
+| Offline support | Sync conflicts | Seamless reconciliation |
+
+### Shared Structs
+
+Mark a struct as `Shared` to enable automatic merge support. The compiler generates a `merge` method that combines two instances.
+
+### Built-in CRDT Types
+
+| Type | Description | Operations |
+|------|-------------|------------|
+| `ConvergentCount` | Counter that only grows | `Increase` |
+| `LastWriteWins of T` | Register with timestamp-based conflict resolution | Assignment |
+
+### ConvergentCount
+
+A grow-only counter. Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+
+### LastWriteWins
+
+A register that resolves conflicts by timestamp. The most recent write wins. Works with any type: `Text`, `Int`, `Bool`, etc.
+
+### Merge Operations
+
+Use `Merge source into target` to combine two CRDT instances. The target is updated in place with the merged state.
+
+### Network Synchronization
+
+CRDTs become powerful when synchronized across the network. Use `Sync` to subscribe a variable to a GossipSub topic.
+
+**The Sync Statement:**
+
+`Sync [variable] on [topic].`
+
+- `variable` — A mutable variable containing a Shared struct
+- `topic` — A string or variable naming the GossipSub topic
+
+**What Sync Does:**
+1. Subscribes to the topic for incoming messages
+2. Spawns a background task to merge incoming updates
+3. Broadcasts the full state after any mutation
+
+**Note:** Programs using `Sync` require compilation—they don't run in the browser playground.
+"#,
+        examples: &[
+            CodeExample {
+                id: "crdt-basic",
+                label: "Basic Shared Struct",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+Let c be a new Counter.
+Increase c's points by 10.
+Show c's points."#,
+            },
+            CodeExample {
+                id: "crdt-lww",
+                label: "Last-Write-Wins Register",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Profile is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a score, which is LastWriteWins of Int.
+
+## Main
+Let p be a new Profile.
+Show "Profile created"."#,
+            },
+            CodeExample {
+                id: "crdt-merge",
+                label: "Merging Replicas",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Stats is Shared and has:
+    a views, which is ConvergentCount.
+
+## Main
+Let local be a new Stats.
+Increase local's views by 100.
+
+Let remote be a new Stats.
+Increase remote's views by 50.
+
+Merge remote into local.
+Show local's views."#,
+            },
+            CodeExample {
+                id: "crdt-sync-counter",
+                label: "Synced Counter (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A GameScore is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+Let mutable score be a new GameScore.
+Sync score on "game-leaderboard".
+Increase score's points by 100.
+Show score's points."#,
+            },
+            CodeExample {
+                id: "crdt-sync-profile",
+                label: "Synced Profile (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Profile is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a level, which is ConvergentCount.
+
+## Main
+Let mutable p be a new Profile.
+Sync p on "player-data".
+Increase p's level by 1.
+Show "Profile synced"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "security",
+        number: 14,
+        title: "Policy-Based Security",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### Security in Natural Language
+
+LOGOS lets you express security policies as natural English sentences. These compile into efficient runtime checks that can never be optimized away.
+
+### Policy Blocks
+
+Define security rules in `## Policy` blocks. Policies define **predicates** (conditions on a single entity) and **capabilities** (permissions involving multiple entities).
+
+### Predicates
+
+A predicate is a boolean condition on a subject:
+
+`A User is admin if the user's role equals "admin".`
+
+This generates a method `is_admin()` on the User type.
+
+### Capabilities
+
+A capability defines what a subject can do with an object:
+
+`A User can publish the Document if the user is admin.`
+
+This generates a method `can_publish(&Document)` on the User type.
+
+### Check Statements
+
+Use `Check` to enforce security at runtime. **Unlike `Assert`, Check statements are mandatory and can never be optimized away.**
+
+| Statement | Debug Build | Release Build |
+|-----------|-------------|---------------|
+| `Assert` | Runs | Can be optimized out |
+| `Check` | Runs | **Always runs** |
+
+### Policy Composition
+
+Policies can use `AND` and `OR` to combine conditions, and can reference other predicates.
+"#,
+        examples: &[
+            CodeExample {
+                id: "security-predicate",
+                label: "Simple Predicate",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A User has:
+    a role: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+
+## Main
+Let u be a new User with role "admin".
+Check that u is admin.
+Show "Access granted"."#,
+            },
+            CodeExample {
+                id: "security-capability",
+                label: "Capability with Object",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A User has:
+    a name: Text.
+    a role: Text.
+
+A Document has:
+    an owner: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+A User can edit the Document if:
+    The user is admin, OR
+    The user's name equals the document's owner.
+
+## Main
+Let alice be a new User with name "Alice" and role "editor".
+Let doc be a new Document with owner "Alice".
+Check that alice can edit doc.
+Show "Edit permitted"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "networking",
+        number: 15,
+        title: "P2P Networking",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+LOGOS includes built-in peer-to-peer networking primitives for building distributed applications.
+
+**Note:** Networking features require compilation—they don't run in the browser playground.
+
+### Core Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Address** | libp2p multiaddr format: `/ip4/127.0.0.1/tcp/8000` |
+| **Listen** | Bind to an address to accept connections |
+| **Connect** | Dial a peer at an address |
+| **PeerAgent** | A handle to a remote peer |
+| **Send** | Transmit a message to a peer |
+
+### Portable Types
+
+Messages sent over the network must be **Portable**. Mark your struct with `is Portable` to enable network serialization.
+
+### Address Format
+
+LOGOS uses libp2p multiaddresses:
+
+| Address | Meaning |
+|---------|---------|
+| `/ip4/0.0.0.0/tcp/8000` | Listen on all interfaces, port 8000 |
+| `/ip4/127.0.0.1/tcp/8000` | Localhost only, port 8000 |
+| `/ip4/192.168.1.5/tcp/8000` | Specific IP address |
+
+### Building a P2P Application
+
+1. Define Portable message types
+2. Listen on an address (server)
+3. Connect to peers (client)
+4. Create PeerAgent handles
+5. Send messages
+"#,
+        examples: &[
+            CodeExample {
+                id: "network-listen",
+                label: "Server: Listen for Connections",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Listen on "/ip4/0.0.0.0/tcp/8000".
+Show "Server listening on port 8000"."#,
+            },
+            CodeExample {
+                id: "network-connect",
+                label: "Client: Connect to Peer",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let server_addr be "/ip4/127.0.0.1/tcp/8000".
+Connect to server_addr.
+Show "Connected to server"."#,
+            },
+            CodeExample {
+                id: "network-peer-agent",
+                label: "Creating a Remote Handle",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
+Show "Remote peer handle created"."#,
+            },
+            CodeExample {
+                id: "network-send-message",
+                label: "Sending a Message",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Greeting is Portable and has:
+    a message (Text).
+
+## Main
+Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
+Let msg be a new Greeting with message "Hello, peer!".
+Send msg to remote.
+Show "Message sent"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "error-handling",
+        number: 16,
+        title: "Error Handling",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+LOGOS uses **Socratic error messages**—friendly, educational feedback that teaches while it corrects.
+
+### The Philosophy
+
+Instead of cryptic compiler errors, LOGOS explains:
+1. **What** went wrong
+2. **Where** it happened
+3. **Why** it's a problem
+4. **How** to fix it
+
+### The Failure Type
+
+Functions that might fail return a `Result`. Use pattern matching to handle success and failure cases.
+
+### Error Propagation
+
+Errors propagate naturally through return values. Handle them where appropriate.
+
+### Defensive Programming
+
+Use assertions and guards to prevent errors before they happen.
+"#,
+        examples: &[
+            CodeExample {
+                id: "defensive-divide",
+                label: "Safe Division with Guard",
+                mode: ExampleMode::Imperative,
+                code: r#"## To safe_divide (a: Int) and (b: Int) -> Int:
+    If b equals 0:
+        Show "Error: Cannot divide by zero".
+        Return 0.
+    Return a / b.
+
+## Main
+Let result be safe_divide(10, 2).
+Show "10 / 2 = " + result.
+Let bad be safe_divide(5, 0).
+Show "Result after error: " + bad."#,
+            },
+            CodeExample {
+                id: "validation-example",
+                label: "Input Validation",
+                mode: ExampleMode::Imperative,
+                code: r#"## To validate_age (age: Int) -> Bool:
+    If age is less than 0:
+        Show "Error: Age cannot be negative".
+        Return false.
+    If age is greater than 150:
+        Show "Error: Age seems unrealistic".
+        Return false.
+    Return true.
+
+## Main
+Let valid be validate_age(25).
+Show "Age 25 valid: " + valid.
+Let invalid be validate_age(-5).
+Show "Age -5 valid: " + invalid."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "advanced-features",
+        number: 17,
+        title: "Advanced Features",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### Refinement Types
+
+Refinement types add constraints to base types. The constraint is checked at runtime or compile time with Z3.
+
+### Assertions
+
+Use `Assert` to verify conditions in your code. If the assertion fails, the program stops with an error message.
+
+### Trust with Reason
+
+Use `Trust` when you know something is true but the compiler can't verify it. The `because` clause documents why you believe the condition holds.
+
+### Modules
+
+Organize code across multiple files with `Use`.
+"#,
+        examples: &[
+            CodeExample {
+                id: "refinement-types",
+                label: "Refinement Types",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let positive: Int where it > 0 be 5.
+Let percentage: Int where it >= 0 and it <= 100 be 85.
+Show positive.
+Show percentage."#,
+            },
+            CodeExample {
+                id: "assertions",
+                label: "Assertions",
+                mode: ExampleMode::Imperative,
+                code: r#"## To divide_safe (a: Int) and (b: Int) -> Int:
+    Assert that b is not 0.
+    Return a / b.
+
+## Main
+Let result be divide_safe(10, 2).
+Show result."#,
+            },
+        ],
+    },
+
+    // ============================================================
+    // Part II: Project Structure (Sections 18-20)
+    // ============================================================
+
+    Section {
+        id: "modules",
+        number: 18,
+        title: "Modules",
+        part: "Part II: Project Structure",
+        content: r#"
+Organize large programs across multiple files using the module system.
+
+### Importing Modules
+
+Use `Use` to import a module.
+
+### Qualified Access
+
+Access module contents with the possessive `'s`.
+
+### Creating Modules
+
+Each `.md` file is a module. The filename becomes the module name.
+
+### Visibility
+
+By default, all definitions are public. Mark fields private with no `public` modifier.
+"#,
+        examples: &[
+            CodeExample {
+                id: "module-import",
+                label: "Importing Modules",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Show "Module syntax:".
+Show "Use Math.".
+Show "Let x be Math's square(5)."."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "cli-largo",
+        number: 19,
+        title: "The CLI: largo",
+        part: "Part II: Project Structure",
+        content: r#"
+LOGOS projects are built with `largo`, the LOGOS build tool.
+
+### Creating a Project
+
+`largo new myproject` creates a new project with a `Largo.toml` manifest and `src/main.md`.
+
+### Build Commands
+
+| Command | Description |
+|---------|-------------|
+| `largo build` | Compile the project |
+| `largo build --release` | Compile with optimizations |
+| `largo run` | Build and run |
+| `largo check` | Type check without compiling |
+| `largo test` | Run tests |
+| `largo audit` | List Trust statements |
+
+### Project Manifest
+
+The `Largo.toml` file defines package metadata and dependencies.
+"#,
+        examples: &[
+            CodeExample {
+                id: "largo-commands",
+                label: "largo Commands",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Show "largo commands:".
+Show "- largo new <name>".
+Show "- largo build".
+Show "- largo run".
+Show "- largo check".
+Show "- largo test"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "stdlib",
+        number: 20,
+        title: "Standard Library",
+        part: "Part II: Project Structure",
+        content: r#"
+LOGOS provides built-in functions for common operations.
+
+### Currently Available
+
+These built-ins work in both the playground and compiled programs:
+
+- `Show x.` — Output values to the console
+- `length of x` — Get the length of a list or text
+- `format(x)` — Convert any value to text
+- `abs(n)` — Absolute value of a number
+- `min(a, b)` — Minimum of two integers
+- `max(a, b)` — Maximum of two integers
+
+### Coming Soon
+
+Additional modules are planned for future releases:
+
+- **File** — `read`, `write`, `exists` for file operations
+- **Time** — `now`, `sleep` for timing and delays
+- **Random** — `randomInt`, `randomFloat`, `choice`
+- **Env** — Environment variables and command-line arguments
+
+These will be available in compiled programs. Some features may have limited support in the browser playground due to WASM constraints.
+"#,
+        examples: &[
+            CodeExample {
+                id: "stdlib-example",
+                label: "Standard Library",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let nums be [5, -3, 8, -1, 4].
+Let text be "Hello".
+
+Show "Built-in functions:".
+Show "length of nums = " + format(length of nums).
+Show "length of text = " + format(length of text).
+Show "abs(-42) = " + format(abs(-42)).
+Show "min(10, 3) = " + format(min(10, 3)).
+Show "max(10, 3) = " + format(max(10, 3))."#,
+            },
+        ],
+    },
+
+    // ============================================================
+    // Part III: Logic Mode (Section 21)
+    // ============================================================
+
+    Section {
+        id: "logic-mode",
+        number: 21,
+        title: "Logic Mode",
+        part: "Part III: Logic Mode",
+        content: r#"
+LOGOS can translate English sentences into First-Order Logic (FOL). This is useful for formal verification, knowledge representation, and understanding the logical structure of natural language.
+
+### Quantifiers
+
+| English | Symbol | Output |
+|---------|--------|--------|
+| All X are Y | `∀` | `∀x(X(x) → Y(x))` |
+| Some X is Y | `∃` | `∃x(X(x) ∧ Y(x))` |
+| No X is Y | `¬∃` | `¬∃x(X(x) ∧ Y(x))` |
+
+### Connectives
+
+| English | Symbol |
+|---------|--------|
+| and | `∧` |
+| or | `∨` |
+| not | `¬` |
+| if...then | `→` |
+| if and only if | `↔` |
+
+### Modals
+
+| English | Symbol |
+|---------|--------|
+| can, may, might | `◇` (possibility) |
+| must | `□` (necessity) |
+
+### Tense and Aspect
+
+- `PAST(P)` — past tense
+- `FUT(P)` — future tense
+- `PROG(P)` — progressive aspect
+- `PERF(P)` — perfect aspect
+"#,
+        examples: &[
+            CodeExample {
+                id: "logic-universal",
+                label: "Universal Quantifier",
+                mode: ExampleMode::Logic,
+                code: "All birds fly.",
+            },
+            CodeExample {
+                id: "logic-existential",
+                label: "Existential Quantifier",
+                mode: ExampleMode::Logic,
+                code: "Some cats sleep.",
+            },
+            CodeExample {
+                id: "logic-negative",
+                label: "Negative Quantifier",
+                mode: ExampleMode::Logic,
+                code: "No fish fly.",
+            },
+            CodeExample {
+                id: "logic-conditional",
+                label: "Conditional",
+                mode: ExampleMode::Logic,
+                code: "If John runs, then Mary walks.",
+            },
+            CodeExample {
+                id: "logic-modal",
+                label: "Modal Operators",
+                mode: ExampleMode::Logic,
+                code: "John can swim.",
+            },
+        ],
+    },
+
+    // ============================================================
+    // Part IV: Proofs and Verification (Sections 22-23)
+    // ============================================================
+
+    Section {
+        id: "assertions-trust",
+        number: 22,
+        title: "Assertions and Trust",
+        part: "Part IV: Proofs and Verification",
+        content: r#"
+LOGOS bridges imperative programming with formal verification through assertions and proof statements.
+
+### Assert
+
+Use `Assert` to verify conditions at runtime. If an assertion fails, the program stops with a clear error message.
+
+### Trust with Justification
+
+Use `Trust` for conditions the compiler can't verify automatically. The `because` clause is **mandatory**—it documents your reasoning.
+
+### Trust Generates Debug Assertions
+
+In development builds, `Trust` becomes a `debug_assert!`. In release builds, it generates no code—the trust is assumed.
+
+### Auditing Trust Statements
+
+Find all trust statements in your codebase with `largo audit`.
+
+### Proof Blocks (Advanced)
+
+For formal verification, use theorem blocks with proofs documented in comments.
+"#,
+        examples: &[
+            CodeExample {
+                id: "assert-example",
+                label: "Assert",
+                mode: ExampleMode::Imperative,
+                code: r#"## To withdraw (amount: Int) from (balance: Int) -> Int:
+    Assert that amount is greater than 0.
+    Assert that amount is at most balance.
+    Return balance - amount.
+
+## Main
+Let result be withdraw(50, 100).
+Show result."#,
+            },
+            CodeExample {
+                id: "trust-example",
+                label: "Trust with Justification",
+                mode: ExampleMode::Imperative,
+                code: r#"## To process_positive (n: Int) -> Int:
+    Trust that n is greater than 0 because "caller guarantees positive input".
+    Return n * 2.
+
+## Main
+Let result be process_positive(5).
+Show result."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "z3-verification",
+        number: 23,
+        title: "Z3 Static Verification",
+        part: "Part IV: Proofs and Verification",
+        content: r#"
+LOGOS can use the Z3 SMT solver to verify refinement types at compile time.
+
+### What is Z3?
+
+Z3 is a theorem prover. Instead of checking constraints at runtime, Z3 proves (or disproves) them at compile time.
+
+| Approach | When Checked | If Violated |
+|----------|--------------|-------------|
+| Runtime assertion | When code runs | Program crashes |
+| Z3 verification | At compile time | Compilation fails |
+
+### Variable Tracking
+
+Z3 tracks constraints through variable assignments.
+
+### Compound Predicates
+
+Multiple constraints can be combined.
+
+### Function Preconditions
+
+Z3 verifies function contracts.
+
+### Enabling Z3 Verification
+
+Enable with `largo build --verify` or in `Largo.toml`.
+
+### What Z3 Can Prove
+
+| Constraint Type | Example | Z3 Support |
+|-----------------|---------|------------|
+| Integer bounds | `it > 0`, `it < 100` | Full |
+| Equality | `it == 5` | Full |
+| Arithmetic | `it * 2 < 100` | Full |
+| Boolean logic | `it > 0 and it < 10` | Full |
+"#,
+        examples: &[
+            CodeExample {
+                id: "z3-refinement",
+                label: "Z3 Refinement Types",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let positive: Int where it > 0 be 5.
+Let bounded: Int where it >= 0 and it <= 100 be 85.
+Show "Positive: " + positive.
+Show "Bounded: " + bounded."#,
+            },
+        ],
+    },
+
+    // ============================================================
+    // Part V: Reference (Sections 24-25)
+    // ============================================================
+
+    Section {
+        id: "complete-examples",
+        number: 24,
+        title: "Complete Examples",
+        part: "Part V: Reference",
+        content: r#"
+This section contains complete, runnable programs demonstrating various LOGOS features.
+
+### Mergesort
+
+A complete, recursive sorting algorithm.
+
+### Factorial
+
+Classic recursive example.
+
+### Working with Structs
+
+A complete example with custom types.
+
+### Collection Processing
+
+Common patterns for working with collections.
+"#,
+        examples: &[
+            CodeExample {
+                id: "example-factorial",
+                label: "Factorial",
+                mode: ExampleMode::Imperative,
+                code: r#"## To factorial (n: Int) -> Int:
+    If n is at most 1:
+        Return 1.
+    Return n * factorial(n - 1).
+
+## Main
+Let result be factorial(5).
+Show "5! = " + result."#,
+            },
+            CodeExample {
+                id: "example-fibonacci",
+                label: "Fibonacci",
+                mode: ExampleMode::Imperative,
+                code: r#"## To fib (n: Int) -> Int:
+    If n is at most 1:
+        Return n.
+    Return fib(n - 1) + fib(n - 2).
+
+## Main
+Show "Fibonacci sequence:".
+Let i be 0.
+While i is less than 10:
+    Show fib(i).
+    Set i to i + 1."#,
+            },
+            CodeExample {
+                id: "example-filter",
+                label: "Filter Positive Numbers",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let data be [-2, 5, -1, 8, 3, -4, 7].
+Let positives be a new Seq of Int.
+
+Repeat for n in data:
+    If n is greater than 0:
+        Push n to positives.
+
+Show "Positives: " + positives."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "quick-reference",
+        number: 25,
+        title: "Quick Reference",
+        part: "Part V: Reference",
+        content: r#"
+### Syntax Cheat Sheet
+
+**Variables:**
+- `Let x be 5.` — Create variable
+- `Set x to 10.` — Change variable
+- `Let x: Int be 5.` — With type annotation
+
+**Control Flow:**
+- `If condition:` ... `Otherwise:` — Conditional
+- `While condition:` — While loop
+- `Repeat for item in items:` — For-each loop
+- `Return value.` — Return from function
+
+**Functions:**
+- `## To name (param: Type) -> ReturnType:` — Define function
+
+**Structs:**
+- `A TypeName has:` ... — Define struct
+- `Let x be a new TypeName with field1 value1.` — Create instance
+- `x's field` — Access field
+
+**Enums:**
+- `A TypeName is either:` ... — Define enum
+- `Inspect x: When Variant:` ... — Pattern match
+
+**Collections:**
+- `[1, 2, 3]` — List literal
+- `item 1 of items` — Access (1-indexed)
+- `Push value to items.` — Add to end
+- `length of items` — Get length
+
+### Ownership Verbs
+
+| Verb | Meaning |
+|------|---------|
+| `Give x to f.` | Move ownership |
+| `Show x to f.` | Borrow (read) |
+| `Let f modify x.` | Mutable borrow |
+| `copy of x` | Clone |
+
+### Zones
+
+**Basic syntax:**
+- `Inside a zone called "Name":` — 4KB default zone
+- `Inside a zone called "Name" of size 2 MB:` — Sized heap zone
+- `Inside a zone called "Name" mapped from "file.bin":` — Memory-mapped file
+
+**Size units:** B, KB, MB, GB
+
+### Concurrency
+
+**Async I/O:**
+- `Attempt all of the following:` — Concurrent async tasks (tokio::join!)
+
+**Parallel CPU:**
+- `Simultaneously:` — Parallel computation (rayon/threads)
+
+### Distributed Types (CRDTs)
+
+**Shared Structs:**
+- `A Counter is Shared and has:` — CRDT-enabled struct
+- `ConvergentCount` — Grow-only counter type
+- `LastWriteWins of T` — Timestamp-based register
+
+**CRDT Operations:**
+- `Increase x's field by amount.` — Increment a ConvergentCount
+- `Merge source into target.` — Combine two CRDT instances
+
+**Network Sync (Compiled Only):**
+- `Sync mutable_var on "topic".` — Subscribe to GossipSub topic for auto-sync
+
+### P2P Networking
+
+**Server/Client:**
+- `Listen on "/ip4/0.0.0.0/tcp/8000".` — Bind to address
+- `Connect to addr.` — Dial a peer
+- `Let remote be a PeerAgent at addr.` — Create remote handle
+- `Send msg to remote.` — Transmit message
+
+**Portable Types:**
+- `A Message is Portable and has:` — Network-serializable struct
+
+### Security
+
+**Policy Blocks:**
+- `## Policy` — Define security rules
+- `A User is admin if...` — Define a predicate
+- `A User can edit the Doc if...` — Define a capability
+
+**Security Enforcement:**
+- `Check that user is admin.` — Mandatory runtime check (never optimized out)
+- `Assert that x > 0.` — Debug-only assertion (can be optimized out)
+
+### Logic Mode Symbols
+
+| English | Symbol |
+|---------|--------|
+| All | `∀` |
+| Some | `∃` |
+| and | `∧` |
+| or | `∨` |
+| not | `¬` |
+| if...then | `→` |
+| can/may | `◇` |
+| must | `□` |
+"#,
+        examples: &[],
+    },
+];
+
+/// Get all sections
+pub fn get_all_sections() -> &'static [Section] {
+    SECTIONS
+}
+
+/// Get sections by part
+pub fn get_sections_by_part(part: &str) -> Vec<&'static Section> {
+    SECTIONS.iter().filter(|s| s.part == part).collect()
+}
+
+/// Get a section by ID
+pub fn get_section_by_id(id: &str) -> Option<&'static Section> {
+    SECTIONS.iter().find(|s| s.id == id)
+}
+
+/// Get all unique part names in order
+pub fn get_parts() -> Vec<&'static str> {
+    let mut parts = Vec::new();
+    for section in SECTIONS {
+        if parts.last() != Some(&section.part) {
+            parts.push(section.part);
+        }
+    }
+    parts
+}
+
+```
+
+---
+
+### Guide: Module
+
+**File:** `src/ui/pages/guide/mod.rs`
+
+Documentation browser and interactive tutorials module.
+
+```rust
+//! Programmer's Guide page.
+//!
+//! A beautiful, interactive guide to the LOGOS programming language with:
+//! - 22 sections from PROGRAMMERS_LANGUAGE_STARTER.md
+//! - Sticky sidebar navigation
+//! - Interactive code examples with Run/Copy/Reset
+//! - Dual mode: Logic (FOL output) and Imperative (WASM execution)
+
+pub mod content;
+
+use dioxus::prelude::*;
+use crate::ui::router::Route;
+use crate::ui::components::guide_code_block::GuideCodeBlock;
+use crate::ui::components::guide_sidebar::{GuideSidebar, SectionInfo};
+use crate::ui::components::main_nav::{MainNav, ActivePage};
+use content::SECTIONS;
+
+const GUIDE_STYLE: &str = r#"
+.guide-page {
+    min-height: 100vh;
+    color: var(--text-primary);
+    background:
+        radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.14), transparent 60%),
+        radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.14), transparent 60%),
+        radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.08), transparent 62%),
+        linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
+    font-family: var(--font-sans);
+}
+
+/* Navigation - now handled by MainNav component */
+
+/* Hero */
+.guide-hero {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 60px var(--spacing-xl) 40px;
+}
+
+.guide-hero h1 {
+    font-size: var(--font-display-lg);
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    line-height: 1.1;
+    background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.78) 65%, rgba(229,231,235,0.62) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0 0 var(--spacing-lg);
+}
+
+.guide-hero p {
+    font-size: var(--font-body-lg);
+    color: var(--text-secondary);
+    max-width: 600px;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.guide-hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-sm) 14px;
+    border-radius: var(--radius-full);
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.10);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-xl);
+}
+
+.guide-hero-badge .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-success);
+    box-shadow: 0 0 0 4px rgba(34,197,94,0.15);
+}
+
+/* Layout */
+.guide-layout {
+    max-width: 1280px;
+    margin: 0 auto;
+    display: flex;
+    gap: 48px;
+    padding: 0 var(--spacing-xl) 80px;
+}
+
+/* Main content */
+.guide-content {
+    flex: 1;
+    min-width: 0;
+    max-width: 800px;
+}
+
+/* Section styling */
+.guide-section {
+    margin-bottom: 64px;
+    scroll-margin-top: 100px;
+}
+
+.guide-section h2 {
+    font-size: var(--font-display-md);
+    font-weight: 800;
+    letter-spacing: -0.8px;
+    line-height: 1.2;
+    background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.85) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin: 0 0 var(--spacing-xl);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.guide-section h3 {
+    font-size: var(--font-heading-sm);
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: var(--spacing-xxl) 0 var(--spacing-lg);
+}
+
+.guide-section p {
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm);
+    line-height: 1.75;
+    margin: 0 0 var(--spacing-lg);
+}
+
+.guide-section ul,
+.guide-section ol {
+    color: var(--text-secondary);
+    font-size: var(--font-body-sm);
+    line-height: 1.75;
+    padding-left: var(--spacing-xl);
+    margin: 0 0 var(--spacing-lg);
+}
+
+.guide-section li {
+    margin-bottom: var(--spacing-sm);
+}
+
+.guide-section code {
+    font-family: var(--font-mono);
+    background: rgba(255,255,255,0.08);
+    padding: 3px 7px;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+    color: var(--color-accent-purple);
+}
+
+.guide-section strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* Tables */
+.guide-section table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: var(--spacing-xl) 0;
+    font-size: var(--font-body-md);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+}
+
+.guide-section th {
+    text-align: left;
+    padding: 14px var(--spacing-lg);
+    background: rgba(255,255,255,0.05);
+    color: var(--text-primary);
+    font-weight: 600;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.guide-section td {
+    padding: var(--spacing-md) var(--spacing-lg);
+    color: var(--text-secondary);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.guide-section tr:last-child td {
+    border-bottom: none;
+}
+
+.guide-section tr:hover td {
+    background: rgba(255,255,255,0.02);
+}
+
+/* Part dividers */
+.guide-part-divider {
+    margin: 80px 0 48px;
+    padding: var(--spacing-xl) 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.guide-part-divider h2 {
+    font-size: var(--font-body-md);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--text-tertiary);
+    margin: 0;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+/* Section number */
+.section-number {
+    display: inline-block;
+    font-size: var(--font-body-md);
+    font-weight: 700;
+    color: var(--color-accent-purple);
+    margin-right: var(--spacing-sm);
+    opacity: 0.8;
+}
+
+/* Examples container */
+.guide-examples {
+    margin-top: var(--spacing-xl);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .guide-layout {
+        flex-direction: column;
+    }
+
+    .guide-hero h1 {
+        font-size: var(--font-display-md);
+    }
+
+    .guide-hero {
+        padding: 40px var(--spacing-xl) var(--spacing-xxl);
+    }
+}
+
+@media (max-width: 640px) {
+    .guide-hero h1 {
+        font-size: var(--font-heading-lg);
+    }
+
+    .guide-hero p {
+        font-size: var(--font-body-md);
+    }
+
+    .guide-section h2 {
+        font-size: var(--font-heading-lg);
+    }
+}
+"#;
+
+#[component]
+pub fn Guide() -> Element {
+    let mut active_section = use_signal(|| "introduction".to_string());
+
+    // Build section info for sidebar
+    let sections_info: Vec<SectionInfo> = SECTIONS.iter().map(|s| SectionInfo {
+        id: s.id.to_string(),
+        number: s.number,
+        title: s.title.to_string(),
+        part: s.part.to_string(),
+    }).collect();
+
+    // Collect all section IDs for intersection observer
+    #[allow(unused_variables)]
+    let section_ids: Vec<String> = SECTIONS.iter().map(|s| s.id.to_string()).collect();
+
+    // Set up scroll tracking with IntersectionObserver
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+
+        let section_ids_for_effect = section_ids.clone();
+
+        use_effect(move || {
+            let window = match web_sys::window() {
+                Some(w) => w,
+                None => return,
+            };
+            let document = match window.document() {
+                Some(d) => d,
+                None => return,
+            };
+
+            // Use RefCell to allow mutation from within Fn closure
+            use std::cell::RefCell;
+            use std::rc::Rc;
+
+            let active_section_clone = Rc::new(RefCell::new(active_section.clone()));
+            let active_section_for_closure = active_section_clone.clone();
+
+            let callback = Closure::<dyn Fn(js_sys::Array, web_sys::IntersectionObserver)>::new(
+                move |entries: js_sys::Array, _observer: web_sys::IntersectionObserver| {
+                    // Simple approach: when a section crosses the threshold line,
+                    // it becomes active
+                    for i in 0..entries.length() {
+                        if let Ok(entry) = entries.get(i).dyn_into::<web_sys::IntersectionObserverEntry>() {
+                            if entry.is_intersecting() {
+                                let target = entry.target();
+                                let id = target.id();
+                                if !id.is_empty() {
+                                    active_section_for_closure.borrow_mut().set(id);
+                                }
+                            }
+                        }
+                    }
+                },
+            );
+
+            // Create IntersectionObserver options
+            let mut options = web_sys::IntersectionObserverInit::new();
+            // Root margin creates a thin "tripwire" near the top of the screen
+            options.root_margin("-100px 0px -90% 0px");
+            let thresholds = js_sys::Array::new();
+            thresholds.push(&JsValue::from(0.0));
+            options.threshold(&thresholds);
+
+            // Create the observer
+            let observer = match web_sys::IntersectionObserver::new_with_options(
+                callback.as_ref().unchecked_ref(),
+                &options,
+            ) {
+                Ok(obs) => obs,
+                Err(_) => return,
+            };
+
+            // Observe all sections
+            for section_id in &section_ids_for_effect {
+                if let Some(element) = document.get_element_by_id(section_id) {
+                    observer.observe(&element);
+                }
+            }
+
+            // Keep callback alive
+            callback.forget();
+        });
+    }
+
+    // Track current part for dividers
+    let mut current_part = String::new();
+
+    rsx! {
+        style { "{GUIDE_STYLE}" }
+
+        div { class: "guide-page",
+            // Navigation
+            MainNav {
+                active: ActivePage::Guide,
+                subtitle: Some("Programmer's Guide"),
+            }
+
+            // Hero
+            header { class: "guide-hero",
+                div { class: "guide-hero-badge",
+                    div { class: "dot" }
+                    span { "Interactive Guide" }
+                }
+                h1 { "LOGOS Language Guide" }
+                p {
+                    "Write English. Get Logic. Run Code. A comprehensive guide to programming in LOGOS, from basics to advanced features."
+                }
+            }
+
+            // Main layout
+            div { class: "guide-layout",
+                // Sidebar
+                GuideSidebar {
+                    sections: sections_info,
+                    active_section: active_section.read().clone(),
+                    on_section_click: move |id: String| {
+                        active_section.set(id);
+                    },
+                }
+
+                // Content
+                main { class: "guide-content",
+                    for section in SECTIONS.iter() {
+                        {
+                            // Check if we need a part divider
+                            let show_divider = section.part != current_part && section.number > 1;
+                            current_part = section.part.to_string();
+
+                            rsx! {
+                                // Part divider
+                                if show_divider {
+                                    div { class: "guide-part-divider",
+                                        h2 { "{section.part}" }
+                                    }
+                                }
+
+                                // Section
+                                section {
+                                    id: "{section.id}",
+                                    class: "guide-section",
+
+                                    h2 {
+                                        span { class: "section-number", "{section.number}." }
+                                        "{section.title}"
+                                    }
+
+                                    // Render content as HTML
+                                    div {
+                                        dangerous_inner_html: render_markdown(section.content)
+                                    }
+
+                                    // Render code examples
+                                    if !section.examples.is_empty() {
+                                        div { class: "guide-examples",
+                                            for example in section.examples.iter() {
+                                                GuideCodeBlock {
+                                                    id: example.id.to_string(),
+                                                    label: example.label.to_string(),
+                                                    mode: example.mode,
+                                                    initial_code: example.code.to_string(),
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Simple markdown to HTML converter
+/// Handles: headers, paragraphs, lists, tables, inline code, bold
+fn render_markdown(content: &str) -> String {
+    let mut html = String::new();
+    let mut in_list = false;
+    let mut in_table = false;
+    let mut in_table_header = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Skip empty lines
+        if trimmed.is_empty() {
+            if in_list {
+                html.push_str("</ul>");
+                in_list = false;
+            }
+            if in_table {
+                html.push_str("</tbody></table>");
+                in_table = false;
+            }
+            continue;
+        }
+
+        // Headers
+        if trimmed.starts_with("### ") {
+            if in_list { html.push_str("</ul>"); in_list = false; }
+            if in_table { html.push_str("</tbody></table>"); in_table = false; }
+            html.push_str(&format!("<h3>{}</h3>", inline_markdown(&trimmed[4..])));
+            continue;
+        }
+
+        // Table row
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            // Check if this is a separator row (|---|---|)
+            if trimmed.contains("---") {
+                in_table_header = false;
+                continue;
+            }
+
+            if !in_table {
+                html.push_str("<table><thead>");
+                in_table = true;
+                in_table_header = true;
+            }
+
+            let cells: Vec<&str> = trimmed[1..trimmed.len()-1]
+                .split('|')
+                .map(|s| s.trim())
+                .collect();
+
+            if in_table_header {
+                html.push_str("<tr>");
+                for cell in &cells {
+                    html.push_str(&format!("<th>{}</th>", inline_markdown(cell)));
+                }
+                html.push_str("</tr></thead><tbody>");
+            } else {
+                html.push_str("<tr>");
+                for cell in &cells {
+                    html.push_str(&format!("<td>{}</td>", inline_markdown(cell)));
+                }
+                html.push_str("</tr>");
+            }
+            continue;
+        }
+
+        // Close table if not a table row
+        if in_table && !trimmed.starts_with('|') {
+            html.push_str("</tbody></table>");
+            in_table = false;
+        }
+
+        // List items
+        if trimmed.starts_with("- ") || trimmed.starts_with("* ") {
+            if !in_list {
+                html.push_str("<ul>");
+                in_list = true;
+            }
+            html.push_str(&format!("<li>{}</li>", inline_markdown(&trimmed[2..])));
+            continue;
+        }
+
+        // Numbered list
+        if trimmed.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+            if let Some(dot_pos) = trimmed.find(". ") {
+                if !in_list {
+                    html.push_str("<ul>");
+                    in_list = true;
+                }
+                html.push_str(&format!("<li>{}</li>", inline_markdown(&trimmed[dot_pos + 2..])));
+                continue;
+            }
+        }
+
+        // Close list if not a list item
+        if in_list {
+            html.push_str("</ul>");
+            in_list = false;
+        }
+
+        // Paragraph
+        html.push_str(&format!("<p>{}</p>", inline_markdown(trimmed)));
+    }
+
+    // Close any open tags
+    if in_list {
+        html.push_str("</ul>");
+    }
+    if in_table {
+        html.push_str("</tbody></table>");
+    }
+
+    html
+}
+
+/// Process inline markdown: **bold**, `code`, [links]
+fn inline_markdown(text: &str) -> String {
+    let mut result = text.to_string();
+
+    // Escape HTML entities
+    result = result.replace('&', "&amp;");
+    result = result.replace('<', "&lt;");
+    result = result.replace('>', "&gt;");
+
+    // Bold: **text**
+    while let Some(start) = result.find("**") {
+        if let Some(end) = result[start + 2..].find("**") {
+            let before = &result[..start];
+            let inner = &result[start + 2..start + 2 + end];
+            let after = &result[start + 2 + end + 2..];
+            result = format!("{}<strong>{}</strong>{}", before, inner, after);
+        } else {
+            break;
+        }
+    }
+
+    // Inline code: `code`
+    while let Some(start) = result.find('`') {
+        if let Some(end) = result[start + 1..].find('`') {
+            let before = &result[..start];
+            let inner = &result[start + 1..start + 1 + end];
+            let after = &result[start + 1 + end + 1..];
+            result = format!("{}<code>{}</code>{}", before, inner, after);
+        } else {
+            break;
+        }
+    }
+
+    result
 }
 
 ```
@@ -50568,10 +58003,68 @@ pub enum ExerciseType {
     Ambiguity,
 }
 
+/// A symbol definition for the glossary
+#[derive(Debug, Clone, Deserialize)]
+pub struct SymbolDef {
+    pub symbol: String,
+    pub name: String,
+    pub meaning: String,
+    #[serde(default)]
+    pub example: Option<String>,
+}
+
+/// A content block within a section (paragraph, definition, example, etc.)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Paragraph {
+        text: String,
+    },
+    Definition {
+        term: String,
+        definition: String,
+    },
+    Example {
+        title: String,
+        #[serde(default)]
+        premises: Vec<String>,
+        #[serde(default)]
+        conclusion: Option<String>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    /// Symbol glossary block - shows relevant symbols for this section
+    Symbols {
+        title: String,
+        symbols: Vec<SymbolDef>,
+    },
+    /// Quiz question embedded in the lesson
+    Quiz {
+        question: String,
+        options: Vec<String>,
+        correct: usize,
+        #[serde(default)]
+        explanation: Option<String>,
+    },
+}
+
+/// A lesson section with structured content
+#[derive(Debug, Clone, Deserialize)]
+pub struct Section {
+    pub id: String,
+    pub title: String,
+    pub order: u32,
+    #[serde(default)]
+    pub content: Vec<ContentBlock>,
+    #[serde(default)]
+    pub key_symbols: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Module {
     pub meta: ModuleMeta,
     pub exercises: Vec<ExerciseConfig>,
+    pub sections: Vec<Section>,
 }
 
 #[derive(Debug, Clone)]
@@ -50636,13 +58129,23 @@ impl ContentEngine {
         let meta: ModuleMeta = serde_json::from_str(meta_content).ok()?;
 
         let mut exercises = Vec::new();
+        let mut sections = Vec::new();
+
         for file in module_dir.files() {
             if let Some(name) = file.path().file_name() {
                 let name_str = name.to_string_lossy();
                 if name_str.starts_with("ex_") && name_str.ends_with(".json") {
+                    // Load exercise
                     if let Some(content) = file.contents_utf8() {
                         if let Ok(exercise) = serde_json::from_str::<ExerciseConfig>(content) {
                             exercises.push(exercise);
+                        }
+                    }
+                } else if name_str.starts_with("sec_") && name_str.ends_with(".json") {
+                    // Load section
+                    if let Some(content) = file.contents_utf8() {
+                        if let Ok(section) = serde_json::from_str::<Section>(content) {
+                            sections.push(section);
                         }
                     }
                 }
@@ -50650,7 +58153,8 @@ impl ContentEngine {
         }
 
         exercises.sort_by(|a, b| a.id.cmp(&b.id));
-        Some(Module { meta, exercises })
+        sections.sort_by_key(|s| s.order);
+        Some(Module { meta, exercises, sections })
     }
 
     pub fn get_era(&self, era_id: &str) -> Option<&Era> {
@@ -51090,8 +58594,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // Use introduction module which has Translation exercises
-        let exercise = engine.get_exercise("first-steps", "introduction", "ex_01");
-        assert!(exercise.is_some(), "Exercise first-steps/introduction/ex_01 should exist");
+        let exercise = engine.get_exercise("first-steps", "introduction", "I_1.1");
+        assert!(exercise.is_some(), "Exercise first-steps/introduction/I_1.1 should exist");
         let exercise = exercise.unwrap();
         let challenge = generator.generate(exercise, &mut rng);
 
@@ -51860,6 +59364,9 @@ pub mod network;
 // Phase 49: CRDT primitives
 pub mod crdt;
 
+// Phase 51: Re-export tokio for async main support
+pub use tokio;
+
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
 }
@@ -52438,6 +59945,1915 @@ mod tests {
         let mapped = Zone::new_mapped(temp.path()).unwrap();
         assert!(mapped.is_mapped());
         assert!(!mapped.is_heap());
+    }
+}
+
+```
+
+---
+
+### CRDT Module Exports
+
+**File:** `logos_core/src/crdt/mod.rs`
+
+Exports Merge trait, GCounter, and LWWRegister for eventually consistent distributed state.
+
+```rust
+//! CRDT (Conflict-free Replicated Data Types) for LOGOS
+//!
+//! Phase 49: Native support for eventually consistent distributed state.
+//!
+//! CRDTs provide automatic conflict resolution for distributed state synchronization.
+//! Any two replicas can be merged to produce the same result regardless of order.
+//!
+//! Phase 52: Added `Synced<T>` wrapper for automatic GossipSub replication.
+
+mod gcounter;
+mod lww;
+mod merge;
+mod sync;
+
+pub use gcounter::GCounter;
+pub use lww::LWWRegister;
+pub use merge::Merge;
+pub use sync::Synced;
+
+```
+
+---
+
+### Merge Trait
+
+**File:** `logos_core/src/crdt/merge.rs`
+
+Core CRDT interface. Four properties: commutative (a ⊔ b = b ⊔ a), associative ((a ⊔ b) ⊔ c = a ⊔ (b ⊔ c)), idempotent (a ⊔ a = a), and identity (a ⊔ ⊥ = a). All CRDT types implement this trait.
+
+```rust
+//! The Merge trait for CRDTs
+
+/// A type that can be merged with another instance of itself.
+///
+/// The merge operation must satisfy CRDT properties:
+/// - **Commutative**: `a.merge(b) == b.merge(a)` (result is the same regardless of order)
+/// - **Associative**: `a.merge(b.merge(c)) == a.merge(b).merge(c)`
+/// - **Idempotent**: `a.merge(a) == a` (merging with self has no effect)
+///
+/// These properties ensure that replicas converge to the same state
+/// regardless of message ordering or delivery.
+pub trait Merge {
+    /// Merge another instance into self.
+    ///
+    /// After merging, `self` contains the combined state of both instances.
+    fn merge(&mut self, other: &Self);
+}
+
+```
+
+---
+
+### GCounter (Grow-only Counter)
+
+**File:** `logos_core/src/crdt/gcounter.rs`
+
+Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Auto-generates UUID for replica ID on first increment. PartialEq<u64> and PartialEq<i32> for ergonomic comparisons in assertions.
+
+```rust
+//! G-Counter (Grow-only Counter) CRDT
+//!
+//! A counter that can only be incremented, never decremented.
+//! Each replica maintains its own local count, and the total value
+//! is the sum of all replica counts.
+
+use super::Merge;
+use crate::io::Showable;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+
+/// A grow-only counter that supports distributed increment operations.
+///
+/// Each replica has a unique ID and maintains its own count.
+/// The total value is the sum across all replicas.
+/// Merging takes the maximum count for each replica ID.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct GCounter {
+    /// Map from replica ID to local count
+    counts: HashMap<String, u64>,
+    /// This replica's ID (set on first increment)
+    replica_id: String,
+}
+
+impl GCounter {
+    /// Create a new empty counter.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create a counter with a specific replica ID.
+    pub fn with_replica_id(id: impl Into<String>) -> Self {
+        Self {
+            counts: HashMap::new(),
+            replica_id: id.into(),
+        }
+    }
+
+    /// Increment the counter by the given amount.
+    ///
+    /// If this is the first increment, a unique replica ID is generated.
+    pub fn increment(&mut self, amount: u64) {
+        if self.replica_id.is_empty() {
+            self.replica_id = uuid::Uuid::new_v4().to_string();
+        }
+        *self.counts.entry(self.replica_id.clone()).or_insert(0) += amount;
+    }
+
+    /// Get the current value (sum of all replica counts).
+    pub fn value(&self) -> u64 {
+        self.counts.values().sum()
+    }
+
+    /// Get the replica ID for this counter.
+    pub fn replica_id(&self) -> &str {
+        &self.replica_id
+    }
+}
+
+impl Merge for GCounter {
+    /// Merge another counter into this one.
+    ///
+    /// For each replica ID, takes the maximum count between the two counters.
+    /// This ensures convergence: merging A into B or B into A yields the same result.
+    fn merge(&mut self, other: &Self) {
+        for (replica, &count) in &other.counts {
+            let entry = self.counts.entry(replica.clone()).or_insert(0);
+            *entry = (*entry).max(count);
+        }
+    }
+}
+
+impl Showable for GCounter {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.value())
+    }
+}
+
+/// Phase 52: Allow comparing GCounter to integers for ergonomic conditionals
+impl PartialEq<u64> for GCounter {
+    fn eq(&self, other: &u64) -> bool {
+        self.value() == *other
+    }
+}
+
+impl PartialEq<i32> for GCounter {
+    fn eq(&self, other: &i32) -> bool {
+        self.value() == (*other as u64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_gcounter_new() {
+        let c = GCounter::new();
+        assert_eq!(c.value(), 0);
+    }
+
+    #[test]
+    fn test_gcounter_increment() {
+        let mut c = GCounter::with_replica_id("r1");
+        c.increment(5);
+        c.increment(3);
+        assert_eq!(c.value(), 8);
+    }
+
+    #[test]
+    fn test_gcounter_merge_disjoint() {
+        let mut c1 = GCounter::with_replica_id("r1");
+        let mut c2 = GCounter::with_replica_id("r2");
+
+        c1.increment(5);
+        c2.increment(3);
+
+        c1.merge(&c2);
+        assert_eq!(c1.value(), 8);
+    }
+
+    #[test]
+    fn test_gcounter_merge_commutative() {
+        let mut c1 = GCounter::with_replica_id("r1");
+        let mut c2 = GCounter::with_replica_id("r2");
+
+        c1.increment(5);
+        c2.increment(3);
+
+        let mut c1_copy = c1.clone();
+        let mut c2_copy = c2.clone();
+
+        c1_copy.merge(&c2);
+        c2_copy.merge(&c1);
+
+        assert_eq!(c1_copy.value(), c2_copy.value());
+    }
+
+    #[test]
+    fn test_gcounter_merge_idempotent() {
+        let mut c1 = GCounter::with_replica_id("r1");
+        c1.increment(5);
+
+        let before = c1.value();
+        c1.merge(&c1.clone());
+        assert_eq!(c1.value(), before);
+    }
+
+    #[test]
+    fn test_gcounter_merge_same_replica() {
+        // When two counters have the same replica ID (simulating sync after divergence)
+        let mut c1 = GCounter::with_replica_id("r1");
+        let mut c2 = GCounter::with_replica_id("r1");
+
+        c1.increment(5);
+        c2.increment(3);
+
+        // After merge, should have max(5, 3) = 5
+        c1.merge(&c2);
+        assert_eq!(c1.value(), 5);
+    }
+}
+
+```
+
+---
+
+### LWWRegister (Last-Write-Wins Register)
+
+**File:** `logos_core/src/crdt/lww.rs`
+
+Generic register for any Clone type. Resolves conflicts by microsecond-precision UNIX timestamp. Higher timestamp wins on merge. Useful for user-facing fields like names, descriptions.
+
+```rust
+//! Last-Write-Wins Register CRDT
+//!
+//! A register that resolves conflicts using timestamps.
+//! The value with the highest timestamp wins on merge.
+
+use super::Merge;
+use crate::io::Showable;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+/// A register that resolves conflicts using "last write wins" semantics.
+///
+/// Each write records a timestamp, and on merge the value with
+/// the higher timestamp is kept.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LWWRegister<T> {
+    value: T,
+    /// Microseconds since UNIX epoch
+    timestamp: u64,
+}
+
+impl<T: Default> Default for LWWRegister<T> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T> LWWRegister<T> {
+    /// Create a new register with the given initial value.
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            timestamp: Self::now(),
+        }
+    }
+
+    fn now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_micros() as u64
+    }
+
+    /// Set a new value (updates timestamp to now).
+    pub fn set(&mut self, value: T) {
+        self.value = value;
+        self.timestamp = Self::now();
+    }
+
+    /// Get the current value.
+    pub fn get(&self) -> &T {
+        &self.value
+    }
+
+    /// Get the timestamp of the last write.
+    pub fn timestamp(&self) -> u64 {
+        self.timestamp
+    }
+}
+
+impl<T: Clone> Merge for LWWRegister<T> {
+    /// Merge another register into this one.
+    ///
+    /// The value with the higher timestamp wins.
+    /// If timestamps are equal, the other value wins (arbitrary but deterministic).
+    fn merge(&mut self, other: &Self) {
+        if other.timestamp >= self.timestamp {
+            self.value = other.value.clone();
+            self.timestamp = other.timestamp;
+        }
+    }
+}
+
+impl<T: Showable> Showable for LWWRegister<T> {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.value.format_show(f)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lww_new() {
+        let reg = LWWRegister::new("hello".to_string());
+        assert_eq!(reg.get(), "hello");
+    }
+
+    #[test]
+    fn test_lww_set() {
+        let mut reg = LWWRegister::new("hello".to_string());
+        reg.set("world".to_string());
+        assert_eq!(reg.get(), "world");
+    }
+
+    #[test]
+    fn test_lww_merge_newer_wins() {
+        let r1 = LWWRegister::new("old".to_string());
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let r2 = LWWRegister::new("new".to_string());
+
+        let mut r1_copy = r1.clone();
+        r1_copy.merge(&r2);
+        assert_eq!(r1_copy.get(), "new");
+    }
+
+    #[test]
+    fn test_lww_merge_older_loses() {
+        let r1 = LWWRegister::new("old".to_string());
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let r2 = LWWRegister::new("new".to_string());
+
+        let mut r2_copy = r2.clone();
+        r2_copy.merge(&r1);
+        // r2 had higher timestamp, so it keeps its value
+        assert_eq!(r2_copy.get(), "new");
+    }
+
+    #[test]
+    fn test_lww_merge_idempotent() {
+        let reg = LWWRegister::new("test".to_string());
+        let mut reg_copy = reg.clone();
+        reg_copy.merge(&reg);
+        assert_eq!(reg_copy.get(), "test");
+    }
+
+    #[test]
+    fn test_lww_with_int() {
+        let mut reg = LWWRegister::new(42i64);
+        assert_eq!(*reg.get(), 42);
+        reg.set(100);
+        assert_eq!(*reg.get(), 100);
+    }
+
+    #[test]
+    fn test_lww_with_bool() {
+        let mut reg = LWWRegister::new(false);
+        assert_eq!(*reg.get(), false);
+        reg.set(true);
+        assert_eq!(*reg.get(), true);
+    }
+}
+
+```
+
+---
+
+### Synced<T> Wrapper (Phase 52)
+
+**File:** `logos_core/src/crdt/sync.rs`
+
+Auto-replicating CRDT wrapper for GossipSub. Wraps Arc<Mutex<T>> for thread-safe shared state. mutate() triggers publish to topic, background task merges incoming messages. new() spawns subscriber task.
+
+```rust
+//! Phase 52: Synced wrapper for automatic CRDT replication
+//!
+//! The `Synced<T>` wrapper provides automatic GossipSub-based replication
+//! for any type that implements `Merge + Serialize + DeserializeOwned`.
+//!
+//! When a `Synced<T>` is mutated, the change is automatically broadcast
+//! to all subscribers on the same topic. When a message is received,
+//! it's automatically merged into the local state.
+
+use super::Merge;
+use crate::network::gossip;
+use serde::{de::DeserializeOwned, Serialize};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+/// A synced CRDT that automatically replicates over GossipSub.
+///
+/// # Example
+///
+/// ```ignore
+/// let counter = GCounter::new();
+/// let synced = Synced::new(counter, "game-scores").await;
+///
+/// // Mutations are automatically broadcast
+/// synced.mutate(|c| c.increment(5)).await;
+/// ```
+pub struct Synced<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> {
+    inner: Arc<Mutex<T>>,
+    topic: String,
+}
+
+impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T> {
+    /// Create a new synced wrapper and subscribe to the topic.
+    ///
+    /// This spawns a background task that:
+    /// 1. Subscribes to the GossipSub topic
+    /// 2. Listens for incoming messages
+    /// 3. Deserializes and merges them into the local state
+    pub async fn new(initial: T, topic: &str) -> Self {
+        let inner = Arc::new(Mutex::new(initial));
+        let topic_str = topic.to_string();
+
+        // Spawn background merge task
+        let inner_clone = Arc::clone(&inner);
+        let topic_clone = topic_str.clone();
+        tokio::spawn(async move {
+            gossip::subscribe_and_merge::<T>(&topic_clone, inner_clone).await;
+        });
+
+        Self {
+            inner,
+            topic: topic_str,
+        }
+    }
+
+    /// Get mutable access to the inner value, publishing after mutation.
+    ///
+    /// The closure receives a mutable reference to the inner value.
+    /// After the closure returns, the full state is broadcast to the topic.
+    pub async fn mutate<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        let mut guard = self.inner.lock().await;
+        let result = f(&mut *guard);
+
+        // Publish full state after mutation
+        let state = guard.clone();
+        drop(guard); // Release lock before async publish
+
+        gossip::publish(&self.topic, &state).await;
+
+        result
+    }
+
+    /// Get immutable access to the current state.
+    ///
+    /// Returns a clone of the current state. For frequent reads,
+    /// consider using `mutate` to batch operations.
+    pub async fn get(&self) -> T {
+        self.inner.lock().await.clone()
+    }
+
+    /// Get the topic this CRDT is synchronized on.
+    pub fn topic(&self) -> &str {
+        &self.topic
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crdt::GCounter;
+
+    #[tokio::test]
+    async fn test_synced_creation() {
+        let counter = GCounter::new();
+        let synced = Synced::new(counter, "test-topic").await;
+        assert_eq!(synced.topic(), "test-topic");
+    }
+
+    #[tokio::test]
+    async fn test_synced_mutate() {
+        let counter = GCounter::new();
+        let synced = Synced::new(counter, "test-mutate").await;
+
+        synced.mutate(|c| c.increment(10)).await;
+
+        let value = synced.get().await;
+        assert_eq!(value.value(), 10);
+    }
+
+    #[tokio::test]
+    async fn test_synced_get() {
+        let counter = GCounter::with_replica_id("node1".to_string());
+        let synced = Synced::new(counter, "test-get").await;
+
+        synced.mutate(|c| c.increment(5)).await;
+        synced.mutate(|c| c.increment(3)).await;
+
+        let value = synced.get().await;
+        assert_eq!(value.value(), 8);
+    }
+}
+
+```
+
+---
+
+### Network Module Exports
+
+**File:** `logos_core/src/network/mod.rs`
+
+Exports Phase 48 (file chunking), Phase 51 (P2P mesh), and Phase 52 (GossipSub) primitives. Public API: FileSipper, FileManifest, listen, connect, send, PeerAgent, MeshNode, gossip_publish, gossip_subscribe.
+
+```rust
+//! Phase 48 & 51 & 52: Network primitives for LOGOS distributed system.
+//!
+//! This module provides:
+//! - Zero-copy file chunking and resumable transfer protocols (Phase 48)
+//! - P2P networking primitives for agent communication (Phase 51)
+//! - GossipSub pub/sub for automatic CRDT replication (Phase 52)
+
+mod sipping;
+pub mod wire;
+mod protocol;
+mod behaviour;
+mod mesh;
+pub mod gossip;
+#[cfg(test)]
+mod e2e_tests;
+
+pub use sipping::{FileSipper, FileManifest, FileChunk, DEFAULT_CHUNK_SIZE};
+pub use mesh::{listen, connect, send, local_peer_id, PeerAgent, MeshNode, NetworkError};
+pub use mesh::{gossip_publish, gossip_subscribe};
+
+```
+
+---
+
+### Mesh Node (libp2p Swarm)
+
+**File:** `logos_core/src/network/mesh.rs`
+
+Core P2P implementation using libp2p 0.54. MeshNode manages global swarm via OnceLock. MeshCommand enum: Listen, Connect, Send, GossipSubscribe, GossipPublish. Event loop handles mDNS discovery (auto-dials peers), request-response, and GossipSub message routing to gossip::on_message().
+
+```rust
+//! Phase 51: P2P Networking primitives for LOGOS distributed systems.
+//!
+//! This module provides the mesh networking layer using libp2p (QUIC-first).
+//! Supports Listen/Connect statements and PeerAgent remote handles.
+//! Phase 52: Added GossipSub for pub/sub messaging.
+
+use crate::network::behaviour::{MeshBehaviour, MeshBehaviourEvent};
+use crate::network::protocol::{LogosRequest, LogosResponse};
+use crate::network::wire;
+use crate::network::gossip;
+use futures::prelude::*;
+use libp2p::gossipsub;
+use libp2p::request_response::{self, OutboundRequestId};
+use libp2p::swarm::SwarmEvent;
+use libp2p::{Multiaddr, PeerId, Swarm};
+use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::OnceLock;
+use tokio::sync::{mpsc, oneshot, Mutex};
+
+/// Phase 52: Global command channel for gossip operations
+static GOSSIP_TX: OnceLock<mpsc::Sender<MeshCommand>> = OnceLock::new();
+
+/// Error type for network operations.
+#[derive(Debug, Clone)]
+pub enum NetworkError {
+    /// Failed to establish connection
+    ConnectionFailed(String),
+    /// Failed to send message
+    SendFailed(String),
+    /// Operation timed out
+    Timeout,
+    /// Peer not found at address
+    PeerNotFound(String),
+    /// Serialization/deserialization failed
+    SerializationFailed(String),
+    /// Invalid multiaddr format
+    InvalidAddress(String),
+    /// Mesh node not initialized
+    NotInitialized,
+    /// Internal error
+    Internal(String),
+}
+
+impl fmt::Display for NetworkError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ConnectionFailed(addr) => write!(f, "Connection failed to {}", addr),
+            Self::SendFailed(reason) => write!(f, "Send failed: {}", reason),
+            Self::Timeout => write!(f, "Network operation timed out"),
+            Self::PeerNotFound(addr) => write!(f, "Peer not found: {}", addr),
+            Self::SerializationFailed(reason) => write!(f, "Serialization failed: {}", reason),
+            Self::InvalidAddress(addr) => write!(f, "Invalid address: {}", addr),
+            Self::NotInitialized => write!(f, "Mesh node not initialized"),
+            Self::Internal(msg) => write!(f, "Internal error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for NetworkError {}
+
+impl From<wire::WireError> for NetworkError {
+    fn from(e: wire::WireError) -> Self {
+        NetworkError::SerializationFailed(e.to_string())
+    }
+}
+
+/// Handle for a remote agent on the mesh network.
+///
+/// Created via `Let remote be a PeerAgent at "multiaddr"`.
+/// Used with `Send` to transmit messages across the network.
+#[derive(Debug, Clone)]
+pub struct PeerAgent {
+    /// The remote peer's ID (if known)
+    pub peer_id: Option<PeerId>,
+    /// The multiaddr string for the peer
+    addr: Multiaddr,
+}
+
+impl PeerAgent {
+    /// Create a new PeerAgent handle for a remote address.
+    ///
+    /// # Arguments
+    /// * `addr` - A multiaddr string (e.g., "/ip4/127.0.0.1/tcp/8000")
+    ///
+    /// # Returns
+    /// * `Ok(PeerAgent)` if the address is valid
+    /// * `Err(NetworkError)` if the address format is invalid
+    pub fn new(addr: &str) -> Result<Self, NetworkError> {
+        if addr.is_empty() {
+            return Err(NetworkError::InvalidAddress(
+                "Address cannot be empty".to_string(),
+            ));
+        }
+
+        let multiaddr: Multiaddr = addr
+            .parse()
+            .map_err(|e| NetworkError::InvalidAddress(format!("{}: {}", addr, e)))?;
+
+        // Try to extract peer ID from multiaddr if present (e.g., /p2p/QmXyz...)
+        let peer_id = multiaddr.iter().find_map(|proto| {
+            if let libp2p::multiaddr::Protocol::P2p(id) = proto {
+                Some(id)
+            } else {
+                None
+            }
+        });
+
+        Ok(Self {
+            peer_id,
+            addr: multiaddr,
+        })
+    }
+
+    /// Get the address of this peer as a string.
+    pub fn addr(&self) -> String {
+        self.addr.to_string()
+    }
+
+    /// Get the multiaddr.
+    pub fn multiaddr(&self) -> &Multiaddr {
+        &self.addr
+    }
+}
+
+/// Commands sent to the mesh event loop.
+enum MeshCommand {
+    Listen {
+        addr: Multiaddr,
+        response: oneshot::Sender<Result<Multiaddr, NetworkError>>,
+    },
+    Dial {
+        addr: Multiaddr,
+        response: oneshot::Sender<Result<(), NetworkError>>,
+    },
+    Send {
+        peer_id: PeerId,
+        data: Vec<u8>,
+        response: oneshot::Sender<Result<Vec<u8>, NetworkError>>,
+    },
+    GetListenAddrs {
+        response: oneshot::Sender<Vec<Multiaddr>>,
+    },
+    // Phase 52: GossipSub commands
+    GossipSubscribe {
+        topic: String,
+    },
+    GossipPublish {
+        topic: String,
+        data: Vec<u8>,
+    },
+}
+
+/// The mesh node - manages the libp2p swarm.
+pub struct MeshNode {
+    /// Channel to send commands to the event loop
+    command_tx: mpsc::Sender<MeshCommand>,
+    /// Local peer ID
+    local_peer_id: PeerId,
+}
+
+impl MeshNode {
+    /// Create and start a new mesh node.
+    ///
+    /// Spawns a background task to run the swarm event loop.
+    pub async fn new() -> Result<Self, NetworkError> {
+        let (command_tx, command_rx) = mpsc::channel(256);
+
+        // Build the swarm with keypair for GossipSub message signing
+        let swarm = libp2p::SwarmBuilder::with_new_identity()
+            .with_tokio()
+            .with_tcp(
+                libp2p::tcp::Config::default(),
+                libp2p::noise::Config::new,
+                libp2p::yamux::Config::default,
+            )
+            .map_err(|e| NetworkError::Internal(format!("TCP setup failed: {}", e)))?
+            .with_quic()
+            .with_behaviour(|key| MeshBehaviour::new(key.public().to_peer_id(), key))
+            .map_err(|e| NetworkError::Internal(format!("Behaviour setup failed: {}", e)))?
+            .build();
+
+        let local_peer_id = *swarm.local_peer_id();
+
+        // Phase 52: Store command channel for gossip functions
+        let command_tx_clone = command_tx.clone();
+        GOSSIP_TX.get_or_init(|| command_tx_clone);
+
+        // Spawn the event loop
+        tokio::spawn(Self::event_loop(swarm, command_rx));
+
+        Ok(Self {
+            command_tx,
+            local_peer_id,
+        })
+    }
+
+    /// The main event loop for the mesh node.
+    async fn event_loop(mut swarm: Swarm<MeshBehaviour>, mut command_rx: mpsc::Receiver<MeshCommand>) {
+        // Track pending outbound requests
+        let mut pending_requests: HashMap<OutboundRequestId, oneshot::Sender<Result<Vec<u8>, NetworkError>>> =
+            HashMap::new();
+
+        // Track pending dials (by multiaddr string -> response sender)
+        let mut pending_dials: HashMap<String, oneshot::Sender<Result<(), NetworkError>>> =
+            HashMap::new();
+
+        // Track known peers by address
+        let mut addr_to_peer: HashMap<String, PeerId> = HashMap::new();
+
+        loop {
+            tokio::select! {
+                // Handle commands from the API
+                Some(cmd) = command_rx.recv() => {
+                    match cmd {
+                        MeshCommand::Listen { addr, response } => {
+                            match swarm.listen_on(addr.clone()) {
+                                Ok(_) => {
+                                    // Will send actual address once we get NewListenAddr event
+                                    // For now, send the requested address
+                                    let _ = response.send(Ok(addr));
+                                }
+                                Err(e) => {
+                                    let _ = response.send(Err(NetworkError::Internal(e.to_string())));
+                                }
+                            }
+                        }
+                        MeshCommand::Dial { addr, response } => {
+                            let addr_str = addr.to_string();
+                            match swarm.dial(addr) {
+                                Ok(_) => {
+                                    pending_dials.insert(addr_str, response);
+                                }
+                                Err(e) => {
+                                    let _ = response.send(Err(NetworkError::ConnectionFailed(e.to_string())));
+                                }
+                            }
+                        }
+                        MeshCommand::Send { peer_id, data, response } => {
+                            let request_id = swarm.behaviour_mut()
+                                .request_response
+                                .send_request(&peer_id, LogosRequest(data));
+                            pending_requests.insert(request_id, response);
+                        }
+                        MeshCommand::GetListenAddrs { response } => {
+                            let addrs: Vec<Multiaddr> = swarm.listeners().cloned().collect();
+                            let _ = response.send(addrs);
+                        }
+                        // Phase 52: GossipSub commands
+                        MeshCommand::GossipSubscribe { topic } => {
+                            match swarm.behaviour_mut().subscribe(&topic) {
+                                Ok(_) => {
+                                    eprintln!("[GOSSIP] Subscribed to '{}'", topic);
+                                }
+                                Err(e) => {
+                                    eprintln!("[GOSSIP] Subscribe failed: {:?}", e);
+                                }
+                            }
+                        }
+                        MeshCommand::GossipPublish { topic, data } => {
+                            match swarm.behaviour_mut().publish(&topic, data) {
+                                Ok(_) => {
+                                    eprintln!("[GOSSIP] Published to '{}'", topic);
+                                }
+                                Err(e) => {
+                                    eprintln!("[GOSSIP] Publish failed: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Handle swarm events
+                event = swarm.select_next_some() => {
+                    match event {
+                        SwarmEvent::NewListenAddr { address, .. } => {
+                            eprintln!("[MESH] Listening on {}", address);
+                        }
+                        SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                            let addr = endpoint.get_remote_address().to_string();
+                            eprintln!("[MESH] Connected to {} at {}", peer_id, addr);
+                            addr_to_peer.insert(addr.clone(), peer_id);
+
+                            // Complete any pending dial for this address
+                            if let Some(response) = pending_dials.remove(&addr) {
+                                let _ = response.send(Ok(()));
+                            }
+                        }
+                        SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                            eprintln!("[MESH] Disconnected from {}", peer_id);
+                        }
+                        SwarmEvent::Behaviour(MeshBehaviourEvent::RequestResponse(event)) => {
+                            match event {
+                                request_response::Event::Message { peer, message } => {
+                                    match message {
+                                        request_response::Message::Request { request, channel, .. } => {
+                                            eprintln!("[MESH] Received request from {}", peer);
+                                            // Echo the request back as response for now
+                                            let _ = swarm.behaviour_mut()
+                                                .request_response
+                                                .send_response(channel, LogosResponse(request.0));
+                                        }
+                                        request_response::Message::Response { request_id, response } => {
+                                            if let Some(sender) = pending_requests.remove(&request_id) {
+                                                let _ = sender.send(Ok(response.0));
+                                            }
+                                        }
+                                    }
+                                }
+                                request_response::Event::OutboundFailure { request_id, error, .. } => {
+                                    if let Some(sender) = pending_requests.remove(&request_id) {
+                                        let _ = sender.send(Err(NetworkError::SendFailed(error.to_string())));
+                                    }
+                                }
+                                request_response::Event::InboundFailure { error, .. } => {
+                                    eprintln!("[MESH] Inbound request failed: {}", error);
+                                }
+                                request_response::Event::ResponseSent { .. } => {}
+                            }
+                        }
+                        SwarmEvent::Behaviour(MeshBehaviourEvent::Mdns(event)) => {
+                            match event {
+                                libp2p::mdns::Event::Discovered(peers) => {
+                                    for (peer_id, addr) in peers {
+                                        eprintln!("[MESH] mDNS discovered {} at {}", peer_id, addr);
+                                        // Only dial if not already connected
+                                        if !swarm.is_connected(&peer_id) {
+                                            // Dial using the full multiaddr for better reliability
+                                            if let Err(e) = swarm.dial(addr.clone()) {
+                                                eprintln!("[MESH] Failed to dial {}: {:?}", addr, e);
+                                            } else {
+                                                eprintln!("[MESH] Dialing {}", addr);
+                                            }
+                                        }
+                                        swarm.add_peer_address(peer_id, addr.clone());
+                                        addr_to_peer.insert(addr.to_string(), peer_id);
+                                    }
+                                }
+                                libp2p::mdns::Event::Expired(peers) => {
+                                    for (peer_id, addr) in peers {
+                                        eprintln!("[MESH] mDNS expired {} at {}", peer_id, addr);
+                                    }
+                                }
+                            }
+                        }
+                        // Phase 52: GossipSub events
+                        SwarmEvent::Behaviour(MeshBehaviourEvent::Gossipsub(event)) => {
+                            match event {
+                                gossipsub::Event::Message { message, .. } => {
+                                    let topic = message.topic.as_str().to_string();
+                                    let data = message.data;
+                                    eprintln!("[GOSSIP] Received {} bytes on '{}'", data.len(), topic);
+                                    // Route to subscription handler
+                                    tokio::spawn(async move {
+                                        gossip::on_message(&topic, data).await;
+                                    });
+                                }
+                                gossipsub::Event::Subscribed { peer_id, topic } => {
+                                    eprintln!("[GOSSIP] {} subscribed to {}", peer_id, topic);
+                                }
+                                gossipsub::Event::Unsubscribed { peer_id, topic } => {
+                                    eprintln!("[GOSSIP] {} unsubscribed from {}", peer_id, topic);
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Listen on an address.
+    pub async fn listen(&self, addr: &str) -> Result<Multiaddr, NetworkError> {
+        let multiaddr: Multiaddr = addr
+            .parse()
+            .map_err(|e| NetworkError::InvalidAddress(format!("{}: {}", addr, e)))?;
+
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(MeshCommand::Listen {
+                addr: multiaddr,
+                response: tx,
+            })
+            .await
+            .map_err(|_| NetworkError::Internal("Command channel closed".to_string()))?;
+
+        rx.await
+            .map_err(|_| NetworkError::Internal("Response channel closed".to_string()))?
+    }
+
+    /// Dial a remote peer.
+    pub async fn dial(&self, addr: &str) -> Result<(), NetworkError> {
+        let multiaddr: Multiaddr = addr
+            .parse()
+            .map_err(|e| NetworkError::InvalidAddress(format!("{}: {}", addr, e)))?;
+
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(MeshCommand::Dial {
+                addr: multiaddr,
+                response: tx,
+            })
+            .await
+            .map_err(|_| NetworkError::Internal("Command channel closed".to_string()))?;
+
+        rx.await
+            .map_err(|_| NetworkError::Internal("Response channel closed".to_string()))?
+    }
+
+    /// Send a message to a peer and await response.
+    pub async fn send_bytes(
+        &self,
+        peer_id: PeerId,
+        data: Vec<u8>,
+    ) -> Result<Vec<u8>, NetworkError> {
+        let (tx, rx) = oneshot::channel();
+        self.command_tx
+            .send(MeshCommand::Send {
+                peer_id,
+                data,
+                response: tx,
+            })
+            .await
+            .map_err(|_| NetworkError::Internal("Command channel closed".to_string()))?;
+
+        rx.await
+            .map_err(|_| NetworkError::Internal("Response channel closed".to_string()))?
+    }
+
+    /// Send a serializable message to a peer.
+    pub async fn send<T: Serialize, R: DeserializeOwned>(
+        &self,
+        peer: &PeerAgent,
+        msg: &T,
+    ) -> Result<R, NetworkError> {
+        let peer_id = peer
+            .peer_id
+            .ok_or_else(|| NetworkError::PeerNotFound("No peer ID in address".to_string()))?;
+
+        let data = wire::encode(msg)?;
+        let response_bytes = self.send_bytes(peer_id, data).await?;
+        let response: R = wire::decode(&response_bytes)?;
+        Ok(response)
+    }
+
+    /// Get the local peer ID.
+    pub fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
+    }
+
+    /// Get current listening addresses.
+    pub async fn listen_addrs(&self) -> Vec<Multiaddr> {
+        let (tx, rx) = oneshot::channel();
+        if self
+            .command_tx
+            .send(MeshCommand::GetListenAddrs { response: tx })
+            .await
+            .is_err()
+        {
+            return vec![];
+        }
+        rx.await.unwrap_or_default()
+    }
+}
+
+// =============================================================================
+// Global MESH instance for simple API
+// =============================================================================
+
+static MESH: OnceLock<Mutex<Option<MeshNode>>> = OnceLock::new();
+
+/// Initialize the global mesh node.
+async fn ensure_mesh() -> Result<(), NetworkError> {
+    let mutex = MESH.get_or_init(|| Mutex::new(None));
+    let mut guard = mutex.lock().await;
+    if guard.is_none() {
+        *guard = Some(MeshNode::new().await?);
+    }
+    Ok(())
+}
+
+/// Get a reference to the global mesh node.
+async fn get_mesh() -> Result<tokio::sync::MutexGuard<'static, Option<MeshNode>>, NetworkError> {
+    ensure_mesh().await?;
+    let mutex = MESH.get().ok_or(NetworkError::NotInitialized)?;
+    Ok(mutex.lock().await)
+}
+
+/// Listen for incoming connections on the specified address.
+///
+/// # Arguments
+/// * `addr` - A multiaddr string (e.g., "/ip4/0.0.0.0/tcp/8000")
+///
+/// # Example (LOGOS)
+/// ```logos
+/// Listen on "/ip4/0.0.0.0/tcp/8000".
+/// ```
+pub async fn listen(addr: &str) -> Result<(), NetworkError> {
+    if addr.is_empty() {
+        return Err(NetworkError::InvalidAddress(
+            "Address cannot be empty".to_string(),
+        ));
+    }
+
+    let guard = get_mesh().await?;
+    let mesh = guard.as_ref().ok_or(NetworkError::NotInitialized)?;
+    mesh.listen(addr).await?;
+    Ok(())
+}
+
+/// Connect to a remote peer at the specified address.
+///
+/// # Arguments
+/// * `addr` - A multiaddr string (e.g., "/ip4/127.0.0.1/tcp/8000")
+///
+/// # Example (LOGOS)
+/// ```logos
+/// Connect to "/ip4/127.0.0.1/tcp/8000".
+/// ```
+pub async fn connect(addr: &str) -> Result<(), NetworkError> {
+    if addr.is_empty() {
+        return Err(NetworkError::InvalidAddress(
+            "Address cannot be empty".to_string(),
+        ));
+    }
+
+    let guard = get_mesh().await?;
+    let mesh = guard.as_ref().ok_or(NetworkError::NotInitialized)?;
+    mesh.dial(addr).await
+}
+
+/// Send a serializable message to a peer agent.
+///
+/// # Example (LOGOS)
+/// ```logos
+/// Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000/p2p/QmXyz...".
+/// Send msg to remote.
+/// ```
+pub async fn send<T: Serialize>(peer: &PeerAgent, msg: &T) -> Result<(), NetworkError> {
+    let guard = get_mesh().await?;
+    let mesh = guard.as_ref().ok_or(NetworkError::NotInitialized)?;
+
+    let peer_id = peer
+        .peer_id
+        .ok_or_else(|| NetworkError::PeerNotFound("No peer ID in address".to_string()))?;
+
+    let data = wire::encode(msg)?;
+    let _ = mesh.send_bytes(peer_id, data).await?;
+    Ok(())
+}
+
+/// Get the local peer ID.
+pub async fn local_peer_id() -> Result<PeerId, NetworkError> {
+    let guard = get_mesh().await?;
+    let mesh = guard.as_ref().ok_or(NetworkError::NotInitialized)?;
+    Ok(mesh.local_peer_id())
+}
+
+// =============================================================================
+// Phase 52: GossipSub public API
+// =============================================================================
+
+/// Publish data to a GossipSub topic.
+///
+/// # Example (LOGOS)
+/// ```logos
+/// Sync state on "game-room".
+/// Increase state's clicks by 1.  // Auto-publishes via GossipSub
+/// ```
+pub async fn gossip_publish(topic: &str, data: Vec<u8>) {
+    // Ensure mesh is initialized
+    if ensure_mesh().await.is_err() {
+        eprintln!("[GOSSIP] Mesh not initialized, cannot publish");
+        return;
+    }
+
+    if let Some(tx) = GOSSIP_TX.get() {
+        if tx.send(MeshCommand::GossipPublish {
+            topic: topic.to_string(),
+            data,
+        }).await.is_err() {
+            eprintln!("[GOSSIP] Command channel closed");
+        }
+    }
+}
+
+/// Subscribe to a GossipSub topic.
+///
+/// # Example (LOGOS)
+/// ```logos
+/// Sync state on "game-room".  // Auto-subscribes to topic
+/// ```
+pub async fn gossip_subscribe(topic: &str) {
+    // Ensure mesh is initialized
+    if ensure_mesh().await.is_err() {
+        eprintln!("[GOSSIP] Mesh not initialized, cannot subscribe");
+        return;
+    }
+
+    if let Some(tx) = GOSSIP_TX.get() {
+        if tx.send(MeshCommand::GossipSubscribe {
+            topic: topic.to_string(),
+        }).await.is_err() {
+            eprintln!("[GOSSIP] Command channel closed");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_peer_agent_new() {
+        let peer = PeerAgent::new("/ip4/127.0.0.1/tcp/8000");
+        assert!(peer.is_ok());
+        let peer = peer.unwrap();
+        assert_eq!(peer.addr(), "/ip4/127.0.0.1/tcp/8000");
+        assert!(peer.peer_id.is_none()); // No /p2p/ component
+    }
+
+    #[test]
+    fn test_peer_agent_empty_fails() {
+        let peer = PeerAgent::new("");
+        assert!(peer.is_err());
+    }
+
+    #[test]
+    fn test_peer_agent_invalid_fails() {
+        let peer = PeerAgent::new("not-a-multiaddr");
+        assert!(peer.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mesh_node_creation() {
+        let node = MeshNode::new().await;
+        assert!(node.is_ok());
+        let node = node.unwrap();
+        // Peer ID should be valid
+        assert!(!node.local_peer_id().to_string().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_listen_empty_fails() {
+        // This tests the early return before mesh initialization
+        let result = listen("").await;
+        assert!(matches!(result, Err(NetworkError::InvalidAddress(_))));
+    }
+
+    #[tokio::test]
+    async fn test_connect_empty_fails() {
+        // This tests the early return before mesh initialization
+        let result = connect("").await;
+        assert!(matches!(result, Err(NetworkError::InvalidAddress(_))));
+    }
+}
+
+```
+
+---
+
+### LOGOS Protocol Codec
+
+**File:** `logos_core/src/network/protocol.rs`
+
+/logos/mesh/1.0.0 stream protocol. LogosCodec implements async length-prefixed framing. 16MB max message size. LogosRequest/LogosResponse wire types.
+
+```rust
+//! Logos mesh protocol codec for libp2p request-response.
+//!
+//! Defines the protocol identifier and codec for reading/writing
+//! length-prefixed binary frames over libp2p streams.
+
+use async_trait::async_trait;
+use futures::prelude::*;
+use libp2p::request_response::Codec;
+use libp2p::StreamProtocol;
+use std::io;
+
+/// The Logos mesh protocol identifier.
+pub const LOGOS_PROTOCOL: StreamProtocol = StreamProtocol::new("/logos/mesh/1.0.0");
+
+/// Maximum message size (16 MB).
+pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+
+/// Codec for encoding/decoding Logos mesh messages.
+///
+/// Uses length-prefixed framing: 4-byte big-endian length followed by payload.
+#[derive(Debug, Clone, Default)]
+pub struct LogosCodec;
+
+/// A request on the Logos mesh (bincode-encoded bytes).
+#[derive(Debug, Clone)]
+pub struct LogosRequest(pub Vec<u8>);
+
+/// A response on the Logos mesh (bincode-encoded bytes).
+#[derive(Debug, Clone)]
+pub struct LogosResponse(pub Vec<u8>);
+
+#[async_trait]
+impl Codec for LogosCodec {
+    type Protocol = StreamProtocol;
+    type Request = LogosRequest;
+    type Response = LogosResponse;
+
+    async fn read_request<T>(&mut self, _: &Self::Protocol, io: &mut T) -> io::Result<Self::Request>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let bytes = read_length_prefixed(io, MAX_MESSAGE_SIZE).await?;
+        Ok(LogosRequest(bytes))
+    }
+
+    async fn read_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+    ) -> io::Result<Self::Response>
+    where
+        T: AsyncRead + Unpin + Send,
+    {
+        let bytes = read_length_prefixed(io, MAX_MESSAGE_SIZE).await?;
+        Ok(LogosResponse(bytes))
+    }
+
+    async fn write_request<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+        req: Self::Request,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        write_length_prefixed(io, &req.0).await
+    }
+
+    async fn write_response<T>(
+        &mut self,
+        _: &Self::Protocol,
+        io: &mut T,
+        res: Self::Response,
+    ) -> io::Result<()>
+    where
+        T: AsyncWrite + Unpin + Send,
+    {
+        write_length_prefixed(io, &res.0).await
+    }
+}
+
+/// Read a length-prefixed message from the stream.
+async fn read_length_prefixed<T>(io: &mut T, max_size: usize) -> io::Result<Vec<u8>>
+where
+    T: AsyncRead + Unpin,
+{
+    let mut len_buf = [0u8; 4];
+    io.read_exact(&mut len_buf).await?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+
+    if len > max_size {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Message too large: {} > {}", len, max_size),
+        ));
+    }
+
+    let mut buf = vec![0u8; len];
+    io.read_exact(&mut buf).await?;
+    Ok(buf)
+}
+
+/// Write a length-prefixed message to the stream.
+async fn write_length_prefixed<T>(io: &mut T, data: &[u8]) -> io::Result<()>
+where
+    T: AsyncWrite + Unpin,
+{
+    let len = data.len() as u32;
+    io.write_all(&len.to_be_bytes()).await?;
+    io.write_all(data).await?;
+    io.flush().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_protocol_name() {
+        assert_eq!(LOGOS_PROTOCOL.as_ref(), "/logos/mesh/1.0.0");
+    }
+}
+
+```
+
+---
+
+### Wire Serialization
+
+**File:** `logos_core/src/network/wire.rs`
+
+Bincode-based LogosWire abstraction. encode<T: Serialize>() and decode<T: DeserializeOwned>(). WireError enum for encode/decode failures. Designed for future migration to rkyv.
+
+```rust
+//! LogosWire: Bincode-based wire serialization for P2P messaging.
+//!
+//! Provides a simple abstraction over bincode for encoding/decoding
+//! messages on the wire. Designed for easy future migration to rkyv
+//! if zero-copy performance becomes necessary.
+
+use serde::{de::DeserializeOwned, Serialize};
+use std::fmt;
+
+/// Error type for wire serialization/deserialization.
+#[derive(Debug, Clone)]
+pub enum WireError {
+    /// Failed to encode message to bytes
+    Encode(String),
+    /// Failed to decode bytes to message
+    Decode(String),
+}
+
+impl fmt::Display for WireError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Encode(msg) => write!(f, "Wire encode error: {}", msg),
+            Self::Decode(msg) => write!(f, "Wire decode error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for WireError {}
+
+/// Encode a serializable message to bytes.
+///
+/// # Example
+/// ```
+/// use serde::{Serialize, Deserialize};
+/// use logos_core::network::wire;
+///
+/// #[derive(Serialize, Deserialize, PartialEq, Debug)]
+/// struct Ping { id: u32 }
+///
+/// let msg = Ping { id: 42 };
+/// let bytes = wire::encode(&msg).unwrap();
+/// let decoded: Ping = wire::decode(&bytes).unwrap();
+/// assert_eq!(msg, decoded);
+/// ```
+pub fn encode<T: Serialize>(msg: &T) -> Result<Vec<u8>, WireError> {
+    bincode::serialize(msg).map_err(|e| WireError::Encode(e.to_string()))
+}
+
+/// Decode bytes to a deserializable message.
+pub fn decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, WireError> {
+    bincode::deserialize(bytes).map_err(|e| WireError::Decode(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Serialize, Deserialize, PartialEq, Debug)]
+    struct TestMessage {
+        id: u32,
+        content: String,
+    }
+
+    #[test]
+    fn test_roundtrip() {
+        let msg = TestMessage {
+            id: 42,
+            content: "hello mesh".to_string(),
+        };
+        let bytes = encode(&msg).unwrap();
+        let decoded: TestMessage = decode(&bytes).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn test_decode_invalid_bytes() {
+        let bytes = vec![0xFF, 0xFF, 0xFF];
+        let result: Result<TestMessage, _> = decode(&bytes);
+        assert!(result.is_err());
+    }
+}
+
+```
+
+---
+
+### Mesh Behaviour
+
+**File:** `logos_core/src/network/behaviour.rs`
+
+Combined libp2p NetworkBehaviour. Integrates request-response, mDNS discovery, and GossipSub pub/sub. MeshBehaviour struct derives NetworkBehaviour with three sub-behaviours. gossipsub::Behaviour with MessageAuthenticity::Signed.
+
+```rust
+//! Mesh network behaviour combining request-response, mDNS, and GossipSub.
+
+use crate::network::protocol::{LogosCodec, LOGOS_PROTOCOL};
+use libp2p::gossipsub::{self, IdentTopic, MessageAuthenticity};
+use libp2p::identity::Keypair;
+use libp2p::mdns;
+use libp2p::request_response::{self, ProtocolSupport};
+use libp2p::swarm::NetworkBehaviour;
+use std::time::Duration;
+
+/// Combined network behaviour for the Logos mesh.
+///
+/// Integrates:
+/// - Request-response: For sending messages between agents
+/// - mDNS: For local peer discovery
+/// - GossipSub: For pub/sub messaging (Phase 52)
+#[derive(NetworkBehaviour)]
+pub struct MeshBehaviour {
+    /// Request-response protocol for agent communication
+    pub request_response: request_response::Behaviour<LogosCodec>,
+    /// mDNS for local network peer discovery
+    pub mdns: mdns::tokio::Behaviour,
+    /// GossipSub for pub/sub messaging (Phase 52)
+    pub gossipsub: gossipsub::Behaviour,
+}
+
+impl MeshBehaviour {
+    /// Create a new mesh behaviour with default configuration.
+    pub fn new(local_peer_id: libp2p::PeerId, keypair: &Keypair) -> Self {
+        // Configure request-response
+        let rr_config = request_response::Config::default()
+            .with_request_timeout(Duration::from_secs(30));
+
+        let request_response = request_response::Behaviour::new(
+            [(LOGOS_PROTOCOL, ProtocolSupport::Full)],
+            rr_config,
+        );
+
+        // Configure mDNS
+        let mdns_config = mdns::Config::default();
+        let mdns = mdns::tokio::Behaviour::new(mdns_config, local_peer_id)
+            .expect("Failed to create mDNS behaviour");
+
+        // Phase 52: Configure GossipSub
+        let gossipsub_config = gossipsub::ConfigBuilder::default()
+            .heartbeat_interval(Duration::from_secs(1))
+            .validation_mode(gossipsub::ValidationMode::Strict)
+            .build()
+            .expect("Valid gossipsub config");
+
+        let gossipsub = gossipsub::Behaviour::new(
+            MessageAuthenticity::Signed(keypair.clone()),
+            gossipsub_config,
+        ).expect("Valid gossipsub behaviour");
+
+        Self {
+            request_response,
+            mdns,
+            gossipsub,
+        }
+    }
+
+    /// Subscribe to a GossipSub topic.
+    pub fn subscribe(&mut self, topic: &str) -> Result<bool, gossipsub::SubscriptionError> {
+        let topic = IdentTopic::new(topic);
+        self.gossipsub.subscribe(&topic)
+    }
+
+    /// Publish to a GossipSub topic.
+    pub fn publish(&mut self, topic: &str, data: Vec<u8>) -> Result<gossipsub::MessageId, gossipsub::PublishError> {
+        let topic = IdentTopic::new(topic);
+        self.gossipsub.publish(topic, data)
+    }
+}
+
+```
+
+---
+
+### GossipSub Pub/Sub (Phase 52)
+
+**File:** `logos_core/src/network/gossip.rs`
+
+GossipSub publish/subscribe for automatic CRDT replication. Static SUBSCRIPTIONS registry. publish<T>() broadcasts encoded state, subscribe_and_merge<T>() handles incoming merges. on_message() routes data to Synced<T> instances.
+
+```rust
+//! Phase 52: GossipSub pub/sub for CRDT synchronization
+//!
+//! This module provides automatic CRDT replication over GossipSub.
+//! When a CRDT is synced on a topic:
+//! 1. Local changes are broadcast to all subscribers
+//! 2. Remote changes are received and merged automatically
+
+use crate::crdt::Merge;
+use crate::network::wire;
+use once_cell::sync::Lazy;
+use serde::{de::DeserializeOwned, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+
+/// Topic subscriptions: topic -> channel for incoming messages
+static SUBSCRIPTIONS: Lazy<Mutex<HashMap<String, mpsc::Sender<Vec<u8>>>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Publish a message to a GossipSub topic.
+///
+/// The message is serialized with bincode and broadcast to all subscribers
+/// on the mesh network.
+pub async fn publish<T: Serialize>(topic: &str, data: &T) {
+    let bytes = match wire::encode(data) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("[gossip] Serialization failed: {:?}", e);
+            return;
+        }
+    };
+
+    // Forward to mesh node's gossipsub behaviour
+    crate::network::gossip_publish(topic, bytes).await;
+}
+
+/// Subscribe to a topic and auto-merge incoming messages.
+///
+/// This function blocks until the subscription is cancelled.
+/// Incoming messages are deserialized and merged into the target.
+pub async fn subscribe_and_merge<T: Merge + DeserializeOwned + Send + 'static>(
+    topic: &str,
+    target: Arc<Mutex<T>>,
+) {
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(256);
+
+    // Register subscription
+    {
+        let mut subs = SUBSCRIPTIONS.lock().await;
+        subs.insert(topic.to_string(), tx);
+    }
+
+    // Forward subscription to mesh node
+    crate::network::gossip_subscribe(topic).await;
+
+    // Process incoming messages
+    while let Some(bytes) = rx.recv().await {
+        match wire::decode::<T>(&bytes) {
+            Ok(incoming) => {
+                let mut guard = target.lock().await;
+                guard.merge(&incoming);
+            }
+            Err(e) => {
+                eprintln!("[gossip] Deserialization failed: {:?}", e);
+            }
+        }
+    }
+}
+
+/// Called by mesh node when a GossipSub message arrives.
+///
+/// Routes the message to the appropriate subscription channel.
+pub async fn on_message(topic: &str, data: Vec<u8>) {
+    let subs = SUBSCRIPTIONS.lock().await;
+    if let Some(tx) = subs.get(topic) {
+        if tx.send(data).await.is_err() {
+            eprintln!("[gossip] Failed to forward message to subscriber");
+        }
+    }
+}
+
+/// Unsubscribe from a topic.
+///
+/// This removes the subscription and stops receiving messages.
+#[allow(dead_code)]
+pub async fn unsubscribe(topic: &str) {
+    let mut subs = SUBSCRIPTIONS.lock().await;
+    subs.remove(topic);
+    // Note: Should also tell mesh node to unsubscribe from gossipsub
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crdt::GCounter;
+
+    #[tokio::test]
+    async fn test_subscriptions_registry() {
+        let counter = Arc::new(Mutex::new(GCounter::new()));
+
+        // Spawn a subscription task
+        let topic = "test-sub";
+        let counter_clone = Arc::clone(&counter);
+        let handle = tokio::spawn(async move {
+            // This would block forever in real use, but we'll cancel it
+            tokio::select! {
+                _ = subscribe_and_merge::<GCounter>(topic, counter_clone) => {}
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+            }
+        });
+
+        // Wait a bit for subscription to register
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // Check subscription exists
+        let subs = SUBSCRIPTIONS.lock().await;
+        assert!(subs.contains_key(topic), "Subscription should be registered");
+        drop(subs);
+
+        // Cleanup
+        handle.abort();
+    }
+}
+
+```
+
+---
+
+### File Sipper (Phase 48)
+
+**File:** `logos_core/src/network/sipping.rs`
+
+Zero-copy file chunking for resumable transfers. FileSipper uses memory-mapped zones. FileManifest describes chunks with SHA256 hashes. Default 1MB chunk size.
+
+```rust
+//! Sipping Protocol: Zero-copy file chunking for resumable transfers.
+//!
+//! The Sipping protocol slices memory-mapped files into chunks with SHA256 hashes,
+//! enabling resumable, verifiable file transfers over unreliable networks.
+
+use crate::memory::Zone;
+use sha2::{Sha256, Digest};
+use serde::{Serialize, Deserialize};
+
+/// Default chunk size: 1 MB
+pub const DEFAULT_CHUNK_SIZE: usize = 1024 * 1024;
+
+/// Manifest describing a file's chunks for resumable transfer.
+///
+/// The manifest contains:
+/// - A unique file ID for this transfer session
+/// - Total file size and chunk count
+/// - SHA256 hashes for each chunk (enables verification and deduplication)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileManifest {
+    pub file_id: String,
+    pub total_size: u64,
+    pub chunk_size: usize,
+    pub chunk_count: usize,
+    pub chunk_hashes: Vec<[u8; 32]>,
+}
+
+/// A single chunk of file data with its hash for verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileChunk {
+    pub file_id: String,
+    pub index: usize,
+    pub data: Vec<u8>,
+    pub hash: [u8; 32],
+}
+
+/// Zero-copy file chunking using memory-mapped zones.
+///
+/// FileSipper wraps a memory-mapped Zone and provides:
+/// - Zero-copy chunk access via slicing
+/// - SHA256 hashing for verification
+/// - Manifest generation for resumable transfers
+///
+/// # Example
+/// ```ignore
+/// let zone = Zone::new_mapped("large_file.bin")?;
+/// let sipper = FileSipper::from_zone(&zone);
+/// let manifest = sipper.manifest();
+/// let chunk = sipper.get_chunk(0);
+/// ```
+pub struct FileSipper<'a> {
+    zone: &'a Zone,
+    chunk_size: usize,
+    file_id: String,
+}
+
+impl<'a> FileSipper<'a> {
+    /// Create sipper from a mapped zone with default chunk size (1 MB).
+    pub fn from_zone(zone: &'a Zone) -> Self {
+        Self {
+            zone,
+            chunk_size: DEFAULT_CHUNK_SIZE,
+            file_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    /// Create sipper with custom chunk size.
+    pub fn with_chunk_size(zone: &'a Zone, chunk_size: usize) -> Self {
+        Self {
+            zone,
+            chunk_size,
+            file_id: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+
+    /// Get the file ID for this sipper session.
+    pub fn file_id(&self) -> &str {
+        &self.file_id
+    }
+
+    /// Get number of chunks in the file.
+    pub fn chunk_count(&self) -> usize {
+        let size = self.zone.allocated_bytes();
+        if size == 0 {
+            0
+        } else {
+            (size + self.chunk_size - 1) / self.chunk_size
+        }
+    }
+
+    /// Zero-copy slice of chunk at index (0-indexed).
+    ///
+    /// Returns the raw bytes of the chunk without copying.
+    /// The last chunk may be smaller than chunk_size.
+    pub fn get_chunk(&self, index: usize) -> &[u8] {
+        let slice = self.zone.as_slice();
+        let start = index * self.chunk_size;
+        let end = (start + self.chunk_size).min(slice.len());
+        if start >= slice.len() {
+            &[]
+        } else {
+            &slice[start..end]
+        }
+    }
+
+    /// Compute SHA256 hash of a specific chunk.
+    pub fn hash_chunk(&self, index: usize) -> [u8; 32] {
+        let chunk = self.get_chunk(index);
+        let mut hasher = Sha256::new();
+        hasher.update(chunk);
+        hasher.finalize().into()
+    }
+
+    /// Generate manifest with all chunk hashes.
+    ///
+    /// The manifest enables:
+    /// - Resumable transfers (client can request missing chunks)
+    /// - Verification (client can verify each chunk's hash)
+    /// - Deduplication (identical chunks have identical hashes)
+    pub fn manifest(&self) -> FileManifest {
+        let slice = self.zone.as_slice();
+        let chunk_count = self.chunk_count();
+        let hashes: Vec<[u8; 32]> = (0..chunk_count)
+            .map(|i| self.hash_chunk(i))
+            .collect();
+
+        FileManifest {
+            file_id: self.file_id.clone(),
+            total_size: slice.len() as u64,
+            chunk_size: self.chunk_size,
+            chunk_count,
+            chunk_hashes: hashes,
+        }
+    }
+
+    /// Get chunk as FileChunk struct (includes hash for verification).
+    ///
+    /// This copies the data into the FileChunk. Use `get_chunk()` for
+    /// zero-copy access when you don't need the hash included.
+    pub fn get_chunk_with_hash(&self, index: usize) -> FileChunk {
+        let data = self.get_chunk(index).to_vec();
+        let hash = self.hash_chunk(index);
+        FileChunk {
+            file_id: self.file_id.clone(),
+            index,
+            data,
+            hash,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn create_test_file(size: usize) -> NamedTempFile {
+        let mut file = NamedTempFile::new().unwrap();
+        let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
+        file.write_all(&data).unwrap();
+        file.flush().unwrap();
+        file
+    }
+
+    #[test]
+    fn test_chunk_count_empty() {
+        // Create empty file
+        let file = NamedTempFile::new().unwrap();
+        let zone = Zone::new_mapped(file.path()).unwrap();
+        let sipper = FileSipper::from_zone(&zone);
+        assert_eq!(sipper.chunk_count(), 0);
+    }
+
+    #[test]
+    fn test_chunk_count_small_file() {
+        let file = create_test_file(100);
+        let zone = Zone::new_mapped(file.path()).unwrap();
+        let sipper = FileSipper::from_zone(&zone);
+        assert_eq!(sipper.chunk_count(), 1); // 100 bytes < 1 MB
+    }
+
+    #[test]
+    fn test_manifest_has_correct_size() {
+        let file = create_test_file(1000);
+        let zone = Zone::new_mapped(file.path()).unwrap();
+        let sipper = FileSipper::from_zone(&zone);
+        let manifest = sipper.manifest();
+
+        assert_eq!(manifest.total_size, 1000);
+        assert_eq!(manifest.chunk_count, 1);
+        assert_eq!(manifest.chunk_hashes.len(), 1);
+    }
+
+    #[test]
+    fn test_chunk_hash_is_consistent() {
+        let file = create_test_file(500);
+        let zone = Zone::new_mapped(file.path()).unwrap();
+        let sipper = FileSipper::from_zone(&zone);
+
+        let hash1 = sipper.hash_chunk(0);
+        let hash2 = sipper.hash_chunk(0);
+        assert_eq!(hash1, hash2, "Same chunk should have same hash");
+    }
+
+    #[test]
+    fn test_custom_chunk_size() {
+        let file = create_test_file(1000);
+        let zone = Zone::new_mapped(file.path()).unwrap();
+        let sipper = FileSipper::with_chunk_size(&zone, 100);
+
+        assert_eq!(sipper.chunk_count(), 10); // 1000 / 100 = 10 chunks
+
+        let manifest = sipper.manifest();
+        assert_eq!(manifest.chunk_count, 10);
+        assert_eq!(manifest.chunk_hashes.len(), 10);
     }
 }
 
@@ -55329,6 +64745,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
+use crate::analysis::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
@@ -55342,14 +64759,21 @@ use crate::registry::SymbolRegistry;
 /// Tracks refinement type constraints across scopes for mutation enforcement.
 /// When a variable with a refinement type is defined, we register its constraint.
 /// When that variable is mutated via `Set`, we re-emit the assertion.
+/// Phase 50: Also tracks variable types for capability Check resolution.
 pub struct RefinementContext<'a> {
     /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
     scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+    /// Phase 50: Maps variable name Symbol to type name (for capability resolution)
+    /// e.g., "doc" -> "Document" allows "Check that user can publish the document" to resolve to &doc
+    variable_types: HashMap<Symbol, String>,
 }
 
 impl<'a> RefinementContext<'a> {
     pub fn new() -> Self {
-        Self { scopes: vec![HashMap::new()] }
+        Self {
+            scopes: vec![HashMap::new()],
+            variable_types: HashMap::new(),
+        }
     }
 
     fn push_scope(&mut self) {
@@ -55370,6 +64794,22 @@ impl<'a> RefinementContext<'a> {
         for scope in self.scopes.iter().rev() {
             if let Some(entry) = scope.get(&var) {
                 return Some(*entry);
+            }
+        }
+        None
+    }
+
+    /// Phase 50: Register a variable with its type for capability resolution
+    fn register_variable_type(&mut self, var: Symbol, type_name: String) {
+        self.variable_types.insert(var, type_name);
+    }
+
+    /// Phase 50: Find a variable name by its type (for resolving "the document" to "doc")
+    fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
+        let type_lower = type_name.to_lowercase();
+        for (var_sym, var_type) in &self.variable_types {
+            if var_type.to_lowercase() == type_lower {
+                return Some(interner.resolve(*var_sym).to_string());
             }
         }
         None
@@ -55414,6 +64854,36 @@ fn replace_word(text: &str, from: &str, to: &str) -> String {
         result.push_str(if word == from { to } else { &word });
     }
     result
+}
+
+/// Phase 51: Detect if any statements require async execution.
+/// Returns true if the program needs #[tokio::main] async fn main().
+fn requires_async(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| requires_async_stmt(s))
+}
+
+fn requires_async_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        // Phase 9: Concurrent blocks use tokio::join!
+        Stmt::Concurrent { tasks } => true,
+        // Phase 51: Network operations and Sleep are async
+        Stmt::Listen { .. } => true,
+        Stmt::ConnectTo { .. } => true,
+        Stmt::Sleep { .. } => true,
+        // Phase 52: Sync is async (GossipSub subscription)
+        Stmt::Sync { .. } => true,
+        // Recursively check nested blocks
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| requires_async_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| requires_async_stmt(s)))
+        }
+        Stmt::While { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        _ => false,
+    }
 }
 
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
@@ -55487,15 +64957,141 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
     }
 }
 
+// =============================================================================
+// Phase 50: Policy Method Generation
+// =============================================================================
+
+/// Generate impl blocks with predicate and capability methods for security policies.
+fn codegen_policy_impls(policies: &PolicyRegistry, interner: &Interner) -> String {
+    let mut output = String::new();
+
+    // Collect all types that have policies
+    let mut type_predicates: HashMap<Symbol, Vec<&PredicateDef>> = HashMap::new();
+    let mut type_capabilities: HashMap<Symbol, Vec<&CapabilityDef>> = HashMap::new();
+
+    for (type_sym, predicates) in policies.iter_predicates() {
+        type_predicates.entry(*type_sym).or_insert_with(Vec::new).extend(predicates.iter());
+    }
+
+    for (type_sym, capabilities) in policies.iter_capabilities() {
+        type_capabilities.entry(*type_sym).or_insert_with(Vec::new).extend(capabilities.iter());
+    }
+
+    // Get all types that have any policies
+    let mut all_types: HashSet<Symbol> = HashSet::new();
+    all_types.extend(type_predicates.keys().copied());
+    all_types.extend(type_capabilities.keys().copied());
+
+    // Generate impl block for each type
+    for type_sym in all_types {
+        let type_name = interner.resolve(type_sym);
+
+        writeln!(output, "impl {} {{", type_name).unwrap();
+
+        // Generate predicate methods
+        if let Some(predicates) = type_predicates.get(&type_sym) {
+            for pred in predicates {
+                let pred_name = interner.resolve(pred.predicate_name).to_lowercase();
+                writeln!(output, "    pub fn is_{}(&self) -> bool {{", pred_name).unwrap();
+                let condition_code = codegen_policy_condition(&pred.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        // Generate capability methods
+        if let Some(capabilities) = type_capabilities.get(&type_sym) {
+            for cap in capabilities {
+                let action_name = interner.resolve(cap.action).to_lowercase();
+                let object_type = interner.resolve(cap.object_type);
+                let object_param = object_type.to_lowercase();
+
+                writeln!(output, "    pub fn can_{}(&self, {}: &{}) -> bool {{",
+                         action_name, object_param, object_type).unwrap();
+                let condition_code = codegen_policy_condition(&cap.condition, interner);
+                writeln!(output, "        {}", condition_code).unwrap();
+                writeln!(output, "    }}\n").unwrap();
+            }
+        }
+
+        writeln!(output, "}}\n").unwrap();
+    }
+
+    output
+}
+
+/// Generate Rust code for a policy condition.
+fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) -> String {
+    match condition {
+        PolicyCondition::FieldEquals { field, value, is_string_literal } => {
+            let field_name = interner.resolve(*field);
+            let value_str = interner.resolve(*value);
+            if *is_string_literal {
+                format!("self.{} == \"{}\"", field_name, value_str)
+            } else {
+                format!("self.{} == {}", field_name, value_str)
+            }
+        }
+        PolicyCondition::FieldBool { field, value } => {
+            let field_name = interner.resolve(*field);
+            format!("self.{} == {}", field_name, value)
+        }
+        PolicyCondition::Predicate { subject: _, predicate } => {
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+            format!("self.is_{}()", pred_name)
+        }
+        PolicyCondition::ObjectFieldEquals { subject: _, object, field } => {
+            let object_name = interner.resolve(*object).to_lowercase();
+            let field_name = interner.resolve(*field);
+            format!("self == &{}.{}", object_name, field_name)
+        }
+        PolicyCondition::Or(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} || {}", left_code, right_code)
+        }
+        PolicyCondition::And(left, right) => {
+            let left_code = codegen_policy_condition(left, interner);
+            let right_code = codegen_policy_condition(right, interner);
+            format!("{} && {}", left_code, right_code)
+        }
+    }
+}
+
+/// Collect LWWRegister field paths for special handling in SetField codegen.
+/// Returns a set of (type_name, field_name) pairs where the field is an LWWRegister.
+fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String)> {
+    let mut lww_fields = HashSet::new();
+    for (type_sym, def) in registry.iter_types() {
+        if let TypeDef::Struct { fields, .. } = def {
+            let type_name = interner.resolve(*type_sym).to_string();
+            for field in fields {
+                if let FieldType::Generic { base, .. } = &field.ty {
+                    let base_name = interner.resolve(*base);
+                    if base_name == "LastWriteWins" {
+                        let field_name = interner.resolve(field.name).to_string();
+                        lww_fields.insert((type_name.clone(), field_name));
+                    }
+                }
+            }
+        }
+    }
+    lww_fields
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
 /// Phase 32: Function definitions are emitted before main.
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) -> String {
+/// Phase 50: Accepts PolicyRegistry to generate security predicate methods.
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner) -> String {
     let mut output = String::new();
 
     // Prelude
     writeln!(output, "use logos_core::prelude::*;\n").unwrap();
+
+    // Phase 49: Collect LWWRegister fields for special SetField handling
+    let lww_fields = collect_lww_fields(registry, interner);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -55544,10 +65140,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
         writeln!(output, "use user_types::*;\n").unwrap();
     }
 
+    // Phase 50: Generate policy impl blocks with predicate and capability methods
+    output.push_str(&codegen_policy_impls(policies, interner));
+
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields));
         }
     }
 
@@ -55561,14 +65160,21 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
     }
 
     // Main function
-    writeln!(output, "fn main() {{").unwrap();
+    // Phase 51: Use async main when async operations are present
+    if requires_async(stmts) {
+        writeln!(output, "#[tokio::main]").unwrap();
+        writeln!(output, "async fn main() {{").unwrap();
+    } else {
+        writeln!(output, "fn main() {{").unwrap();
+    }
     let mut main_ctx = RefinementContext::new();
+    let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -55576,6 +65182,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, interner: &Inter
 
 /// Phase 32/38: Generate a function definition.
 /// Phase 38: Updated for native functions and TypeExpr types.
+/// Phase 49: Accepts lww_fields for LWWRegister SetField handling.
 fn codegen_function_def(
     name: Symbol,
     params: &[(Symbol, &TypeExpr)],
@@ -55583,6 +65190,7 @@ fn codegen_function_def(
     return_type: Option<&TypeExpr>,
     is_native: bool,
     interner: &Interner,
+    lww_fields: &HashSet<(String, String)>,
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
@@ -55601,15 +65209,19 @@ fn codegen_function_def(
         .map(|t| codegen_type_expr(t, interner))
         .or_else(|| infer_return_type_from_body(body, interner));
 
+    // Phase 51: Check if function body requires async
+    let is_async = body.iter().any(|s| requires_async_stmt(s));
+    let fn_keyword = if is_async { "async fn" } else { "fn" };
+
     // Build function signature
     let signature = if let Some(ref ret_ty) = return_type_str {
         if ret_ty != "()" {
-            format!("fn {}({}) -> {}", func_name, params_str.join(", "), ret_ty)
+            format!("{} {}({}) -> {}", fn_keyword, func_name, params_str.join(", "), ret_ty)
         } else {
-            format!("fn {}({})", func_name, params_str.join(", "))
+            format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
         }
     } else {
-        format!("fn {}({})", func_name, params_str.join(", "))
+        format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
     };
 
     // Phase 38: Handle native functions
@@ -55630,8 +65242,16 @@ fn codegen_function_def(
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
+        let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
+
+        // Phase 50: Register parameter types for capability Check resolution
+        for (param_name, param_type) in params {
+            let type_name = codegen_type_expr(param_type, interner);
+            func_ctx.register_variable_type(*param_name, type_name);
+        }
+
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -55770,10 +65390,12 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is
     };
 
     // Phase 47: Add Serialize, Deserialize derives if portable
-    if is_portable {
-        writeln!(output, "{}#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+    // Phase 50: Add PartialEq for policy equality comparisons
+    // Phase 52: Shared types also need Serialize/Deserialize for Synced<T>
+    if is_portable || is_shared {
+        writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]", ind).unwrap();
     } else {
-        writeln!(output, "{}#[derive(Default, Debug, Clone)]", ind).unwrap();
+        writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq)]", ind).unwrap();
     }
     writeln!(output, "{}pub struct {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
@@ -55934,6 +65556,8 @@ pub fn codegen_stmt<'a>(
     indent: usize,
     mutable_vars: &HashSet<Symbol>,
     ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -55941,7 +65565,7 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
 
             // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
@@ -55963,7 +65587,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
 
             // Phase 43C: Check if this variable has a refinement constraint
@@ -55974,23 +65598,23 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
             writeln!(output, "{}{}({});", indent_str, func_name, args_str.join(", ")).unwrap();
         }
 
         Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr(cond, interner);
+            let cond_str = codegen_expr(cond, interner, synced_vars);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
                 }
                 ctx.pop_scope();
             }
@@ -55999,11 +65623,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::While { cond, body, decreasing: _ } => {
             // decreasing is compile-time only, ignored at runtime
-            let cond_str = codegen_expr(cond, interner);
+            let cond_str = codegen_expr(cond, interner, synced_vars);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -56011,11 +65635,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Repeat { var, iterable, body } => {
             let var_name = interner.resolve(*var);
-            let iter_str = codegen_expr(iterable, interner);
+            let iter_str = codegen_expr(iterable, interner, synced_vars);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -56023,7 +65647,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr(v, interner);
+                let value_str = codegen_expr(v, interner, synced_vars);
                 writeln!(output, "{}return {};", indent_str, value_str).unwrap();
             } else {
                 writeln!(output, "{}return;", indent_str).unwrap();
@@ -56046,29 +65670,110 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::RuntimeAssert { condition } => {
-            let cond_str = codegen_expr(condition, interner);
+            let cond_str = codegen_expr(condition, interner, synced_vars);
             writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
+        }
+
+        // Phase 50: Security Check - mandatory runtime guard (NEVER optimized out)
+        Stmt::Check { subject, predicate, is_capability, object, source_text, span } => {
+            let subj_name = interner.resolve(*subject);
+            let pred_name = interner.resolve(*predicate).to_lowercase();
+
+            let call = if *is_capability {
+                let obj_sym = object.expect("capability must have object");
+                let obj_word = interner.resolve(obj_sym);
+
+                // Phase 50: Type-based resolution
+                // "Check that user can publish the document" -> find variable of type Document
+                // First try to find a variable whose type matches the object word
+                let obj_name = ctx.find_variable_by_type(obj_word, interner)
+                    .unwrap_or_else(|| obj_word.to_string());
+
+                format!("{}.can_{}(&{})", subj_name, pred_name, obj_name)
+            } else {
+                format!("{}.is_{}()", subj_name, pred_name)
+            };
+
+            writeln!(output, "{}if !({}) {{", indent_str, call).unwrap();
+            writeln!(output, "{}    logos_core::panic_with(\"Security Check Failed at line {}: {}\");",
+                     indent_str, span.start, source_text).unwrap();
+            writeln!(output, "{}}}", indent_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Listen on network address
+        Stmt::Listen { address } => {
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}logos_core::network::listen(&{}).await.expect(\"Failed to listen\");",
+                     indent_str, addr_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Connect to remote peer
+        Stmt::ConnectTo { address } => {
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}logos_core::network::connect(&{}).await.expect(\"Failed to connect\");",
+                     indent_str, addr_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Create PeerAgent remote handle
+        Stmt::LetPeerAgent { var, address } => {
+            let var_name = interner.resolve(*var);
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}let {} = logos_core::network::PeerAgent::new(&{}).expect(\"Invalid address\");",
+                     indent_str, var_name, addr_str).unwrap();
+        }
+
+        // Phase 51: Sleep for milliseconds
+        Stmt::Sleep { milliseconds } => {
+            let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+            // Use tokio async sleep
+            writeln!(output, "{}tokio::time::sleep(std::time::Duration::from_millis({} as u64)).await;",
+                     indent_str, ms_str).unwrap();
+        }
+
+        // Phase 52: Sync CRDT variable on topic
+        Stmt::Sync { var, topic } => {
+            let var_name = interner.resolve(*var);
+            let topic_str = codegen_expr(topic, interner, synced_vars);
+            // Wrap the variable in Synced<T> for automatic GossipSub replication
+            writeln!(
+                output,
+                "{}let {} = logos_core::crdt::Synced::new({}, &{}).await;",
+                indent_str, var_name, var_name, topic_str
+            ).unwrap();
+            // Track this variable as synced for subsequent field access
+            synced_vars.insert(*var);
         }
 
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
-            let obj_str = codegen_expr(object, interner);
-            let recv_str = codegen_expr(recipient, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            let recv_str = codegen_expr(recipient, interner, synced_vars);
             writeln!(output, "{}{}({});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::Show { object, recipient } => {
             // Borrow semantics: pass immutable reference
-            let obj_str = codegen_expr(object, interner);
-            let recv_str = codegen_expr(recipient, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            let recv_str = codegen_expr(recipient, interner, synced_vars);
             writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::SetField { object, field, value } => {
-            let obj_str = codegen_expr(object, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr(value, interner);
-            writeln!(output, "{}{}.{} = {};", indent_str, obj_str, field_name, value_str).unwrap();
+            let value_str = codegen_expr(value, interner, synced_vars);
+
+            // Phase 49: Check if this field is an LWWRegister - use .set() instead of =
+            // We check if ANY type has this field as LWW (heuristic - works for most cases)
+            let is_lww = lww_fields.iter().any(|(_, f)| f == field_name);
+            if is_lww {
+                writeln!(output, "{}{}.{}.set({});", indent_str, obj_str, field_name, value_str).unwrap();
+            } else {
+                writeln!(output, "{}{}.{} = {};", indent_str, obj_str, field_name, value_str).unwrap();
+            }
         }
 
         Stmt::StructDef { .. } => {
@@ -56080,7 +65785,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Inspect { target, arms, .. } => {
-            let target_str = codegen_expr(target, interner);
+            let target_str = codegen_expr(target, interner, synced_vars);
             writeln!(output, "{}match {} {{", indent_str, target_str).unwrap();
 
             for arm in arms {
@@ -56116,7 +65821,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -56126,13 +65831,13 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr(value, interner);
-            let coll_str = codegen_expr(collection, interner);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Pop { collection, into } => {
-            let coll_str = codegen_expr(collection, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             match into {
                 Some(var) => {
                     let var_name = interner.resolve(*var);
@@ -56146,9 +65851,9 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SetIndex { collection, index, value } => {
-            let coll_str = codegen_expr(collection, interner);
-            let index_str = codegen_expr(index, interner);
-            let value_str = codegen_expr(value, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
+            let value_str = codegen_expr(value, interner, synced_vars);
             // 1-based indexing: item 2 of items → items[1]
             writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
@@ -56182,7 +65887,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
 
             ctx.pop_scope();
@@ -56191,6 +65896,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 9: Concurrent execution block (async, I/O-bound)
         // Generates tokio::join! for concurrent task execution
+        // Phase 51: Variables used across multiple tasks are cloned to avoid move issues
         Stmt::Concurrent { tasks } => {
             // Collect Let statements to generate tuple destructuring
             let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
@@ -56198,6 +65904,21 @@ pub fn codegen_stmt<'a>(
                     Some(interner.resolve(*var).to_string())
                 } else {
                     None
+                }
+            }).collect();
+
+            // Collect variables used in Call statements across all tasks
+            let used_vars: HashSet<String> = tasks.iter().flat_map(|s| {
+                if let Stmt::Call { args, .. } = s {
+                    args.iter().filter_map(|arg| {
+                        if let Expr::Identifier(sym) = arg {
+                            Some(interner.resolve(*sym).to_string())
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>()
+                } else {
+                    vec![]
                 }
             }).collect();
 
@@ -56209,9 +65930,29 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
-                // Wrap each statement in an async block
-                write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+
+                // Convert call statements to awaited calls for async context
+                let inner_awaited = if let Stmt::Call { .. } = stmt {
+                    // Add .await before the semicolon for function calls
+                    inner.trim().trim_end_matches(';').to_string() + ".await;"
+                } else {
+                    inner.trim().to_string()
+                };
+
+                // For tasks that use shared variables, wrap in a block that clones them
+                if !used_vars.is_empty() && i < tasks.len() - 1 {
+                    // Clone variables for all tasks except the last one
+                    let clones: Vec<String> = used_vars.iter()
+                        .map(|v| format!("let {} = {}.clone();", v, v))
+                        .collect();
+                    write!(output, "{}    {{ {} async move {{ {} }} }}",
+                           indent_str, clones.join(" "), inner_awaited).unwrap();
+                } else {
+                    // Last task can use original variables
+                    write!(output, "{}    async {{ {} }}", indent_str, inner_awaited).unwrap();
+                }
+
                 if i < tasks.len() - 1 {
                     writeln!(output, ",").unwrap();
                 } else {
@@ -56243,7 +65984,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -56257,7 +65998,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -56275,7 +66016,7 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}let {} = logos_core::io::read_line();", indent_str, var_name).unwrap();
                 }
                 ReadSource::File(path_expr) => {
-                    let path_str = codegen_expr(path_expr, interner);
+                    let path_str = codegen_expr(path_expr, interner, synced_vars);
                     writeln!(
                         output,
                         "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
@@ -56287,8 +66028,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 10: Write to file
         Stmt::WriteFile { content, path } => {
-            let content_str = codegen_expr(content, interner);
-            let path_str = codegen_expr(path, interner);
+            let content_str = codegen_expr(content, interner, synced_vars);
+            let path_str = codegen_expr(path, interner, synced_vars);
             writeln!(
                 output,
                 "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
@@ -56310,8 +66051,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Send message to agent
         Stmt::SendMessage { message, destination } => {
-            let msg_str = codegen_expr(message, interner);
-            let dest_str = codegen_expr(destination, interner);
+            let msg_str = codegen_expr(message, interner, synced_vars);
+            let dest_str = codegen_expr(destination, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.send({}).await.expect(\"Failed to send message\");",
@@ -56321,7 +66062,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Await response from agent
         Stmt::AwaitMessage { source, into } => {
-            let src_str = codegen_expr(source, interner);
+            let src_str = codegen_expr(source, interner, synced_vars);
             let var_name = interner.resolve(*into);
             writeln!(
                 output,
@@ -56332,8 +66073,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49: Merge CRDT state
         Stmt::MergeCrdt { source, target } => {
-            let src_str = codegen_expr(source, interner);
-            let tgt_str = codegen_expr(target, interner);
+            let src_str = codegen_expr(source, interner, synced_vars);
+            let tgt_str = codegen_expr(target, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.merge(&{});",
@@ -56342,10 +66083,28 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 49: Increment GCounter
+        // Phase 52: If object is synced, wrap in .mutate() for auto-publish
         Stmt::IncreaseCrdt { object, field, amount } => {
-            let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr(amount, interner);
+            let amount_str = codegen_expr(amount, interner, synced_vars);
+
+            // Check if the root object is synced
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    // Synced: use .mutate() for auto-publish
+                    let obj_name = interner.resolve(sym);
+                    writeln!(
+                        output,
+                        "{}{}.mutate(|inner| inner.{}.increment({} as u64)).await;",
+                        indent_str, obj_name, field_name, amount_str
+                    ).unwrap();
+                    return output;
+                }
+            }
+
+            // Not synced: direct access
+            let obj_str = codegen_expr(object, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.{}.increment({} as u64);",
@@ -56357,15 +66116,25 @@ pub fn codegen_stmt<'a>(
     output
 }
 
-pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
+/// Phase 52: Extract the root identifier from an expression.
+/// For `x.field.subfield`, returns `x`.
+fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => get_root_identifier(object),
+        _ => None,
+    }
+}
+
+pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
     match expr {
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
         Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
 
         Expr::BinaryOp { op, left, right } => {
-            let left_str = codegen_expr(left, interner);
-            let right_str = codegen_expr(right, interner);
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -56386,83 +66155,94 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 
         Expr::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
             format!("{}({})", func_name, args_str.join(", "))
         }
 
         Expr::Index { collection, index } => {
-            let coll_str = codegen_expr(collection, interner);
-            let index_str = codegen_expr(index, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
             // Phase 43D: 1-based indexing with runtime bounds check
             format!("logos_index(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
-            let coll_str = codegen_expr(collection, interner);
-            let start_str = codegen_expr(start, interner);
-            let end_str = codegen_expr(end, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let start_str = codegen_expr(start, interner, synced_vars);
+            let end_str = codegen_expr(end, interner, synced_vars);
             // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
             // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
             format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
         }
 
         Expr::Copy { expr } => {
-            let expr_str = codegen_expr(expr, interner);
+            let expr_str = codegen_expr(expr, interner, synced_vars);
             // Phase 43D: Explicit clone to owned Vec
             format!("{}.to_vec()", expr_str)
         }
 
         Expr::Length { collection } => {
-            let coll_str = codegen_expr(collection, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
         }
 
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
-            let zone_str = codegen_expr(zone, interner);
+            let zone_str = codegen_expr(zone, interner, synced_vars);
             format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
         }
 
         Expr::ChunkAt { index, zone } => {
-            let zone_str = codegen_expr(zone, interner);
-            let index_str = codegen_expr(index, interner);
+            let zone_str = codegen_expr(zone, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
             // LOGOS uses 1-indexed, Rust uses 0-indexed
             format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| codegen_expr(i, interner))
+                .map(|i| codegen_expr(i, interner, synced_vars))
                 .collect();
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Range { start, end } => {
-            let start_str = codegen_expr(start, interner);
-            let end_str = codegen_expr(end, interner);
+            let start_str = codegen_expr(start, interner, synced_vars);
+            let end_str = codegen_expr(end, interner, synced_vars);
             format!("({}..={})", start_str, end_str)
         }
 
         Expr::FieldAccess { object, field } => {
-            let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
+
+            // Phase 52: Check if root object is synced - use .get().await
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    let obj_name = interner.resolve(sym);
+                    return format!("{}.get().await.{}", obj_name, field_name);
+                }
+            }
+
+            let obj_str = codegen_expr(object, interner, synced_vars);
             format!("{}.{}", obj_str, field_name)
         }
 
         Expr::New { type_name, type_args, init_fields } => {
             let type_str = interner.resolve(*type_name);
             if !init_fields.is_empty() {
-                // Struct initialization with fields: Point { x: 10, y: 20 }
+                // Struct initialization with fields: Point { x: 10, y: 20, ..Default::default() }
+                // Always add ..Default::default() to handle partial initialization (e.g., CRDT fields)
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
-                        let value_str = codegen_expr(value, interner);
+                        let value_str = codegen_expr(value, interner, synced_vars);
                         format!("{}: {}", field_name, value_str)
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{} {{ {} }}", type_str, fields_str)
+                format!("{} {{ {}, ..Default::default() }}", type_str, fields_str)
             } else if type_args.is_empty() {
                 format!("{}::default()", type_str)
             } else {
@@ -56486,7 +66266,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 let fields_str: Vec<String> = fields.iter()
                     .map(|(field_name, value)| {
                         let name = interner.resolve(*field_name);
-                        let val = codegen_expr(value, interner);
+                        let val = codegen_expr(value, interner, synced_vars);
                         format!("{}: {}", name, val)
                     })
                     .collect();
@@ -56555,21 +66335,24 @@ mod tests {
     #[test]
     fn test_literal_number() {
         let interner = Interner::new();
+        let synced_vars = HashSet::new();
         let expr = Expr::Literal(Literal::Number(42));
-        assert_eq!(codegen_expr(&expr, &interner), "42");
+        assert_eq!(codegen_expr(&expr, &interner, &synced_vars), "42");
     }
 
     #[test]
     fn test_literal_boolean() {
         let interner = Interner::new();
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(true)), &interner), "true");
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(false)), &interner), "false");
+        let synced_vars = HashSet::new();
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(true)), &interner, &synced_vars), "true");
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(false)), &interner, &synced_vars), "false");
     }
 
     #[test]
     fn test_literal_nothing() {
         let interner = Interner::new();
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Nothing), &interner), "()");
+        let synced_vars = HashSet::new();
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Nothing), &interner, &synced_vars), "()");
     }
 }
 
@@ -56607,7 +66390,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -56626,13 +66409,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -56678,7 +66463,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -56693,13 +66478,15 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -56747,7 +66534,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -56764,13 +66551,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -56820,7 +66609,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -56969,7 +66758,17 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
     let codegen_registry = type_registry.clone();
 
-    // Tokenize the main file
+    // Phase 50: Also discover policies from the main file
+    // (discover_with_imports doesn't handle policies yet, so we do a separate pass)
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+    let policy_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run_full().policies
+    };
+    let codegen_policies = policy_registry.clone();
+
+    // Re-tokenize for parsing (interner may have been modified)
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
@@ -56999,7 +66798,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     // Pass 2: Parse with type context (includes imported types)
     let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -58644,6 +68443,29 @@ impl<'a> Interpreter<'a> {
             Stmt::IncreaseCrdt { .. } => {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
             }
+
+            // Phase 50: Security Check - not supported in interpreter (compile-only)
+            Stmt::Check { .. } => {
+                Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            // Phase 51: P2P Networking - not supported in interpreter (compile-only)
+            Stmt::Listen { .. } => {
+                Err("Listen is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::ConnectTo { .. } => {
+                Err("Connect is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::LetPeerAgent { .. } => {
+                Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::Sleep { .. } => {
+                Err("Sleep is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            // Phase 52: Sync is not supported in interpreter (compile-only)
+            Stmt::Sync { .. } => {
+                Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 
@@ -58802,6 +68624,13 @@ impl<'a> Interpreter<'a> {
 
             Expr::New { type_name, init_fields, .. } => {
                 let name = self.interner.resolve(*type_name).to_string();
+
+                // Check if this is a collection type (Seq or List)
+                if name == "Seq" || name == "List" {
+                    return Ok(RuntimeValue::List(vec![]));
+                }
+
+                // Otherwise create a struct
                 let mut fields = HashMap::new();
                 for (field_sym, field_expr) in init_fields {
                     let field_name = self.interner.resolve(*field_sym).to_string();
@@ -59137,239 +68966,122 @@ pub struct InterpreterResult {
 Additional source module.
 
 ```rust
-//! State management for the integrated Learn page.
+//! Tab & Focus State Management for Learn Page
 //!
-//! This module provides state types for:
-//! - Tab navigation within modules (LESSON | EXAMPLES | PRACTICE | TEST)
-//! - Focus mode (collapse other eras when one is expanded)
-//! - Module expansion state
+//! Manages the state for the integrated learn page experience:
+//! - Tab modes (Lesson, Examples, Practice, Test)
+//! - Focus state (which era/module is expanded)
+//! - Exercise navigation within modes
 
-use serde::{Deserialize, Serialize};
-
-// ═══════════════════════════════════════════════════════════════════
-// Tab Mode
-// ═══════════════════════════════════════════════════════════════════
-
-/// The available tabs within a module section
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// The four tab modes available for each module
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabMode {
-    /// Reading content from lesson.md
     #[default]
     Lesson,
-    /// Interactive code blocks with symbol dictionary
     Examples,
-    /// Infinite flashcard mode, earn XP per correct answer
     Practice,
-    /// 17-question assessment with final score
     Test,
 }
 
 impl TabMode {
-    /// Get the display label for this tab
+    /// Get display label for the tab
     pub fn label(&self) -> &'static str {
         match self {
             TabMode::Lesson => "LESSON",
             TabMode::Examples => "EXAMPLES",
-            TabMode::Practice => "PRACTICE \u{221E}",  // ∞ infinity symbol
-            TabMode::Test => "TEST \u{1F4DD}",          // 📝 memo emoji
+            TabMode::Practice => "PRACTICE",
+            TabMode::Test => "TEST",
         }
     }
 
-    /// Get all tab modes in display order
+    /// Get all tab modes in order
     pub fn all() -> [TabMode; 4] {
         [TabMode::Lesson, TabMode::Examples, TabMode::Practice, TabMode::Test]
     }
-
-    /// Check if this is a practice or test mode (earns XP)
-    pub fn is_exercise_mode(&self) -> bool {
-        matches!(self, TabMode::Practice | TabMode::Test)
-    }
-
-    /// Check if hints are allowed in this mode
-    pub fn allows_hints(&self) -> bool {
-        !matches!(self, TabMode::Test)
-    }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Module Tab State
-// ═══════════════════════════════════════════════════════════════════
-
-/// State for a single module's tab navigation and exercise progress
-#[derive(Debug, Clone)]
+/// State for a single module's tab interface
+#[derive(Debug, Clone, Default)]
 pub struct ModuleTabState {
-    /// The module ID this state belongs to
     pub module_id: String,
-    /// Currently selected tab
     pub current_tab: TabMode,
-    /// Current exercise index (for Practice/Test modes)
     pub exercise_index: usize,
-    /// Whether the current exercise has been submitted
     pub submitted: bool,
-    /// User's answer for the current exercise
-    pub user_answer: Option<String>,
-    /// Combo counter for Practice mode
-    pub combo: u32,
-    /// Session statistics
-    pub session_correct: u32,
-    pub session_wrong: u32,
 }
 
 impl ModuleTabState {
-    /// Create a new module tab state
     pub fn new(module_id: &str) -> Self {
         Self {
             module_id: module_id.to_string(),
             current_tab: TabMode::Lesson,
             exercise_index: 0,
             submitted: false,
-            user_answer: None,
-            combo: 0,
-            session_correct: 0,
-            session_wrong: 0,
         }
     }
 
-    /// Switch to a different tab, resetting exercise state if changing tabs
-    pub fn set_tab(&mut self, tab: TabMode) {
-        if self.current_tab != tab {
-            self.current_tab = tab;
-            self.exercise_index = 0;
-            self.submitted = false;
-            self.user_answer = None;
-            // Reset combo when leaving Practice mode
-            if !matches!(tab, TabMode::Practice) {
-                self.combo = 0;
-            }
-        }
-    }
-
-    /// Move to the next exercise
-    pub fn next_exercise(&mut self) {
-        self.exercise_index += 1;
-        self.submitted = false;
-        self.user_answer = None;
-    }
-
-    /// Record an answer result
-    pub fn record_answer(&mut self, correct: bool) {
-        self.submitted = true;
-        if correct {
-            self.session_correct += 1;
-            self.combo += 1;
-        } else {
-            self.session_wrong += 1;
-            self.combo = 0;
-        }
-    }
-
-    /// Get session accuracy as a percentage
-    pub fn accuracy(&self) -> f64 {
-        let total = self.session_correct + self.session_wrong;
-        if total == 0 {
-            0.0
-        } else {
-            (self.session_correct as f64 / total as f64) * 100.0
-        }
-    }
-
-    /// Reset session statistics
-    pub fn reset_session(&mut self) {
-        self.session_correct = 0;
-        self.session_wrong = 0;
-        self.combo = 0;
+    /// Switch to a new tab, resetting exercise state
+    pub fn switch_tab(&mut self, tab: TabMode) {
+        self.current_tab = tab;
         self.exercise_index = 0;
         self.submitted = false;
-        self.user_answer = None;
+    }
+
+    /// Reset exercise state without changing tab
+    pub fn reset_exercise(&mut self) {
+        self.exercise_index = 0;
+        self.submitted = false;
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Focus State
-// ═══════════════════════════════════════════════════════════════════
-
-/// State for focus mode - which era/module is expanded
+/// Tracks which era is currently focused (expanded)
 #[derive(Debug, Clone, Default)]
 pub struct FocusState {
-    /// Currently focused era (if any)
+    /// The currently focused era (None = no focus, all eras visible)
     pub focused_era: Option<String>,
-    /// Currently focused module within the era (if any)
-    pub focused_module: Option<String>,
+    /// The currently expanded module within the focused era
+    pub expanded_module: Option<(String, String)>, // (era_id, module_id)
 }
 
 impl FocusState {
-    /// Create a new focus state with nothing focused
     pub fn new() -> Self {
-        Self {
-            focused_era: None,
-            focused_module: None,
-        }
+        Self::default()
     }
 
-    /// Check if any era is focused
-    pub fn is_focused(&self) -> bool {
-        self.focused_era.is_some()
-    }
-
-    /// Set focus to a specific era
-    pub fn set_focus(&mut self, era_id: &str) {
+    /// Focus on a specific era
+    pub fn focus_era(&mut self, era_id: &str) {
         self.focused_era = Some(era_id.to_string());
-        self.focused_module = None;
     }
 
-    /// Toggle focus on an era - if already focused, clear; otherwise focus
-    pub fn toggle_focus(&mut self, era_id: &str) {
-        if self.focused_era.as_deref() == Some(era_id) {
-            self.focused_era = None;
-            self.focused_module = None;
-        } else {
-            self.focused_era = Some(era_id.to_string());
-            self.focused_module = None;
-        }
+    /// Expand a module within an era
+    pub fn expand_module(&mut self, era_id: &str, module_id: &str) {
+        self.focused_era = Some(era_id.to_string());
+        self.expanded_module = Some((era_id.to_string(), module_id.to_string()));
     }
 
-    /// Clear all focus
-    pub fn clear_focus(&mut self) {
+    /// Collapse the current module (but keep era focused)
+    pub fn collapse_module(&mut self) {
+        self.expanded_module = None;
+    }
+
+    /// Unfocus completely (show all eras)
+    pub fn unfocus(&mut self) {
         self.focused_era = None;
-        self.focused_module = None;
+        self.expanded_module = None;
     }
 
-    /// Check if a specific era is visible (not hidden by focus mode)
+    /// Check if a specific era is visible (either focused or no focus)
     pub fn is_era_visible(&self, era_id: &str) -> bool {
         match &self.focused_era {
-            None => true, // No focus means all visible
+            None => true,
             Some(focused) => focused == era_id,
         }
     }
 
-    /// Set focus to a specific module within an era
-    pub fn set_focus_module(&mut self, era_id: &str, module_id: &str) {
-        self.focused_era = Some(era_id.to_string());
-        self.focused_module = Some(module_id.to_string());
-    }
-
-    /// Toggle focus on a module - if already focused, clear; otherwise focus
-    pub fn toggle_focus_module(&mut self, era_id: &str, module_id: &str) {
-        if self.is_module_focused(era_id, module_id) {
-            self.focused_module = None;
-        } else {
-            self.focused_era = Some(era_id.to_string());
-            self.focused_module = Some(module_id.to_string());
-        }
-    }
-
-    /// Check if a specific module is focused
-    pub fn is_module_focused(&self, era_id: &str, module_id: &str) -> bool {
-        self.focused_era.as_deref() == Some(era_id)
-            && self.focused_module.as_deref() == Some(module_id)
-    }
-
-    /// Check if a module is expanded (either focused or in a focused era with no module focus)
+    /// Check if a specific module is expanded
     pub fn is_module_expanded(&self, era_id: &str, module_id: &str) -> bool {
-        match (&self.focused_era, &self.focused_module) {
-            (None, _) => false, // Nothing focused = nothing expanded
-            (Some(e), None) => e == era_id, // Era focused, all modules in era are "semi-expanded"
-            (Some(e), Some(m)) => e == era_id && m == module_id, // Specific module focused
+        match &self.expanded_module {
+            None => false,
+            Some((e, m)) => e == era_id && m == module_id,
         }
     }
 }
@@ -59379,43 +69091,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tab_mode_is_exercise_mode() {
-        assert!(!TabMode::Lesson.is_exercise_mode());
-        assert!(!TabMode::Examples.is_exercise_mode());
-        assert!(TabMode::Practice.is_exercise_mode());
-        assert!(TabMode::Test.is_exercise_mode());
+    fn test_tab_modes_all_four_exist() {
+        let tabs = TabMode::all();
+        assert_eq!(tabs.len(), 4);
+        assert_eq!(tabs[0], TabMode::Lesson);
+        assert_eq!(tabs[1], TabMode::Examples);
+        assert_eq!(tabs[2], TabMode::Practice);
+        assert_eq!(tabs[3], TabMode::Test);
     }
 
     #[test]
-    fn test_tab_mode_allows_hints() {
-        assert!(TabMode::Lesson.allows_hints());
-        assert!(TabMode::Examples.allows_hints());
-        assert!(TabMode::Practice.allows_hints());
-        assert!(!TabMode::Test.allows_hints());
+    fn test_initial_tab_is_lesson() {
+        let state = ModuleTabState::new("test-module");
+        assert_eq!(state.current_tab, TabMode::Lesson);
     }
 
     #[test]
-    fn test_module_tab_state_accuracy() {
-        let mut state = ModuleTabState::new("test");
-        assert_eq!(state.accuracy(), 0.0);
+    fn test_tab_switch_resets_exercise_index() {
+        let mut state = ModuleTabState::new("test-module");
+        state.exercise_index = 5;
+        state.submitted = true;
 
-        state.record_answer(true);
-        state.record_answer(true);
-        state.record_answer(false);
-        assert!((state.accuracy() - 66.67).abs() < 0.1);
+        state.switch_tab(TabMode::Practice);
+
+        assert_eq!(state.current_tab, TabMode::Practice);
+        assert_eq!(state.exercise_index, 0);
+        assert!(!state.submitted);
     }
 
     #[test]
-    fn test_module_tab_state_combo() {
-        let mut state = ModuleTabState::new("test");
-        state.set_tab(TabMode::Practice);
+    fn test_focus_state_toggles_era() {
+        let mut focus = FocusState::new();
+        assert!(focus.focused_era.is_none());
 
-        state.record_answer(true);
-        assert_eq!(state.combo, 1);
-        state.record_answer(true);
-        assert_eq!(state.combo, 2);
-        state.record_answer(false);
-        assert_eq!(state.combo, 0);
+        focus.focus_era("first-steps");
+        assert_eq!(focus.focused_era, Some("first-steps".to_string()));
+
+        focus.unfocus();
+        assert!(focus.focused_era.is_none());
+    }
+
+    #[test]
+    fn test_is_era_visible_when_focused() {
+        let mut focus = FocusState::new();
+
+        // No focus = all eras visible
+        assert!(focus.is_era_visible("first-steps"));
+        assert!(focus.is_era_visible("mastery"));
+
+        // Focus on one era = only that era visible
+        focus.focus_era("first-steps");
+        assert!(focus.is_era_visible("first-steps"));
+        assert!(!focus.is_era_visible("mastery"));
+    }
+
+    #[test]
+    fn test_module_expansion() {
+        let mut focus = FocusState::new();
+
+        focus.expand_module("first-steps", "introduction");
+        assert!(focus.is_module_expanded("first-steps", "introduction"));
+        assert!(!focus.is_module_expanded("first-steps", "syllogistic"));
+
+        focus.collapse_module();
+        assert!(!focus.is_module_expanded("first-steps", "introduction"));
+        // Era should still be focused
+        assert!(focus.is_era_visible("first-steps"));
     }
 }
 
@@ -60371,166 +70112,128 @@ pub fn clear() {
 Additional source module.
 
 ```rust
-//! Struggle detection for triggering Socratic hints.
+//! Struggle Detection Logic
 //!
-//! The struggle detector monitors user activity and triggers hints when:
-//! - The user has been inactive for 5+ seconds (configurable)
-//! - The user submits a wrong answer
-//!
-//! This implements a gentle pedagogical approach: hints appear when
-//! students need them most, not as punishments but as support.
+//! Detects when a user is struggling with an exercise based on:
+//! - Inactivity (no answer attempt after threshold time)
+//! - Wrong attempts (incorrect answers)
 
-use std::time::Duration;
-
-/// Default inactivity threshold before triggering a hint
-const DEFAULT_INACTIVITY_THRESHOLD: Duration = Duration::from_secs(5);
-
-/// The reason why the user is struggling
+/// Reasons why a user might be struggling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StruggleReason {
-    /// User hasn't typed anything for a while
     Inactivity,
-    /// User submitted an incorrect answer
     WrongAttempt,
 }
 
 impl StruggleReason {
-    /// Get a human-readable message for this reason
+    /// Get a message describing the struggle reason
     pub fn message(&self) -> &'static str {
         match self {
-            StruggleReason::Inactivity => "Taking your time? Here's a hint.",
-            StruggleReason::WrongAttempt => "Not quite. Let me help you.",
+            StruggleReason::Inactivity => "Taking your time? Here's a hint to help you along.",
+            StruggleReason::WrongAttempt => "Not quite! Let me help you think through this.",
         }
     }
 }
 
-/// Detects when a user is struggling and should receive a hint.
-#[derive(Debug, Clone)]
+/// Configuration for struggle detection
+#[derive(Debug, Clone, Copy)]
+pub struct StruggleConfig {
+    /// Seconds of inactivity before considering the user stuck
+    pub inactivity_threshold_secs: u64,
+    /// Number of wrong attempts before showing help
+    pub wrong_attempt_threshold: u32,
+}
+
+impl Default for StruggleConfig {
+    fn default() -> Self {
+        Self {
+            inactivity_threshold_secs: 5,
+            wrong_attempt_threshold: 1,
+        }
+    }
+}
+
+/// Tracks struggle state for an exercise
+#[derive(Debug, Clone, Default)]
 pub struct StruggleDetector {
-    /// Inactivity threshold before triggering
-    threshold: Duration,
-    /// Whether the user is currently struggling
-    is_struggling: bool,
-    /// The reason for struggling (if any)
-    reason: Option<StruggleReason>,
-    /// Number of wrong attempts on current exercise
-    wrong_attempts: u32,
-    /// Whether a hint has been shown for this struggle
-    hint_shown: bool,
+    pub config: StruggleConfig,
+    pub is_struggling: bool,
+    pub reason: Option<StruggleReason>,
+    pub wrong_attempts: u32,
+    pub inactivity_triggered: bool,
 }
 
 impl StruggleDetector {
-    /// Create a new detector with default 5-second threshold
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_config(config: StruggleConfig) -> Self {
         Self {
-            threshold: DEFAULT_INACTIVITY_THRESHOLD,
-            is_struggling: false,
-            reason: None,
-            wrong_attempts: 0,
-            hint_shown: false,
+            config,
+            ..Default::default()
         }
     }
 
-    /// Create a detector with a custom inactivity threshold
-    pub fn with_threshold(threshold: Duration) -> Self {
-        Self {
-            threshold,
-            is_struggling: false,
-            reason: None,
-            wrong_attempts: 0,
-            hint_shown: false,
-        }
-    }
-
-    /// Get the current inactivity threshold
-    pub fn threshold(&self) -> Duration {
-        self.threshold
-    }
-
-    /// Check if the user is currently struggling
-    pub fn is_struggling(&self) -> bool {
-        self.is_struggling
-    }
-
-    /// Get the reason for struggling (if any)
-    pub fn reason(&self) -> Option<StruggleReason> {
-        self.reason
-    }
-
-    /// Get the number of wrong attempts on the current exercise
-    pub fn wrong_attempts(&self) -> u32 {
-        self.wrong_attempts
-    }
-
-    /// Check if a hint has been shown for this struggle
-    pub fn hint_shown(&self) -> bool {
-        self.hint_shown
-    }
-
-    /// Record a period of inactivity
-    ///
-    /// If the duration exceeds the threshold, triggers struggling state.
-    pub fn record_inactivity(&mut self, duration: Duration) {
-        if duration >= self.threshold {
-            self.is_struggling = true;
-            self.reason = Some(StruggleReason::Inactivity);
-        }
-    }
-
-    /// Record that the user did something (typed, clicked, etc.)
-    ///
-    /// This clears inactivity-based struggling but not wrong-attempt struggling.
-    pub fn record_activity(&mut self) {
-        if self.reason == Some(StruggleReason::Inactivity) {
-            self.is_struggling = false;
-            self.reason = None;
-            self.hint_shown = false;
-        }
-    }
-
-    /// Record a wrong answer attempt
+    /// Record a wrong attempt - may trigger struggle state
     pub fn record_wrong_attempt(&mut self) {
         self.wrong_attempts += 1;
-        self.is_struggling = true;
-        self.reason = Some(StruggleReason::WrongAttempt);
-        self.hint_shown = false;
+        if self.wrong_attempts >= self.config.wrong_attempt_threshold {
+            self.is_struggling = true;
+            self.reason = Some(StruggleReason::WrongAttempt);
+        }
     }
 
-    /// Record a correct answer attempt
-    ///
-    /// This clears the struggling state since the user succeeded.
+    /// Record a correct attempt - resets inactivity but keeps struggle state for hints
     pub fn record_correct_attempt(&mut self) {
-        // Correct answers clear struggling but we keep wrong_attempts
-        // for statistics purposes
+        // User got it right - they're no longer struggling
         self.is_struggling = false;
-        self.reason = None;
-        self.hint_shown = false;
+        self.inactivity_triggered = false;
     }
 
-    /// Mark that a hint has been shown to the user
-    pub fn mark_hint_shown(&mut self) {
-        self.hint_shown = true;
+    /// Record user activity (typing, clicking) - resets inactivity timer
+    pub fn record_activity(&mut self) {
+        // Activity resets inactivity detection
+        self.inactivity_triggered = false;
     }
 
-    /// Reset all state for a new exercise
+    /// Called when inactivity threshold is reached
+    pub fn trigger_inactivity(&mut self) {
+        if !self.inactivity_triggered {
+            self.inactivity_triggered = true;
+            self.is_struggling = true;
+            // Only set reason if not already struggling from wrong attempts
+            if self.reason.is_none() {
+                self.reason = Some(StruggleReason::Inactivity);
+            }
+        }
+    }
+
+    /// Reset struggle state (e.g., when moving to next exercise)
     pub fn reset(&mut self) {
         self.is_struggling = false;
         self.reason = None;
         self.wrong_attempts = 0;
-        self.hint_shown = false;
+        self.inactivity_triggered = false;
     }
 
-    /// Check if we should show a hint now
-    ///
-    /// Returns true if struggling and hint hasn't been shown yet.
-    pub fn should_show_hint(&self) -> bool {
-        self.is_struggling && !self.hint_shown
+    /// Check if we should show hints
+    pub fn should_show_hints(&self) -> bool {
+        self.is_struggling
     }
-}
 
-impl Default for StruggleDetector {
-    fn default() -> Self {
-        Self::new()
+    /// Get the current struggle reason
+    pub fn reason(&self) -> Option<StruggleReason> {
+        self.reason
+    }
+
+    /// Get the current struggle reason for display
+    pub fn struggle_message(&self) -> Option<&'static str> {
+        match self.reason {
+            Some(StruggleReason::Inactivity) => Some("Taking your time? Here's a hint to help you along."),
+            Some(StruggleReason::WrongAttempt) => Some("Not quite! Let me help you think through this."),
+            None => None,
+        }
     }
 }
 
@@ -60539,38 +70242,94 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_struggle_reason_messages() {
-        assert!(!StruggleReason::Inactivity.message().is_empty());
-        assert!(!StruggleReason::WrongAttempt.message().is_empty());
+    fn test_no_struggle_initially() {
+        let detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
     }
 
     #[test]
-    fn test_should_show_hint() {
+    fn test_struggle_after_5s_inactivity() {
         let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
 
-        // Initially: not struggling
-        assert!(!detector.should_show_hint());
+        detector.trigger_inactivity();
 
-        // After wrong attempt: should show
-        detector.record_wrong_attempt();
-        assert!(detector.should_show_hint());
-
-        // After hint shown: should not show again
-        detector.mark_hint_shown();
-        assert!(!detector.should_show_hint());
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::Inactivity));
     }
 
     #[test]
-    fn test_activity_only_clears_inactivity_struggle() {
+    fn test_struggle_after_wrong_attempt() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+
+        detector.record_wrong_attempt();
+
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::WrongAttempt));
+    }
+
+    #[test]
+    fn test_reset_clears_struggle() {
+        let mut detector = StruggleDetector::new();
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+
+        detector.reset();
+
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
+        assert_eq!(detector.wrong_attempts, 0);
+    }
+
+    #[test]
+    fn test_configurable_threshold() {
+        let config = StruggleConfig {
+            inactivity_threshold_secs: 10,
+            wrong_attempt_threshold: 2,
+        };
+        let mut detector = StruggleDetector::with_config(config);
+
+        // First wrong attempt shouldn't trigger with threshold of 2
+        detector.record_wrong_attempt();
+        assert!(!detector.is_struggling);
+
+        // Second wrong attempt should trigger
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+    }
+
+    #[test]
+    fn test_inactivity_only_triggers_once() {
         let mut detector = StruggleDetector::new();
 
-        // Wrong attempt struggle should NOT be cleared by activity
-        detector.record_wrong_attempt();
-        assert!(detector.is_struggling());
+        detector.trigger_inactivity();
+        assert!(detector.inactivity_triggered);
 
-        detector.record_activity();
-        // Still struggling because it was wrong-attempt, not inactivity
-        assert!(detector.is_struggling());
+        // Triggering again shouldn't change the reason
+        detector.reason = None;
+        detector.trigger_inactivity();
+        assert!(detector.reason.is_none()); // Didn't set it again
+    }
+
+    #[test]
+    fn test_should_show_hints() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.should_show_hints());
+
+        detector.record_wrong_attempt();
+        assert!(detector.should_show_hints());
+    }
+
+    #[test]
+    fn test_struggle_message() {
+        let mut detector = StruggleDetector::new();
+        assert!(detector.struggle_message().is_none());
+
+        detector.trigger_inactivity();
+        assert!(detector.struggle_message().is_some());
+        assert!(detector.struggle_message().unwrap().contains("hint"));
     }
 }
 
@@ -60585,35 +70344,28 @@ mod tests {
 Additional source module.
 
 ```rust
-//! Symbol Dictionary extraction from First-Order Logic output.
+//! Symbol Dictionary Extraction
 //!
-//! This module parses FOL strings and extracts symbols with their meanings,
-//! allowing the UI to display a "Symbol Dictionary" that helps students
-//! understand the notation.
+//! Extracts logical symbols from FOL strings for display in a symbol dictionary.
+//! Groups symbols by kind and provides descriptions.
 
 use std::collections::HashSet;
 
-/// The category of a logical symbol
+/// Categories of logical symbols
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
-    /// ∀, ∃ - quantifiers
     Quantifier,
-    /// ∧, ∨, →, ↔, ¬ - logical connectives
     Connective,
-    /// x, y, z - bound variables
     Variable,
-    /// Dog, Bark, Loves - predicate symbols
     Predicate,
-    /// J, M, S - individual constants (named entities)
     Constant,
-    /// □, ◇ - modal necessity/possibility
     Modal,
-    /// ○, G, F, H, P - temporal operators (future, past, etc.)
+    Identity,
+    Punctuation,
     Temporal,
 }
 
 impl SymbolKind {
-    /// Get a display label for this kind
     pub fn label(&self) -> &'static str {
         match self {
             SymbolKind::Quantifier => "Quantifier",
@@ -60622,215 +70374,245 @@ impl SymbolKind {
             SymbolKind::Predicate => "Predicate",
             SymbolKind::Constant => "Constant",
             SymbolKind::Modal => "Modal",
+            SymbolKind::Identity => "Identity",
+            SymbolKind::Punctuation => "Punctuation",
             SymbolKind::Temporal => "Temporal",
         }
     }
 }
 
-/// A single entry in the symbol dictionary
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A single symbol entry in the dictionary
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolEntry {
-    /// The symbol itself (e.g., "∀", "Dog", "x")
     pub symbol: String,
-    /// The category of the symbol
     pub kind: SymbolKind,
-    /// Human-readable description of what it means
     pub description: String,
 }
 
-/// Extract all unique symbols from a First-Order Logic string.
-///
-/// # Arguments
-/// * `logic` - A FOL formula string (e.g., "∀x(Dog(x) → Bark(x))")
-///
-/// # Returns
-/// A vector of `SymbolEntry` items, one for each unique symbol found.
-/// Duplicates are automatically removed.
+/// Extract symbols from a FOL logic string
 pub fn extract_symbols(logic: &str) -> Vec<SymbolEntry> {
+    let mut entries = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    let mut symbols: Vec<SymbolEntry> = Vec::new();
 
-    let mut chars = logic.chars().peekable();
+    // Quantifiers
+    if logic.contains("∀") && seen.insert("∀".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∀".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Universal quantifier: \"for all\"".to_string(),
+        });
+    }
+    if logic.contains("∃") && seen.insert("∃".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Existential quantifier: \"there exists\"".to_string(),
+        });
+    }
+    if logic.contains("∃!") && seen.insert("∃!".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃!".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Unique existence: \"there exists exactly one\"".to_string(),
+        });
+    }
+    if logic.contains("MOST") && seen.insert("MOST".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "MOST".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"most\"".to_string(),
+        });
+    }
+    if logic.contains("FEW") && seen.insert("FEW".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "FEW".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"few\"".to_string(),
+        });
+    }
 
-    while let Some(c) = chars.next() {
-        let entry = match c {
-            // ═══════════════════════════════════════════════════════════════
-            // Quantifiers
-            // ═══════════════════════════════════════════════════════════════
-            '∀' | '\u{2200}' => Some(SymbolEntry {
-                symbol: "∀".to_string(),
-                kind: SymbolKind::Quantifier,
-                description: "Universal quantifier: \"for all\"".to_string(),
-            }),
-            '∃' | '\u{2203}' => Some(SymbolEntry {
-                symbol: "∃".to_string(),
-                kind: SymbolKind::Quantifier,
-                description: "Existential quantifier: \"there exists\"".to_string(),
-            }),
+    // Connectives
+    if logic.contains("∧") && seen.insert("∧".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∧".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Conjunction: \"and\"".to_string(),
+        });
+    }
+    if logic.contains("∨") && seen.insert("∨".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∨".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Disjunction: \"or\"".to_string(),
+        });
+    }
+    if logic.contains("→") && seen.insert("→".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "→".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Implication: \"if...then\"".to_string(),
+        });
+    }
+    if logic.contains("↔") && seen.insert("↔".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "↔".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Biconditional: \"if and only if\"".to_string(),
+        });
+    }
+    if logic.contains("¬") && seen.insert("¬".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "¬".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Negation: \"not\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Connectives
-            // ═══════════════════════════════════════════════════════════════
-            '¬' | '\u{00AC}' => Some(SymbolEntry {
-                symbol: "¬".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Negation: \"not\"".to_string(),
-            }),
-            '∧' | '\u{2227}' => Some(SymbolEntry {
-                symbol: "∧".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Conjunction: \"and\"".to_string(),
-            }),
-            '∨' | '\u{2228}' => Some(SymbolEntry {
-                symbol: "∨".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Disjunction: \"or\"".to_string(),
-            }),
-            '→' | '\u{2192}' => Some(SymbolEntry {
-                symbol: "→".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Implication: \"if...then\"".to_string(),
-            }),
-            '↔' | '\u{2194}' => Some(SymbolEntry {
-                symbol: "↔".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Biconditional: \"if and only if\"".to_string(),
-            }),
-            '⊃' | '\u{2283}' => Some(SymbolEntry {
-                symbol: "⊃".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Material conditional: \"if...then\" (horseshoe)".to_string(),
-            }),
-            '≡' | '\u{2261}' => Some(SymbolEntry {
-                symbol: "≡".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Material equivalence: \"if and only if\"".to_string(),
-            }),
+    // Modal operators
+    if logic.contains("□") && seen.insert("□".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "□".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Necessity: \"it is necessary that\"".to_string(),
+        });
+    }
+    if logic.contains("◇") && seen.insert("◇".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "◇".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Possibility: \"it is possible that\"".to_string(),
+        });
+    }
+    if logic.contains("O_") && seen.insert("O".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "O".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Deontic obligation: \"it ought to be that\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Modal Operators
-            // ═══════════════════════════════════════════════════════════════
-            '□' | '\u{25A1}' | '\u{25FB}' => Some(SymbolEntry {
-                symbol: "□".to_string(),
-                kind: SymbolKind::Modal,
-                description: "Necessity: \"necessarily\" or \"it must be that\"".to_string(),
-            }),
-            '◇' | '\u{25C7}' | '\u{25CA}' => Some(SymbolEntry {
-                symbol: "◇".to_string(),
-                kind: SymbolKind::Modal,
-                description: "Possibility: \"possibly\" or \"it might be that\"".to_string(),
-            }),
+    // Identity
+    if logic.contains(" = ") && seen.insert("=".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "=".to_string(),
+            kind: SymbolKind::Identity,
+            description: "Identity: \"is identical to\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Variables (lowercase single letters)
-            // ═══════════════════════════════════════════════════════════════
-            c if c.is_ascii_lowercase() => {
-                // Check if standalone variable (not part of a word)
-                let is_standalone = chars.peek().map_or(true, |next| {
-                    !next.is_alphanumeric()
-                });
+    // Extract predicates (uppercase letters followed by parenthesis)
+    extract_predicates(logic, &mut entries, &mut seen);
 
-                if is_standalone {
-                    Some(SymbolEntry {
-                        symbol: c.to_string(),
-                        kind: SymbolKind::Variable,
-                        description: format!("Variable: bound by a quantifier"),
-                    })
-                } else {
-                    None
-                }
+    // Extract variables (lowercase x, y, z, etc.)
+    extract_variables(logic, &mut entries, &mut seen);
+
+    // Extract constants (uppercase single letters not followed by parenthesis)
+    extract_constants(logic, &mut entries, &mut seen);
+
+    entries
+}
+
+fn extract_predicates(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Match patterns like "Dog(", "Mortal(", "Loves("
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
             }
-
-            // ═══════════════════════════════════════════════════════════════
-            // Predicates and Constants (uppercase)
-            // ═══════════════════════════════════════════════════════════════
-            c if c.is_ascii_uppercase() => {
-                // Collect the full word
-                let mut word = String::from(c);
-                while let Some(&next) = chars.peek() {
-                    if next.is_alphanumeric() || next == '_' {
-                        word.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-
-                // Check if followed by parenthesis (predicate) or not (constant)
-                let is_predicate = chars.peek() == Some(&'(');
-
-                if is_predicate {
-                    Some(SymbolEntry {
-                        symbol: word.clone(),
+            if i < chars.len() && chars[i] == '(' {
+                let predicate: String = chars[start..i].iter().collect();
+                if seen.insert(format!("pred_{}", predicate)) {
+                    entries.push(SymbolEntry {
+                        symbol: predicate.clone(),
                         kind: SymbolKind::Predicate,
-                        description: format!("Predicate: {}", humanize_predicate(&word)),
-                    })
-                } else {
-                    // Single uppercase letter is typically a constant
-                    Some(SymbolEntry {
-                        symbol: word.clone(),
-                        kind: SymbolKind::Constant,
-                        description: format!("Constant: individual named \"{}\"", word),
-                    })
+                        description: format!("Predicate: {}", predicate),
+                    });
                 }
             }
+        }
+        i += 1;
+    }
+}
 
-            _ => None,
-        };
-
-        if let Some(e) = entry {
-            if !seen.contains(&e.symbol) {
-                seen.insert(e.symbol.clone());
-                symbols.push(e);
+fn extract_variables(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Variables are lowercase letters typically x, y, z, w
+    for var in ['x', 'y', 'z', 'w', 'e'] {
+        let var_str = var.to_string();
+        // Check if variable appears in context (not as part of a word)
+        if logic.contains(&format!("({})", var))
+            || logic.contains(&format!("({},", var))
+            || logic.contains(&format!(", {})", var))
+            || logic.contains(&format!("{}.", var))
+            || logic.contains(&format!(" {}", var))
+        {
+            if seen.insert(format!("var_{}", var)) {
+                entries.push(SymbolEntry {
+                    symbol: var_str,
+                    kind: SymbolKind::Variable,
+                    description: "Bound variable".to_string(),
+                });
             }
         }
     }
-
-    symbols
 }
 
-/// Convert a predicate name to a more human-readable form
-fn humanize_predicate(name: &str) -> String {
-    // Handle common patterns
-    match name {
-        "D" => "is a dog".to_string(),
-        "C" => "is a cat".to_string(),
-        "B" => "barks".to_string(),
-        "M" => "is a man / is mortal".to_string(),
-        "W" => "is a woman / walks".to_string(),
-        "L" => "loves".to_string(),
-        "R" => "runs".to_string(),
-        "S" => "sleeps / is a student".to_string(),
-        "P" => "is a property".to_string(),
-        "Q" => "is a property".to_string(),
-        _ if name.len() == 1 => format!("property {}", name),
-        _ => format!("\"{}\"", name.to_lowercase()),
+fn extract_constants(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Constants are uppercase letters like J (John), M (Mary), etc.
+    // But not predicates (followed by parenthesis)
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            // Collect the full name (may have numbers like J2)
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric()) {
+                i += 1;
+            }
+            // Check if NOT followed by parenthesis (would be predicate)
+            if i >= chars.len() || chars[i] != '(' {
+                let constant: String = chars[start..i].iter().collect();
+                // Skip very long names (likely predicates) and known quantifiers
+                if constant.len() <= 3
+                    && !["MOST", "FEW", "ALL", "THE"].contains(&constant.as_str())
+                    && seen.insert(format!("const_{}", constant))
+                {
+                    entries.push(SymbolEntry {
+                        symbol: constant.clone(),
+                        kind: SymbolKind::Constant,
+                        description: format!("Constant: {}", constant),
+                    });
+                }
+            }
+        }
+        i += 1;
     }
 }
 
-/// Group symbols by their kind for display
-pub fn group_symbols_by_kind(symbols: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
+/// Get symbols grouped by kind for display
+pub fn group_symbols_by_kind(entries: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
     let kinds = [
         SymbolKind::Quantifier,
         SymbolKind::Connective,
         SymbolKind::Modal,
+        SymbolKind::Identity,
         SymbolKind::Predicate,
         SymbolKind::Variable,
         SymbolKind::Constant,
-        SymbolKind::Temporal,
     ];
 
     kinds
         .iter()
         .filter_map(|&kind| {
-            let entries: Vec<&SymbolEntry> = symbols
-                .iter()
-                .filter(|s| s.kind == kind)
-                .collect();
-
-            if entries.is_empty() {
+            let matching: Vec<_> = entries.iter().filter(|e| e.kind == kind).collect();
+            if matching.is_empty() {
                 None
             } else {
-                Some((kind, entries))
+                Some((kind, matching))
             }
         })
         .collect()
@@ -60841,35 +70623,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_humanize_predicate_single_letter() {
-        assert!(humanize_predicate("D").contains("dog"));
-        assert!(humanize_predicate("L").contains("loves"));
+    fn test_extract_quantifier_symbols() {
+        let logic = "∀x(Dog(x) → Mortal(x))";
+        let symbols = extract_symbols(logic);
+
+        let quantifiers: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Quantifier).collect();
+        assert!(quantifiers.iter().any(|s| s.symbol == "∀"), "Should find universal quantifier");
     }
 
     #[test]
-    fn test_humanize_predicate_word() {
-        assert!(humanize_predicate("Dog").contains("dog"));
-        assert!(humanize_predicate("Loves").contains("loves"));
+    fn test_extract_existential() {
+        let logic = "∃x(Cat(x) ∧ Black(x))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "∃"), "Should find existential quantifier");
+    }
+
+    #[test]
+    fn test_extract_connective_symbols() {
+        let logic = "∀x(Dog(x) → (Loyal(x) ∧ Friendly(x)))";
+        let symbols = extract_symbols(logic);
+
+        let connectives: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Connective).collect();
+        assert!(connectives.iter().any(|s| s.symbol == "∧"), "Should find conjunction");
+        assert!(connectives.iter().any(|s| s.symbol == "→"), "Should find implication");
+    }
+
+    #[test]
+    fn test_extract_predicate_names() {
+        let logic = "∀x(Dog(x) → Mammal(x))";
+        let symbols = extract_symbols(logic);
+
+        let predicates: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Predicate).collect();
+        assert!(predicates.iter().any(|s| s.symbol == "Dog"), "Should find Dog predicate");
+        assert!(predicates.iter().any(|s| s.symbol == "Mammal"), "Should find Mammal predicate");
+    }
+
+    #[test]
+    fn test_extract_variable_names() {
+        let logic = "∀x∃y(Loves(x, y))";
+        let symbols = extract_symbols(logic);
+
+        let variables: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Variable).collect();
+        assert!(variables.iter().any(|s| s.symbol == "x"), "Should find variable x");
+        assert!(variables.iter().any(|s| s.symbol == "y"), "Should find variable y");
+    }
+
+    #[test]
+    fn test_no_duplicate_symbols() {
+        let logic = "∀x(Dog(x) → Dog(x))";
+        let symbols = extract_symbols(logic);
+
+        let dog_count = symbols.iter().filter(|s| s.symbol == "Dog").count();
+        assert_eq!(dog_count, 1, "Should not have duplicate predicates");
+    }
+
+    #[test]
+    fn test_symbol_has_description() {
+        let logic = "∀x(P(x))";
+        let symbols = extract_symbols(logic);
+
+        for symbol in &symbols {
+            assert!(!symbol.description.is_empty(), "Every symbol should have a description");
+        }
+    }
+
+    #[test]
+    fn test_modal_symbols() {
+        let logic = "□(P(x)) ∧ ◇(Q(y))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "□"), "Should find necessity operator");
+        assert!(symbols.iter().any(|s| s.symbol == "◇"), "Should find possibility operator");
     }
 
     #[test]
     fn test_group_symbols_by_kind() {
-        let symbols = extract_symbols("∀x(D(x) ∧ B(x))");
+        let logic = "∀x(Dog(x) → ∃y(Loves(x, y)))";
+        let symbols = extract_symbols(logic);
         let grouped = group_symbols_by_kind(&symbols);
 
-        assert!(!grouped.is_empty());
+        // Should have multiple groups
+        assert!(!grouped.is_empty(), "Should have grouped symbols");
 
-        // Find quantifiers group
-        let quantifiers = grouped.iter()
-            .find(|(k, _)| *k == SymbolKind::Quantifier);
-        assert!(quantifiers.is_some());
-    }
-
-    #[test]
-    fn test_symbol_kind_labels() {
-        assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
-        assert_eq!(SymbolKind::Connective.label(), "Connective");
-        assert_eq!(SymbolKind::Modal.label(), "Modal");
+        // Check quantifiers group exists
+        assert!(grouped.iter().any(|(k, _)| *k == SymbolKind::Quantifier), "Should have quantifier group");
     }
 }
 
@@ -60884,181 +70722,41 @@ mod tests {
 Additional source module.
 
 ```rust
-//! Module unlock logic for the Logicaffeine curriculum.
+//! Module Unlock Logic
 //!
-//! # Unlock Rules
-//!
-//! 1. **First module** in each era is always unlocked
-//! 2. **Sequential unlock**: A module unlocks when the previous module is completed
-//! 3. **Last two restriction**: The last 2 modules in each era remain locked until
-//!    at least one module in that era is 100% complete
-//!
-//! # Module States
-//!
-//! - `Locked`: Cannot access (prerequisites not met)
-//! - `Available`: Can start (unlocked but not started)
-//! - `Started`: In progress (some exercises done)
-//! - `Progressing`: 50-99% complete
-//! - `Mastered`: 100% complete
-//! - `Perfected`: 100% complete with 90%+ accuracy
+//! Rules:
+//! - First module in each era is always unlocked
+//! - Subsequent modules unlock when the previous module is completed
+//! - Last two modules in each era are locked until at least one module has 100% completion
 
 use crate::content::ContentEngine;
-use crate::progress::{ModuleProgress, UserProgress};
+use crate::progress::UserProgress;
 
-/// The state of a module for display purposes
+/// State of a module for the user
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleState {
-    /// Cannot access - prerequisites not met
+    /// Module is locked and cannot be accessed
     Locked,
-    /// Can start - unlocked but not started
+    /// Module is unlocked but not started
     Available,
-    /// In progress - some exercises done (1-49%)
+    /// Module has been started (score < 50%)
     Started,
-    /// Making good progress (50-99%)
+    /// Module is in progress (50-89% score)
     Progressing,
-    /// 100% complete
-    Mastered,
-    /// 100% complete with 90%+ accuracy
+    /// Module has been completed but not perfected (90%+ score)
+    Completed,
+    /// Module has been perfected (100% or 3 stars)
     Perfected,
 }
 
-impl ModuleState {
-    /// Get the icon for this state
-    pub fn icon(&self) -> &'static str {
-        match self {
-            ModuleState::Locked => "\u{1F512}",      // 🔒
-            ModuleState::Available => "\u{2591}\u{2591}\u{2591}", // ░░░
-            ModuleState::Started => "\u{2B50}\u{2591}\u{2591}",   // ⭐░░
-            ModuleState::Progressing => "\u{2B50}\u{2B50}\u{2591}", // ⭐⭐░
-            ModuleState::Mastered => "\u{2B50}\u{2B50}\u{2B50}",  // ⭐⭐⭐
-            ModuleState::Perfected => "\u{1F451}",   // 👑
-        }
-    }
-
-    /// Get a label for this state
-    pub fn label(&self) -> &'static str {
-        match self {
-            ModuleState::Locked => "locked",
-            ModuleState::Available => "not started",
-            ModuleState::Started => "in progress",
-            ModuleState::Progressing => "progressing",
-            ModuleState::Mastered => "mastered",
-            ModuleState::Perfected => "perfected",
-        }
-    }
-}
-
-/// Check if a specific module is unlocked for the user.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine with curriculum structure
-/// * `era_id` - The era identifier
-/// * `module_id` - The module identifier to check
-///
-/// # Returns
-/// `true` if the module is unlocked, `false` otherwise
-pub fn check_module_unlocked(
-    progress: &UserProgress,
-    engine: &ContentEngine,
-    era_id: &str,
-    module_id: &str,
-) -> bool {
-    // Get the era
-    let era = match engine.get_era(era_id) {
-        Some(e) => e,
-        None => return false,
-    };
-
-    // Find the module index in this era
-    let module_index = match era
-        .modules
-        .iter()
-        .position(|m| m.meta.id == module_id)
-    {
-        Some(idx) => idx,
-        None => return false,
-    };
-
-    let module_count = era.modules.len();
-
-    // Rule 1: First module is always unlocked
-    if module_index == 0 {
-        return true;
-    }
-
-    // Rule 3: Check if this is one of the last 2 modules
-    let is_last_two = module_index >= module_count.saturating_sub(2);
-
-    if is_last_two {
-        // Last 2 modules require at least 1 completed module in the era
-        let has_any_complete = era
-            .modules
-            .iter()
-            .any(|m| is_module_complete(progress, &m.meta.id));
-
-        if !has_any_complete {
-            return false;
-        }
-    }
-
-    // Rule 2: Previous module must be complete
-    let prev_module_id = &era.modules[module_index - 1].meta.id;
-    is_module_complete(progress, prev_module_id)
-}
-
-/// Check if a module is marked as complete in user progress
-pub fn is_module_complete(progress: &UserProgress, module_id: &str) -> bool {
-    progress
-        .modules
-        .get(module_id)
-        .map(|m| m.completed)
-        .unwrap_or(false)
-}
-
-/// Get a list of all locked module IDs for a given era.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine with curriculum structure
-/// * `era_id` - The era identifier
-///
-/// # Returns
-/// A vector of module IDs that are currently locked
-pub fn get_locked_module_ids(
-    progress: &UserProgress,
-    engine: &ContentEngine,
-    era_id: &str,
-) -> Vec<String> {
-    let era = match engine.get_era(era_id) {
-        Some(e) => e,
-        None => return vec![],
-    };
-
-    era.modules
-        .iter()
-        .filter(|m| !check_module_unlocked(progress, engine, era_id, &m.meta.id))
-        .map(|m| m.meta.id.clone())
-        .collect()
-}
-
-/// Get the display state for a module.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine with curriculum structure
-/// * `era_id` - The era identifier
-/// * `module_id` - The module identifier
-///
-/// # Returns
-/// The current state of the module for UI display
+/// Get the current state of a module for the user
 pub fn get_module_state(
     progress: &UserProgress,
     engine: &ContentEngine,
     era_id: &str,
     module_id: &str,
 ) -> ModuleState {
-    // First check if unlocked
+    // Check if locked
     if !check_module_unlocked(progress, engine, era_id, module_id) {
         return ModuleState::Locked;
     }
@@ -61067,14 +70765,10 @@ pub fn get_module_state(
     match progress.modules.get(module_id) {
         None => ModuleState::Available,
         Some(mp) => {
-            if mp.completed {
-                // Check accuracy for perfected status
-                // For now, use stars as a proxy (3 stars = 90%+)
-                if mp.stars >= 3 && mp.best_score >= 90 {
-                    ModuleState::Perfected
-                } else {
-                    ModuleState::Mastered
-                }
+            if mp.completed && (mp.best_score >= 90 || mp.stars >= 3) {
+                ModuleState::Perfected
+            } else if mp.completed {
+                ModuleState::Completed
             } else if mp.best_score >= 50 {
                 ModuleState::Progressing
             } else if mp.attempts > 0 || mp.best_score > 0 {
@@ -61086,80 +70780,183 @@ pub fn get_module_state(
     }
 }
 
-/// Count how many modules are completed in an era.
-pub fn count_completed_modules(
-    progress: &UserProgress,
-    engine: &ContentEngine,
-    era_id: &str,
-) -> usize {
-    let era = match engine.get_era(era_id) {
-        Some(e) => e,
-        None => return 0,
-    };
-
-    era.modules
-        .iter()
-        .filter(|m| is_module_complete(progress, &m.meta.id))
-        .count()
-}
-
-/// Calculate the completion percentage for a module based on exercises.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine
-/// * `era_id` - The era identifier
-/// * `module_id` - The module identifier
-///
-/// # Returns
-/// Percentage complete (0-100)
-pub fn get_module_completion_percent(
+/// Check if a specific module is unlocked for the user
+pub fn check_module_unlocked(
     progress: &UserProgress,
     engine: &ContentEngine,
     era_id: &str,
     module_id: &str,
-) -> u32 {
-    let module = match engine.get_module(era_id, module_id) {
-        Some(m) => m,
-        None => return 0,
+) -> bool {
+    let Some(era) = engine.get_era(era_id) else {
+        return false;
     };
 
-    let total_exercises = module.exercises.len();
-    if total_exercises == 0 {
-        return 0;
+    let module_ids: Vec<&str> = era.modules.iter().map(|m| m.meta.id.as_str()).collect();
+    let Some(module_index) = module_ids.iter().position(|&id| id == module_id) else {
+        return false;
+    };
+
+    let total_modules = module_ids.len();
+
+    // First module is always unlocked
+    if module_index == 0 {
+        return true;
     }
 
-    // Count exercises with at least one correct answer
-    let completed = module
-        .exercises
-        .iter()
-        .filter(|ex| {
-            progress
-                .exercises
-                .get(&ex.id)
-                .map(|p| p.correct_count > 0)
-                .unwrap_or(false)
-        })
-        .count();
+    // Check if this is one of the last two modules
+    let is_final_module = total_modules >= 2 && module_index >= total_modules - 2;
 
-    ((completed as f64 / total_exercises as f64) * 100.0) as u32
+    if is_final_module {
+        // Last two modules require at least one module to be 100% complete
+        let has_perfect_completion = module_ids.iter().take(total_modules.saturating_sub(2)).any(|&mid| {
+            progress.modules.get(mid).map_or(false, |mp| mp.completed && mp.best_score >= 100)
+        });
+
+        if !has_perfect_completion {
+            return false;
+        }
+    }
+
+    // Check if previous module is completed
+    let prev_module_id = module_ids[module_index - 1];
+    progress.modules.get(prev_module_id).map_or(false, |mp| mp.completed)
+}
+
+/// Get list of locked module IDs for an era
+pub fn get_locked_module_ids(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+) -> Vec<String> {
+    let Some(era) = engine.get_era(era_id) else {
+        return Vec::new();
+    };
+
+    era.modules
+        .iter()
+        .filter(|m| !check_module_unlocked(progress, engine, era_id, &m.meta.id))
+        .map(|m| m.meta.id.clone())
+        .collect()
+}
+
+/// Check if any module in the era has 100% completion
+pub fn has_perfect_module(progress: &UserProgress, engine: &ContentEngine, era_id: &str) -> bool {
+    let Some(era) = engine.get_era(era_id) else {
+        return false;
+    };
+
+    era.modules.iter().any(|m| {
+        progress.modules.get(&m.meta.id).map_or(false, |mp| mp.completed && mp.best_score >= 100)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::progress::ModuleProgress;
 
-    #[test]
-    fn test_module_state_icons() {
-        assert!(!ModuleState::Locked.icon().is_empty());
-        assert!(!ModuleState::Available.icon().is_empty());
-        assert!(!ModuleState::Mastered.icon().is_empty());
+    fn make_progress_with_completed(completed_modules: &[(&str, bool, u32)]) -> UserProgress {
+        let mut progress = UserProgress::new();
+        for (id, completed, score) in completed_modules {
+            progress.modules.insert(id.to_string(), ModuleProgress {
+                module_id: id.to_string(),
+                unlocked: true,
+                completed: *completed,
+                stars: 0,
+                best_score: *score,
+                attempts: 1,
+            });
+        }
+        progress
     }
 
     #[test]
-    fn test_module_state_labels() {
-        assert_eq!(ModuleState::Locked.label(), "locked");
-        assert_eq!(ModuleState::Available.label(), "not started");
+    fn test_first_module_always_unlocked() {
+        let progress = UserProgress::new();
+        let engine = ContentEngine::new();
+
+        // First module of first era should always be unlocked
+        if let Some(era) = engine.eras().first() {
+            if let Some(module) = era.modules.first() {
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, &module.meta.id));
+            }
+        }
+    }
+
+    #[test]
+    fn test_module_locked_until_previous_complete() {
+        let engine = ContentEngine::new();
+
+        if let Some(era) = engine.eras().first() {
+            if era.modules.len() >= 2 {
+                let first_id = &era.modules[0].meta.id;
+                let second_id = &era.modules[1].meta.id;
+
+                // Without completing first module, second should be locked
+                let progress = UserProgress::new();
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, second_id));
+
+                // After completing first module, second should be unlocked
+                let progress = make_progress_with_completed(&[(first_id.as_str(), true, 80)]);
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, second_id));
+            }
+        }
+    }
+
+    #[test]
+    fn test_last_two_locked_until_one_module_100_complete() {
+        let engine = ContentEngine::new();
+
+        // Find an era with at least 4 modules
+        for era in engine.eras() {
+            if era.modules.len() >= 4 {
+                let module_ids: Vec<&str> = era.modules.iter().map(|m| m.meta.id.as_str()).collect();
+                let last_module_id = module_ids[module_ids.len() - 1];
+                let second_last_id = module_ids[module_ids.len() - 2];
+
+                // Complete all modules except last two, but none at 100%
+                let mut completed: Vec<(&str, bool, u32)> = module_ids[..module_ids.len()-2]
+                    .iter()
+                    .map(|id| (*id, true, 80u32))
+                    .collect();
+
+                let progress = make_progress_with_completed(&completed);
+
+                // Last two should still be locked (no 100% completion)
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, second_last_id),
+                    "Second-to-last module should be locked without 100% completion");
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, last_module_id),
+                    "Last module should be locked without 100% completion");
+
+                // Now complete one module at 100%
+                completed[0].2 = 100;
+                let progress = make_progress_with_completed(&completed);
+
+                // Second-to-last should now be unlocked
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, second_last_id),
+                    "Second-to-last module should be unlocked with 100% completion");
+
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_locked_module_ids() {
+        let progress = UserProgress::new();
+        let engine = ContentEngine::new();
+
+        if let Some(era) = engine.eras().first() {
+            let locked = get_locked_module_ids(&progress, &engine, &era.meta.id);
+
+            // All modules except the first should be locked initially
+            assert_eq!(locked.len(), era.modules.len() - 1);
+
+            // First module should NOT be in the locked list
+            if let Some(first_module) = era.modules.first() {
+                assert!(!locked.contains(&first_module.meta.id));
+            }
+        }
     }
 }
 
@@ -61344,7 +71141,11 @@ impl<'a> VerificationPass<'a> {
             | Stmt::Concurrent { .. }
             | Stmt::Parallel { .. }
             | Stmt::ReadFrom { .. }
-            | Stmt::WriteFile { .. } => Ok(()),
+            | Stmt::WriteFile { .. }
+            // Phase 51: P2P Networking
+            | Stmt::Listen { .. }
+            | Stmt::ConnectTo { .. }
+            | Stmt::LetPeerAgent { .. } => Ok(()),
         }
     }
 
@@ -61967,11 +71768,15 @@ Rust package configuration with dependencies: bumpalo (arena allocator), dioxus 
 ```toml
 [package]
 name = "logos"
-version = "0.1.0"
+version = "0.5.5"
 edition = "2021"
-authors = ["Tristen Harr"]
+authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
 license = "BUSL-1.1"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
+repository = "https://github.com/Brahmastra-Labs/logicaffeine"
+homepage = "https://logicaffeine.com"
+keywords = ["logic", "transpiler", "natural-language", "fol", "compiler"]
+categories = ["compilers", "development-tools"]
 build = "build.rs"
 
 [[bin]]
@@ -63518,11 +73323,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Tue Dec 30 21:06:11 CST 2025
-- **Repository:** /Users/collinpounds/dev/logicaffeine
-- **Git Branch:** user-management
-- **Git Commit:** 15c28fe
-- **Documentation Size:** 3.1M
+- **Generated:** Wed Dec 31 20:01:21 CST 2025
+- **Repository:** /Users/tristen/logicaffeine/logicaffeine
+- **Git Branch:** main
+- **Git Commit:** 9fd71ce
+- **Documentation Size:** 3.0M
 
 ---
 

@@ -12,6 +12,9 @@ pub mod network;
 // Phase 49: CRDT primitives
 pub mod crdt;
 
+// Phase 51: Re-export tokio for async main support
+pub use tokio;
+
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
 }

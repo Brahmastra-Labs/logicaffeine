@@ -1,0 +1,61 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.5.5] - 2026-01-01
+
+First public release.
+
+### Added
+
+**Compiler**
+- Z3 SMT solver integration for static verification (`logos_verification` crate)
+- Refinement type syntax with `where` clauses
+- DRS (Discourse Representation Structures) for donkey anaphora
+- Event adjective analysis ("Olga is a beautiful dancer")
+- Escape analysis for memory safety
+- Diagnostic system with source mapping
+
+**Runtime (`logos_core`)**
+- Standard library: `env`, `file`, `random`, `time` modules
+- CRDT support: GCounter, LWW registers
+- Memory zones for region-based allocation
+
+**Tooling**
+- CLI tool (`largo`) for project management
+- Package registry with publish/download
+- GitHub Actions for CI/CD deployment
+- Rust code formatter for generated output
+
+**Web Platform**
+- Learning platform with interactive curriculum
+- Vocabulary reference component
+- User profile page
+- Universal navigation
+
+**Tests**
+- End-to-end test suite (collections, functions, structs, enums, etc.)
+- Phase 41: Event adjectives
+- Phase 42: DRS
+- Phase 50: Security policy analysis
+- Phase 85: Memory zones
+- Grand challenge: Mergesort example
+
+### Core Features (v0.5.5)
+
+**Logic Mode** - English → First-Order Logic
+- Quantifiers: universal, existential, negative, cardinal
+- Modal operators: necessity, possibility, deontic
+- Temporal logic: tense, aspect
+- Wh-questions, relative clauses, reflexives, reciprocals
+- Scope ambiguity resolution
+- Parse forests for structural ambiguity
+
+**Imperative Mode** - English → Rust
+- Variables, mutation, control flow
+- Functions with typed parameters
+- Structs and enums with pattern matching
+- Collections with 1-based indexing
+- Generics (`Seq of Int`, `Box of [T]`)

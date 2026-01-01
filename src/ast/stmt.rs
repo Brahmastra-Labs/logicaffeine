@@ -315,6 +315,43 @@ pub enum Stmt<'a> {
         /// Source location for error reporting
         span: crate::token::Span,
     },
+
+    /// Phase 51: Listen on network address
+    /// `Listen on "/ip4/127.0.0.1/tcp/8000".`
+    /// Semantics: Bind to address, start accepting connections via libp2p
+    Listen {
+        address: &'a Expr<'a>,
+    },
+
+    /// Phase 51: Connect to remote peer
+    /// `Connect to "/ip4/127.0.0.1/tcp/8000".`
+    /// Semantics: Dial peer via libp2p
+    ConnectTo {
+        address: &'a Expr<'a>,
+    },
+
+    /// Phase 51: Create PeerAgent remote handle
+    /// `Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".`
+    /// Semantics: Create handle for remote agent communication
+    LetPeerAgent {
+        var: Symbol,
+        address: &'a Expr<'a>,
+    },
+
+    /// Phase 51: Sleep for milliseconds
+    /// `Sleep 1000.` or `Sleep delay.`
+    /// Semantics: Pause execution for N milliseconds (async)
+    Sleep {
+        milliseconds: &'a Expr<'a>,
+    },
+
+    /// Phase 52: Sync CRDT variable on topic
+    /// `Sync x on "topic".`
+    /// Semantics: Subscribe to GossipSub topic, auto-publish on mutation, auto-merge on receive
+    Sync {
+        var: Symbol,
+        topic: &'a Expr<'a>,
+    },
 }
 
 /// Shared expression type for pure computations (LOGOS §15.0.0).

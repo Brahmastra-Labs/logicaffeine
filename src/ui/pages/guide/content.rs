@@ -35,7 +35,7 @@ pub struct Section {
 /// All guide sections organized by part
 pub const SECTIONS: &[Section] = &[
     // ============================================================
-    // Part I: Programming in LOGOS (Sections 1-16)
+    // Part I: Programming in LOGOS (Sections 1-17)
     // ============================================================
 
     Section {
@@ -667,6 +667,10 @@ LOGOS provides memory safety through an ownership system expressed in natural En
 - Copy first, then give
 - Show multiple times (all OK - just reading)
 - Sequential mutation
+
+### The `copy of` Expression
+
+Use `copy of` to create a deep clone of a value. This lets you keep using the original while giving away the copy.
 "#,
         examples: &[
             CodeExample {
@@ -680,6 +684,31 @@ LOGOS provides memory safety through an ownership system expressed in natural En
 Let profile be "User Profile Data".
 Show profile to display.
 Show profile."#,
+            },
+            CodeExample {
+                id: "ownership-give",
+                label: "Give (Move Ownership)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To consume (data: Text):
+    Show "Consumed: " + data.
+
+## Main
+Let message be "Important data".
+Give message to consume.
+Show "Message was transferred"."#,
+            },
+            CodeExample {
+                id: "ownership-copy",
+                label: "Copy Before Giving",
+                mode: ExampleMode::Imperative,
+                code: r#"## To process (data: Text):
+    Show "Processing: " + data.
+
+## Main
+Let original be "Keep this".
+Let duplicate be copy of original.
+Give duplicate to process.
+Show "Original still here: " + original."#,
             },
         ],
     },
@@ -706,12 +735,26 @@ For high-performance scenarios, LOGOS provides **Zones**—memory regions where 
 
 References to zone-allocated data cannot escape. To get data out of a zone, make an explicit copy.
 
+### Zone Configuration
+
+**Default size:** 4 KB (4096 bytes) when not specified.
+
+**Specifying size:** Use `of size` with units:
+
+| Unit | Example | Bytes |
+|------|---------|-------|
+| B | `of size 256 B` | 256 |
+| KB | `of size 64 KB` | 65,536 |
+| MB | `of size 2 MB` | 2,097,152 |
+| GB | `of size 1 GB` | 1,073,741,824 |
+
 ### Zone Types
 
-| Zone Type | Allocation | Access | Use Case |
-|-----------|------------|--------|----------|
-| Heap | O(1) bump | Read/Write | Temporary data |
-| Mapped | OS page fault | Read-only | Large file processing |
+| Zone Type | Syntax | Access | Use Case |
+|-----------|--------|--------|----------|
+| Heap | `Inside a zone called "X":` | Read/Write | Temporary data |
+| Heap (sized) | `Inside a zone called "X" of size 2 MB:` | Read/Write | Large temporary data |
+| Mapped | `Inside a zone called "X" mapped from "file.bin":` | Read-only | Large file processing |
 
 ### When to Use Zones
 
@@ -724,13 +767,42 @@ Use zones when:
         examples: &[
             CodeExample {
                 id: "zone-basic",
-                label: "Basic Zone",
+                label: "Basic Zone (4KB default)",
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Inside a zone called "WorkSpace":
     Let temp_data be [1, 2, 3, 4, 5].
     Show temp_data.
 Show "Zone freed!"."#,
+            },
+            CodeExample {
+                id: "zone-sized-mb",
+                label: "Zone with Size (MB)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "LargeBuffer" of size 2 MB:
+    Let data be [1, 2, 3, 4, 5].
+    Show "Allocated in 2MB zone".
+    Show data."#,
+            },
+            CodeExample {
+                id: "zone-sized-kb",
+                label: "Zone with Size (KB)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "SmallArena" of size 64 KB:
+    Let x be 42.
+    Let y be 100.
+    Show x + y."#,
+            },
+            CodeExample {
+                id: "zone-mapped",
+                label: "Memory-Mapped Zone (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "FileData" mapped from "data.bin":
+    Show "File mapped into memory".
+Show "Zone unmapped"."#,
             },
         ],
     },
@@ -745,22 +817,23 @@ LOGOS provides safe concurrency through structured patterns. No data races, no d
 
 ### Two Kinds of Concurrent Work
 
-| Pattern | Keyword | Use For | Compiles To |
-|---------|---------|---------|-------------|
-| **Async** | `Attempt all` | I/O-bound tasks (network, files) | tokio::join! |
-| **Parallel** | `Simultaneously` | CPU-bound tasks (computation) | rayon/threads |
+| Pattern | Syntax | Use For | Compiles To |
+|---------|--------|---------|-------------|
+| **Async** | `Attempt all of the following:` | I/O-bound tasks (network, files) | tokio::join! |
+| **Parallel** | `Simultaneously:` | CPU-bound tasks (computation) | rayon::join / threads |
 
 ### Attempt All (Async I/O)
 
 Use `Attempt all of the following:` for I/O operations that wait on external resources. All operations run concurrently, and the program waits until all complete.
 
+Variables declared in concurrent blocks are captured and returned as a tuple.
+
 ### Simultaneously (Parallel CPU)
 
-Use `Simultaneously:` for CPU-intensive work. Both computations run in parallel on different CPU cores.
+Use `Simultaneously:` for CPU-intensive work. Computations run in parallel on different CPU cores.
 
-### Race: First to Finish
-
-Use `Await the first success of:` when you want the fastest response. Both start, the first to succeed wins.
+- 2 tasks → uses `rayon::join` (work-stealing thread pool)
+- 3+ tasks → uses `std::thread::spawn` (dedicated threads)
 
 ### Ownership and Concurrency
 
@@ -768,14 +841,53 @@ The ownership system prevents data races. Multiple reads are OK, but concurrent 
 "#,
         examples: &[
             CodeExample {
-                id: "concurrency-example",
-                label: "Concurrency Patterns",
+                id: "concurrent-async",
+                label: "Async Concurrent (Attempt All)",
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
-Show "Concurrency in LOGOS uses:".
-Show "- Attempt all: for async I/O".
-Show "- Simultaneously: for parallel CPU".
-Show "- Await first success: for racing"."#,
+Attempt all of the following:
+    Let a be 10.
+    Let b be 20.
+Show "a = " + a.
+Show "b = " + b.
+Show "Sum: " + (a + b)."#,
+            },
+            CodeExample {
+                id: "parallel-cpu",
+                label: "Parallel CPU (Simultaneously)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Simultaneously:
+    Let x be 100.
+    Let y be 200.
+Show "x = " + x.
+Show "y = " + y.
+Show "Product: " + (x * y)."#,
+            },
+            CodeExample {
+                id: "parallel-three-tasks",
+                label: "Three Parallel Tasks",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Simultaneously:
+    Let a be 1.
+    Let b be 2.
+    Let c be 3.
+Show "Sum: " + (a + b + c)."#,
+            },
+            CodeExample {
+                id: "concurrent-in-function",
+                label: "Concurrency in Functions",
+                mode: ExampleMode::Imperative,
+                code: r#"## To compute_parallel -> Int:
+    Simultaneously:
+        Let x be 5.
+        Let y be 10.
+    Return x + y.
+
+## Main
+Let result be compute_parallel().
+Show "Result: " + result."#,
             },
         ],
     },
@@ -820,6 +932,24 @@ A register that resolves conflicts by timestamp. The most recent write wins. Wor
 ### Merge Operations
 
 Use `Merge source into target` to combine two CRDT instances. The target is updated in place with the merged state.
+
+### Network Synchronization
+
+CRDTs become powerful when synchronized across the network. Use `Sync` to subscribe a variable to a GossipSub topic.
+
+**The Sync Statement:**
+
+`Sync [variable] on [topic].`
+
+- `variable` — A mutable variable containing a Shared struct
+- `topic` — A string or variable naming the GossipSub topic
+
+**What Sync Does:**
+1. Subscribes to the topic for incoming messages
+2. Spawns a background task to merge incoming updates
+3. Broadcasts the full state after any mutation
+
+**Note:** Programs using `Sync` require compilation—they don't run in the browser playground.
 "#,
         examples: &[
             CodeExample {
@@ -865,6 +995,35 @@ Increase remote's views by 50.
 
 Merge remote into local.
 Show local's views."#,
+            },
+            CodeExample {
+                id: "crdt-sync-counter",
+                label: "Synced Counter (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A GameScore is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+Let mutable score be a new GameScore.
+Sync score on "game-leaderboard".
+Increase score's points by 100.
+Show score's points."#,
+            },
+            CodeExample {
+                id: "crdt-sync-profile",
+                label: "Synced Profile (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Profile is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a level, which is ConvergentCount.
+
+## Main
+Let mutable p be a new Profile.
+Sync p on "player-data".
+Increase p's level by 1.
+Show "Profile synced"."#,
             },
         ],
     },
@@ -957,8 +1116,93 @@ Show "Edit permitted"."#,
     },
 
     Section {
-        id: "error-handling",
+        id: "networking",
         number: 15,
+        title: "P2P Networking",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+LOGOS includes built-in peer-to-peer networking primitives for building distributed applications.
+
+**Note:** Networking features require compilation—they don't run in the browser playground.
+
+### Core Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Address** | libp2p multiaddr format: `/ip4/127.0.0.1/tcp/8000` |
+| **Listen** | Bind to an address to accept connections |
+| **Connect** | Dial a peer at an address |
+| **PeerAgent** | A handle to a remote peer |
+| **Send** | Transmit a message to a peer |
+
+### Portable Types
+
+Messages sent over the network must be **Portable**. Mark your struct with `is Portable` to enable network serialization.
+
+### Address Format
+
+LOGOS uses libp2p multiaddresses:
+
+| Address | Meaning |
+|---------|---------|
+| `/ip4/0.0.0.0/tcp/8000` | Listen on all interfaces, port 8000 |
+| `/ip4/127.0.0.1/tcp/8000` | Localhost only, port 8000 |
+| `/ip4/192.168.1.5/tcp/8000` | Specific IP address |
+
+### Building a P2P Application
+
+1. Define Portable message types
+2. Listen on an address (server)
+3. Connect to peers (client)
+4. Create PeerAgent handles
+5. Send messages
+"#,
+        examples: &[
+            CodeExample {
+                id: "network-listen",
+                label: "Server: Listen for Connections",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Listen on "/ip4/0.0.0.0/tcp/8000".
+Show "Server listening on port 8000"."#,
+            },
+            CodeExample {
+                id: "network-connect",
+                label: "Client: Connect to Peer",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let server_addr be "/ip4/127.0.0.1/tcp/8000".
+Connect to server_addr.
+Show "Connected to server"."#,
+            },
+            CodeExample {
+                id: "network-peer-agent",
+                label: "Creating a Remote Handle",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
+Show "Remote peer handle created"."#,
+            },
+            CodeExample {
+                id: "network-send-message",
+                label: "Sending a Message",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Greeting is Portable and has:
+    a message (Text).
+
+## Main
+Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
+Let msg be a new Greeting with message "Hello, peer!".
+Send msg to remote.
+Show "Message sent"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "error-handling",
+        number: 16,
         title: "Error Handling",
         part: "Part I: Programming in LOGOS",
         content: r#"
@@ -979,24 +1223,53 @@ Functions that might fail return a `Result`. Use pattern matching to handle succ
 ### Error Propagation
 
 Errors propagate naturally through return values. Handle them where appropriate.
+
+### Defensive Programming
+
+Use assertions and guards to prevent errors before they happen.
 "#,
         examples: &[
             CodeExample {
-                id: "result-type",
-                label: "Using Result Type",
+                id: "defensive-divide",
+                label: "Safe Division with Guard",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "Error handling in LOGOS:".
-Show "- Functions return Result type".
-Show "- Pattern match with Inspect".
-Show "- Socratic messages explain errors"."#,
+                code: r#"## To safe_divide (a: Int) and (b: Int) -> Int:
+    If b equals 0:
+        Show "Error: Cannot divide by zero".
+        Return 0.
+    Return a / b.
+
+## Main
+Let result be safe_divide(10, 2).
+Show "10 / 2 = " + result.
+Let bad be safe_divide(5, 0).
+Show "Result after error: " + bad."#,
+            },
+            CodeExample {
+                id: "validation-example",
+                label: "Input Validation",
+                mode: ExampleMode::Imperative,
+                code: r#"## To validate_age (age: Int) -> Bool:
+    If age is less than 0:
+        Show "Error: Age cannot be negative".
+        Return false.
+    If age is greater than 150:
+        Show "Error: Age seems unrealistic".
+        Return false.
+    Return true.
+
+## Main
+Let valid be validate_age(25).
+Show "Age 25 valid: " + valid.
+Let invalid be validate_age(-5).
+Show "Age -5 valid: " + invalid."#,
             },
         ],
     },
 
     Section {
         id: "advanced-features",
-        number: 16,
+        number: 17,
         title: "Advanced Features",
         part: "Part I: Programming in LOGOS",
         content: r#"
@@ -1043,12 +1316,12 @@ Show result."#,
     },
 
     // ============================================================
-    // Part II: Project Structure (Sections 17-19)
+    // Part II: Project Structure (Sections 18-20)
     // ============================================================
 
     Section {
         id: "modules",
-        number: 17,
+        number: 18,
         title: "Modules",
         part: "Part II: Project Structure",
         content: r#"
@@ -1085,7 +1358,7 @@ Show "Let x be Math's square(5)."."#,
 
     Section {
         id: "cli-largo",
-        number: 18,
+        number: 19,
         title: "The CLI: largo",
         part: "Part II: Project Structure",
         content: r#"
@@ -1128,7 +1401,7 @@ Show "- largo test"."#,
 
     Section {
         id: "stdlib",
-        number: 19,
+        number: 20,
         title: "Standard Library",
         part: "Part II: Project Structure",
         content: r#"
@@ -1176,12 +1449,12 @@ Show "max(10, 3) = " + format(max(10, 3))."#,
     },
 
     // ============================================================
-    // Part III: Logic Mode (Section 20)
+    // Part III: Logic Mode (Section 21)
     // ============================================================
 
     Section {
         id: "logic-mode",
-        number: 20,
+        number: 21,
         title: "Logic Mode",
         part: "Part III: Logic Mode",
         content: r#"
@@ -1254,12 +1527,12 @@ LOGOS can translate English sentences into First-Order Logic (FOL). This is usef
     },
 
     // ============================================================
-    // Part IV: Proofs and Verification (Sections 21-22)
+    // Part IV: Proofs and Verification (Sections 22-23)
     // ============================================================
 
     Section {
         id: "assertions-trust",
-        number: 21,
+        number: 22,
         title: "Assertions and Trust",
         part: "Part IV: Proofs and Verification",
         content: r#"
@@ -1316,7 +1589,7 @@ Show result."#,
 
     Section {
         id: "z3-verification",
-        number: 22,
+        number: 23,
         title: "Z3 Static Verification",
         part: "Part IV: Proofs and Verification",
         content: r#"
@@ -1371,12 +1644,12 @@ Show "Bounded: " + bounded."#,
     },
 
     // ============================================================
-    // Part V: Reference (Sections 23-24)
+    // Part V: Reference (Sections 24-25)
     // ============================================================
 
     Section {
         id: "complete-examples",
-        number: 23,
+        number: 24,
         title: "Complete Examples",
         part: "Part V: Reference",
         content: r#"
@@ -1447,7 +1720,7 @@ Show "Positives: " + positives."#,
 
     Section {
         id: "quick-reference",
-        number: 24,
+        number: 25,
         title: "Quick Reference",
         part: "Part V: Reference",
         content: r#"
@@ -1491,6 +1764,23 @@ Show "Positives: " + positives."#,
 | `Let f modify x.` | Mutable borrow |
 | `copy of x` | Clone |
 
+### Zones
+
+**Basic syntax:**
+- `Inside a zone called "Name":` — 4KB default zone
+- `Inside a zone called "Name" of size 2 MB:` — Sized heap zone
+- `Inside a zone called "Name" mapped from "file.bin":` — Memory-mapped file
+
+**Size units:** B, KB, MB, GB
+
+### Concurrency
+
+**Async I/O:**
+- `Attempt all of the following:` — Concurrent async tasks (tokio::join!)
+
+**Parallel CPU:**
+- `Simultaneously:` — Parallel computation (rayon/threads)
+
 ### Distributed Types (CRDTs)
 
 **Shared Structs:**
@@ -1501,6 +1791,20 @@ Show "Positives: " + positives."#,
 **CRDT Operations:**
 - `Increase x's field by amount.` — Increment a ConvergentCount
 - `Merge source into target.` — Combine two CRDT instances
+
+**Network Sync (Compiled Only):**
+- `Sync mutable_var on "topic".` — Subscribe to GossipSub topic for auto-sync
+
+### P2P Networking
+
+**Server/Client:**
+- `Listen on "/ip4/0.0.0.0/tcp/8000".` — Bind to address
+- `Connect to addr.` — Dial a peer
+- `Let remote be a PeerAgent at addr.` — Create remote handle
+- `Send msg to remote.` — Transmit message
+
+**Portable Types:**
+- `A Message is Portable and has:` — Network-serializable struct
 
 ### Security
 

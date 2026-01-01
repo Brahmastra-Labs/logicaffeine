@@ -394,8 +394,8 @@ pub fn Review() -> Element {
                                 p { "No exercises are due for review right now." }
                                 Link {
                                     class: "back-btn",
-                                    to: Route::Home {},
-                                    "← Back to Dashboard"
+                                    to: Route::Landing {},
+                                    "← Back to Home"
                                 }
                             }
                         }
@@ -406,8 +406,8 @@ pub fn Review() -> Element {
                                 p { "You reviewed {total_due} items." }
                                 Link {
                                     class: "back-btn",
-                                    to: Route::Home {},
-                                    "← Back to Dashboard"
+                                    to: Route::Landing {},
+                                    "← Back to Home"
                                 }
                             }
                         }

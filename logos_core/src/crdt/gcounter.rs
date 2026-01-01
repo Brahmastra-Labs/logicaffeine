@@ -77,6 +77,19 @@ impl Showable for GCounter {
     }
 }
 
+/// Phase 52: Allow comparing GCounter to integers for ergonomic conditionals
+impl PartialEq<u64> for GCounter {
+    fn eq(&self, other: &u64) -> bool {
+        self.value() == *other
+    }
+}
+
+impl PartialEq<i32> for GCounter {
+    fn eq(&self, other: &i32) -> bool {
+        self.value() == (*other as u64)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

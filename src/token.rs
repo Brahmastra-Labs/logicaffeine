@@ -167,6 +167,14 @@ pub enum TokenType {
     // Phase 50: Security Keywords
     Check,    // "Check that user is admin" -> mandatory runtime guard
 
+    // Phase 51: P2P Networking Keywords
+    Listen,   // "Listen on [addr]" -> bind to network address
+    NetConnect,  // "Connect to [addr]" -> dial a peer (NetConnect to avoid conflict)
+    Sleep,    // "Sleep N." -> pause execution for N milliseconds
+
+    // Phase 52: GossipSub Keywords
+    Sync,     // "Sync x on 'topic'" -> automatic CRDT replication
+
     // Block Scoping
     Colon,
     Indent,

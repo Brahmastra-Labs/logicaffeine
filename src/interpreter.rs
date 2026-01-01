@@ -399,6 +399,24 @@ impl<'a> Interpreter<'a> {
             Stmt::Check { .. } => {
                 Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
             }
+
+            // Phase 51: P2P Networking - not supported in interpreter (compile-only)
+            Stmt::Listen { .. } => {
+                Err("Listen is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::ConnectTo { .. } => {
+                Err("Connect is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::LetPeerAgent { .. } => {
+                Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::Sleep { .. } => {
+                Err("Sleep is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            // Phase 52: Sync is not supported in interpreter (compile-only)
+            Stmt::Sync { .. } => {
+                Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
         }
     }
 

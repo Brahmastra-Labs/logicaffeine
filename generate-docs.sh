@@ -96,7 +96,12 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
     - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
     - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
-    - [Grand Challenge: Mergesort](#grand-challenge-mergesort)
+    - [Phase 46: Agents](#phase-46-agents)
+    - [Phase 48: Network Primitives](#phase-48-network-primitives)
+    - [Phase 49: CRDT](#phase-49-crdt)
+    - [Phase 50: Security Policies](#phase-50-security-policies)
+    - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
+    - [Phase 52: The Sync](#phase-52-the-sync)
     - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
@@ -222,6 +227,13 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
 - **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
 - **Z3 Static Verification** - Smart Full Mapping: Int/Bool direct, Object uninterpreted sort, Predicates/Modals/Temporals → Apply; \`compile_to_rust_verified()\` opt-in; graceful degradation for complex linguistic constructs
+- **CRDT types** - GCounter (grow-only), LWWRegister (last-write-wins) for distributed state; \`Shared\` modifier generates Merge impl
+- **Policy-based security** - Predicate definitions (is_admin), capability checks (can_publish), Check statement for mandatory enforcement
+- **Check vs Assert** - Check never optimized out (security); Assert becomes debug_assert (logic)
+- **libp2p Mesh** - QUIC-first transport with TCP fallback, Noise encryption, Yamux multiplexing, mDNS peer discovery
+- **Bincode Wire Protocol** - LogosWire trait for serialize/deserialize; /logos/mesh/1.0.0 protocol with 16MB max message size
+- **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
+- **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -1396,11 +1408,6 @@ add_test_description "tests/phase7_semantics.rs" \
     "Subsective adjectives (S(x, ^E) format) and generalized quantifiers (MANY, MOST, FEW with cardinality semantics)." \
     "\"A small elephant ran.\" → ∃x(S(x, ^E) ∧ E(x) ∧ Run(x))"
 
-add_test_description "tests/intensionality_tests.rs" \
-    "Phase 7: De Re/De Dicto" \
-    "Intensional ambiguity with opaque verbs. Tests both readings for sentences with seek, want, believe, need, fear." \
-    "\"John seeks a unicorn.\" → De Re: ∃x(U(x) ∧ Seek(j,x)) vs De Dicto: Seek(j, ^Unicorn)"
-
 # Phase 8
 add_test_description "tests/phase8_degrees.rs" \
     "Phase 8: Degrees & Comparatives" \
@@ -1424,11 +1431,6 @@ add_test_description "tests/phase9_structured_concurrency.rs" \
     "Phase 9.5: Structured Concurrency" \
     "Concurrent and parallel execution blocks. 'Attempt all of the following:' generates tokio::join! (async, I/O-bound). 'Simultaneously:' generates rayon::join (CPU-bound, 2 tasks) or thread::spawn (3+ tasks). Let bindings destructure into tuples." \
     "Simultaneously: Let a be 1. Let b be 2. → let (a, b) = rayon::join(|| 1, || 2);"
-
-add_test_description "tests/diagnostic_bridge.rs" \
-    "Diagnostic Bridge Tests" \
-    "Verifies rustc ownership errors translate to Socratic LOGOS messages. Tests E0382 (use-after-move) produces 'Cannot use X after giving it away' instead of raw rustc output. Ensures users never see cryptic compiler errors." \
-    "Let a be s. Let b be s. → 'Cannot use s after giving it away'"
 
 # Phase 10
 add_test_description "tests/phase10_ellipsis.rs" \
@@ -1707,11 +1709,41 @@ add_test_description "tests/phase43_collections.rs" \
     "Stack-like collection operations for LOGOS. Push/Pop statements, length/copy expressions, 1-based indexing with 'at', slice syntax with 'through'. Runtime helpers logos_index() and logos_index_mut()." \
     "Push 4 to items. Pop from items into x. length of items. items at 2. items 1 through 3."
 
-# Grand Challenge: Mergesort
-add_test_description "tests/grand_challenge_mergesort.rs" \
-    "Grand Challenge: Mergesort" \
-    "Showcase test demonstrating full language capability: compiles and executes a complete recursive mergesort algorithm. Tests comparison operators (is less than, is greater than, is at most, is at least, <, <=, >, >=), compound conditions with 'and' (→ &&), collection operations (length of, item X of, Push, copy of, slicing with 'through'), typed function definitions with Seq of Int parameters and returns, recursive function calls, and full E2E execution to working Rust." \
-    "## To MergeSort (items: Seq of Int) -> Seq of Int: ... Let sorted be MergeSort(numbers). → Compiles and runs actual sorting algorithm"
+# Phase 46: Agents
+add_test_description "tests/phase46_agents.rs" \
+    "Phase 46: Agent System" \
+    "Autonomous agent definitions with goals and behaviors. Agent blocks define reactive entities that respond to events." \
+    "## Agent called Greeter: When receiving a Message: Respond with greeting."
+
+# Phase 48: Network Primitives
+add_test_description "tests/phase48_network.rs" \
+    "Phase 48: Network Primitives" \
+    "Low-level networking operations. File chunking with FileSipper, FileManifest for resumable transfers, SHA256 chunk verification." \
+    "Fetch from url. Send data to endpoint."
+
+# Phase 49: CRDT
+add_test_description "tests/phase49_crdt.rs" \
+    "Phase 49: CRDT (Conflict-free Replicated Data Types)" \
+    "Distributed state synchronization without conflicts. Shared structs with ConvergentCount (GCounter) and LastWriteWins of T (LWWRegister) field types. Merge trait with commutative, associative, idempotent properties. Increase statement for counter operations." \
+    "## Shared Counter { count: ConvergentCount, name: LastWriteWins of Text } → impl Merge with per-field merge"
+
+# Phase 50: Security
+add_test_description "tests/phase50_security.rs" \
+    "Phase 50: Policy-based Security" \
+    "Declarative security policies with predicates and capabilities. Predicate definitions (is admin if role equals 'admin'), capability definitions (can publish Document if...), Check statement for mandatory runtime enforcement (never optimized), Assert for debug-only. Logical composition with AND/OR." \
+    "## Policy { A User is admin if the user's role equals 'admin'. } Check that user is admin."
+
+# Phase 51: Networking
+add_test_description "tests/phase51_mesh.rs" \
+    "Phase 51: P2P Mesh Networking" \
+    "Distributed peer-to-peer networking with libp2p. Listen statement binds to multiaddr, Connect to dials remote peer, PeerAgent represents remote endpoint, Send to transmits Portable messages. QUIC-first transport with TCP fallback, Noise encryption, mDNS discovery." \
+    "Listen on '/ip4/0.0.0.0/tcp/8000'. Connect to remote_addr. Let peer be a PeerAgent at addr. Send msg to peer."
+
+# Phase 52: The Sync
+add_test_description "tests/phase52_sync.rs" \
+    "Phase 52: The Sync (GossipSub)" \
+    "Automatic CRDT synchronization over GossipSub. Sync binds a CRDT variable to a pub/sub topic for auto-replication. Synced<T> wrapper auto-publishes on mutation, auto-merges on receive." \
+    "Let mutable c be a new Counter. Sync c on \"room\". Increase c's clicks by 5."
 
 # End-to-End Tests
 add_test_description "tests/e2e_collections.rs" \
@@ -1779,31 +1811,51 @@ add_test_description "tests/e2e_variables.rs" \
     "Runtime verification of variable operations: Let bindings, Set mutation, scoping rules, shadowing behavior." \
     "Let x be 5. Set x to 10. Let x be 20. (shadowing)"
 
+add_test_description "tests/e2e_crdt.rs" \
+    "E2E: CRDT Runtime" \
+    "Runtime verification of CRDT operations: GCounter increment, LWWRegister updates, struct-level and field-level merge operations." \
+    "Increase counter's count. Merge replica1 with replica2."
+
+add_test_description "tests/e2e_policy.rs" \
+    "E2E: Policy Enforcement" \
+    "Runtime verification of security policies: predicate evaluation, capability checks, Check statement failure behavior with meaningful error messages." \
+    "Check that user can publish the document. → RuntimeError: Security check failed"
+
+add_test_description "tests/e2e_mesh.rs" \
+    "E2E: Mesh Networking" \
+    "Runtime verification of P2P mesh: node connection, message exchange, peer discovery." \
+    "Listen, Connect, Send messages between peers."
+
+add_test_description "tests/e2e_refinement.rs" \
+    "E2E: Refinement Types" \
+    "Runtime verification of refinement type constraints and debug_assert enforcement." \
+    "Let x: Int where x > 0 be 5."
+
+add_test_description "tests/e2e_zones.rs" \
+    "E2E: Zone Memory" \
+    "Runtime verification of zone-based memory: allocation, bulk deallocation, escape prevention." \
+    "Inside a zone: allocate and use memory."
+
 # Other tests
-add_test_description "tests/aktionsart_tests.rs" \
-    "Aktionsart/Vendler Classes" \
-    "Tests for Vendler's lexical aspect classes and their interaction with aspectual operators." \
-    "State (know), Activity (run), Accomplishment (build), Achievement (win), Semelfactive (knock)"
+add_test_description "tests/phase10_io.rs" \
+    "Phase 10: I/O Operations" \
+    "Input/output operations for LOGOS programs." \
+    "Read from file. Write to output."
 
-add_test_description "tests/complex_combinations.rs" \
-    "Complex Operator Chains" \
-    "Tests for complex modal + aspect + tense chains with proper operator nesting." \
-    "Perfect + Passive + Progressive stacking"
+add_test_description "tests/phase_ownership.rs" \
+    "Ownership Analysis" \
+    "Rust-style ownership tracking: moves, borrows, lifetimes." \
+    "Give x to f. Show x to g."
 
-add_test_description "tests/torture_tests.rs" \
-    "Parser Stress Tests" \
-    "Edge case stress tests: deeply nested structures, unusual word orders, boundary conditions." \
-    "Deeply nested relative clauses and coordinations"
+add_test_description "tests/phase_totality.rs" \
+    "Totality Analysis" \
+    "Function totality checking for termination guarantees." \
+    "Verify recursive functions terminate."
 
-add_test_description "tests/integration_tests.rs" \
-    "Core Integration Tests" \
-    "Comprehensive tests covering quantifiers, modals, temporal logic, relative clauses, and basic parsing." \
-    "Universal, existential, and generic quantification patterns"
-
-add_test_description "tests/common/mod.rs" \
-    "E2E Test Harness" \
-    "Shared test utilities for E2E tests. Provides run_logos() function that compiles LOGOS source to Rust, creates a temp Cargo project, builds and runs it, and returns E2EResult with stdout/stderr/success/rust_code." \
-    "run_logos(source) -> E2EResult { stdout, stderr, success, rust_code }"
+add_test_description "tests/phase_lexer_refactor.rs" \
+    "Lexer Refactoring Tests" \
+    "Tests for lexer improvements and edge cases." \
+    "Lexer stress tests and edge cases."
 
 # STATISTICS
 # ==============================================================================
@@ -1889,6 +1941,24 @@ if [ -d "src/ui" ]; then
     UI_LINES=$(find src/ui -name "*.rs" -exec cat {} \; 2>/dev/null | wc -l)
 fi
 echo "Desktop UI:                           $UI_LINES lines" >> "$OUTPUT_FILE"
+
+# CRDT
+CRDT_LINES=0
+for f in logos_core/src/crdt/*.rs; do
+    if [ -f "$f" ]; then
+        CRDT_LINES=$((CRDT_LINES + $(wc -l < "$f")))
+    fi
+done
+echo "CRDT (logos_core/src/crdt/):          $CRDT_LINES lines" >> "$OUTPUT_FILE"
+
+# Network
+NETWORK_LINES=0
+for f in logos_core/src/network/*.rs; do
+    if [ -f "$f" ]; then
+        NETWORK_LINES=$((NETWORK_LINES + $(wc -l < "$f")))
+    fi
+done
+echo "Network (logos_core/src/network/):    $NETWORK_LINES lines" >> "$OUTPUT_FILE"
 
 # Entry
 ENTRY_LINES=0
@@ -2128,6 +2198,14 @@ add_file "src/analysis/escape.rs" \
     "Escape Analysis" \
     "Phase 8.5: Zone safety enforcement. EscapeChecker tracks variable zone depths and detects escape violations (return from zone, assignment to outer variable). Socratic error messages explain Hotel California rule. Falls back to Rust's borrow checker for complex patterns."
 
+add_file "src/analysis/policy.rs" \
+    "Policy Analysis" \
+    "PolicyRegistry for storing predicate and capability definitions. PolicyCondition enum for rule composition: FieldEquals, FieldBool, Predicate, ObjectFieldEquals, Or, And. PredicateDef and CapabilityDef structs. Integrated with DiscoveryPass for ## Policy block scanning."
+
+add_file "src/analysis/ownership.rs" \
+    "Ownership Analysis (Phase 45)" \
+    "Control-flow-aware ownership tracking. Move detection in branches, use-after-move errors, Give/Show semantics. OwnershipState tracks Live/Moved/MaybeValid states per variable. Merges states at control flow joins."
+
 # ==============================================================================
 # CODE GENERATION
 # ==============================================================================
@@ -2171,14 +2249,6 @@ add_file "src/project/manifest.rs" \
 add_file "src/project/build.rs" \
     "Build Orchestration" \
     "Project build pipeline. find_project_root() walks up to find Largo.toml, build() coordinates parse→compile→cargo build, run() executes the built binary."
-
-add_file "src/project/mod.rs" \
-    "Project Module" \
-    "Phase 36/37/39 project infrastructure exports. Provides Loader, Manifest, BuildConfig, Credentials, and RegistryClient. Feature-gated: loader always available, others require 'cli' feature."
-
-add_file "src/project/loader.rs" \
-    "Module Loader" \
-    "Phase 36 module resolution. Supports file:./path.md (local), logos:std/core (built-in), https:// (remote registry). Caches loaded modules, resolves relative paths, embeds std lib at compile time."
 
 add_file "src/project/credentials.rs" \
     "Credential Management" \
@@ -2376,6 +2446,26 @@ add_file "src/storage.rs" \
     "Persistent Storage" \
     "LocalStorage interface for saving game state. Handles serialization/deserialization of progress, settings, and achievements. Provides fallback for browsers without storage access."
 
+add_file "src/interpreter.rs" \
+    "LOGOS Interpreter" \
+    "Direct AST interpretation without compilation. Used for REPL, debugging, and rapid prototyping. Evaluates expressions and statements in a runtime environment."
+
+add_file "src/learn_state.rs" \
+    "Learning State Management" \
+    "Tracks user progress: lesson completion, XP, streaks, achievements. Persisted to local storage. LearningState struct with serializable progress data."
+
+add_file "src/struggle.rs" \
+    "Struggle Detection" \
+    "Identifies areas where users need help. Tracks error patterns, offers adaptive hints. StruggleTracker monitors repeated failures on specific concepts."
+
+add_file "src/symbol_dict.rs" \
+    "Symbol Dictionary" \
+    "Runtime symbol table for interactive features. Maps symbols to definitions and types. Used by workspace for autocomplete and hover info."
+
+add_file "src/unlock.rs" \
+    "Content Unlocking" \
+    "Progressive disclosure system. Lessons unlock based on prerequisites and mastery. UnlockState tracks completed lessons and available content."
+
 # ==============================================================================
 # APPLICATION
 # ==============================================================================
@@ -2499,6 +2589,46 @@ if [ -d "src/ui" ]; then
                         ;;
                     *)
                         add_file "$file" "Component: ${filename%.rs}" "Reusable UI component."
+                        ;;
+                esac
+            fi
+        done
+    fi
+
+    # Hooks subdirectory
+    if [ -d "src/ui/hooks" ]; then
+        for file in src/ui/hooks/*.rs; do
+            if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                case "$filename" in
+                    mod.rs)
+                        add_file "$file" "Hooks: Module" "Custom React-style hooks for Dioxus. Reusable stateful logic patterns."
+                        ;;
+                    use_inactivity_timer.rs)
+                        add_file "$file" "Hook: Inactivity Timer" "Detects user inactivity for session timeout warnings and auto-save triggers."
+                        ;;
+                    *)
+                        add_file "$file" "Hook: ${filename%.rs}" "Custom Dioxus hook."
+                        ;;
+                esac
+            fi
+        done
+    fi
+
+    # Guide subdirectory
+    if [ -d "src/ui/pages/guide" ]; then
+        for file in src/ui/pages/guide/*.rs; do
+            if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                case "$filename" in
+                    mod.rs)
+                        add_file "$file" "Guide: Module" "Documentation browser and interactive tutorials module."
+                        ;;
+                    content.rs)
+                        add_file "$file" "Guide: Content" "Markdown content and examples for guide sections. Static documentation data."
+                        ;;
+                    *)
+                        add_file "$file" "Guide: ${filename%.rs}" "Guide page component."
                         ;;
                 esac
             fi
@@ -2660,6 +2790,56 @@ add_file "logos_core/src/env.rs" \
 add_file "logos_core/src/memory.rs" \
     "Zone Memory Management" \
     "Phase 8.5 & 8.6: Zone-based memory. Zone enum with Heap (bumpalo arena) and Mapped (memmap2 file) variants. new_heap(capacity) for arena allocation, new_mapped(path) for zero-copy file IO. alloc()/alloc_slice() for heap zones, as_slice() for mapped zones. reset() for bulk deallocation. Implements 'Hotel California' rule: values can enter but cannot escape."
+
+# CRDT Module
+add_file "logos_core/src/crdt/mod.rs" \
+    "CRDT Module Exports" \
+    "Exports Merge trait, GCounter, and LWWRegister for eventually consistent distributed state."
+
+add_file "logos_core/src/crdt/merge.rs" \
+    "Merge Trait" \
+    "Core CRDT interface. Four properties: commutative (a ⊔ b = b ⊔ a), associative ((a ⊔ b) ⊔ c = a ⊔ (b ⊔ c)), idempotent (a ⊔ a = a), and identity (a ⊔ ⊥ = a). All CRDT types implement this trait."
+
+add_file "logos_core/src/crdt/gcounter.rs" \
+    "GCounter (Grow-only Counter)" \
+    "Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Auto-generates UUID for replica ID on first increment. PartialEq<u64> and PartialEq<i32> for ergonomic comparisons in assertions."
+
+add_file "logos_core/src/crdt/lww.rs" \
+    "LWWRegister (Last-Write-Wins Register)" \
+    "Generic register for any Clone type. Resolves conflicts by microsecond-precision UNIX timestamp. Higher timestamp wins on merge. Useful for user-facing fields like names, descriptions."
+
+add_file "logos_core/src/crdt/sync.rs" \
+    "Synced<T> Wrapper (Phase 52)" \
+    "Auto-replicating CRDT wrapper for GossipSub. Wraps Arc<Mutex<T>> for thread-safe shared state. mutate() triggers publish to topic, background task merges incoming messages. new() spawns subscriber task."
+
+# Network Module (Phase 48 + 51 + 52)
+add_file "logos_core/src/network/mod.rs" \
+    "Network Module Exports" \
+    "Exports Phase 48 (file chunking), Phase 51 (P2P mesh), and Phase 52 (GossipSub) primitives. Public API: FileSipper, FileManifest, listen, connect, send, PeerAgent, MeshNode, gossip_publish, gossip_subscribe."
+
+add_file "logos_core/src/network/mesh.rs" \
+    "Mesh Node (libp2p Swarm)" \
+    "Core P2P implementation using libp2p 0.54. MeshNode manages global swarm via OnceLock. MeshCommand enum: Listen, Connect, Send, GossipSubscribe, GossipPublish. Event loop handles mDNS discovery (auto-dials peers), request-response, and GossipSub message routing to gossip::on_message()."
+
+add_file "logos_core/src/network/protocol.rs" \
+    "LOGOS Protocol Codec" \
+    "/logos/mesh/1.0.0 stream protocol. LogosCodec implements async length-prefixed framing. 16MB max message size. LogosRequest/LogosResponse wire types."
+
+add_file "logos_core/src/network/wire.rs" \
+    "Wire Serialization" \
+    "Bincode-based LogosWire abstraction. encode<T: Serialize>() and decode<T: DeserializeOwned>(). WireError enum for encode/decode failures. Designed for future migration to rkyv."
+
+add_file "logos_core/src/network/behaviour.rs" \
+    "Mesh Behaviour" \
+    "Combined libp2p NetworkBehaviour. Integrates request-response, mDNS discovery, and GossipSub pub/sub. MeshBehaviour struct derives NetworkBehaviour with three sub-behaviours. gossipsub::Behaviour with MessageAuthenticity::Signed."
+
+add_file "logos_core/src/network/gossip.rs" \
+    "GossipSub Pub/Sub (Phase 52)" \
+    "GossipSub publish/subscribe for automatic CRDT replication. Static SUBSCRIPTIONS registry. publish<T>() broadcasts encoded state, subscribe_and_merge<T>() handles incoming merges. on_message() routes data to Synced<T> instances."
+
+add_file "logos_core/src/network/sipping.rs" \
+    "File Sipper (Phase 48)" \
+    "Zero-copy file chunking for resumable transfers. FileSipper uses memory-mapped zones. FileManifest describes chunks with SHA256 hashes. Default 1MB chunk size."
 
 # ==============================================================================
 # LOGOS VERIFICATION CRATE

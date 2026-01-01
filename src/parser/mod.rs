@@ -818,6 +818,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Check) {
             return self.parse_check_statement();
         }
+        // Phase 51: P2P Networking statements
+        if self.check(&TokenType::Listen) {
+            return self.parse_listen_statement();
+        }
+        if self.check(&TokenType::NetConnect) {
+            return self.parse_connect_statement();
+        }
+        if self.check(&TokenType::Sleep) {
+            return self.parse_sleep_statement();
+        }
+        // Phase 52: GossipSub sync statement
+        if self.check(&TokenType::Sync) {
+            return self.parse_sync_statement();
+        }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
         }
@@ -1375,6 +1389,45 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume "be"
 
+        // Phase 51: Check for "a PeerAgent at [addr]" pattern
+        if self.check_article() {
+            let saved_pos = self.current;
+            self.advance(); // consume article
+
+            // Check if next word is "PeerAgent" (case insensitive)
+            if let TokenType::Noun(sym) | TokenType::ProperName(sym) = self.peek().kind {
+                let word = self.interner.resolve(sym).to_lowercase();
+                if word == "peeragent" {
+                    self.advance(); // consume "PeerAgent"
+
+                    // Check for "at" keyword
+                    if self.check(&TokenType::At) || self.check_preposition_is("at") {
+                        self.advance(); // consume "at"
+
+                        // Parse address expression
+                        let address = self.parse_imperative_expr()?;
+
+                        // Bind in ScopeStack if context available
+                        if let Some(ctx) = self.context.as_mut() {
+                            use crate::context::{Entity, Gender, Number, OwnershipState};
+                            let var_name = self.interner.resolve(var).to_string();
+                            ctx.register(Entity {
+                                symbol: var_name.clone(),
+                                gender: Gender::Neuter,
+                                number: Number::Singular,
+                                noun_class: var_name,
+                                ownership: OwnershipState::Owned,
+                            });
+                        }
+
+                        return Ok(Stmt::LetPeerAgent { var, address });
+                    }
+                }
+            }
+            // Not a PeerAgent, backtrack
+            self.current = saved_pos;
+        }
+
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
 
@@ -1702,6 +1755,92 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             source_text,
             span: start_span,
         })
+    }
+
+    /// Phase 51: Parse Listen statement - bind to network address
+    /// Syntax: Listen on [address].
+    fn parse_listen_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Listen"
+
+        // Expect "on" preposition
+        if !self.check_preposition_is("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Parse address expression (string literal or variable)
+        let address = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Listen { address })
+    }
+
+    /// Phase 51: Parse Connect statement - dial remote peer
+    /// Syntax: Connect to [address].
+    fn parse_connect_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Connect"
+
+        // Expect "to" (can be TokenType::To or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse address expression
+        let address = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ConnectTo { address })
+    }
+
+    /// Phase 51: Parse Sleep statement - pause execution
+    /// Syntax: Sleep [milliseconds].
+    fn parse_sleep_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Sleep"
+
+        // Parse milliseconds expression (number or variable)
+        let milliseconds = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Sleep { milliseconds })
+    }
+
+    /// Phase 52: Parse Sync statement - automatic CRDT replication
+    /// Syntax: Sync [var] on [topic].
+    fn parse_sync_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Sync"
+
+        // Parse variable name (must be an identifier)
+        let var = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "on" preposition
+        if !self.check_preposition_is("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Parse topic expression (string literal or variable)
+        let topic = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Sync { var, topic })
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {

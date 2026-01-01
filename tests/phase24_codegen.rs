@@ -20,33 +20,37 @@ fn codegen_module_exists() {
 #[test]
 fn codegen_literal_number() {
     let interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let expr = Expr::Literal(Literal::Number(42));
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "42");
 }
 
 #[test]
 fn codegen_literal_boolean_true() {
     let interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let expr = Expr::Literal(Literal::Boolean(true));
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "true");
 }
 
 #[test]
 fn codegen_literal_boolean_false() {
     let interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let expr = Expr::Literal(Literal::Boolean(false));
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "false");
 }
 
 #[test]
 fn codegen_literal_text() {
     let mut interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let text_sym = interner.intern("hello world");
     let expr = Expr::Literal(Literal::Text(text_sym));
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     // String::from() ensures we get String type, not &str
     assert_eq!(result, "String::from(\"hello world\")");
 }
@@ -54,23 +58,26 @@ fn codegen_literal_text() {
 #[test]
 fn codegen_literal_nothing() {
     let interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let expr = Expr::Literal(Literal::Nothing);
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "()");
 }
 
 #[test]
 fn codegen_identifier() {
     let mut interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let var_sym = interner.intern("x");
     let expr = Expr::Identifier(var_sym);
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "x");
 }
 
 #[test]
 fn codegen_binary_add() {
     let interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let arena: Arena<Expr> = Arena::new();
     let left = arena.alloc(Expr::Literal(Literal::Number(1)));
     let right = arena.alloc(Expr::Literal(Literal::Number(2)));
@@ -79,13 +86,14 @@ fn codegen_binary_add() {
         left,
         right,
     };
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "(1 + 2)");
 }
 
 #[test]
 fn codegen_binary_eq() {
     let mut interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let x = interner.intern("x");
     let arena: Arena<Expr> = Arena::new();
     let left = arena.alloc(Expr::Identifier(x));
@@ -95,13 +103,14 @@ fn codegen_binary_eq() {
         left,
         right,
     };
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     assert_eq!(result, "(x == 5)");
 }
 
 #[test]
 fn codegen_index_1_indexed() {
     let mut interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let list = interner.intern("list");
     let arena: Arena<Expr> = Arena::new();
     let collection = arena.alloc(Expr::Identifier(list));
@@ -111,7 +120,7 @@ fn codegen_index_1_indexed() {
         collection,
         index,
     };
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     // Phase 43D: Now uses logos_index helper for 1-based indexing
     assert_eq!(result, "logos_index(&list, 1)");
 }
@@ -119,6 +128,7 @@ fn codegen_index_1_indexed() {
 #[test]
 fn codegen_index_5_becomes_4() {
     let mut interner = Interner::new();
+    let synced_vars = HashSet::<Symbol>::new();
     let items = interner.intern("items");
     let arena: Arena<Expr> = Arena::new();
     let collection = arena.alloc(Expr::Identifier(items));
@@ -128,7 +138,7 @@ fn codegen_index_5_becomes_4() {
         collection,
         index,
     };
-    let result = codegen_expr(&expr, &interner);
+    let result = codegen_expr(&expr, &interner, &synced_vars);
     // Phase 43D: Now uses logos_index helper for 1-based indexing
     assert_eq!(result, "logos_index(&items, 5)");
 }
@@ -146,7 +156,8 @@ fn codegen_let_statement() {
         mutable: false,
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "let x = 42;\n");
 }
 
@@ -163,7 +174,8 @@ fn codegen_let_mutable() {
         mutable: true,
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "let mut count = 0;\n");
 }
 
@@ -178,7 +190,8 @@ fn codegen_set_statement() {
         value,
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "x = 10;\n");
 }
 
@@ -191,7 +204,8 @@ fn codegen_return_with_value() {
         value: Some(value),
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "return 42;\n");
 }
 
@@ -200,7 +214,8 @@ fn codegen_return_without_value() {
     let interner = Interner::new();
     let stmt = Stmt::Return { value: None };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "return;\n");
 }
 
@@ -218,7 +233,8 @@ fn codegen_if_without_else() {
         else_block: None,
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert!(result.contains("if x {"), "Expected 'if x {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -237,7 +253,8 @@ fn codegen_while_loop() {
         decreasing: None,
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert!(result.contains("while running {"), "Expected 'while running {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -255,7 +272,8 @@ fn codegen_indentation() {
         mutable: false,
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "    let x = 5;\n");
 }
 
@@ -281,6 +299,7 @@ fn codegen_call_statement() {
         args: vec![],
     };
     let mut ctx = RefinementContext::new();
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields());
+    let mut synced_vars = HashSet::<Symbol>::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &mut synced_vars);
     assert_eq!(result, "println();\n");
 }

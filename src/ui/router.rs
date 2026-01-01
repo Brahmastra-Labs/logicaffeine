@@ -1,14 +1,11 @@
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide};
+use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
     #[route("/")]
     Landing {},
-
-    #[route("/home")]
-    Home {},
 
     #[route("/pricing")]
     Pricing {},
@@ -61,7 +58,7 @@ fn NotFound(route: Vec<String>) -> Element {
             h1 { style: "font-size: 48px; margin-bottom: 16px;", "404" }
             p { style: "color: #888; margin-bottom: 24px;", "Page not found: /{route.join(\"/\")}" }
             Link {
-                to: Route::Home {},
+                to: Route::Landing {},
                 style: "padding: 12px 24px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; color: white; text-decoration: none;",
                 "Go Home"
             }

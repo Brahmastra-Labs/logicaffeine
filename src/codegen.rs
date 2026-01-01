@@ -113,6 +113,36 @@ fn replace_word(text: &str, from: &str, to: &str) -> String {
     result
 }
 
+/// Phase 51: Detect if any statements require async execution.
+/// Returns true if the program needs #[tokio::main] async fn main().
+fn requires_async(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| requires_async_stmt(s))
+}
+
+fn requires_async_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        // Phase 9: Concurrent blocks use tokio::join!
+        Stmt::Concurrent { tasks } => true,
+        // Phase 51: Network operations and Sleep are async
+        Stmt::Listen { .. } => true,
+        Stmt::ConnectTo { .. } => true,
+        Stmt::Sleep { .. } => true,
+        // Phase 52: Sync is async (GossipSub subscription)
+        Stmt::Sync { .. } => true,
+        // Recursively check nested blocks
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| requires_async_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| requires_async_stmt(s)))
+        }
+        Stmt::While { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        _ => false,
+    }
+}
+
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
 /// - Variables that are targets of `Set` statements (reassignment)
@@ -387,14 +417,21 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     }
 
     // Main function
-    writeln!(output, "fn main() {{").unwrap();
+    // Phase 51: Use async main when async operations are present
+    if requires_async(stmts) {
+        writeln!(output, "#[tokio::main]").unwrap();
+        writeln!(output, "async fn main() {{").unwrap();
+    } else {
+        writeln!(output, "fn main() {{").unwrap();
+    }
     let mut main_ctx = RefinementContext::new();
+    let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     for stmt in stmts {
         // Skip function definitions - they're already emitted above
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -429,15 +466,19 @@ fn codegen_function_def(
         .map(|t| codegen_type_expr(t, interner))
         .or_else(|| infer_return_type_from_body(body, interner));
 
+    // Phase 51: Check if function body requires async
+    let is_async = body.iter().any(|s| requires_async_stmt(s));
+    let fn_keyword = if is_async { "async fn" } else { "fn" };
+
     // Build function signature
     let signature = if let Some(ref ret_ty) = return_type_str {
         if ret_ty != "()" {
-            format!("fn {}({}) -> {}", func_name, params_str.join(", "), ret_ty)
+            format!("{} {}({}) -> {}", fn_keyword, func_name, params_str.join(", "), ret_ty)
         } else {
-            format!("fn {}({})", func_name, params_str.join(", "))
+            format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
         }
     } else {
-        format!("fn {}({})", func_name, params_str.join(", "))
+        format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
     };
 
     // Phase 38: Handle native functions
@@ -458,6 +499,7 @@ fn codegen_function_def(
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
         let mut func_ctx = RefinementContext::new();
+        let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
 
         // Phase 50: Register parameter types for capability Check resolution
         for (param_name, param_type) in params {
@@ -466,7 +508,7 @@ fn codegen_function_def(
         }
 
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -606,7 +648,8 @@ fn codegen_struct_def(name: Symbol, fields: &[FieldDef], generics: &[Symbol], is
 
     // Phase 47: Add Serialize, Deserialize derives if portable
     // Phase 50: Add PartialEq for policy equality comparisons
-    if is_portable {
+    // Phase 52: Shared types also need Serialize/Deserialize for Synced<T>
+    if is_portable || is_shared {
         writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]", ind).unwrap();
     } else {
         writeln!(output, "{}#[derive(Default, Debug, Clone, PartialEq)]", ind).unwrap();
@@ -771,6 +814,7 @@ pub fn codegen_stmt<'a>(
     mutable_vars: &HashSet<Symbol>,
     ctx: &mut RefinementContext<'a>,
     lww_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -778,7 +822,7 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
 
             // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
@@ -800,7 +844,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
 
             // Phase 43C: Check if this variable has a refinement constraint
@@ -811,23 +855,23 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
             writeln!(output, "{}{}({});", indent_str, func_name, args_str.join(", ")).unwrap();
         }
 
         Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr(cond, interner);
+            let cond_str = codegen_expr(cond, interner, synced_vars);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
                 }
                 ctx.pop_scope();
             }
@@ -836,11 +880,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::While { cond, body, decreasing: _ } => {
             // decreasing is compile-time only, ignored at runtime
-            let cond_str = codegen_expr(cond, interner);
+            let cond_str = codegen_expr(cond, interner, synced_vars);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -848,11 +892,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Repeat { var, iterable, body } => {
             let var_name = interner.resolve(*var);
-            let iter_str = codegen_expr(iterable, interner);
+            let iter_str = codegen_expr(iterable, interner, synced_vars);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -860,7 +904,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr(v, interner);
+                let value_str = codegen_expr(v, interner, synced_vars);
                 writeln!(output, "{}return {};", indent_str, value_str).unwrap();
             } else {
                 writeln!(output, "{}return;", indent_str).unwrap();
@@ -883,7 +927,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::RuntimeAssert { condition } => {
-            let cond_str = codegen_expr(condition, interner);
+            let cond_str = codegen_expr(condition, interner, synced_vars);
             writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
@@ -913,24 +957,71 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
+        // Phase 51: P2P Networking - Listen on network address
+        Stmt::Listen { address } => {
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}logos_core::network::listen(&{}).await.expect(\"Failed to listen\");",
+                     indent_str, addr_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Connect to remote peer
+        Stmt::ConnectTo { address } => {
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}logos_core::network::connect(&{}).await.expect(\"Failed to connect\");",
+                     indent_str, addr_str).unwrap();
+        }
+
+        // Phase 51: P2P Networking - Create PeerAgent remote handle
+        Stmt::LetPeerAgent { var, address } => {
+            let var_name = interner.resolve(*var);
+            let addr_str = codegen_expr(address, interner, synced_vars);
+            // Pass &str instead of String
+            writeln!(output, "{}let {} = logos_core::network::PeerAgent::new(&{}).expect(\"Invalid address\");",
+                     indent_str, var_name, addr_str).unwrap();
+        }
+
+        // Phase 51: Sleep for milliseconds
+        Stmt::Sleep { milliseconds } => {
+            let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+            // Use tokio async sleep
+            writeln!(output, "{}tokio::time::sleep(std::time::Duration::from_millis({} as u64)).await;",
+                     indent_str, ms_str).unwrap();
+        }
+
+        // Phase 52: Sync CRDT variable on topic
+        Stmt::Sync { var, topic } => {
+            let var_name = interner.resolve(*var);
+            let topic_str = codegen_expr(topic, interner, synced_vars);
+            // Wrap the variable in Synced<T> for automatic GossipSub replication
+            writeln!(
+                output,
+                "{}let {} = logos_core::crdt::Synced::new({}, &{}).await;",
+                indent_str, var_name, var_name, topic_str
+            ).unwrap();
+            // Track this variable as synced for subsequent field access
+            synced_vars.insert(*var);
+        }
+
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
-            let obj_str = codegen_expr(object, interner);
-            let recv_str = codegen_expr(recipient, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            let recv_str = codegen_expr(recipient, interner, synced_vars);
             writeln!(output, "{}{}({});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::Show { object, recipient } => {
             // Borrow semantics: pass immutable reference
-            let obj_str = codegen_expr(object, interner);
-            let recv_str = codegen_expr(recipient, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            let recv_str = codegen_expr(recipient, interner, synced_vars);
             writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::SetField { object, field, value } => {
-            let obj_str = codegen_expr(object, interner);
+            let obj_str = codegen_expr(object, interner, synced_vars);
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr(value, interner);
+            let value_str = codegen_expr(value, interner, synced_vars);
 
             // Phase 49: Check if this field is an LWWRegister - use .set() instead of =
             // We check if ANY type has this field as LWW (heuristic - works for most cases)
@@ -951,7 +1042,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Inspect { target, arms, .. } => {
-            let target_str = codegen_expr(target, interner);
+            let target_str = codegen_expr(target, interner, synced_vars);
             writeln!(output, "{}match {} {{", indent_str, target_str).unwrap();
 
             for arm in arms {
@@ -987,7 +1078,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -997,13 +1088,13 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr(value, interner);
-            let coll_str = codegen_expr(collection, interner);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Pop { collection, into } => {
-            let coll_str = codegen_expr(collection, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             match into {
                 Some(var) => {
                     let var_name = interner.resolve(*var);
@@ -1017,9 +1108,9 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SetIndex { collection, index, value } => {
-            let coll_str = codegen_expr(collection, interner);
-            let index_str = codegen_expr(index, interner);
-            let value_str = codegen_expr(value, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
+            let value_str = codegen_expr(value, interner, synced_vars);
             // 1-based indexing: item 2 of items → items[1]
             writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
         }
@@ -1053,7 +1144,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars));
             }
 
             ctx.pop_scope();
@@ -1062,6 +1153,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 9: Concurrent execution block (async, I/O-bound)
         // Generates tokio::join! for concurrent task execution
+        // Phase 51: Variables used across multiple tasks are cloned to avoid move issues
         Stmt::Concurrent { tasks } => {
             // Collect Let statements to generate tuple destructuring
             let let_bindings: Vec<_> = tasks.iter().filter_map(|s| {
@@ -1069,6 +1161,21 @@ pub fn codegen_stmt<'a>(
                     Some(interner.resolve(*var).to_string())
                 } else {
                     None
+                }
+            }).collect();
+
+            // Collect variables used in Call statements across all tasks
+            let used_vars: HashSet<String> = tasks.iter().flat_map(|s| {
+                if let Stmt::Call { args, .. } = s {
+                    args.iter().filter_map(|arg| {
+                        if let Expr::Identifier(sym) = arg {
+                            Some(interner.resolve(*sym).to_string())
+                        } else {
+                            None
+                        }
+                    }).collect::<Vec<_>>()
+                } else {
+                    vec![]
                 }
             }).collect();
 
@@ -1080,9 +1187,29 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields);
-                // Wrap each statement in an async block
-                write!(output, "{}    async {{ {} }}", indent_str, inner.trim()).unwrap();
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
+
+                // Convert call statements to awaited calls for async context
+                let inner_awaited = if let Stmt::Call { .. } = stmt {
+                    // Add .await before the semicolon for function calls
+                    inner.trim().trim_end_matches(';').to_string() + ".await;"
+                } else {
+                    inner.trim().to_string()
+                };
+
+                // For tasks that use shared variables, wrap in a block that clones them
+                if !used_vars.is_empty() && i < tasks.len() - 1 {
+                    // Clone variables for all tasks except the last one
+                    let clones: Vec<String> = used_vars.iter()
+                        .map(|v| format!("let {} = {}.clone();", v, v))
+                        .collect();
+                    write!(output, "{}    {{ {} async move {{ {} }} }}",
+                           indent_str, clones.join(" "), inner_awaited).unwrap();
+                } else {
+                    // Last task can use original variables
+                    write!(output, "{}    async {{ {} }}", indent_str, inner_awaited).unwrap();
+                }
+
                 if i < tasks.len() - 1 {
                     writeln!(output, ",").unwrap();
                 } else {
@@ -1114,7 +1241,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -1128,7 +1255,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -1146,7 +1273,7 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}let {} = logos_core::io::read_line();", indent_str, var_name).unwrap();
                 }
                 ReadSource::File(path_expr) => {
-                    let path_str = codegen_expr(path_expr, interner);
+                    let path_str = codegen_expr(path_expr, interner, synced_vars);
                     writeln!(
                         output,
                         "{}let {} = logos_core::file::read({}.to_string()).expect(\"Failed to read file\");",
@@ -1158,8 +1285,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 10: Write to file
         Stmt::WriteFile { content, path } => {
-            let content_str = codegen_expr(content, interner);
-            let path_str = codegen_expr(path, interner);
+            let content_str = codegen_expr(content, interner, synced_vars);
+            let path_str = codegen_expr(path, interner, synced_vars);
             writeln!(
                 output,
                 "{}logos_core::file::write({}.to_string(), {}.to_string()).expect(\"Failed to write file\");",
@@ -1181,8 +1308,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Send message to agent
         Stmt::SendMessage { message, destination } => {
-            let msg_str = codegen_expr(message, interner);
-            let dest_str = codegen_expr(destination, interner);
+            let msg_str = codegen_expr(message, interner, synced_vars);
+            let dest_str = codegen_expr(destination, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.send({}).await.expect(\"Failed to send message\");",
@@ -1192,7 +1319,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Await response from agent
         Stmt::AwaitMessage { source, into } => {
-            let src_str = codegen_expr(source, interner);
+            let src_str = codegen_expr(source, interner, synced_vars);
             let var_name = interner.resolve(*into);
             writeln!(
                 output,
@@ -1203,8 +1330,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49: Merge CRDT state
         Stmt::MergeCrdt { source, target } => {
-            let src_str = codegen_expr(source, interner);
-            let tgt_str = codegen_expr(target, interner);
+            let src_str = codegen_expr(source, interner, synced_vars);
+            let tgt_str = codegen_expr(target, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.merge(&{});",
@@ -1213,10 +1340,28 @@ pub fn codegen_stmt<'a>(
         }
 
         // Phase 49: Increment GCounter
+        // Phase 52: If object is synced, wrap in .mutate() for auto-publish
         Stmt::IncreaseCrdt { object, field, amount } => {
-            let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr(amount, interner);
+            let amount_str = codegen_expr(amount, interner, synced_vars);
+
+            // Check if the root object is synced
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    // Synced: use .mutate() for auto-publish
+                    let obj_name = interner.resolve(sym);
+                    writeln!(
+                        output,
+                        "{}{}.mutate(|inner| inner.{}.increment({} as u64)).await;",
+                        indent_str, obj_name, field_name, amount_str
+                    ).unwrap();
+                    return output;
+                }
+            }
+
+            // Not synced: direct access
+            let obj_str = codegen_expr(object, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.{}.increment({} as u64);",
@@ -1228,15 +1373,25 @@ pub fn codegen_stmt<'a>(
     output
 }
 
-pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
+/// Phase 52: Extract the root identifier from an expression.
+/// For `x.field.subfield`, returns `x`.
+fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => get_root_identifier(object),
+        _ => None,
+    }
+}
+
+pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
     match expr {
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
         Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
 
         Expr::BinaryOp { op, left, right } => {
-            let left_str = codegen_expr(left, interner);
-            let right_str = codegen_expr(right, interner);
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -1257,67 +1412,77 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
 
         Expr::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
             format!("{}({})", func_name, args_str.join(", "))
         }
 
         Expr::Index { collection, index } => {
-            let coll_str = codegen_expr(collection, interner);
-            let index_str = codegen_expr(index, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
             // Phase 43D: 1-based indexing with runtime bounds check
             format!("logos_index(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
-            let coll_str = codegen_expr(collection, interner);
-            let start_str = codegen_expr(start, interner);
-            let end_str = codegen_expr(end, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let start_str = codegen_expr(start, interner, synced_vars);
+            let end_str = codegen_expr(end, interner, synced_vars);
             // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
             // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
             format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
         }
 
         Expr::Copy { expr } => {
-            let expr_str = codegen_expr(expr, interner);
+            let expr_str = codegen_expr(expr, interner, synced_vars);
             // Phase 43D: Explicit clone to owned Vec
             format!("{}.to_vec()", expr_str)
         }
 
         Expr::Length { collection } => {
-            let coll_str = codegen_expr(collection, interner);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
         }
 
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
-            let zone_str = codegen_expr(zone, interner);
+            let zone_str = codegen_expr(zone, interner, synced_vars);
             format!("logos_core::network::FileSipper::from_zone(&{}).manifest()", zone_str)
         }
 
         Expr::ChunkAt { index, zone } => {
-            let zone_str = codegen_expr(zone, interner);
-            let index_str = codegen_expr(index, interner);
+            let zone_str = codegen_expr(zone, interner, synced_vars);
+            let index_str = codegen_expr(index, interner, synced_vars);
             // LOGOS uses 1-indexed, Rust uses 0-indexed
             format!("logos_core::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| codegen_expr(i, interner))
+                .map(|i| codegen_expr(i, interner, synced_vars))
                 .collect();
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Range { start, end } => {
-            let start_str = codegen_expr(start, interner);
-            let end_str = codegen_expr(end, interner);
+            let start_str = codegen_expr(start, interner, synced_vars);
+            let end_str = codegen_expr(end, interner, synced_vars);
             format!("({}..={})", start_str, end_str)
         }
 
         Expr::FieldAccess { object, field } => {
-            let obj_str = codegen_expr(object, interner);
             let field_name = interner.resolve(*field);
+
+            // Phase 52: Check if root object is synced - use .get().await
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    let obj_name = interner.resolve(sym);
+                    return format!("{}.get().await.{}", obj_name, field_name);
+                }
+            }
+
+            let obj_str = codegen_expr(object, interner, synced_vars);
             format!("{}.{}", obj_str, field_name)
         }
 
@@ -1329,7 +1494,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
-                        let value_str = codegen_expr(value, interner);
+                        let value_str = codegen_expr(value, interner, synced_vars);
                         format!("{}: {}", field_name, value_str)
                     })
                     .collect::<Vec<_>>()
@@ -1358,7 +1523,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner) -> String {
                 let fields_str: Vec<String> = fields.iter()
                     .map(|(field_name, value)| {
                         let name = interner.resolve(*field_name);
-                        let val = codegen_expr(value, interner);
+                        let val = codegen_expr(value, interner, synced_vars);
                         format!("{}: {}", name, val)
                     })
                     .collect();
@@ -1427,20 +1592,23 @@ mod tests {
     #[test]
     fn test_literal_number() {
         let interner = Interner::new();
+        let synced_vars = HashSet::new();
         let expr = Expr::Literal(Literal::Number(42));
-        assert_eq!(codegen_expr(&expr, &interner), "42");
+        assert_eq!(codegen_expr(&expr, &interner, &synced_vars), "42");
     }
 
     #[test]
     fn test_literal_boolean() {
         let interner = Interner::new();
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(true)), &interner), "true");
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(false)), &interner), "false");
+        let synced_vars = HashSet::new();
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(true)), &interner, &synced_vars), "true");
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Boolean(false)), &interner, &synced_vars), "false");
     }
 
     #[test]
     fn test_literal_nothing() {
         let interner = Interner::new();
-        assert_eq!(codegen_expr(&Expr::Literal(Literal::Nothing), &interner), "()");
+        let synced_vars = HashSet::new();
+        assert_eq!(codegen_expr(&Expr::Literal(Literal::Nothing), &interner, &synced_vars), "()");
     }
 }

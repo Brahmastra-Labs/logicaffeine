@@ -91,7 +91,7 @@ pub fn AppNavbar(props: AppNavbarProps) -> Element {
         nav { class: "app-navbar",
             Link {
                 class: "app-navbar-brand",
-                to: Route::Home {},
+                to: Route::Landing {},
                 div { class: "app-navbar-logo" }
                 span { class: "app-navbar-title", "{title}" }
             }
@@ -99,8 +99,8 @@ pub fn AppNavbar(props: AppNavbarProps) -> Element {
             div { class: "app-navbar-nav",
                 Link {
                     class: "app-navbar-link site-link",
-                    to: Route::Home {},
-                    "← Dashboard"
+                    to: Route::Landing {},
+                    "← Home"
                 }
             }
         }

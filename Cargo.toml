@@ -1,10 +1,14 @@
 [package]
 name = "logos"
-version = "0.1.0"
+version = "0.5.5"
 edition = "2021"
-authors = ["Tristen Harr"]
+authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
 license = "BUSL-1.1"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
+repository = "https://github.com/Brahmastra-Labs/logicaffeine"
+homepage = "https://logicaffeine.com"
+keywords = ["logic", "transpiler", "natural-language", "fol", "compiler"]
+categories = ["compilers", "development-tools"]
 build = "build.rs"
 
 [[bin]]

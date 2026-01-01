@@ -1,4 +1,3 @@
-pub mod home;
 pub mod landing;
 pub mod learn;
 // Lesson and Review pages are deprecated - functionality moved to Learn page
@@ -16,7 +15,6 @@ pub mod studio;
 pub mod guide;
 pub mod profile;
 
-pub use home::Home;
 pub use landing::Landing;
 pub use learn::Learn;
 pub use pricing::Pricing;
