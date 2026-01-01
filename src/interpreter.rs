@@ -24,6 +24,7 @@ pub enum RuntimeValue {
     Bool(bool),
     Text(String),
     List(Vec<RuntimeValue>),
+    Map(HashMap<String, RuntimeValue>),
     Struct {
         type_name: String,
         fields: HashMap<String, RuntimeValue>,
@@ -39,6 +40,7 @@ impl RuntimeValue {
             RuntimeValue::Bool(_) => "Bool",
             RuntimeValue::Text(_) => "Text",
             RuntimeValue::List(_) => "List",
+            RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct { .. } => "Struct",
             RuntimeValue::Nothing => "Nothing",
         }
@@ -62,6 +64,12 @@ impl RuntimeValue {
             RuntimeValue::List(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Map(m) => {
+                let pairs: Vec<String> = m.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                    .collect();
+                format!("{{{}}}", pairs.join(", "))
             }
             RuntimeValue::Struct { type_name, fields } => {
                 if fields.is_empty() {
@@ -298,21 +306,30 @@ impl<'a> Interpreter<'a> {
             Stmt::SetIndex { collection, index, value } => {
                 let idx_val = self.evaluate_expr(index).await?;
                 let new_val = self.evaluate_expr(value).await?;
-                let idx = match idx_val {
-                    RuntimeValue::Int(n) => n as usize,
-                    _ => return Err("Index must be an integer".to_string()),
-                };
                 if let Expr::Identifier(coll_sym) = collection {
                     let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::List(ref mut items) = coll_val {
-                        if idx == 0 || idx > items.len() {
-                            return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                    match (&mut coll_val, &idx_val) {
+                        (RuntimeValue::List(ref mut items), RuntimeValue::Int(n)) => {
+                            let idx = *n as usize;
+                            if idx == 0 || idx > items.len() {
+                                return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                            }
+                            items[idx - 1] = new_val;
                         }
-                        items[idx - 1] = new_val;
-                        self.assign(*coll_sym, coll_val)?;
-                    } else {
-                        return Err("Can only index into a List".to_string());
+                        (RuntimeValue::Map(ref mut map), RuntimeValue::Text(key)) => {
+                            map.insert(key.clone(), new_val);
+                        }
+                        (RuntimeValue::List(_), _) => {
+                            return Err("List index must be an integer".to_string());
+                        }
+                        (RuntimeValue::Map(_), _) => {
+                            return Err("Map key must be a string".to_string());
+                        }
+                        _ => {
+                            return Err(format!("Cannot index into {}", coll_val.type_name()));
+                        }
                     }
+                    self.assign(*coll_sym, coll_val)?;
                 } else {
                     return Err("SetIndex collection must be an identifier".to_string());
                 }
@@ -568,6 +585,12 @@ impl<'a> Interpreter<'a> {
                         }
                         Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
                     }
+                    (RuntimeValue::Map(map), RuntimeValue::Text(key)) => {
+                        match map.get(key) {
+                            Some(val) => Ok(val.clone()),
+                            None => Err(format!("Key '{}' not found in map", key)),
+                        }
+                    }
                     _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
                 }
             }
@@ -640,6 +663,10 @@ impl<'a> Interpreter<'a> {
 
                 if name == "Seq" || name == "List" {
                     return Ok(RuntimeValue::List(vec![]));
+                }
+
+                if name == "Map" || name == "HashMap" {
+                    return Ok(RuntimeValue::Map(HashMap::new()));
                 }
 
                 let mut fields = HashMap::new();

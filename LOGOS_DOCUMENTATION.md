@@ -2203,13 +2203,13 @@ Tests for lexer improvements and edge cases.
 ### By Compiler Stage
 ```
 Lexer (token.rs, lexer.rs):           2315 lines
-Parser (ast/, parser/):               13749 lines
+Parser (ast/, parser/):               13756 lines
 Transpilation:                        1341 lines
-Code Generation:                      2510 lines
+Code Generation:                      2658 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            2613 lines
 Support Infrastructure:               4323 lines
-Desktop UI:                              17238 lines
+Desktop UI:                              17327 lines
 CRDT (logos_core/src/crdt/):          497 lines
 Network (logos_core/src/network/):    1493 lines
 VFS (logos_core/src/fs/):             511 lines
@@ -2218,15 +2218,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        56165
-Test lines:          19070
-Total Rust lines: 75235
+Source lines:        56409
+Test lines:          19310
+Total Rust lines: 75719
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   116
+Test files:   118
 ```
 ## Lexicon Data
 
@@ -8034,7 +8034,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     fn check_mutable_keyword(&self) -> bool {
         if let TokenType::Noun(sym) | TokenType::Adjective(sym) = self.peek().kind {
-            self.interner.resolve(sym).eq_ignore_ascii_case("mutable")
+            let word = self.interner.resolve(sym).to_lowercase();
+            word == "mutable" || word == "mut"
         } else {
             false
         }
@@ -8936,8 +8937,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the collection
         let collection = self.parse_imperative_expr()?;
 
-        // Check for optional "into" binding
-        let into = if self.check_preposition_is("into") {
+        // Check for optional "into" binding (can be Into keyword or preposition)
+        let into = if self.check(&TokenType::Into) || self.check_preposition_is("into") {
             self.advance(); // consume "into"
 
             // Parse variable name
@@ -9722,9 +9723,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let type_arg = self.expect_identifier()?;
             type_args.push(type_arg);
 
-            // Check for "and" to continue (for multi-param generics like "Result of Int and Text")
-            if self.check(&TokenType::And) {
-                self.advance(); // consume "and"
+            // Check for "and" or "to" to continue (for multi-param generics like "Map of Text to Int")
+            if self.check(&TokenType::And) || self.check_to_preposition() {
+                self.advance(); // consume separator
                 continue;
             }
             break;
@@ -10069,6 +10070,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     self.advance(); // consume ')'
                     inner
+                } else if let TokenType::StringLiteral(sym) = self.peek().kind {
+                    // Phase 57B: String literal key for Map access like item "iron" of prices
+                    let sym = sym;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(sym)))
                 } else if !self.check_preposition_is("of") {
                     // Variable identifier like i, j, idx (any token that's not "of")
                     let sym = self.peek().lexeme;
@@ -10090,8 +10096,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "of"
 
-                // Parse collection
-                let collection = self.parse_imperative_expr()?;
+                // Parse collection as primary expression (identifier or field chain)
+                // Using primary_expr instead of imperative_expr prevents consuming operators
+                let collection = self.parse_primary_expr()?;
 
                 Ok(self.ctx.alloc_imperative_expr(Expr::Index {
                     collection,
@@ -27588,6 +27595,81 @@ fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
     async_fns
 }
 
+/// Phase 54: Collect parameters that are used as pipe senders in function body.
+/// If a param appears in `SendPipe { pipe: Expr::Identifier(param) }`, it's a sender.
+fn collect_pipe_sender_params(body: &[Stmt]) -> HashSet<Symbol> {
+    let mut senders = HashSet::new();
+    for stmt in body {
+        collect_pipe_sender_params_stmt(stmt, &mut senders);
+    }
+    senders
+}
+
+fn collect_pipe_sender_params_stmt(stmt: &Stmt, senders: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::SendPipe { pipe, .. } | Stmt::TrySendPipe { pipe, .. } => {
+            if let Expr::Identifier(sym) = pipe {
+                senders.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_pipe_sender_params_stmt(s, senders);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Phase 54: Collect variables that are pipe declarations (created with CreatePipe).
+/// These have _tx/_rx suffixes, while pipe parameters don't.
+fn collect_pipe_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut pipe_vars = HashSet::new();
+    for stmt in stmts {
+        collect_pipe_vars_stmt(stmt, &mut pipe_vars);
+    }
+    pipe_vars
+}
+
+fn collect_pipe_vars_stmt(stmt: &Stmt, pipe_vars: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::CreatePipe { var, .. } => {
+            pipe_vars.insert(*var);
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_pipe_vars_stmt(s, pipe_vars);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+        }
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
@@ -27604,6 +27686,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Phase 54: Collect async functions for Launch codegen
     let async_functions = collect_async_functions(stmts);
+
+    // Phase 54: Collect pipe declarations (variables with _tx/_rx suffixes)
+    let main_pipe_vars = collect_pipe_vars(stmts);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -27692,7 +27777,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -27714,12 +27799,20 @@ fn codegen_function_def(
     let mut output = String::new();
     let func_name = interner.resolve(name);
 
+    // Phase 54: Detect which parameters are used as pipe senders
+    let pipe_sender_params = collect_pipe_sender_params(body);
+
     // Build parameter list using TypeExpr
     let params_str: Vec<String> = params.iter()
         .map(|(param_name, param_type)| {
             let name = interner.resolve(*param_name);
             let ty = codegen_type_expr(param_type, interner);
-            format!("{}: {}", name, ty)
+            // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
+            if pipe_sender_params.contains(param_name) {
+                format!("{}: tokio::sync::mpsc::Sender<{}>", name, ty)
+            } else {
+                format!("{}: {}", name, ty)
+            }
         })
         .collect();
 
@@ -27771,8 +27864,11 @@ fn codegen_function_def(
             func_ctx.register_variable_type(*param_name, type_name);
         }
 
+        // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
+        let func_pipe_vars = HashSet::new();
+
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -28086,6 +28182,7 @@ pub fn codegen_stmt<'a>(
     synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
     var_caps: &HashMap<Symbol, VariableCapabilities>,  // Phase 56: Mount+Sync detection
     async_functions: &HashSet<Symbol>,  // Phase 54: Functions that are async
+    pipe_vars: &HashSet<Symbol>,  // Phase 54: Pipe declarations (have _tx/_rx suffixes)
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -28135,14 +28232,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
                 }
                 ctx.pop_scope();
             }
@@ -28155,7 +28252,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -28167,7 +28264,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -28323,8 +28420,16 @@ pub fn codegen_stmt<'a>(
 
         Stmt::LaunchTask { function, args } => {
             let fn_name = interner.resolve(*function);
+            // Phase 54: When passing a pipe variable, pass the sender (_tx)
             let args_str: Vec<String> = args.iter()
-                .map(|a| codegen_expr(a, interner, synced_vars))
+                .map(|a| {
+                    if let Expr::Identifier(sym) = a {
+                        if pipe_vars.contains(sym) {
+                            return format!("{}_tx.clone()", interner.resolve(*sym));
+                        }
+                    }
+                    codegen_expr(a, interner, synced_vars)
+                })
                 .collect();
             // Phase 54: Add .await only if the function is async
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -28338,8 +28443,16 @@ pub fn codegen_stmt<'a>(
         Stmt::LaunchTaskWithHandle { handle, function, args } => {
             let handle_name = interner.resolve(*handle);
             let fn_name = interner.resolve(*function);
+            // Phase 54: When passing a pipe variable, pass the sender (_tx)
             let args_str: Vec<String> = args.iter()
-                .map(|a| codegen_expr(a, interner, synced_vars))
+                .map(|a| {
+                    if let Expr::Identifier(sym) = a {
+                        if pipe_vars.contains(sym) {
+                            return format!("{}_tx.clone()", interner.resolve(*sym));
+                        }
+                    }
+                    codegen_expr(a, interner, synced_vars)
+                })
                 .collect();
             // Phase 54: Add .await only if the function is async
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -28372,38 +28485,73 @@ pub fn codegen_stmt<'a>(
         Stmt::SendPipe { value, pipe } => {
             let val_str = codegen_expr(value, interner, synced_vars);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
-            writeln!(
-                output,
-                "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
-                indent_str, pipe_str, val_str
-            ).unwrap();
+            // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            if is_local_pipe {
+                writeln!(
+                    output,
+                    "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{}.send({}).await.expect(\"pipe send failed\");",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            }
         }
 
         Stmt::ReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
-            writeln!(
-                output,
-                "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
-                indent_str, var_name, pipe_str
-            ).unwrap();
+            // Phase 54: Check if pipe is a local declaration (has _rx suffix) or parameter (no suffix)
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            if is_local_pipe {
+                writeln!(
+                    output,
+                    "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
+                    indent_str, var_name, pipe_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}let {} = {}.recv().await.expect(\"pipe closed\");",
+                    indent_str, var_name, pipe_str
+                ).unwrap();
+            }
         }
 
         Stmt::TrySendPipe { value, pipe, result } => {
             let val_str = codegen_expr(value, interner, synced_vars);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_tx" } else { "" };
             if let Some(res) = result {
                 let res_name = interner.resolve(*res);
                 writeln!(
                     output,
-                    "{}let {} = {}_tx.try_send({}).is_ok();",
-                    indent_str, res_name, pipe_str, val_str
+                    "{}let {} = {}{}.try_send({}).is_ok();",
+                    indent_str, res_name, pipe_str, suffix, val_str
                 ).unwrap();
             } else {
                 writeln!(
                     output,
-                    "{}let _ = {}_tx.try_send({});",
-                    indent_str, pipe_str, val_str
+                    "{}let _ = {}{}.try_send({});",
+                    indent_str, pipe_str, suffix, val_str
                 ).unwrap();
             }
         }
@@ -28411,10 +28559,17 @@ pub fn codegen_stmt<'a>(
         Stmt::TryReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_rx" } else { "" };
             writeln!(
                 output,
-                "{}let {} = {}_rx.try_recv().ok();",
-                indent_str, var_name, pipe_str
+                "{}let {} = {}{}.try_recv().ok();",
+                indent_str, var_name, pipe_str, suffix
             ).unwrap();
         }
 
@@ -28443,7 +28598,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, var_name, var_name
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}        }}", indent_str).unwrap();
@@ -28458,7 +28613,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, ms_str
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}    }}", indent_str).unwrap();
@@ -28542,7 +28697,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -28575,8 +28730,8 @@ pub fn codegen_stmt<'a>(
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
             let value_str = codegen_expr(value, interner, synced_vars);
-            // 1-based indexing: item 2 of items → items[1]
-            writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
+            // Phase 57: Polymorphic indexing via trait
+            writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
         }
 
         // Phase 8.5: Zone (memory arena) block
@@ -28608,7 +28763,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
 
             ctx.pop_scope();
@@ -28651,7 +28806,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
 
                 // Convert call statements to awaited calls for async context
                 let inner_awaited = if let Stmt::Call { .. } = stmt {
@@ -28705,7 +28860,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -28719,7 +28874,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -28892,8 +29047,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
         Expr::Index { collection, index } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
-            // Phase 43D: 1-based indexing with runtime bounds check
-            format!("logos_index(&{}, {})", coll_str, index_str)
+            // Phase 57: Polymorphic indexing via trait
+            format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
@@ -57090,7 +57245,12 @@ Show factorial(5)."#,
         title: "Collections",
         part: "Part I: Programming in LOGOS",
         content: r#"
-Collections hold multiple values. The primary collection type in LOGOS is `Seq` (sequence), similar to lists or arrays in other languages.
+Collections hold multiple values. LOGOS provides two main collection types:
+
+| Collection | Description | Index Type |
+|------------|-------------|------------|
+| `Seq of T` | Ordered list | Int (1-based) |
+| `Map of K to V` | Key-value pairs | Any key type |
 
 ### Creating Lists
 
@@ -57109,6 +57269,33 @@ LOGOS uses **1-based indexing**. The first element is at position 1, not 0. Why?
 ### Slicing
 
 Extract a portion of a list with `through`. Slicing is **inclusive** on both ends.
+
+### Maps (Dictionaries)
+
+Maps store key-value pairs. Unlike lists which use integer indexing, maps use keys of any type.
+
+**Create a map:**
+`Let prices be a new Map of Text to Int.`
+
+**Access a value by key:**
+`Let cost be item "iron" of prices.`
+
+**Set a value by key:**
+`Set item "iron" of prices to 100.`
+
+Maps are useful for lookups, caches, and associating data without needing a struct.
+
+### Bracket Syntax
+
+Both lists and maps support bracket indexing as an alternative to `item X of`:
+
+| English Style | Bracket Style |
+|---------------|---------------|
+| `item 1 of items` | `items[1]` |
+| `item "iron" of prices` | `prices["iron"]` |
+| `Set item "key" of map to val.` | `Set map["key"] to val.` |
+
+Both compile to the same code—use whichever reads better in context.
 "#,
         examples: &[
             CodeExample {
@@ -57158,6 +57345,57 @@ Repeat for n in numbers:
     Set total to total + n.
 
 Show "Total: " + total."#,
+            },
+            CodeExample {
+                id: "map-create",
+                label: "Creating Maps",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let prices be a new Map of Text to Int.
+Set item "iron" of prices to 10.
+Set item "copper" of prices to 25.
+Set item "gold" of prices to 100.
+Show "Map created with 3 items"."#,
+            },
+            CodeExample {
+                id: "map-access",
+                label: "Map Access",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let inventory be a new Map of Text to Int.
+Set item "wood" of inventory to 50.
+Set item "stone" of inventory to 30.
+
+Let wood_count be item "wood" of inventory.
+Show "Wood: " + wood_count."#,
+            },
+            CodeExample {
+                id: "map-update",
+                label: "Map Update",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let scores be a new Map of Text to Int.
+Set item "Alice" of scores to 100.
+Show "Initial: " + item "Alice" of scores.
+
+Set item "Alice" of scores to 150.
+Show "Updated: " + item "Alice" of scores."#,
+            },
+            CodeExample {
+                id: "bracket-syntax",
+                label: "Bracket Syntax",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let items be [10, 20, 30].
+Let prices be a new Map of Text to Int.
+
+Set prices["iron"] to 5.
+Set prices["gold"] to 100.
+
+Show items[1].
+Show prices["iron"].
+Set items[2] to 99.
+Show items[2]."#,
             },
         ],
     },
@@ -58555,11 +58793,17 @@ Show "Positives: " + positives."#,
 - `A TypeName is either:` ... — Define enum
 - `Inspect x: When Variant:` ... — Pattern match
 
-**Collections:**
+**Lists (Seq):**
 - `[1, 2, 3]` — List literal
-- `item 1 of items` — Access (1-indexed)
+- `item 1 of items` or `items[1]` — Access (1-indexed)
 - `Push value to items.` — Add to end
 - `length of items` — Get length
+
+**Maps:**
+- `Map of K to V` — Map type (key-value pairs)
+- `a new Map of Text to Int` — Create empty map
+- `item "key" of map` or `map["key"]` — Get value by key
+- `Set item "key" of map to val.` or `Set map["key"] to val.` — Set value
 
 ### Ownership Verbs
 
@@ -60869,6 +61113,8 @@ pub mod crdt;
 pub mod storage;
 // Phase 56: Distributed<T> - unified persistence + network (cross-platform)
 pub mod distributed;
+// Phase 57: Polymorphic indexing (Vec + HashMap)
+pub mod indexing;
 
 // Native-only modules
 #[cfg(not(target_arch = "wasm32"))]
@@ -60895,36 +61141,6 @@ pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
 }
 
-/// Phase 43D: 1-based indexing with clear error messages
-///
-/// LOGOS uses 1-based indexing to match natural language ("the first item").
-/// This function converts 1-based indices to 0-based and provides helpful
-/// error messages for out-of-bounds access.
-#[inline]
-pub fn logos_index<T: Copy>(slice: &[T], index: i64) -> T {
-    if index < 1 {
-        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
-    }
-    let idx = (index - 1) as usize;
-    if idx >= slice.len() {
-        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
-    }
-    slice[idx]
-}
-
-/// Phase 43D: 1-based mutable indexing with clear error messages
-#[inline]
-pub fn logos_index_mut<T>(slice: &mut [T], index: i64) -> &mut T {
-    if index < 1 {
-        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
-    }
-    let idx = (index - 1) as usize;
-    if idx >= slice.len() {
-        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
-    }
-    &mut slice[idx]
-}
-
 pub mod fmt {
     pub fn format<T: std::fmt::Display>(x: T) -> String {
         format!("{}", x)
@@ -60933,12 +61149,11 @@ pub mod fmt {
 
 pub mod prelude {
     pub use crate::io::{show, read_line, println, eprintln, print, Showable};
-    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
+    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq, Map};
     pub use crate::panic_with;
     pub use crate::fmt::format;
-    // Phase 43D: Collection indexing helpers
-    pub use crate::logos_index;
-    pub use crate::logos_index_mut;
+    // Phase 57: Polymorphic indexing traits
+    pub use crate::indexing::{LogosIndex, LogosIndexMut};
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
     // Phase 56: Distributed<T>
@@ -61009,6 +61224,9 @@ pub type Unit = ();
 
 // Phase 30: Collections
 pub type Seq<T> = Vec<T>;
+
+// Phase 57: Map type alias
+pub type Map<K, V> = std::collections::HashMap<K, V>;
 
 ```
 
@@ -67910,6 +68128,81 @@ fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
     async_fns
 }
 
+/// Phase 54: Collect parameters that are used as pipe senders in function body.
+/// If a param appears in `SendPipe { pipe: Expr::Identifier(param) }`, it's a sender.
+fn collect_pipe_sender_params(body: &[Stmt]) -> HashSet<Symbol> {
+    let mut senders = HashSet::new();
+    for stmt in body {
+        collect_pipe_sender_params_stmt(stmt, &mut senders);
+    }
+    senders
+}
+
+fn collect_pipe_sender_params_stmt(stmt: &Stmt, senders: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::SendPipe { pipe, .. } | Stmt::TrySendPipe { pipe, .. } => {
+            if let Expr::Identifier(sym) = pipe {
+                senders.insert(*sym);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_pipe_sender_params_stmt(s, senders);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Phase 54: Collect variables that are pipe declarations (created with CreatePipe).
+/// These have _tx/_rx suffixes, while pipe parameters don't.
+fn collect_pipe_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut pipe_vars = HashSet::new();
+    for stmt in stmts {
+        collect_pipe_vars_stmt(stmt, &mut pipe_vars);
+    }
+    pipe_vars
+}
+
+fn collect_pipe_vars_stmt(stmt: &Stmt, pipe_vars: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::CreatePipe { var, .. } => {
+            pipe_vars.insert(*var);
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+            if let Some(else_stmts) = else_block {
+                for s in *else_stmts {
+                    collect_pipe_vars_stmt(s, pipe_vars);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+        }
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
+                collect_pipe_vars_stmt(s, pipe_vars);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Generate complete Rust program with struct definitions and main function.
 ///
 /// Phase 31: Structs are wrapped in `mod user_types` to enforce visibility.
@@ -67926,6 +68219,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Phase 54: Collect async functions for Launch codegen
     let async_functions = collect_async_functions(stmts);
+
+    // Phase 54: Collect pipe declarations (variables with _tx/_rx suffixes)
+    let main_pipe_vars = collect_pipe_vars(stmts);
 
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
@@ -68014,7 +68310,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -68036,12 +68332,20 @@ fn codegen_function_def(
     let mut output = String::new();
     let func_name = interner.resolve(name);
 
+    // Phase 54: Detect which parameters are used as pipe senders
+    let pipe_sender_params = collect_pipe_sender_params(body);
+
     // Build parameter list using TypeExpr
     let params_str: Vec<String> = params.iter()
         .map(|(param_name, param_type)| {
             let name = interner.resolve(*param_name);
             let ty = codegen_type_expr(param_type, interner);
-            format!("{}: {}", name, ty)
+            // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
+            if pipe_sender_params.contains(param_name) {
+                format!("{}: tokio::sync::mpsc::Sender<{}>", name, ty)
+            } else {
+                format!("{}: {}", name, ty)
+            }
         })
         .collect();
 
@@ -68093,8 +68397,11 @@ fn codegen_function_def(
             func_ctx.register_variable_type(*param_name, type_name);
         }
 
+        // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
+        let func_pipe_vars = HashSet::new();
+
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -68408,6 +68715,7 @@ pub fn codegen_stmt<'a>(
     synced_vars: &mut HashSet<Symbol>,  // Phase 52: Track synced variables
     var_caps: &HashMap<Symbol, VariableCapabilities>,  // Phase 56: Mount+Sync detection
     async_functions: &HashSet<Symbol>,  // Phase 54: Functions that are async
+    pipe_vars: &HashSet<Symbol>,  // Phase 54: Pipe declarations (have _tx/_rx suffixes)
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -68457,14 +68765,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
                 }
                 ctx.pop_scope();
             }
@@ -68477,7 +68785,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -68489,7 +68797,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -68645,8 +68953,16 @@ pub fn codegen_stmt<'a>(
 
         Stmt::LaunchTask { function, args } => {
             let fn_name = interner.resolve(*function);
+            // Phase 54: When passing a pipe variable, pass the sender (_tx)
             let args_str: Vec<String> = args.iter()
-                .map(|a| codegen_expr(a, interner, synced_vars))
+                .map(|a| {
+                    if let Expr::Identifier(sym) = a {
+                        if pipe_vars.contains(sym) {
+                            return format!("{}_tx.clone()", interner.resolve(*sym));
+                        }
+                    }
+                    codegen_expr(a, interner, synced_vars)
+                })
                 .collect();
             // Phase 54: Add .await only if the function is async
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -68660,8 +68976,16 @@ pub fn codegen_stmt<'a>(
         Stmt::LaunchTaskWithHandle { handle, function, args } => {
             let handle_name = interner.resolve(*handle);
             let fn_name = interner.resolve(*function);
+            // Phase 54: When passing a pipe variable, pass the sender (_tx)
             let args_str: Vec<String> = args.iter()
-                .map(|a| codegen_expr(a, interner, synced_vars))
+                .map(|a| {
+                    if let Expr::Identifier(sym) = a {
+                        if pipe_vars.contains(sym) {
+                            return format!("{}_tx.clone()", interner.resolve(*sym));
+                        }
+                    }
+                    codegen_expr(a, interner, synced_vars)
+                })
                 .collect();
             // Phase 54: Add .await only if the function is async
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -68694,38 +69018,73 @@ pub fn codegen_stmt<'a>(
         Stmt::SendPipe { value, pipe } => {
             let val_str = codegen_expr(value, interner, synced_vars);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
-            writeln!(
-                output,
-                "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
-                indent_str, pipe_str, val_str
-            ).unwrap();
+            // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            if is_local_pipe {
+                writeln!(
+                    output,
+                    "{}{}_tx.send({}).await.expect(\"pipe send failed\");",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{}.send({}).await.expect(\"pipe send failed\");",
+                    indent_str, pipe_str, val_str
+                ).unwrap();
+            }
         }
 
         Stmt::ReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
-            writeln!(
-                output,
-                "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
-                indent_str, var_name, pipe_str
-            ).unwrap();
+            // Phase 54: Check if pipe is a local declaration (has _rx suffix) or parameter (no suffix)
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            if is_local_pipe {
+                writeln!(
+                    output,
+                    "{}let {} = {}_rx.recv().await.expect(\"pipe closed\");",
+                    indent_str, var_name, pipe_str
+                ).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}let {} = {}.recv().await.expect(\"pipe closed\");",
+                    indent_str, var_name, pipe_str
+                ).unwrap();
+            }
         }
 
         Stmt::TrySendPipe { value, pipe, result } => {
             let val_str = codegen_expr(value, interner, synced_vars);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_tx" } else { "" };
             if let Some(res) = result {
                 let res_name = interner.resolve(*res);
                 writeln!(
                     output,
-                    "{}let {} = {}_tx.try_send({}).is_ok();",
-                    indent_str, res_name, pipe_str, val_str
+                    "{}let {} = {}{}.try_send({}).is_ok();",
+                    indent_str, res_name, pipe_str, suffix, val_str
                 ).unwrap();
             } else {
                 writeln!(
                     output,
-                    "{}let _ = {}_tx.try_send({});",
-                    indent_str, pipe_str, val_str
+                    "{}let _ = {}{}.try_send({});",
+                    indent_str, pipe_str, suffix, val_str
                 ).unwrap();
             }
         }
@@ -68733,10 +69092,17 @@ pub fn codegen_stmt<'a>(
         Stmt::TryReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            // Phase 54: Check if pipe is a local declaration
+            let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                pipe_vars.contains(sym)
+            } else {
+                false
+            };
+            let suffix = if is_local_pipe { "_rx" } else { "" };
             writeln!(
                 output,
-                "{}let {} = {}_rx.try_recv().ok();",
-                indent_str, var_name, pipe_str
+                "{}let {} = {}{}.try_recv().ok();",
+                indent_str, var_name, pipe_str, suffix
             ).unwrap();
         }
 
@@ -68765,7 +69131,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, var_name, var_name
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}        }}", indent_str).unwrap();
@@ -68780,7 +69146,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, ms_str
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}    }}", indent_str).unwrap();
@@ -68864,7 +69230,7 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -68897,8 +69263,8 @@ pub fn codegen_stmt<'a>(
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
             let value_str = codegen_expr(value, interner, synced_vars);
-            // 1-based indexing: item 2 of items → items[1]
-            writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
+            // Phase 57: Polymorphic indexing via trait
+            writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
         }
 
         // Phase 8.5: Zone (memory arena) block
@@ -68930,7 +69296,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
             }
 
             ctx.pop_scope();
@@ -68973,7 +69339,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
 
                 // Convert call statements to awaited calls for async context
                 let inner_awaited = if let Stmt::Call { .. } = stmt {
@@ -69027,7 +69393,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -69041,7 +69407,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -69214,8 +69580,8 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
         Expr::Index { collection, index } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
-            // Phase 43D: 1-based indexing with runtime bounds check
-            format!("logos_index(&{}, {})", coll_str, index_str)
+            // Phase 57: Polymorphic indexing via trait
+            format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
@@ -76447,10 +76813,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Wed Dec 31 23:00:46 CST 2025
+- **Generated:** Thu Jan  1 00:29:00 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** d9f61b3
+- **Git Commit:** 349bb21
 - **Documentation Size:** 3.0M
 
 ---

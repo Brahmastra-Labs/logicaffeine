@@ -468,12 +468,24 @@ Maps store key-value pairs. Unlike lists which use integer indexing, maps use ke
 `Let prices be a new Map of Text to Int.`
 
 **Access a value by key:**
-`Let cost be item "iron" of prices.`
+`Let cost be prices["iron"].`
 
 **Set a value by key:**
-`Set item "iron" of prices to 100.`
+`Set prices["iron"] to 100.`
 
 Maps are useful for lookups, caches, and associating data without needing a struct.
+
+### Bracket Syntax
+
+Both lists and maps support bracket indexing as an alternative to `item X of`:
+
+| English Style | Bracket Style |
+|---------------|---------------|
+| `item 1 of items` | `items[1]` |
+| `item "iron" of prices` | `prices["iron"]` |
+| `Set item "key" of map to val.` | `Set map["key"] to val.` |
+
+Both compile to the same code—use whichever reads better in context.
 "#,
         examples: &[
             CodeExample {
@@ -530,9 +542,9 @@ Show "Total: " + total."#,
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Let prices be a new Map of Text to Int.
-Set item "iron" of prices to 10.
-Set item "copper" of prices to 25.
-Set item "gold" of prices to 100.
+Set prices["iron"] to 10.
+Set prices["copper"] to 25.
+Set prices["gold"] to 100.
 Show "Map created with 3 items"."#,
             },
             CodeExample {
@@ -541,10 +553,10 @@ Show "Map created with 3 items"."#,
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Let inventory be a new Map of Text to Int.
-Set item "wood" of inventory to 50.
-Set item "stone" of inventory to 30.
+Set inventory["wood"] to 50.
+Set inventory["stone"] to 30.
 
-Let wood_count be item "wood" of inventory.
+Let wood_count be inventory["wood"].
 Show "Wood: " + wood_count."#,
             },
             CodeExample {
@@ -553,11 +565,27 @@ Show "Wood: " + wood_count."#,
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Let scores be a new Map of Text to Int.
-Set item "Alice" of scores to 100.
-Show "Initial: " + item "Alice" of scores.
+Set scores["Alice"] to 100.
+Show "Initial: " + scores["Alice"].
 
-Set item "Alice" of scores to 150.
-Show "Updated: " + item "Alice" of scores."#,
+Set scores["Alice"] to 150.
+Show "Updated: " + scores["Alice"]."#,
+            },
+            CodeExample {
+                id: "bracket-syntax",
+                label: "Bracket Syntax",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let items be [10, 20, 30].
+Let prices be a new Map of Text to Int.
+
+Set prices["iron"] to 5.
+Set prices["gold"] to 100.
+
+Show items[1].
+Show prices["iron"].
+Set items[2] to 99.
+Show items[2]."#,
             },
         ],
     },
@@ -1957,15 +1985,15 @@ Show "Positives: " + positives."#,
 
 **Lists (Seq):**
 - `[1, 2, 3]` — List literal
-- `item 1 of items` — Access (1-indexed)
+- `item 1 of items` or `items[1]` — Access (1-indexed)
 - `Push value to items.` — Add to end
 - `length of items` — Get length
 
 **Maps:**
 - `Map of K to V` — Map type (key-value pairs)
 - `a new Map of Text to Int` — Create empty map
-- `item "key" of map` — Get value by key
-- `Set item "key" of map to val.` — Set value by key
+- `item "key" of map` or `map["key"]` — Get value by key
+- `Set item "key" of map to val.` or `Set map["key"] to val.` — Set value
 
 ### Ownership Verbs
 

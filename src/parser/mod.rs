@@ -3690,7 +3690,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Treat "items" as a variable identifier
                     let sym = token.lexeme;
                     self.advance();
-                    return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                    return self.parse_field_access_chain(base);
                 }
 
                 self.advance(); // consume "items"
