@@ -319,6 +319,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Result" => Some(2),    // Result of T and E
                     "Option" => Some(1),    // Option of T
                     "Seq" | "List" | "Vec" => Some(1),  // Seq of T
+                    "Set" | "HashSet" => Some(1), // Set of T
                     "Map" | "HashMap" => Some(2), // Map of K and V
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
@@ -870,6 +871,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Pop) {
             return self.parse_pop_statement();
+        }
+        // Set operations
+        if self.check(&TokenType::Add) {
+            return self.parse_add_statement();
+        }
+        if self.check(&TokenType::Remove) {
+            return self.parse_remove_statement();
         }
 
         // Phase 8.5: Memory zone block
@@ -1617,6 +1625,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 crate::ast::Literal::Text(_) => Some("Text"),
                 crate::ast::Literal::Boolean(_) => Some("Bool"),
                 crate::ast::Literal::Nothing => Some("Unit"),
+                crate::ast::Literal::Char(_) => Some("Char"),
             },
             _ => None, // Can't infer type for non-literals yet
         }
@@ -2530,6 +2539,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Pop { collection, into })
+    }
+
+    /// Parse Add statement for Set insertion
+    /// Syntax: Add x to set.
+    fn parse_add_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Add"
+
+        // Parse the value to add
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") && !self.check(&TokenType::To) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse the collection expression
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Add { value, collection })
+    }
+
+    /// Parse Remove statement for Set deletion
+    /// Syntax: Remove x from set.
+    fn parse_remove_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Remove"
+
+        // Parse the value to remove
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "from" preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse the collection expression
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Remove { value, collection })
     }
 
     /// Phase 10: Parse Read statement for console/file input
@@ -3862,6 +3917,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym))))
             }
 
+            // Character literals
+            TokenType::CharLiteral(sym) => {
+                let char_str = self.interner.resolve(*sym);
+                let ch = char_str.chars().next().unwrap_or('\0');
+                self.advance();
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Char(ch))))
+            }
+
             // Handle 'nothing' literal
             TokenType::Nothing => {
                 self.advance();
@@ -4004,7 +4067,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Phase 10: IO keywords as function calls (e.g., "read", "write", "file")
-            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console => {
+            // Phase 57: Add/Remove keywords as function calls
+            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console |
+            TokenType::Add | TokenType::Remove => {
                 let sym = token.lexeme;
                 self.advance();
                 if self.check(&TokenType::LParen) {
@@ -4139,19 +4204,29 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_additive_expr()
     }
 
-    /// Parse additive expressions (+, -, combined with) - left-to-right associative
+    /// Parse additive expressions (+, -, combined with, union, intersection, contains) - left-to-right associative
     fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_multiplicative_expr()?;
 
         loop {
-            let op = match &self.peek().kind {
+            match &self.peek().kind {
                 TokenType::Plus => {
                     self.advance();
-                    BinaryOpKind::Add
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Add,
+                        left,
+                        right,
+                    });
                 }
                 TokenType::Minus => {
                     self.advance();
-                    BinaryOpKind::Subtract
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Subtract,
+                        left,
+                        right,
+                    });
                 }
                 // Phase 53: "combined with" for string concatenation
                 TokenType::Combined => {
@@ -4164,16 +4239,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
                     }
                     self.advance(); // consume "with"
-                    BinaryOpKind::Concat
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Concat,
+                        left,
+                        right,
+                    });
+                }
+                // Set operations: union, intersection
+                TokenType::Union => {
+                    self.advance(); // consume "union"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Union {
+                        left,
+                        right,
+                    });
+                }
+                TokenType::Intersection => {
+                    self.advance(); // consume "intersection"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Intersection {
+                        left,
+                        right,
+                    });
+                }
+                // Set membership: "set contains value"
+                TokenType::Contains => {
+                    self.advance(); // consume "contains"
+                    let value = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Contains {
+                        collection: left,
+                        value,
+                    });
                 }
                 _ => break,
-            };
-            let right = self.parse_multiplicative_expr()?;
-            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op,
-                left,
-                right,
-            });
+            }
         }
 
         Ok(left)
@@ -4383,6 +4483,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Merge |
             TokenType::Increase |
             // Phase 54: "first", "second", etc. can be variable names
+            // Phase 57: "add", "remove" can be function names
+            TokenType::Add |
+            TokenType::Remove |
             TokenType::First => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;

@@ -244,6 +244,16 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(zone, max_depth)?;
             }
 
+            Expr::Contains { collection, value } => {
+                self.check_no_escape(collection, max_depth)?;
+                self.check_no_escape(value, max_depth)?;
+            }
+
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.check_no_escape(left, max_depth)?;
+                self.check_no_escape(right, max_depth)?;
+            }
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }

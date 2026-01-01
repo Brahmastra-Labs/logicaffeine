@@ -216,6 +216,18 @@ pub enum Stmt<'a> {
         into: Option<Symbol>,
     },
 
+    /// Add to set: `Add x to set.`
+    Add {
+        value: &'a Expr<'a>,
+        collection: &'a Expr<'a>,
+    },
+
+    /// Remove from set: `Remove x from set.`
+    Remove {
+        value: &'a Expr<'a>,
+        collection: &'a Expr<'a>,
+    },
+
     /// Index assignment: `Set item N of X to Y.`
     SetIndex {
         collection: &'a Expr<'a>,
@@ -537,6 +549,24 @@ pub enum Expr<'a> {
         collection: &'a Expr<'a>,
     },
 
+    /// Set contains: `set contains x` or `x in set`
+    Contains {
+        collection: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
+
+    /// Set union: `a union b`
+    Union {
+        left: &'a Expr<'a>,
+        right: &'a Expr<'a>,
+    },
+
+    /// Set intersection: `a intersection b`
+    Intersection {
+        left: &'a Expr<'a>,
+        right: &'a Expr<'a>,
+    },
+
     /// Phase 48: Get manifest of a zone
     /// `the manifest of Zone` → FileSipper::from_zone(&zone).manifest()
     ManifestOf {
@@ -592,4 +622,6 @@ pub enum Literal {
     Boolean(bool),
     /// The nothing literal (unit type)
     Nothing,
+    /// Character literal
+    Char(char),
 }

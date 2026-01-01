@@ -290,6 +290,18 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
                 targets.insert(*sym);
             }
         }
+        Stmt::Add { collection, .. } => {
+            // If collection is an identifier (Set), it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
+        Stmt::Remove { collection, .. } => {
+            // If collection is an identifier (Set), it needs to be mutable
+            if let Expr::Identifier(sym) = collection {
+                targets.insert(*sym);
+            }
+        }
         Stmt::SetIndex { collection, .. } => {
             // If collection is an identifier, it needs to be mutable
             if let Expr::Identifier(sym) = collection {
@@ -811,6 +823,13 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                         "std::collections::HashMap<String, String>".to_string()
                     }
                 }
+                "Set" | "HashSet" => {
+                    if !params_str.is_empty() {
+                        format!("std::collections::HashSet<{}>", params_str[0])
+                    } else {
+                        "std::collections::HashSet<()>".to_string()
+                    }
+                }
                 other => {
                     if params_str.is_empty() {
                         other.to_string()
@@ -860,6 +879,8 @@ fn map_type_to_rust(ty: &str) -> String {
         "Text" => "String".to_string(),
         "Bool" | "Boolean" => "bool".to_string(),
         "Real" => "f64".to_string(),
+        "Char" => "char".to_string(),
+        "Byte" => "u8".to_string(),
         "Unit" | "()" => "()".to_string(),
         other => other.to_string(),
     }
@@ -1013,6 +1034,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Text" => "String".to_string(),
                 "Bool" | "Boolean" => "bool".to_string(),
                 "Real" => "f64".to_string(),
+                "Char" => "char".to_string(),
+                "Byte" => "u8".to_string(),
                 "Unit" => "()".to_string(),
                 other => other.to_string(),
             }
@@ -1028,6 +1051,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
         FieldType::Generic { base, params } => {
             let base_str = match interner.resolve(*base) {
                 "List" | "Seq" => "Vec",
+                "Set" => "std::collections::HashSet",
+                "Map" => "std::collections::HashMap",
                 "Option" => "Option",
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
@@ -1598,6 +1623,18 @@ pub fn codegen_stmt<'a>(
             }
         }
 
+        Stmt::Add { value, collection } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
+        }
+
+        Stmt::Remove { value, collection } => {
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
+        }
+
         Stmt::SetIndex { collection, index, value } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
@@ -1944,6 +1981,25 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
             format!("({}.len() as i64)", coll_str)
         }
 
+        Expr::Contains { collection, value } => {
+            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            // Use LogosContains trait for unified contains across List, Set, Map, Text
+            format!("{}.logos_contains(&{})", coll_str, val_str)
+        }
+
+        Expr::Union { left, right } => {
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
+            format!("{}.union(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+        }
+
+        Expr::Intersection { left, right } => {
+            let left_str = codegen_expr(left, interner, synced_vars);
+            let right_str = codegen_expr(right, interner, synced_vars);
+            format!("{}.intersection(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+        }
+
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
             let zone_str = codegen_expr(zone, interner, synced_vars);
@@ -2040,6 +2096,19 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
         Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
+        // Character literals
+        Literal::Char(c) => {
+            // Handle escape sequences for special characters
+            match c {
+                '\n' => "'\\n'".to_string(),
+                '\t' => "'\\t'".to_string(),
+                '\r' => "'\\r'".to_string(),
+                '\\' => "'\\\\'".to_string(),
+                '\'' => "'\\''".to_string(),
+                '\0' => "'\\0'".to_string(),
+                c => format!("'{}'", c),
+            }
+        }
     }
 }
 

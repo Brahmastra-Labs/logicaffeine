@@ -23,7 +23,9 @@ pub enum RuntimeValue {
     Float(f64),
     Bool(bool),
     Text(String),
+    Char(char),
     List(Vec<RuntimeValue>),
+    Set(Vec<RuntimeValue>),  // HashSet equivalent - Vec for simplicity in interpreter
     Map(HashMap<String, RuntimeValue>),
     Struct {
         type_name: String,
@@ -39,7 +41,9 @@ impl RuntimeValue {
             RuntimeValue::Float(_) => "Float",
             RuntimeValue::Bool(_) => "Bool",
             RuntimeValue::Text(_) => "Text",
+            RuntimeValue::Char(_) => "Char",
             RuntimeValue::List(_) => "List",
+            RuntimeValue::Set(_) => "Set",
             RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct { .. } => "Struct",
             RuntimeValue::Nothing => "Nothing",
@@ -61,9 +65,14 @@ impl RuntimeValue {
             RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
             RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
             RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::Char(c) => c.to_string(),
             RuntimeValue::List(items) => {
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
+            }
+            RuntimeValue::Set(items) => {
+                let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
+                format!("{{{}}}", parts.join(", "))
             }
             RuntimeValue::Map(m) => {
                 let pairs: Vec<String> = m.iter()
@@ -299,6 +308,41 @@ impl<'a> Interpreter<'a> {
                     }
                 } else {
                     return Err("Pop collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Add { value, collection } => {
+                let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::Set(ref mut items) = coll_val {
+                        // Only add if not already present
+                        if !items.iter().any(|x| self.values_equal(x, &val)) {
+                            items.push(val);
+                        }
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only add to a Set".to_string());
+                    }
+                } else {
+                    return Err("Add collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Remove { value, collection } => {
+                let val = self.evaluate_expr(value).await?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let mut coll_val = self.lookup(*coll_sym)?.clone();
+                    if let RuntimeValue::Set(ref mut items) = coll_val {
+                        items.retain(|x| !self.values_equal(x, &val));
+                        self.assign(*coll_sym, coll_val)?;
+                    } else {
+                        return Err("Can only remove from a Set".to_string());
+                    }
+                } else {
+                    return Err("Remove collection must be an identifier".to_string());
                 }
                 Ok(ControlFlow::Continue)
             }
@@ -618,8 +662,75 @@ impl<'a> Interpreter<'a> {
                 let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
                     RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
                     _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Contains { collection, value } => {
+                let coll_val = self.evaluate_expr(collection).await?;
+                let val = self.evaluate_expr(value).await?;
+                match &coll_val {
+                    RuntimeValue::Set(items) => {
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::List(items) => {
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::Map(entries) => {
+                        // For maps, check if key exists (keys are Strings)
+                        if let RuntimeValue::Text(key) = &val {
+                            Ok(RuntimeValue::Bool(entries.contains_key(key)))
+                        } else {
+                            Err(format!("Map key must be Text, got {}", val.type_name()))
+                        }
+                    }
+                    RuntimeValue::Text(s) => {
+                        // For text, check if substring exists
+                        if let RuntimeValue::Text(needle) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
+                        } else if let RuntimeValue::Char(c) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(*c)))
+                        } else {
+                            Err(format!("Cannot check if Text contains {}", val.type_name()))
+                        }
+                    }
+                    _ => Err(format!("Cannot check contains on {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Union { left, right } => {
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let mut result = a.clone();
+                        for item in b.iter() {
+                            if !result.iter().any(|x| self.values_equal(x, item)) {
+                                result.push(item.clone());
+                            }
+                        }
+                        Ok(RuntimeValue::Set(result))
+                    }
+                    _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
+                }
+            }
+
+            Expr::Intersection { left, right } => {
+                let left_val = self.evaluate_expr(left).await?;
+                let right_val = self.evaluate_expr(right).await?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let result: Vec<RuntimeValue> = a.iter()
+                            .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
+                            .cloned()
+                            .collect();
+                        Ok(RuntimeValue::Set(result))
+                    }
+                    _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
                 }
             }
 
@@ -665,6 +776,10 @@ impl<'a> Interpreter<'a> {
                     return Ok(RuntimeValue::List(vec![]));
                 }
 
+                if name == "Set" || name == "HashSet" {
+                    return Ok(RuntimeValue::Set(vec![]));
+                }
+
                 if name == "Map" || name == "HashMap" {
                     return Ok(RuntimeValue::Map(HashMap::new()));
                 }
@@ -706,6 +821,7 @@ impl<'a> Interpreter<'a> {
             Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),
+            Literal::Char(c) => Ok(RuntimeValue::Char(*c)),
         }
     }
 
@@ -826,6 +942,7 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
             (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
             (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
             (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
             _ => false,
         }

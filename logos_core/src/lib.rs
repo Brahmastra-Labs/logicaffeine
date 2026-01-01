@@ -46,7 +46,7 @@ pub mod fmt {
 
 pub mod prelude {
     pub use crate::io::{show, read_line, println, eprintln, print, Showable};
-    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq, Map};
+    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Char, Byte, Seq, Map, Set, LogosContains};
     pub use crate::panic_with;
     pub use crate::fmt::format;
     // Phase 57: Polymorphic indexing traits

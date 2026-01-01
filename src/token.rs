@@ -135,6 +135,13 @@ pub enum TokenType {
     Length,   // "length of items" → items.len()
     At,       // "items at i" → items[i]
 
+    // Set Operations
+    Add,          // "Add x to set" (insert)
+    Remove,       // "Remove x from set"
+    Contains,     // "set contains x"
+    Union,        // "a union b"
+    Intersection, // "a intersection b"
+
     // Phase 8.5: Memory Management (Zones)
     Inside,   // "Inside a new zone..."
     Zone,     // "...zone called..."
@@ -284,6 +291,9 @@ pub enum TokenType {
 
     // Phase 33: String literals "hello world"
     StringLiteral(Symbol),
+
+    // Character literal: `x` (backtick syntax)
+    CharLiteral(Symbol),
 
     // Index Access (1-indexed)
     Item,

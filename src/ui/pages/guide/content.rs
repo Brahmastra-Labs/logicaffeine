@@ -155,7 +155,17 @@ Use `Set` to change an existing variable. The difference between `Let` and `Set`
 | `Int` | Whole numbers | `5`, `-10`, `0`, `1000000` |
 | `Bool` | True or false | `true`, `false` |
 | `Text` | Strings of characters | `"Hello"`, `"LOGOS"`, `""` |
-| `Float` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+| `Float` / `Real` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+| `Char` | Single character | see examples below |
+| `Byte` | 8-bit unsigned (0-255) | `42: Byte`, `255: Byte` |
+
+### Characters (Char)
+
+Characters represent single Unicode characters, wrapped in backticks. See the example below.
+
+### Bytes (Byte)
+
+Bytes are 8-bit unsigned integers (0-255), useful for binary data and low-level operations.
 
 ### Type Annotations
 
@@ -197,6 +207,30 @@ Let first be "Hello".
 Let second be "World".
 Let message be first + ", " + second + "!".
 Show message."#,
+            },
+            CodeExample {
+                id: "char-literals",
+                label: "Character Literals",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let letter be `a`.
+Let newline be `\n`.
+Let tab be `\t`.
+Let escaped be `\\`.
+Show letter.
+Show "Char type uses backticks"."#,
+            },
+            CodeExample {
+                id: "byte-type",
+                label: "Byte Type",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let max: Byte be 255.
+Let min: Byte be 0.
+Let mid: Byte be 128.
+Show max.
+Show min.
+Show mid."#,
             },
         ],
     },
@@ -435,12 +469,13 @@ Show factorial(5)."#,
         title: "Collections",
         part: "Part I: Programming in LOGOS",
         content: r#"
-Collections hold multiple values. LOGOS provides two main collection types:
+Collections hold multiple values. LOGOS provides three main collection types:
 
 | Collection | Description | Index Type |
 |------------|-------------|------------|
 | `Seq of T` | Ordered list | Int (1-based) |
 | `Map of K to V` | Key-value pairs | Any key type |
+| `Set of T` | Unique elements | N/A (membership) |
 
 ### Creating Lists
 
@@ -486,6 +521,26 @@ Both lists and maps support bracket indexing as an alternative to `item X of`:
 | `Set item "key" of map to val.` | `Set map["key"] to val.` |
 
 Both compile to the same code—use whichever reads better in context.
+
+### Sets
+
+Sets store unique elements with no duplicates. Unlike lists, sets have no order and no index.
+
+**Create a set:**
+`Let numbers be a new Set of Int.`
+
+**Add elements:**
+`Add 5 to numbers.`
+
+**Remove elements:**
+`Remove 5 from numbers.`
+
+**Check membership:**
+`If numbers contains 5:` or `If 5 in numbers:`
+
+**Set operations:**
+- `a union b` — elements in either set
+- `a intersection b` — elements in both sets
 "#,
         examples: &[
             CodeExample {
@@ -586,6 +641,65 @@ Show items[1].
 Show prices["iron"].
 Set items[2] to 99.
 Show items[2]."#,
+            },
+            CodeExample {
+                id: "set-create",
+                label: "Creating Sets",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be a new Set of Int.
+Add 1 to numbers.
+Add 2 to numbers.
+Add 3 to numbers.
+Add 1 to numbers.
+Show "Set created with 3 unique elements"."#,
+            },
+            CodeExample {
+                id: "set-contains",
+                label: "Set Membership",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let primes be a new Set of Int.
+Add 2 to primes.
+Add 3 to primes.
+Add 5 to primes.
+Add 7 to primes.
+
+If primes contains 3:
+    Show "3 is prime".
+If primes contains 4:
+    Show "4 is prime".
+Otherwise:
+    Show "4 is not prime"."#,
+            },
+            CodeExample {
+                id: "set-remove",
+                label: "Adding and Removing",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let colors be a new Set of Text.
+Add "red" to colors.
+Add "green" to colors.
+Add "blue" to colors.
+Show "Added 3 colors".
+
+Remove "green" from colors.
+Show "Removed green"."#,
+            },
+            CodeExample {
+                id: "set-operations",
+                label: "Set Operations",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let a be a new Set of Int.
+Let b be a new Set of Int.
+
+Add 1 to a. Add 2 to a. Add 3 to a.
+Add 2 to b. Add 3 to b. Add 4 to b.
+
+Let both be a intersection b.
+Let either be a union b.
+Show "Intersection and union computed"."#,
             },
         ],
     },
@@ -1983,6 +2097,17 @@ Show "Positives: " + positives."#,
 - `A TypeName is either:` ... — Define enum
 - `Inspect x: When Variant:` ... — Pattern match
 
+**Primitive Types:**
+
+| Type | Description | Examples |
+|------|-------------|----------|
+| `Int` | Whole numbers | `5`, `-10`, `0` |
+| `Bool` | True or false | `true`, `false` |
+| `Text` | Strings | `"Hello"`, `""` |
+| `Float` / `Real` | Decimals | `3.14`, `-0.5` |
+| `Char` | Single character | backtick syntax |
+| `Byte` | 8-bit unsigned | `42: Byte`, `255: Byte` |
+
 **Lists (Seq):**
 - `[1, 2, 3]` — List literal
 - `item 1 of items` or `items[1]` — Access (1-indexed)
@@ -1994,6 +2119,15 @@ Show "Positives: " + positives."#,
 - `a new Map of Text to Int` — Create empty map
 - `item "key" of map` or `map["key"]` — Get value by key
 - `Set item "key" of map to val.` or `Set map["key"] to val.` — Set value
+
+**Sets:**
+- `Set of T` — Set type (unique elements)
+- `a new Set of Int` — Create empty set
+- `Add x to set.` — Add element
+- `Remove x from set.` — Remove element
+- `set contains x` — Check membership
+- `a union b` — Elements in either set
+- `a intersection b` — Elements in both sets
 
 ### Ownership Verbs
 

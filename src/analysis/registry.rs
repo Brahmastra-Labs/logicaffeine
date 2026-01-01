@@ -139,11 +139,15 @@ impl TypeRegistry {
         reg.register(interner.intern("Bool"), TypeDef::Primitive);
         reg.register(interner.intern("Boolean"), TypeDef::Primitive);
         reg.register(interner.intern("Unit"), TypeDef::Primitive);
+        reg.register(interner.intern("Real"), TypeDef::Primitive);  // Floating point
+        reg.register(interner.intern("Char"), TypeDef::Primitive);  // Character
+        reg.register(interner.intern("Byte"), TypeDef::Primitive);  // 8-bit unsigned (0-255)
 
         // Intrinsic Generics
         reg.register(interner.intern("List"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Seq"), TypeDef::Generic { param_count: 1 });  // Phase 30: Sequences
         reg.register(interner.intern("Map"), TypeDef::Generic { param_count: 2 });  // Phase 43D: Key-value maps
+        reg.register(interner.intern("Set"), TypeDef::Generic { param_count: 1 });  // Set collection (HashSet)
         reg.register(interner.intern("Option"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Result"), TypeDef::Generic { param_count: 2 });
 
