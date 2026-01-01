@@ -54,7 +54,19 @@
     "for": "For",
     "from": "From",
     "trust": "Trust",
-    "respectively": "Respectively"
+    "respectively": "Respectively",
+    "decrease": "Decrease",
+    "tally": "Tally",
+    "sharedset": "SharedSet",
+    "sharedsequence": "SharedSequence",
+    "sharedmap": "SharedMap",
+    "divergent": "Divergent",
+    "append": "Append",
+    "resolve": "Resolve",
+    "removewins": "RemoveWins",
+    "addwins": "AddWins",
+    "yata": "YATA",
+    "values": "Values"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },

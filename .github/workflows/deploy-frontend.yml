@@ -56,4 +56,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           echo "Deploying to Cloudflare Pages..."
-          wrangler pages deploy target/dx/logos/release/web/public --project-name=logicaffeine --commit-dirty=true
+          wrangler pages deploy target/dx/logos/release/web/public --project-name=logicaffeine --branch=main --commit-dirty=true

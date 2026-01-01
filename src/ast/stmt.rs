@@ -318,6 +318,29 @@ pub enum Stmt<'a> {
         amount: &'a Expr<'a>,
     },
 
+    /// Phase 49b: Decrement PNCounter (Tally)
+    /// `Decrease game's score by 5.`
+    DecreaseCrdt {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        amount: &'a Expr<'a>,
+    },
+
+    /// Phase 49b: Append to SharedSequence (RGA)
+    /// `Append "Hello" to doc's lines.`
+    AppendToSequence {
+        sequence: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
+
+    /// Phase 49b: Resolve MVRegister conflicts
+    /// `Resolve page's title to "Final".`
+    ResolveConflict {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        value: &'a Expr<'a>,
+    },
+
     /// Phase 50: Security check - mandatory runtime guard
     /// `Check that user is admin.`
     /// `Check that user can publish the document.`

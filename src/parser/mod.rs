@@ -277,6 +277,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) => Ok(s),
             TokenType::ProperName(s) => Ok(s),
+            // Phase 49b: CRDT type keywords are valid type names
+            TokenType::Tally => Ok(self.interner.intern("Tally")),
+            TokenType::SharedSet => Ok(self.interner.intern("SharedSet")),
+            TokenType::SharedSequence => Ok(self.interner.intern("SharedSequence")),
+            TokenType::SharedMap => Ok(self.interner.intern("SharedMap")),
+            TokenType::Divergent => Ok(self.interner.intern("Divergent")),
             other => Err(ParseError {
                 kind: ParseErrorKind::ExpectedContentWord { found: other },
                 span: self.current_span(),
@@ -323,6 +329,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Map" | "HashMap" => Some(2), // Map of K and V
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
+                    // Phase 49b: CRDT generic types
+                    "SharedSet" | "ORSet" => Some(1),      // SharedSet of T
+                    "SharedSequence" | "RGA" => Some(1),   // SharedSequence of T
+                    "SharedMap" | "ORMap" => Some(2),      // SharedMap from K to V
+                    "Divergent" | "MVRegister" => Some(1), // Divergent T
                     _ => None,
                 });
 
@@ -926,6 +937,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Increase) {
             return self.parse_increase_statement();
+        }
+        // Phase 49b: Extended CRDT statements
+        if self.check(&TokenType::Decrease) {
+            return self.parse_decrease_statement();
+        }
+        if self.check(&TokenType::Append) {
+            return self.parse_append_statement();
+        }
+        if self.check(&TokenType::Resolve) {
+            return self.parse_resolve_statement();
         }
 
         // Phase 54: Go-like Concurrency statements
@@ -7417,6 +7438,92 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let amount = self.parse_imperative_expr()?;
 
         Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
+    }
+
+    /// Parse decrease statement: "Decrease game's score by 5."
+    fn parse_decrease_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Decrease"
+
+        // Parse object with field access (e.g., "game's score")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "by"
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        // Parse amount
+        let amount = self.parse_imperative_expr()?;
+
+        Ok(Stmt::DecreaseCrdt { object, field: *field, amount })
+    }
+
+    /// Parse append statement: "Append value to sequence."
+    fn parse_append_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Append"
+
+        // Parse value to append
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" (can be TokenType::To or a preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse sequence expression
+        let sequence = self.parse_imperative_expr()?;
+
+        Ok(Stmt::AppendToSequence { sequence, value })
+    }
+
+    /// Parse resolve statement: "Resolve page's title to value."
+    fn parse_resolve_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Resolve"
+
+        // Parse object with field access (e.g., "page's title")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's title')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "to" (can be TokenType::To or a preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse value
+        let value = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ResolveConflict { object, field: *field, value })
     }
 
 }

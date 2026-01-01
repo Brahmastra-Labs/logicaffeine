@@ -98,6 +98,26 @@ impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T>
     }
 }
 
+// =============================================================================
+// Test infrastructure (compiles out in release)
+// =============================================================================
+
+#[cfg(test)]
+impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T> {
+    /// Get a clone of the inner state for test inspection.
+    ///
+    /// This allows tests to verify the internal state without going through
+    /// the normal mutation/publish flow.
+    pub async fn inspect_inner(&self) -> T {
+        self.inner.lock().await.clone()
+    }
+
+    /// Get the inner Arc for direct manipulation in tests.
+    pub fn inner_arc(&self) -> Arc<Mutex<T>> {
+        Arc::clone(&self.inner)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

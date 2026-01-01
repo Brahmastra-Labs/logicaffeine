@@ -260,6 +260,13 @@ impl MeshNode {
                             }
                         }
                         MeshCommand::GossipPublish { topic, data, retry_count } => {
+                            // Test hook: drop message if network is paused
+                            #[cfg(test)]
+                            if test_control::is_paused() {
+                                eprintln!("[GOSSIP] Network paused, dropping publish to '{}'", topic);
+                                continue;
+                            }
+
                             const MAX_RETRIES: u8 = 5;
                             match swarm.behaviour_mut().publish(&topic, data.clone()) {
                                 Ok(_) => {
@@ -268,6 +275,8 @@ impl MeshNode {
                                 Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRIES => {
                                     // Retry with delay - spawn a task to re-queue the publish
                                     eprintln!("[GOSSIP] InsufficientPeers, scheduling retry ({}/{})", retry_count + 1, MAX_RETRIES);
+                                    #[cfg(test)]
+                                    test_control::increment_retry();
                                     if let Some(tx) = GOSSIP_TX.get() {
                                         let tx = tx.clone();
                                         let topic = topic.clone();
@@ -625,6 +634,56 @@ pub async fn gossip_subscribe(topic: &str) {
         }).await.is_err() {
             eprintln!("[GOSSIP] Command channel closed");
         }
+    }
+}
+
+// =============================================================================
+// Test infrastructure (compiles out in release)
+// =============================================================================
+
+#[cfg(test)]
+pub mod test_control {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::OnceLock;
+
+    pub struct MeshTestControl {
+        pub pause_publish: AtomicBool,
+        pub pause_receive: AtomicBool,
+        pub retry_count: AtomicU32,
+    }
+
+    static CONTROL: OnceLock<MeshTestControl> = OnceLock::new();
+
+    pub fn get() -> &'static MeshTestControl {
+        CONTROL.get_or_init(|| MeshTestControl {
+            pause_publish: AtomicBool::new(false),
+            pause_receive: AtomicBool::new(false),
+            retry_count: AtomicU32::new(0),
+        })
+    }
+
+    pub fn pause_network() {
+        get().pause_publish.store(true, Ordering::SeqCst);
+    }
+
+    pub fn resume_network() {
+        get().pause_publish.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_paused() -> bool {
+        get().pause_publish.load(Ordering::Relaxed)
+    }
+
+    pub fn increment_retry() {
+        get().retry_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_retry_count() -> u32 {
+        get().retry_count.load(Ordering::Relaxed)
+    }
+
+    pub fn reset_retry_count() {
+        get().retry_count.store(0, Ordering::Relaxed);
     }
 }
 

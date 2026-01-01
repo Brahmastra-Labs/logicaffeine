@@ -24,7 +24,7 @@ Change Date:          2029-12-24
 Change License:       MIT License
 
 For information about alternative licensing arrangements for the Software,
-please visit: https://logos.dev/pricing
+please visit: https://logicaffeine.com/pricing
 
 Notice
 

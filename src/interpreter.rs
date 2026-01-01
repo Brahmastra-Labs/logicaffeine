@@ -493,6 +493,18 @@ impl<'a> Interpreter<'a> {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
+            Stmt::DecreaseCrdt { .. } => {
+                Err("CRDT Decrease is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::AppendToSequence { .. } => {
+                Err("Append to sequence is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::ResolveConflict { .. } => {
+                Err("Resolve conflict is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
             Stmt::Check { .. } => {
                 Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
             }

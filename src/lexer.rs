@@ -1479,6 +1479,20 @@ impl<'a> Lexer<'a> {
             "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
             "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
             "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
+            // Phase 49b: Extended CRDT keywords (Wave 5)
+            "decrease" if self.mode == LexerMode::Imperative => return TokenType::Decrease,
+            "append" if self.mode == LexerMode::Imperative => return TokenType::Append,
+            "resolve" if self.mode == LexerMode::Imperative => return TokenType::Resolve,
+            "values" if self.mode == LexerMode::Imperative => return TokenType::Values,
+            // Type keywords (work in both modes like "Shared"):
+            "tally" => return TokenType::Tally,
+            "sharedset" => return TokenType::SharedSet,
+            "sharedsequence" => return TokenType::SharedSequence,
+            "sharedmap" => return TokenType::SharedMap,
+            "divergent" => return TokenType::Divergent,
+            "removewins" => return TokenType::RemoveWins,
+            "addwins" => return TokenType::AddWins,
+            "yata" => return TokenType::YATA,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

@@ -2232,31 +2232,31 @@ Tests for lexer improvements and edge cases.
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2413 lines
-Parser (ast/, parser/):               13928 lines
+Lexer (token.rs, lexer.rs):           2441 lines
+Parser (ast/, parser/):               14058 lines
 Transpilation:                        1341 lines
-Code Generation:                      2736 lines
+Code Generation:                      2804 lines
 Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            2635 lines
+Type Analysis (analysis/):            2677 lines
 Support Infrastructure:               4323 lines
 Desktop UI:                              17598 lines
-CRDT (logos_core/src/crdt/):          497 lines
-Network (logos_core/src/network/):    1493 lines
+CRDT (logos_core/src/crdt/):          1853 lines
+Network (logos_core/src/network/):    1596 lines
 VFS (logos_core/src/fs/):             511 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        57217
-Test lines:          20031
-Total Rust lines: 77248
+Source lines:        57497
+Test lines:          25486
+Total Rust lines: 82983
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   123
+Test files:   139
 ```
 ## Lexicon Data
 
@@ -2330,7 +2330,19 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     "for": "For",
     "from": "From",
     "trust": "Trust",
-    "respectively": "Respectively"
+    "respectively": "Respectively",
+    "decrease": "Decrease",
+    "tally": "Tally",
+    "sharedset": "SharedSet",
+    "sharedsequence": "SharedSequence",
+    "sharedmap": "SharedMap",
+    "divergent": "Divergent",
+    "append": "Append",
+    "resolve": "Resolve",
+    "removewins": "RemoveWins",
+    "addwins": "AddWins",
+    "yata": "YATA",
+    "values": "Values"
   },
   "pronouns": [
     { "word": "i", "gender": "Unknown", "number": "Singular", "case": "Subject" },
@@ -3238,6 +3250,20 @@ pub enum TokenType {
     Shared,   // "A Counter is Shared and has:" -> CRDT struct
     Merge,    // "Merge remote into local" -> CRDT merge
     Increase, // "Increase x's count by 10" -> GCounter increment
+
+    // Phase 49b: Extended CRDT Keywords (Wave 5)
+    Decrease,       // "Decrease x's count by 5" -> PNCounter decrement
+    Tally,          // "which is a Tally" -> PNCounter type
+    SharedSet,      // "which is a SharedSet of T" -> ORSet type
+    SharedSequence, // "which is a SharedSequence of T" -> RGA type
+    SharedMap,      // "which is a SharedMap from K to V" -> ORMap type
+    Divergent,      // "which is a Divergent T" -> MVRegister type
+    Append,         // "Append x to seq" -> RGA append
+    Resolve,        // "Resolve x to value" -> MVRegister resolve
+    RemoveWins,     // "(RemoveWins)" -> ORSet bias
+    AddWins,        // "(AddWins)" -> ORSet bias (default)
+    YATA,           // "(YATA)" -> Sequence algorithm
+    Values,         // "x's values" -> MVRegister values accessor
 
     // Phase 50: Security Keywords
     Check,    // "Check that user is admin" -> mandatory runtime guard
@@ -4973,6 +4999,20 @@ impl<'a> Lexer<'a> {
             "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
             "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
             "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
+            // Phase 49b: Extended CRDT keywords (Wave 5)
+            "decrease" if self.mode == LexerMode::Imperative => return TokenType::Decrease,
+            "append" if self.mode == LexerMode::Imperative => return TokenType::Append,
+            "resolve" if self.mode == LexerMode::Imperative => return TokenType::Resolve,
+            "values" if self.mode == LexerMode::Imperative => return TokenType::Values,
+            // Type keywords (work in both modes like "Shared"):
+            "tally" => return TokenType::Tally,
+            "sharedset" => return TokenType::SharedSet,
+            "sharedsequence" => return TokenType::SharedSequence,
+            "sharedmap" => return TokenType::SharedMap,
+            "divergent" => return TokenType::Divergent,
+            "removewins" => return TokenType::RemoveWins,
+            "addwins" => return TokenType::AddWins,
+            "yata" => return TokenType::YATA,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),
@@ -6271,6 +6311,29 @@ pub enum Stmt<'a> {
         amount: &'a Expr<'a>,
     },
 
+    /// Phase 49b: Decrement PNCounter (Tally)
+    /// `Decrease game's score by 5.`
+    DecreaseCrdt {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        amount: &'a Expr<'a>,
+    },
+
+    /// Phase 49b: Append to SharedSequence (RGA)
+    /// `Append "Hello" to doc's lines.`
+    AppendToSequence {
+        sequence: &'a Expr<'a>,
+        value: &'a Expr<'a>,
+    },
+
+    /// Phase 49b: Resolve MVRegister conflicts
+    /// `Resolve page's title to "Final".`
+    ResolveConflict {
+        object: &'a Expr<'a>,
+        field: Symbol,
+        value: &'a Expr<'a>,
+    },
+
     /// Phase 50: Security check - mandatory runtime guard
     /// `Check that user is admin.`
     /// `Check that user can publish the document.`
@@ -6874,6 +6937,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) => Ok(s),
             TokenType::ProperName(s) => Ok(s),
+            // Phase 49b: CRDT type keywords are valid type names
+            TokenType::Tally => Ok(self.interner.intern("Tally")),
+            TokenType::SharedSet => Ok(self.interner.intern("SharedSet")),
+            TokenType::SharedSequence => Ok(self.interner.intern("SharedSequence")),
+            TokenType::SharedMap => Ok(self.interner.intern("SharedMap")),
+            TokenType::Divergent => Ok(self.interner.intern("Divergent")),
             other => Err(ParseError {
                 kind: ParseErrorKind::ExpectedContentWord { found: other },
                 span: self.current_span(),
@@ -6920,6 +6989,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Map" | "HashMap" => Some(2), // Map of K and V
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
+                    // Phase 49b: CRDT generic types
+                    "SharedSet" | "ORSet" => Some(1),      // SharedSet of T
+                    "SharedSequence" | "RGA" => Some(1),   // SharedSequence of T
+                    "SharedMap" | "ORMap" => Some(2),      // SharedMap from K to V
+                    "Divergent" | "MVRegister" => Some(1), // Divergent T
                     _ => None,
                 });
 
@@ -7523,6 +7597,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Increase) {
             return self.parse_increase_statement();
+        }
+        // Phase 49b: Extended CRDT statements
+        if self.check(&TokenType::Decrease) {
+            return self.parse_decrease_statement();
+        }
+        if self.check(&TokenType::Append) {
+            return self.parse_append_statement();
+        }
+        if self.check(&TokenType::Resolve) {
+            return self.parse_resolve_statement();
         }
 
         // Phase 54: Go-like Concurrency statements
@@ -14014,6 +14098,92 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let amount = self.parse_imperative_expr()?;
 
         Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
+    }
+
+    /// Parse decrease statement: "Decrease game's score by 5."
+    fn parse_decrease_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Decrease"
+
+        // Parse object with field access (e.g., "game's score")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "by"
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        // Parse amount
+        let amount = self.parse_imperative_expr()?;
+
+        Ok(Stmt::DecreaseCrdt { object, field: *field, amount })
+    }
+
+    /// Parse append statement: "Append value to sequence."
+    fn parse_append_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Append"
+
+        // Parse value to append
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" (can be TokenType::To or a preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse sequence expression
+        let sequence = self.parse_imperative_expr()?;
+
+        Ok(Stmt::AppendToSequence { sequence, value })
+    }
+
+    /// Parse resolve statement: "Resolve page's title to value."
+    fn parse_resolve_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Resolve"
+
+        // Parse object with field access (e.g., "page's title")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's title')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "to" (can be TokenType::To or a preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse value
+        let value = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ResolveConflict { object, field: *field, value })
     }
 
 }
@@ -25744,6 +25914,11 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Parse a field type reference
     fn consume_field_type(&mut self) -> FieldType {
+        // Skip article if present (e.g., "a Tally" -> "Tally")
+        if self.check_article() {
+            self.advance();
+        }
+
         if let Some(name) = self.consume_noun_or_proper() {
             // Check for generic: "List of Int", "Seq of Text"
             if self.check_preposition("of") {
@@ -25752,8 +25927,15 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::Generic { base: name, params: vec![param] };
             }
 
-            // Check if primitive
+            // Phase 49b: "Divergent T" syntax (no "of" required)
             let name_str = self.interner.resolve(name);
+            if name_str == "Divergent" {
+                // Next token should be the inner type
+                let param = self.consume_field_type();
+                return FieldType::Generic { base: name, params: vec![param] };
+            }
+
+            // Check if primitive
             match name_str {
                 "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
                 _ => FieldType::Named(name),
@@ -25840,6 +26022,27 @@ impl<'a> DiscoveryPass<'a> {
                 let sym = t.lexeme;
                 self.advance();
                 Some(sym)
+            }
+            // Phase 49b: Accept CRDT type tokens as type names
+            TokenType::Tally => {
+                self.advance();
+                Some(self.interner.intern("Tally"))
+            }
+            TokenType::SharedSet => {
+                self.advance();
+                Some(self.interner.intern("SharedSet"))
+            }
+            TokenType::SharedSequence => {
+                self.advance();
+                Some(self.interner.intern("SharedSequence"))
+            }
+            TokenType::SharedMap => {
+                self.advance();
+                Some(self.interner.intern("SharedMap"))
+            }
+            TokenType::Divergent => {
+                self.advance();
+                Some(self.interner.intern("Divergent"))
             }
             _ => None
         }
@@ -25958,6 +26161,8 @@ impl<'a> DiscoveryPass<'a> {
                     return FieldType::TypeParam(param_sym);
                 }
             }
+            // Article didn't match a type param, skip it (e.g., "a Tally" -> "Tally")
+            self.advance();
         }
 
         if let Some(name) = self.consume_noun_or_proper() {
@@ -25973,8 +26178,15 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::Generic { base: name, params: vec![param] };
             }
 
-            // Check if primitive
+            // Phase 49b: "Divergent T" syntax (no "of" required)
             let name_str = self.interner.resolve(name);
+            if name_str == "Divergent" {
+                // Next token should be the inner type
+                let param = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: name, params: vec![param] };
+            }
+
+            // Check if primitive
             match name_str {
                 "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
                 _ => FieldType::Named(name),
@@ -28418,11 +28630,20 @@ fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
     match ty {
         FieldType::Named(sym) => {
             let name = interner.resolve(*sym);
-            matches!(name, "ConvergentCount" | "GCounter")
+            matches!(name,
+                "ConvergentCount" | "GCounter" |
+                "Tally" | "PNCounter"
+            )
         }
         FieldType::Generic { base, .. } => {
             let name = interner.resolve(*base);
-            matches!(name, "LastWriteWins" | "LWWRegister")
+            matches!(name,
+                "LastWriteWins" | "LWWRegister" |
+                "SharedSet" | "ORSet" |
+                "SharedSequence" | "RGA" |
+                "SharedMap" | "ORMap" |
+                "Divergent" | "MVRegister"
+            )
         }
         _ => false,
     }
@@ -28495,6 +28716,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
             match name {
                 // Phase 49: CRDT type mapping
                 "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                // Phase 49b: New CRDT types (Wave 5)
+                "Tally" => "logos_core::crdt::PNCounter".to_string(),
                 _ => name.to_string(),
             }
         }
@@ -28507,6 +28730,11 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logos_core::crdt::LWWRegister",
+                // Phase 49b: New CRDT generic types (Wave 5)
+                "SharedSet" | "ORSet" => "logos_core::crdt::ORSet",
+                "SharedSequence" | "RGA" => "logos_core::crdt::RGA",
+                "SharedMap" | "ORMap" => "logos_core::crdt::ORMap",
+                "Divergent" | "MVRegister" => "logos_core::crdt::MVRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -29348,6 +29576,58 @@ pub fn codegen_stmt<'a>(
                 output,
                 "{}{}.{}.increment({} as u64);",
                 indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Decrement PNCounter
+        Stmt::DecreaseCrdt { object, field, amount } => {
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner, synced_vars);
+
+            // Check if the root object is synced
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    // Synced: use .mutate() for auto-publish
+                    let obj_name = interner.resolve(sym);
+                    writeln!(
+                        output,
+                        "{}{}.mutate(|inner| inner.{}.decrement({} as u64)).await;",
+                        indent_str, obj_name, field_name, amount_str
+                    ).unwrap();
+                    return output;
+                }
+            }
+
+            // Not synced: direct access
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.{}.decrement({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Append to SharedSequence (RGA)
+        Stmt::AppendToSequence { sequence, value } => {
+            let seq_str = codegen_expr(sequence, interner, synced_vars);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.append({});",
+                indent_str, seq_str, val_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Resolve MVRegister conflicts
+        Stmt::ResolveConflict { object, field, value } => {
+            let field_name = interner.resolve(*field);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.{}.resolve({});",
+                indent_str, obj_str, field_name, val_str
             ).unwrap();
         }
     }
@@ -40443,6 +40723,18 @@ impl<'a> Interpreter<'a> {
 
             Stmt::IncreaseCrdt { .. } => {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::DecreaseCrdt { .. } => {
+                Err("CRDT Decrease is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::AppendToSequence { .. } => {
+                Err("Append to sequence is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::ResolveConflict { .. } => {
+                Err("Resolve conflict is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
             Stmt::Check { .. } => {
@@ -62881,10 +63173,29 @@ Exports Merge trait, GCounter, and LWWRegister for eventually consistent distrib
 //! Any two replicas can be merged to produce the same result regardless of order.
 //!
 //! Phase 52: Added `Synced<T>` wrapper for automatic GossipSub replication.
+//!
+//! Wave 1: Added causal infrastructure (VClock, Dot, DotContext) and delta support.
 
 mod gcounter;
 mod lww;
 mod merge;
+mod replica;
+
+// Wave 1: Causal infrastructure
+pub mod causal;
+
+// Wave 1: Delta CRDT support
+mod delta;
+mod delta_buffer;
+
+// Wave 2: Additional CRDTs
+mod pncounter;
+mod mvregister;
+
+// Wave 3: Complex CRDTs
+mod orset;
+mod ormap;
+pub mod sequence;
 
 // Phase 52: Synced wrapper uses tokio and network - native only
 #[cfg(not(target_arch = "wasm32"))]
@@ -62893,6 +63204,25 @@ mod sync;
 pub use gcounter::GCounter;
 pub use lww::LWWRegister;
 pub use merge::Merge;
+
+// Wave 1: Export replica utilities
+pub use replica::{generate_replica_id, ReplicaId};
+
+// Wave 1: Export causal types
+pub use causal::{Dot, DotContext, VClock};
+
+// Wave 1: Export delta types
+pub use delta::DeltaCrdt;
+pub use delta_buffer::DeltaBuffer;
+
+// Wave 2: Export additional CRDTs
+pub use pncounter::PNCounter;
+pub use mvregister::MVRegister;
+
+// Wave 3: Export complex CRDTs
+pub use orset::{AddWins, ORSet, RemoveWins};
+pub use ormap::ORMap;
+pub use sequence::{RGA, YATA};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use sync::Synced;
@@ -62942,7 +63272,10 @@ Increment-only distributed counter. Maintains per-replica counts in HashMap. Mer
 //! A counter that can only be incremented, never decremented.
 //! Each replica maintains its own local count, and the total value
 //! is the sum of all replica counts.
+//!
+//! Wave 1.1: Migrated from String to u64 ReplicaId for efficiency.
 
+use super::replica::{generate_replica_id, ReplicaId};
 use super::Merge;
 use crate::io::Showable;
 use serde::{Deserialize, Serialize};
@@ -62957,48 +63290,31 @@ use std::fmt;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct GCounter {
     /// Map from replica ID to local count
-    counts: HashMap<String, u64>,
+    counts: HashMap<ReplicaId, u64>,
     /// This replica's ID (set on first increment)
-    replica_id: String,
+    replica_id: ReplicaId,
 }
 
 impl GCounter {
     /// Create a new empty counter.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            counts: HashMap::new(),
+            replica_id: generate_replica_id(),
+        }
     }
 
     /// Create a counter with a specific replica ID.
-    pub fn with_replica_id(id: impl Into<String>) -> Self {
+    pub fn with_replica_id(id: ReplicaId) -> Self {
         Self {
             counts: HashMap::new(),
-            replica_id: id.into(),
+            replica_id: id,
         }
     }
 
     /// Increment the counter by the given amount.
-    ///
-    /// If this is the first increment, a unique replica ID is generated.
     pub fn increment(&mut self, amount: u64) {
-        if self.replica_id.is_empty() {
-            self.replica_id = Self::generate_replica_id();
-        }
-        *self.counts.entry(self.replica_id.clone()).or_insert(0) += amount;
-    }
-
-    /// Generate a unique replica ID.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn generate_replica_id() -> String {
-        uuid::Uuid::new_v4().to_string()
-    }
-
-    /// Generate a unique replica ID (WASM version using getrandom).
-    #[cfg(target_arch = "wasm32")]
-    fn generate_replica_id() -> String {
-        let mut bytes = [0u8; 16];
-        getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes");
-        // Format as hex string
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+        *self.counts.entry(self.replica_id).or_insert(0) += amount;
     }
 
     /// Get the current value (sum of all replica counts).
@@ -63007,8 +63323,8 @@ impl GCounter {
     }
 
     /// Get the replica ID for this counter.
-    pub fn replica_id(&self) -> &str {
-        &self.replica_id
+    pub fn replica_id(&self) -> ReplicaId {
+        self.replica_id
     }
 }
 
@@ -63018,8 +63334,8 @@ impl Merge for GCounter {
     /// For each replica ID, takes the maximum count between the two counters.
     /// This ensures convergence: merging A into B or B into A yields the same result.
     fn merge(&mut self, other: &Self) {
-        for (replica, &count) in &other.counts {
-            let entry = self.counts.entry(replica.clone()).or_insert(0);
+        for (&replica, &count) in &other.counts {
+            let entry = self.counts.entry(replica).or_insert(0);
             *entry = (*entry).max(count);
         }
     }
@@ -63056,7 +63372,7 @@ mod tests {
 
     #[test]
     fn test_gcounter_increment() {
-        let mut c = GCounter::with_replica_id("r1");
+        let mut c = GCounter::with_replica_id(1);
         c.increment(5);
         c.increment(3);
         assert_eq!(c.value(), 8);
@@ -63064,8 +63380,8 @@ mod tests {
 
     #[test]
     fn test_gcounter_merge_disjoint() {
-        let mut c1 = GCounter::with_replica_id("r1");
-        let mut c2 = GCounter::with_replica_id("r2");
+        let mut c1 = GCounter::with_replica_id(1);
+        let mut c2 = GCounter::with_replica_id(2);
 
         c1.increment(5);
         c2.increment(3);
@@ -63076,8 +63392,8 @@ mod tests {
 
     #[test]
     fn test_gcounter_merge_commutative() {
-        let mut c1 = GCounter::with_replica_id("r1");
-        let mut c2 = GCounter::with_replica_id("r2");
+        let mut c1 = GCounter::with_replica_id(1);
+        let mut c2 = GCounter::with_replica_id(2);
 
         c1.increment(5);
         c2.increment(3);
@@ -63093,7 +63409,7 @@ mod tests {
 
     #[test]
     fn test_gcounter_merge_idempotent() {
-        let mut c1 = GCounter::with_replica_id("r1");
+        let mut c1 = GCounter::with_replica_id(1);
         c1.increment(5);
 
         let before = c1.value();
@@ -63104,8 +63420,8 @@ mod tests {
     #[test]
     fn test_gcounter_merge_same_replica() {
         // When two counters have the same replica ID (simulating sync after divergence)
-        let mut c1 = GCounter::with_replica_id("r1");
-        let mut c2 = GCounter::with_replica_id("r1");
+        let mut c1 = GCounter::with_replica_id(1);
+        let mut c2 = GCounter::with_replica_id(1);
 
         c1.increment(5);
         c2.increment(3);
@@ -63380,6 +63696,26 @@ impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T>
     /// Get the topic this CRDT is synchronized on.
     pub fn topic(&self) -> &str {
         &self.topic
+    }
+}
+
+// =============================================================================
+// Test infrastructure (compiles out in release)
+// =============================================================================
+
+#[cfg(test)]
+impl<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> Synced<T> {
+    /// Get a clone of the inner state for test inspection.
+    ///
+    /// This allows tests to verify the internal state without going through
+    /// the normal mutation/publish flow.
+    pub async fn inspect_inner(&self) -> T {
+        self.inner.lock().await.clone()
+    }
+
+    /// Get the inner Arc for direct manipulation in tests.
+    pub fn inner_arc(&self) -> Arc<Mutex<T>> {
+        Arc::clone(&self.inner)
     }
 }
 
@@ -63723,6 +64059,13 @@ impl MeshNode {
                             }
                         }
                         MeshCommand::GossipPublish { topic, data, retry_count } => {
+                            // Test hook: drop message if network is paused
+                            #[cfg(test)]
+                            if test_control::is_paused() {
+                                eprintln!("[GOSSIP] Network paused, dropping publish to '{}'", topic);
+                                continue;
+                            }
+
                             const MAX_RETRIES: u8 = 5;
                             match swarm.behaviour_mut().publish(&topic, data.clone()) {
                                 Ok(_) => {
@@ -63731,6 +64074,8 @@ impl MeshNode {
                                 Err(gossipsub::PublishError::InsufficientPeers) if retry_count < MAX_RETRIES => {
                                     // Retry with delay - spawn a task to re-queue the publish
                                     eprintln!("[GOSSIP] InsufficientPeers, scheduling retry ({}/{})", retry_count + 1, MAX_RETRIES);
+                                    #[cfg(test)]
+                                    test_control::increment_retry();
                                     if let Some(tx) = GOSSIP_TX.get() {
                                         let tx = tx.clone();
                                         let topic = topic.clone();
@@ -64088,6 +64433,56 @@ pub async fn gossip_subscribe(topic: &str) {
         }).await.is_err() {
             eprintln!("[GOSSIP] Command channel closed");
         }
+    }
+}
+
+// =============================================================================
+// Test infrastructure (compiles out in release)
+// =============================================================================
+
+#[cfg(test)]
+pub mod test_control {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::OnceLock;
+
+    pub struct MeshTestControl {
+        pub pause_publish: AtomicBool,
+        pub pause_receive: AtomicBool,
+        pub retry_count: AtomicU32,
+    }
+
+    static CONTROL: OnceLock<MeshTestControl> = OnceLock::new();
+
+    pub fn get() -> &'static MeshTestControl {
+        CONTROL.get_or_init(|| MeshTestControl {
+            pause_publish: AtomicBool::new(false),
+            pause_receive: AtomicBool::new(false),
+            retry_count: AtomicU32::new(0),
+        })
+    }
+
+    pub fn pause_network() {
+        get().pause_publish.store(true, Ordering::SeqCst);
+    }
+
+    pub fn resume_network() {
+        get().pause_publish.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_paused() -> bool {
+        get().pause_publish.load(Ordering::Relaxed)
+    }
+
+    pub fn increment_retry() {
+        get().retry_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn get_retry_count() -> u32 {
+        get().retry_count.load(Ordering::Relaxed)
+    }
+
+    pub fn reset_retry_count() {
+        get().retry_count.store(0, Ordering::Relaxed);
     }
 }
 
@@ -64577,6 +64972,10 @@ pub async fn subscribe_and_merge<T: Merge + DeserializeOwned + Send + 'static>(
 ///
 /// Routes the message to the appropriate subscription channel.
 pub async fn on_message(topic: &str, data: Vec<u8>) {
+    // Test hook: log received messages
+    #[cfg(test)]
+    test_hooks::log_received(topic, &data);
+
     let subs = SUBSCRIPTIONS.lock().await;
     if let Some(tx) = subs.get(topic) {
         if tx.send(data).await.is_err() {
@@ -64593,6 +64992,46 @@ pub async fn unsubscribe(topic: &str) {
     let mut subs = SUBSCRIPTIONS.lock().await;
     subs.remove(topic);
     // Note: Should also tell mesh node to unsubscribe from gossipsub
+}
+
+// =============================================================================
+// Test infrastructure (compiles out in release)
+// =============================================================================
+
+#[cfg(test)]
+pub mod test_hooks {
+    use once_cell::sync::Lazy;
+    use std::sync::Mutex;
+
+    pub struct MessageLog {
+        pub received: Vec<(String, Vec<u8>)>,
+    }
+
+    static LOG: Lazy<Mutex<MessageLog>> = Lazy::new(|| {
+        Mutex::new(MessageLog {
+            received: Vec::new(),
+        })
+    });
+
+    pub fn log_received(topic: &str, data: &[u8]) {
+        if let Ok(mut log) = LOG.lock() {
+            log.received.push((topic.to_string(), data.to_vec()));
+        }
+    }
+
+    pub fn get_received() -> Vec<(String, Vec<u8>)> {
+        LOG.lock().map(|l| l.received.clone()).unwrap_or_default()
+    }
+
+    pub fn clear_log() {
+        if let Ok(mut log) = LOG.lock() {
+            log.received.clear();
+        }
+    }
+
+    pub fn received_count() -> usize {
+        LOG.lock().map(|l| l.received.len()).unwrap_or(0)
+    }
 }
 
 #[cfg(test)]
@@ -69786,11 +70225,20 @@ fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
     match ty {
         FieldType::Named(sym) => {
             let name = interner.resolve(*sym);
-            matches!(name, "ConvergentCount" | "GCounter")
+            matches!(name,
+                "ConvergentCount" | "GCounter" |
+                "Tally" | "PNCounter"
+            )
         }
         FieldType::Generic { base, .. } => {
             let name = interner.resolve(*base);
-            matches!(name, "LastWriteWins" | "LWWRegister")
+            matches!(name,
+                "LastWriteWins" | "LWWRegister" |
+                "SharedSet" | "ORSet" |
+                "SharedSequence" | "RGA" |
+                "SharedMap" | "ORMap" |
+                "Divergent" | "MVRegister"
+            )
         }
         _ => false,
     }
@@ -69863,6 +70311,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
             match name {
                 // Phase 49: CRDT type mapping
                 "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                // Phase 49b: New CRDT types (Wave 5)
+                "Tally" => "logos_core::crdt::PNCounter".to_string(),
                 _ => name.to_string(),
             }
         }
@@ -69875,6 +70325,11 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logos_core::crdt::LWWRegister",
+                // Phase 49b: New CRDT generic types (Wave 5)
+                "SharedSet" | "ORSet" => "logos_core::crdt::ORSet",
+                "SharedSequence" | "RGA" => "logos_core::crdt::RGA",
+                "SharedMap" | "ORMap" => "logos_core::crdt::ORMap",
+                "Divergent" | "MVRegister" => "logos_core::crdt::MVRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -70716,6 +71171,58 @@ pub fn codegen_stmt<'a>(
                 output,
                 "{}{}.{}.increment({} as u64);",
                 indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Decrement PNCounter
+        Stmt::DecreaseCrdt { object, field, amount } => {
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner, synced_vars);
+
+            // Check if the root object is synced
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    // Synced: use .mutate() for auto-publish
+                    let obj_name = interner.resolve(sym);
+                    writeln!(
+                        output,
+                        "{}{}.mutate(|inner| inner.{}.decrement({} as u64)).await;",
+                        indent_str, obj_name, field_name, amount_str
+                    ).unwrap();
+                    return output;
+                }
+            }
+
+            // Not synced: direct access
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.{}.decrement({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Append to SharedSequence (RGA)
+        Stmt::AppendToSequence { sequence, value } => {
+            let seq_str = codegen_expr(sequence, interner, synced_vars);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.append({});",
+                indent_str, seq_str, val_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Resolve MVRegister conflicts
+        Stmt::ResolveConflict { object, field, value } => {
+            let field_name = interner.resolve(*field);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.{}.resolve({});",
+                indent_str, obj_str, field_name, val_str
             ).unwrap();
         }
     }
@@ -73193,6 +73700,18 @@ impl<'a> Interpreter<'a> {
 
             Stmt::IncreaseCrdt { .. } => {
                 Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::DecreaseCrdt { .. } => {
+                Err("CRDT Decrease is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::AppendToSequence { .. } => {
+                Err("Append to sequence is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::ResolveConflict { .. } => {
+                Err("Resolve conflict is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
             Stmt::Check { .. } => {
@@ -76722,6 +77241,7 @@ serde_json = "1.0"
 [dev-dependencies]
 tempfile = "3"
 toml = "0.8"
+bincode = "1.3"
 
 [profile]
 
@@ -78215,11 +78735,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Thu Jan  1 02:26:49 CST 2026
+- **Generated:** Thu Jan  1 04:41:01 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 577975a
-- **Documentation Size:** 2.6M
+- **Git Commit:** 5d63949
+- **Documentation Size:** 2.7M
 
 ---
 

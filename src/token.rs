@@ -171,6 +171,20 @@ pub enum TokenType {
     Merge,    // "Merge remote into local" -> CRDT merge
     Increase, // "Increase x's count by 10" -> GCounter increment
 
+    // Phase 49b: Extended CRDT Keywords (Wave 5)
+    Decrease,       // "Decrease x's count by 5" -> PNCounter decrement
+    Tally,          // "which is a Tally" -> PNCounter type
+    SharedSet,      // "which is a SharedSet of T" -> ORSet type
+    SharedSequence, // "which is a SharedSequence of T" -> RGA type
+    SharedMap,      // "which is a SharedMap from K to V" -> ORMap type
+    Divergent,      // "which is a Divergent T" -> MVRegister type
+    Append,         // "Append x to seq" -> RGA append
+    Resolve,        // "Resolve x to value" -> MVRegister resolve
+    RemoveWins,     // "(RemoveWins)" -> ORSet bias
+    AddWins,        // "(AddWins)" -> ORSet bias (default)
+    YATA,           // "(YATA)" -> Sequence algorithm
+    Values,         // "x's values" -> MVRegister values accessor
+
     // Phase 50: Security Keywords
     Check,    // "Check that user is admin" -> mandatory runtime guard
 

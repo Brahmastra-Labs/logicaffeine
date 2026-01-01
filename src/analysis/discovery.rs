@@ -808,6 +808,11 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Parse a field type reference
     fn consume_field_type(&mut self) -> FieldType {
+        // Skip article if present (e.g., "a Tally" -> "Tally")
+        if self.check_article() {
+            self.advance();
+        }
+
         if let Some(name) = self.consume_noun_or_proper() {
             // Check for generic: "List of Int", "Seq of Text"
             if self.check_preposition("of") {
@@ -816,8 +821,15 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::Generic { base: name, params: vec![param] };
             }
 
-            // Check if primitive
+            // Phase 49b: "Divergent T" syntax (no "of" required)
             let name_str = self.interner.resolve(name);
+            if name_str == "Divergent" {
+                // Next token should be the inner type
+                let param = self.consume_field_type();
+                return FieldType::Generic { base: name, params: vec![param] };
+            }
+
+            // Check if primitive
             match name_str {
                 "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
                 _ => FieldType::Named(name),
@@ -904,6 +916,27 @@ impl<'a> DiscoveryPass<'a> {
                 let sym = t.lexeme;
                 self.advance();
                 Some(sym)
+            }
+            // Phase 49b: Accept CRDT type tokens as type names
+            TokenType::Tally => {
+                self.advance();
+                Some(self.interner.intern("Tally"))
+            }
+            TokenType::SharedSet => {
+                self.advance();
+                Some(self.interner.intern("SharedSet"))
+            }
+            TokenType::SharedSequence => {
+                self.advance();
+                Some(self.interner.intern("SharedSequence"))
+            }
+            TokenType::SharedMap => {
+                self.advance();
+                Some(self.interner.intern("SharedMap"))
+            }
+            TokenType::Divergent => {
+                self.advance();
+                Some(self.interner.intern("Divergent"))
             }
             _ => None
         }
@@ -1022,6 +1055,8 @@ impl<'a> DiscoveryPass<'a> {
                     return FieldType::TypeParam(param_sym);
                 }
             }
+            // Article didn't match a type param, skip it (e.g., "a Tally" -> "Tally")
+            self.advance();
         }
 
         if let Some(name) = self.consume_noun_or_proper() {
@@ -1037,8 +1072,15 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::Generic { base: name, params: vec![param] };
             }
 
-            // Check if primitive
+            // Phase 49b: "Divergent T" syntax (no "of" required)
             let name_str = self.interner.resolve(name);
+            if name_str == "Divergent" {
+                // Next token should be the inner type
+                let param = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: name, params: vec![param] };
+            }
+
+            // Check if primitive
             match name_str {
                 "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
                 _ => FieldType::Named(name),

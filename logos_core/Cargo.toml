@@ -20,6 +20,7 @@ async-lock = "3.4"  # Phase 55: Cross-platform async mutex
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 memmap2 = "0.9.9"
 rand = "0.8"
+getrandom = "0.2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
 rayon = "1.10"
 sha2 = "0.10"

@@ -55,6 +55,15 @@ impl LogosContains<char> for String {
     }
 }
 
+// Phase 49b: LogosContains for CRDT ORSet
+impl<T: Eq + Hash + Clone, B: crate::crdt::SetBias> LogosContains<T>
+    for crate::crdt::ORSet<T, B>
+{
+    fn logos_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
 /// Dynamic value type for heterogeneous collections (tuples)
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {

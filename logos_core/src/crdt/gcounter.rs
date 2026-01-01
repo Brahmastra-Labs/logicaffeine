@@ -3,7 +3,10 @@
 //! A counter that can only be incremented, never decremented.
 //! Each replica maintains its own local count, and the total value
 //! is the sum of all replica counts.
+//!
+//! Wave 1.1: Migrated from String to u64 ReplicaId for efficiency.
 
+use super::replica::{generate_replica_id, ReplicaId};
 use super::Merge;
 use crate::io::Showable;
 use serde::{Deserialize, Serialize};
@@ -18,48 +21,31 @@ use std::fmt;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct GCounter {
     /// Map from replica ID to local count
-    counts: HashMap<String, u64>,
+    counts: HashMap<ReplicaId, u64>,
     /// This replica's ID (set on first increment)
-    replica_id: String,
+    replica_id: ReplicaId,
 }
 
 impl GCounter {
     /// Create a new empty counter.
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            counts: HashMap::new(),
+            replica_id: generate_replica_id(),
+        }
     }
 
     /// Create a counter with a specific replica ID.
-    pub fn with_replica_id(id: impl Into<String>) -> Self {
+    pub fn with_replica_id(id: ReplicaId) -> Self {
         Self {
             counts: HashMap::new(),
-            replica_id: id.into(),
+            replica_id: id,
         }
     }
 
     /// Increment the counter by the given amount.
-    ///
-    /// If this is the first increment, a unique replica ID is generated.
     pub fn increment(&mut self, amount: u64) {
-        if self.replica_id.is_empty() {
-            self.replica_id = Self::generate_replica_id();
-        }
-        *self.counts.entry(self.replica_id.clone()).or_insert(0) += amount;
-    }
-
-    /// Generate a unique replica ID.
-    #[cfg(not(target_arch = "wasm32"))]
-    fn generate_replica_id() -> String {
-        uuid::Uuid::new_v4().to_string()
-    }
-
-    /// Generate a unique replica ID (WASM version using getrandom).
-    #[cfg(target_arch = "wasm32")]
-    fn generate_replica_id() -> String {
-        let mut bytes = [0u8; 16];
-        getrandom::getrandom(&mut bytes).expect("Failed to generate random bytes");
-        // Format as hex string
-        bytes.iter().map(|b| format!("{:02x}", b)).collect()
+        *self.counts.entry(self.replica_id).or_insert(0) += amount;
     }
 
     /// Get the current value (sum of all replica counts).
@@ -68,8 +54,8 @@ impl GCounter {
     }
 
     /// Get the replica ID for this counter.
-    pub fn replica_id(&self) -> &str {
-        &self.replica_id
+    pub fn replica_id(&self) -> ReplicaId {
+        self.replica_id
     }
 }
 
@@ -79,8 +65,8 @@ impl Merge for GCounter {
     /// For each replica ID, takes the maximum count between the two counters.
     /// This ensures convergence: merging A into B or B into A yields the same result.
     fn merge(&mut self, other: &Self) {
-        for (replica, &count) in &other.counts {
-            let entry = self.counts.entry(replica.clone()).or_insert(0);
+        for (&replica, &count) in &other.counts {
+            let entry = self.counts.entry(replica).or_insert(0);
             *entry = (*entry).max(count);
         }
     }
@@ -117,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_gcounter_increment() {
-        let mut c = GCounter::with_replica_id("r1");
+        let mut c = GCounter::with_replica_id(1);
         c.increment(5);
         c.increment(3);
         assert_eq!(c.value(), 8);
@@ -125,8 +111,8 @@ mod tests {
 
     #[test]
     fn test_gcounter_merge_disjoint() {
-        let mut c1 = GCounter::with_replica_id("r1");
-        let mut c2 = GCounter::with_replica_id("r2");
+        let mut c1 = GCounter::with_replica_id(1);
+        let mut c2 = GCounter::with_replica_id(2);
 
         c1.increment(5);
         c2.increment(3);
@@ -137,8 +123,8 @@ mod tests {
 
     #[test]
     fn test_gcounter_merge_commutative() {
-        let mut c1 = GCounter::with_replica_id("r1");
-        let mut c2 = GCounter::with_replica_id("r2");
+        let mut c1 = GCounter::with_replica_id(1);
+        let mut c2 = GCounter::with_replica_id(2);
 
         c1.increment(5);
         c2.increment(3);
@@ -154,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_gcounter_merge_idempotent() {
-        let mut c1 = GCounter::with_replica_id("r1");
+        let mut c1 = GCounter::with_replica_id(1);
         c1.increment(5);
 
         let before = c1.value();
@@ -165,8 +151,8 @@ mod tests {
     #[test]
     fn test_gcounter_merge_same_replica() {
         // When two counters have the same replica ID (simulating sync after divergence)
-        let mut c1 = GCounter::with_replica_id("r1");
-        let mut c2 = GCounter::with_replica_id("r1");
+        let mut c1 = GCounter::with_replica_id(1);
+        let mut c2 = GCounter::with_replica_id(1);
 
         c1.increment(5);
         c2.increment(3);

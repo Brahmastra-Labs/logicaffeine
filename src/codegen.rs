@@ -260,6 +260,16 @@ fn requires_vfs_stmt(stmt: &Stmt) -> bool {
     }
 }
 
+/// Phase 49b: Extract root identifier from expression for mutability analysis.
+/// Works with both simple identifiers and field accesses.
+fn get_root_identifier_for_mutability(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => get_root_identifier_for_mutability(object),
+        _ => None,
+    }
+}
+
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
 /// - Variables that are targets of `Set` statements (reassignment)
@@ -291,15 +301,15 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
             }
         }
         Stmt::Add { collection, .. } => {
-            // If collection is an identifier (Set), it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier (Set) or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::Remove { collection, .. } => {
-            // If collection is an identifier (Set), it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier (Set) or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::SetIndex { collection, .. } => {
@@ -337,6 +347,29 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             for s in *tasks {
                 collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        // Phase 49b: CRDT operations require mutable access
+        Stmt::IncreaseCrdt { object, .. } | Stmt::DecreaseCrdt { object, .. } => {
+            // Extract root variable from field access (e.g., g.score -> g)
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
+            }
+        }
+        Stmt::AppendToSequence { sequence, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(sequence) {
+                targets.insert(sym);
+            }
+        }
+        Stmt::ResolveConflict { object, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
+            }
+        }
+        // Phase 49b: SetField on MVRegister/LWWRegister uses .set() which requires &mut self
+        Stmt::SetField { object, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
             }
         }
         _ => {}
@@ -444,8 +477,8 @@ fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) ->
     }
 }
 
-/// Collect LWWRegister field paths for special handling in SetField codegen.
-/// Returns a set of (type_name, field_name) pairs where the field is an LWWRegister.
+/// Collect LWWRegister and MVRegister field paths for special handling in SetField codegen.
+/// Returns a set of (type_name, field_name) pairs where the field uses .set() method.
 fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String)> {
     let mut lww_fields = HashSet::new();
     for (type_sym, def) in registry.iter_types() {
@@ -454,7 +487,8 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
             for field in fields {
                 if let FieldType::Generic { base, .. } = &field.ty {
                     let base_name = interner.resolve(*base);
-                    if base_name == "LastWriteWins" {
+                    // Phase 49b: Both LWWRegister and MVRegister (Divergent) use .set()
+                    if base_name == "LastWriteWins" || base_name == "Divergent" || base_name == "MVRegister" {
                         let field_name = interner.resolve(field.name).to_string();
                         lww_fields.insert((type_name.clone(), field_name));
                     }
@@ -968,11 +1002,20 @@ fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
     match ty {
         FieldType::Named(sym) => {
             let name = interner.resolve(*sym);
-            matches!(name, "ConvergentCount" | "GCounter")
+            matches!(name,
+                "ConvergentCount" | "GCounter" |
+                "Tally" | "PNCounter"
+            )
         }
         FieldType::Generic { base, .. } => {
             let name = interner.resolve(*base);
-            matches!(name, "LastWriteWins" | "LWWRegister")
+            matches!(name,
+                "LastWriteWins" | "LWWRegister" |
+                "SharedSet" | "ORSet" |
+                "SharedSequence" | "RGA" |
+                "SharedMap" | "ORMap" |
+                "Divergent" | "MVRegister"
+            )
         }
         _ => false,
     }
@@ -1045,6 +1088,8 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
             match name {
                 // Phase 49: CRDT type mapping
                 "ConvergentCount" => "logos_core::crdt::GCounter".to_string(),
+                // Phase 49b: New CRDT types (Wave 5)
+                "Tally" => "logos_core::crdt::PNCounter".to_string(),
                 _ => name.to_string(),
             }
         }
@@ -1057,6 +1102,11 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logos_core::crdt::LWWRegister",
+                // Phase 49b: New CRDT generic types (Wave 5)
+                "SharedSet" | "ORSet" => "logos_core::crdt::ORSet",
+                "SharedSequence" | "RGA" => "logos_core::crdt::RGA",
+                "SharedMap" | "ORMap" => "logos_core::crdt::ORMap",
+                "Divergent" | "MVRegister" => "logos_core::crdt::MVRegister",
                 other => other,
             };
             let param_strs: Vec<String> = params.iter()
@@ -1898,6 +1948,58 @@ pub fn codegen_stmt<'a>(
                 output,
                 "{}{}.{}.increment({} as u64);",
                 indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Decrement PNCounter
+        Stmt::DecreaseCrdt { object, field, amount } => {
+            let field_name = interner.resolve(*field);
+            let amount_str = codegen_expr(amount, interner, synced_vars);
+
+            // Check if the root object is synced
+            let root_sym = get_root_identifier(object);
+            if let Some(sym) = root_sym {
+                if synced_vars.contains(&sym) {
+                    // Synced: use .mutate() for auto-publish
+                    let obj_name = interner.resolve(sym);
+                    writeln!(
+                        output,
+                        "{}{}.mutate(|inner| inner.{}.decrement({} as u64)).await;",
+                        indent_str, obj_name, field_name, amount_str
+                    ).unwrap();
+                    return output;
+                }
+            }
+
+            // Not synced: direct access
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.{}.decrement({} as u64);",
+                indent_str, obj_str, field_name, amount_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Append to SharedSequence (RGA)
+        Stmt::AppendToSequence { sequence, value } => {
+            let seq_str = codegen_expr(sequence, interner, synced_vars);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.append({});",
+                indent_str, seq_str, val_str
+            ).unwrap();
+        }
+
+        // Phase 49b: Resolve MVRegister conflicts
+        Stmt::ResolveConflict { object, field, value } => {
+            let field_name = interner.resolve(*field);
+            let val_str = codegen_expr(value, interner, synced_vars);
+            let obj_str = codegen_expr(object, interner, synced_vars);
+            writeln!(
+                output,
+                "{}{}.{}.resolve({});",
+                indent_str, obj_str, field_name, val_str
             ).unwrap();
         }
     }
