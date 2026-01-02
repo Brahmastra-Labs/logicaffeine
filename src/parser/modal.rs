@@ -152,11 +152,13 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 _ => {}
             }
         }
+        let suppress_existential = self.drs.in_conditional_antecedent();
         let base_pred = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
             event_var,
             verb,
             roles: self.ctx.roles.alloc_slice(roles.clone()),
             modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
+            suppress_existential,
         })));
 
         // Capture template for ellipsis reconstruction

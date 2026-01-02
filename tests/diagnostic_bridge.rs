@@ -45,7 +45,7 @@ fn assert_friendly_error(error: &str, expected_contains: &[&str], forbidden_patt
 // =============================================================================
 
 #[test]
-fn test_use_after_move_simple() {
+fn e2e_test_use_after_move_simple() {
     // Simplest case: move a String twice
     // String::from is NOT Copy, so second Let should fail
     let source = r#"## Main
@@ -79,7 +79,7 @@ Let b be s."#;
 }
 
 #[test]
-fn test_use_after_move_with_function() {
+fn e2e_test_use_after_move_with_function() {
     // Move via function call, then try to use
     let source = r#"## To consume (x: Text) -> Text:
     Return x.
@@ -111,7 +111,7 @@ Let again be data."#;
 // =============================================================================
 
 #[test]
-fn test_no_rustc_error_codes_leak_e0382() {
+fn e2e_test_no_rustc_error_codes_leak_e0382() {
     // Trigger E0382 and verify the code doesn't leak
     let source = r#"## Main
 Let x be "test".
@@ -135,7 +135,7 @@ Let b be x."#;
 // =============================================================================
 
 #[test]
-fn test_diagnostic_module_compiles() {
+fn e2e_test_diagnostic_module_compiles() {
     use logos::sourcemap::SourceMap;
 
     let source_map = SourceMap::new("test".to_string());
@@ -143,7 +143,7 @@ fn test_diagnostic_module_compiles() {
 }
 
 #[test]
-fn test_json_parsing_extracts_e0382() {
+fn e2e_test_json_parsing_extracts_e0382() {
     use logos::diagnostic::{parse_rustc_json, get_error_code};
 
     let json = r#"{"reason":"compiler-message","message":{"message":"use of moved value: `x`","code":{"code":"E0382"},"level":"error","spans":[{"file_name":"src/main.rs","line_start":5,"line_end":5,"column_start":10,"column_end":11,"is_primary":true,"label":null,"text":[]}],"children":[]}}"#;
@@ -154,7 +154,7 @@ fn test_json_parsing_extracts_e0382() {
 }
 
 #[test]
-fn test_json_parsing_extracts_e0597() {
+fn e2e_test_json_parsing_extracts_e0597() {
     use logos::diagnostic::{parse_rustc_json, get_error_code};
 
     let json = r#"{"reason":"compiler-message","message":{"message":"borrowed value does not live long enough","code":{"code":"E0597"},"level":"error","spans":[{"file_name":"src/main.rs","line_start":10,"line_end":10,"column_start":5,"column_end":6,"is_primary":true,"label":null,"text":[]}],"children":[]}}"#;
@@ -165,7 +165,7 @@ fn test_json_parsing_extracts_e0597() {
 }
 
 #[test]
-fn test_translator_produces_friendly_message_for_e0382() {
+fn e2e_test_translator_produces_friendly_message_for_e0382() {
     use logos::diagnostic::{parse_rustc_json, DiagnosticBridge};
     use logos::sourcemap::SourceMap;
     use logos::intern::Interner;
@@ -189,7 +189,7 @@ fn test_translator_produces_friendly_message_for_e0382() {
 }
 
 #[test]
-fn test_translator_produces_friendly_message_for_e0597() {
+fn e2e_test_translator_produces_friendly_message_for_e0597() {
     use logos::diagnostic::{parse_rustc_json, DiagnosticBridge};
     use logos::sourcemap::SourceMap;
     use logos::intern::Interner;
@@ -222,7 +222,7 @@ fn test_translator_produces_friendly_message_for_e0597() {
 // =============================================================================
 
 #[test]
-fn test_zone_escape_produces_friendly_error() {
+fn e2e_test_zone_escape_produces_friendly_error() {
     // This should trigger E0597: reference cannot escape zone
     // Variables created inside a zone cannot be assigned to outer scope
     let source = r#"## Main
@@ -260,7 +260,7 @@ Inside a zone called "Scratch":
 // =============================================================================
 
 #[test]
-fn test_e0505_translation_produces_friendly_message() {
+fn e2e_test_e0505_translation_produces_friendly_message() {
     // E0505 (move while borrowed) is hard to trigger through LOGOS syntax
     // because Show/Give don't create overlapping borrows in sequential code.
     // This UNIT TEST verifies the translator handles E0505 JSON correctly.
@@ -307,7 +307,7 @@ fn test_e0505_translation_produces_friendly_message() {
 // =============================================================================
 
 #[test]
-fn test_concurrent_mutation_translation() {
+fn e2e_test_concurrent_mutation_translation() {
     // E0596 is what rustc emits when you try to mutate a captured variable
     // inside a closure (like rayon::join). This UNIT TEST verifies the
     // translator handles it correctly without needing rayon linked.

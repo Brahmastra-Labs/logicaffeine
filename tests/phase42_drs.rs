@@ -145,3 +145,154 @@ fn drs_nested_relative() {
     assert!(output.contains("G(") || output.contains("Grey(") || output.contains("Gray("),
         "Should have Grey predicate for nested relative: {}", output);
 }
+
+/// Generic conditional with event: "If it rains, the ground is wet."
+/// The event variable should get UNIVERSAL quantification, not existential.
+/// Expected: ∀e(Rain(e) → W(G))
+/// NOT: (∃e(Rain(e)) → W(G))
+#[test]
+fn drs_generic_conditional_event_lifting() {
+    let output = compile("If it rains, the ground is wet.").unwrap();
+    eprintln!("DEBUG drs_generic_conditional_event_lifting: {}", output);
+
+    // Should have universal quantifier for event variable
+    assert!(output.contains("∀"), "Generic conditional should have universal quantifier: {}", output);
+
+    // Should have implication
+    assert!(output.contains("→"), "Generic conditional should have implication: {}", output);
+
+    // Should NOT have existential inside the antecedent
+    // The Rain event should not be existentially quantified
+    assert!(!output.contains("∃e(Rain") && !output.contains("∃e(R("),
+        "Event variable should NOT be existentially quantified in antecedent: {}", output);
+}
+
+/// Coordinated weather verbs: "If it rains and thunders, the ground shakes."
+/// Should handle multiple weather verbs in the antecedent.
+#[test]
+fn drs_coordinated_weather_verbs() {
+    let output = compile("If it rains and thunders, the ground shakes.").unwrap();
+    eprintln!("DEBUG drs_coordinated_weather_verbs: {}", output);
+
+    // Should parse without error and contain both weather events
+    assert!(output.contains("Rain") || output.contains("R("), "Should have Rain: {}", output);
+    assert!(output.contains("Thunder") || output.contains("T("), "Should have Thunder: {}", output);
+
+    // Should have conjunction
+    assert!(output.contains("∧"), "Should have conjunction for coordinated events: {}", output);
+}
+
+/// Weather adjective with expletive "it": "If it rains then it is wet."
+/// The pronoun "it" should be recognized as expletive when followed by weather adjective.
+/// The weather adjective should predicate over the event variable: Wet(e)
+#[test]
+fn drs_weather_adjective_consequent() {
+    // Test with full form "it is"
+    let output = compile("If it rains then it is wet.").unwrap();
+    eprintln!("DEBUG drs_weather_adjective_consequent: {}", output);
+
+    // Should not have unresolved pronoun (?)
+    assert!(!output.contains("?"), "Should not have unresolved pronoun: {}", output);
+
+    // Single universal quantifier (not duplicate ∀e(∀e(...)))
+    assert_eq!(output.matches("∀").count(), 1,
+        "Should have exactly one universal quantifier: {}", output);
+
+    // Wet should predicate over event variable with full lemma
+    assert!(output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}", output);
+}
+
+/// Weather adjective with contraction "it's": "If it rains then it's wet."
+#[test]
+fn drs_weather_adjective_contraction() {
+    let output = compile("If it rains then it's wet.").unwrap();
+    eprintln!("DEBUG drs_weather_adjective_contraction: {}", output);
+
+    // Should not have unresolved pronoun (?)
+    assert!(!output.contains("?"), "Should not have unresolved pronoun: {}", output);
+
+    // Single universal quantifier
+    assert_eq!(output.matches("∀").count(), 1,
+        "Should have exactly one universal quantifier: {}", output);
+
+    // Wet should predicate over event variable with full lemma
+    assert!(output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}", output);
+}
+
+/// Full weather event semantics: "If it rains and thunders then it's wet."
+/// Expected: ∀e((Rain(e) ∧ Thunder(e)) → Wet(e))
+#[test]
+fn drs_weather_event_semantics() {
+    let output = compile("If it rains and thunders then it's wet.").unwrap();
+    eprintln!("DEBUG drs_weather_event_semantics: {}", output);
+
+    // Single universal quantifier (not duplicate ∀e(∀e(...)))
+    assert_eq!(output.matches("∀").count(), 1,
+        "Should have exactly one universal quantifier: {}", output);
+
+    // Should have conjunction of weather events
+    assert!(output.contains("Rain(e)"), "Should have Rain(e): {}", output);
+    assert!(output.contains("Thunder(e)"), "Should have Thunder(e): {}", output);
+    assert!(output.contains("∧"), "Should have conjunction: {}", output);
+
+    // Wet should predicate over event variable with full lemma
+    assert!(output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}", output);
+}
+
+/// Weather disjunction: "If it rains or thunders then it's wet."
+/// Expected: ∀e((Rain(e) ∨ Thunder(e)) → Wet(e))
+#[test]
+fn drs_weather_disjunction() {
+    let output = compile("If it rains or thunders then it's wet.").unwrap();
+    eprintln!("DEBUG drs_weather_disjunction: {}", output);
+
+    // Single universal quantifier
+    assert_eq!(output.matches("∀").count(), 1,
+        "Should have exactly one universal quantifier: {}", output);
+
+    // Should have disjunction of weather events
+    assert!(output.contains("∨"), "Should have disjunction: {}", output);
+    assert!(output.contains("Rain(e)"), "Should have Rain(e): {}", output);
+    assert!(output.contains("Thunder(e)"), "Should have Thunder(e): {}", output);
+
+    // Wet should predicate over event variable with full lemma
+    assert!(output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}", output);
+}
+
+/// Coordinated weather adjectives: "If it rains then it's wet and cold."
+/// Expected: ∀e(Rain(e) → (Wet(e) ∧ Cold(e)))
+#[test]
+fn drs_weather_compound_adjectives() {
+    let output = compile("If it rains then it's wet and cold.").unwrap();
+    eprintln!("DEBUG drs_weather_compound_adjectives: {}", output);
+
+    // Should have Wet(e) with full lemma, not W(e)
+    assert!(output.contains("Wet(e)"),
+        "Should have Wet(e) with full lemma, not W(e): {}", output);
+
+    // Should have Cold(e) with full lemma, not C(e)
+    assert!(output.contains("Cold(e)"),
+        "Should have Cold(e) with full lemma, not C(e): {}", output);
+
+    // Should have conjunction in consequent
+    let arrow_pos = output.find("→").expect("Should have implication");
+    let consequent = &output[arrow_pos..];
+    assert!(consequent.contains("∧"), "Consequent should have conjunction: {}", output);
+}
+
+/// Grammar error: "its" (possessive) vs "it's" (contraction)
+/// "If it rains then its wet." should produce a grammar error
+#[test]
+fn drs_its_possessive_grammar_error() {
+    let result = compile("If it rains then its wet.");
+    assert!(result.is_err(), "Should reject 'its wet' as grammar error");
+
+    let err = result.unwrap_err();
+    let err_msg = format!("{:?}", err);
+    assert!(err_msg.contains("it's") || err_msg.contains("possessive"),
+        "Error should mention the typo: {}", err_msg);
+}

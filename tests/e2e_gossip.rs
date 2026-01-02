@@ -21,7 +21,7 @@ use common::run_logos;
 /// It will log warnings but not fail the build.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_crdt_gossip_convergence() {
+fn e2e_test_crdt_gossip_convergence() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -111,7 +111,7 @@ If state's clicks equals 5:
 /// Test basic GossipSub subscription without network - just compilation.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_gossip_sync_compiles() {
+fn e2e_test_gossip_sync_compiles() {
     let source = r#"## Definition
 A Counter is Shared and has:
     value: ConvergentCount.

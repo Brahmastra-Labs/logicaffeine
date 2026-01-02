@@ -162,6 +162,8 @@ pub struct NeoEventData<'a> {
     pub verb: Symbol,
     pub roles: &'a [(ThematicRole, Term<'a>)],
     pub modifiers: &'a [Symbol],
+    /// When true, suppress local ∃e quantification (DRT: event var will be bound by outer ∀)
+    pub suppress_existential: bool,
 }
 
 impl<'a> NounPhrase<'a> {

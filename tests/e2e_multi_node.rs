@@ -30,7 +30,7 @@ fn unique_topic() -> String {
 /// converge to the same total value.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_three_node_convergence() {
+fn e2e_test_three_node_convergence() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -155,7 +155,7 @@ If state's clicks equals 30:
 /// Test that a node joining mid-session can catch up with existing state.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_node_join_mid_session() {
+fn e2e_test_node_join_mid_session() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -233,7 +233,7 @@ If state's clicks equals 25:
 /// Test concurrent writes from all nodes before any synchronization.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_concurrent_writes_before_sync() {
+fn e2e_test_concurrent_writes_before_sync() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;

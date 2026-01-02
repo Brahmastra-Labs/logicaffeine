@@ -1300,11 +1300,11 @@ mod tests {
     #[test]
     fn same_word_gets_same_symbol() {
         let output = compile("All cats are cats.").unwrap();
-        // FOL output: ∀x((C(x) → C(x))) - same symbol C for same word
-        let c_count = output.matches("C(").count();
+        // FOL output: ∀x((Cats(x) → Cats(x))) - same word appears twice
+        let cats_count = output.matches("Cats(").count();
         assert!(
-            c_count >= 2,
-            "same word should get same symbol (C appears twice): got '{}'",
+            cats_count >= 2,
+            "same word should get same symbol (Cats appears twice): got '{}'",
             output
         );
     }
@@ -1434,7 +1434,7 @@ mod tests {
     fn identity_same_constant() {
         let result = compile("Socrates is identical to Socrates.").unwrap();
         assert!(
-            result.contains("S = S"),
+            result.contains("Socrates = Socrates"),
             "Same constant should appear twice: got '{}'",
             result
         );
@@ -1504,7 +1504,7 @@ mod tests {
     fn relative_clause_with_preposition() {
         let result = compile("All dogs that ran to the house are tired.").unwrap();
         assert!(
-            result.contains("R(x, H)"),
+            result.contains("Run(x, House)"),
             "Relative clause should support prepositions: got '{}'",
             result
         );
@@ -1514,7 +1514,7 @@ mod tests {
     fn relative_clause_with_reflexive_preposition() {
         let result = compile("All men that speak to themselves are wise.").unwrap();
         assert!(
-            result.contains("S(x, x)"),
+            result.contains("Speak(x, x)"),
             "Relative clause reflexive should bind to variable: got '{}'",
             result
         );
@@ -1527,10 +1527,10 @@ mod tests {
     #[test]
     fn adjectives_as_separate_predicates() {
         let result = compile("All happy dogs are friendly.").unwrap();
-        // Subject should be: Happy(x) ∧ Dog(x) → Friendly(x)
+        // Subject should be: Happy(x) ∧ Dogs(x) → Friendly(x)
         // Check that adjective creates separate predicate in conjunction
         assert!(
-            result.contains("H(x)") && result.contains("∧") && result.contains("D(x)"),
+            result.contains("Happy(x)") && result.contains("∧") && result.contains("Dogs(x)"),
             "Adjectives should create separate predicates: got '{}'",
             result
         );
@@ -1539,9 +1539,9 @@ mod tests {
     #[test]
     fn relative_clause_basic() {
         let result = compile("All dogs that bark are loud.").unwrap();
-        // Subject should be: Dog(x) ∧ Bark(x) → Loud(x)
+        // Subject should be: Dogs(x) ∧ Bark(x) → Loud(x)
         assert!(
-            result.contains("D(x)") && result.contains("∧") && result.contains("B(x)"),
+            result.contains("Dogs(x)") && result.contains("∧") && result.contains("Bark(x)"),
             "Relative clause should create conjunction: got '{}'",
             result
         );
@@ -1550,9 +1550,9 @@ mod tests {
     #[test]
     fn relative_clause_with_object() {
         let result = compile("All cats that chase mice are hunters.").unwrap();
-        // Subject should be: Cat(x) ∧ Chase(x, M) → Hunter(x)
+        // Subject should be: Cats(x) ∧ Chase(x, Mice) → Hunters(x)
         assert!(
-            result.contains("∧") && (result.contains("(x, M)") || result.contains("(x,M)")),
+            result.contains("∧") && (result.contains("(x, Mice)") || result.contains("(x,Mice)")),
             "Relative clause should include predicate with object: got '{}'",
             result
         );
@@ -1662,10 +1662,9 @@ mod tests {
         // "The cat that the dog chased ran."
         // The cat is the OBJECT of "chased" (gap), not the subject
         let result = compile("The cat that the dog chased ran.").unwrap();
-        // C2 is Chase (C is Cat), D is Dog
-        // Structure: ∃x(Cat(x) ∧ Chase(D, x) ∧ Ran(x))
+        // Structure: ∃x(Cat(x) ∧ Chase(Dog, x) ∧ Ran(x))
         assert!(
-            result.contains("Theme(e, x)") && result.contains("C(x)"),
+            result.contains("Theme(e, x)") && result.contains("Cat(x)"),
             "Object-gap relative: dog chases cat, cat ran: got '{}'",
             result
         );
@@ -1676,10 +1675,9 @@ mod tests {
         // "The man who loves Mary left."
         // "who" = subject of "loves"
         let result = compile("The man who loves Mary left.").unwrap();
-        // L is Love, M is Man, M2 is Mary
         // Structure: ∃x(Man(x) ∧ Love(x, Mary) ∧ Left(x))
         assert!(
-            result.contains("(x, M") && result.contains("M(x)"),
+            result.contains("(x, Mary)") && result.contains("Man(x)"),
             "Who-clause should bind subject: got '{}'",
             result
         );
@@ -1690,9 +1688,12 @@ mod tests {
         // "The man who Mary loves left."
         // "who" = object of "loves"
         let result = compile("The man who Mary loves left.").unwrap();
-        // Structure: ∃x(Man(x) ∧ Love(Mary, x) ∧ Left(x))
+        // Structure: ∃x(Man(x) ∧ Love(e) ∧ Agent(e, M) ∧ Theme(e, x) ∧ Left(x))
+        // Uses neo-event semantics with Agent/Theme roles
         assert!(
-            result.contains("(M") && result.contains(", x)") && result.contains("M(x)"),
+            (result.contains("Agent(e, M") || result.contains("(Mary"))
+                && result.contains("Theme(e, x)")
+                && result.contains("Man(x)"),
             "Who as object: Mary loves the man: got '{}'",
             result
         );
@@ -1729,8 +1730,8 @@ mod tests {
     fn quantifier_most() {
         let result = compile("Most dogs bark.").unwrap();
         assert!(
-            result.contains("MOST") && result.contains("D(x)") && result.contains("B(x)"),
-            "Most should produce MOST x(D(x), B(x)): got '{}'",
+            result.contains("MOST") && result.contains("Dogs(x)") && result.contains("Bark(x)"),
+            "Most should produce MOST x(Dogs(x), Bark(x)): got '{}'",
             result
         );
     }
@@ -1739,8 +1740,8 @@ mod tests {
     fn quantifier_few() {
         let result = compile("Few cats swim.").unwrap();
         assert!(
-            result.contains("FEW") && result.contains("C(x)") && result.contains("S(x)"),
-            "Few should produce FEW x(C(x), S(x)): got '{}'",
+            result.contains("FEW") && result.contains("Cats(x)") && result.contains("Swim(x)"),
+            "Few should produce FEW x(Cats(x), Swim(x)): got '{}'",
             result
         );
     }
@@ -1783,8 +1784,8 @@ mod tests {
     fn wh_question_who_subject() {
         let result = compile("Who loves Mary?").unwrap();
         assert!(
-            result.contains("λx") && result.contains("L(x, M)"),
-            "Who-subject should produce λx.L(x, M): got '{}'",
+            result.contains("λx") && result.contains("Love(x, Mary)"),
+            "Who-subject should produce λx.Love(x, Mary): got '{}'",
             result
         );
     }
@@ -1793,8 +1794,8 @@ mod tests {
     fn wh_question_what_object() {
         let result = compile("What does John love?").unwrap();
         assert!(
-            result.contains("λx") && result.contains("L(J, x)"),
-            "What-object should produce λx.L(J, x): got '{}'",
+            result.contains("λx") && result.contains("Love(John, x)"),
+            "What-object should produce λx.Love(John, x): got '{}'",
             result
         );
     }
@@ -1817,8 +1818,8 @@ mod tests {
     fn passive_with_agent() {
         let result = compile("Mary was loved by John.").unwrap();
         assert!(
-            result.contains("L(J, M)"),
-            "Passive 'Mary was loved by John' should produce L(J, M): got '{}'",
+            result.contains("Love(John, Mary)"),
+            "Passive 'Mary was loved by John' should produce Love(John, Mary): got '{}'",
             result
         );
     }
@@ -1827,8 +1828,8 @@ mod tests {
     fn passive_without_agent() {
         let result = compile("The book was read.").unwrap();
         assert!(
-            result.contains("∃") && result.contains("R("),
-            "Agentless passive should produce ∃x.R(x, B): got '{}'",
+            result.contains("∃") && result.contains("Read("),
+            "Agentless passive should produce ∃x.Read(x, Book): got '{}'",
             result
         );
     }

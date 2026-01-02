@@ -4721,11 +4721,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.advance(); // consume the weather verb
 
                         let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        if suppress_existential {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb,
                             roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential,
                         })));
 
                         return Ok(match verb_time {
@@ -4928,6 +4934,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let var_term = Term::Variable(var_name);
 
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let mut modifiers = vec![];
                 if verb_time == Time::Past {
                     modifiers.push(self.interner.intern("Past"));
@@ -4939,6 +4946,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         (ThematicRole::Agent, var_term),
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -5660,11 +5668,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
 
                     let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     self.negative_depth -= 1;
@@ -5800,11 +5814,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             };
 
                             let event_var = self.get_event_var();
+                            let suppress_existential = self.drs.in_conditional_antecedent();
+                            if suppress_existential {
+                                let event_class = self.interner.intern("Event");
+                                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            }
                             let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var,
                                 verb: template.verb,
                                 roles: self.ctx.roles.alloc_slice(roles),
                                 modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                                suppress_existential,
                             })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -5812,14 +5832,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 body: reconstructed,
                             });
 
+                            let know_event_var = self.get_event_var();
+                            let suppress_existential2 = self.drs.in_conditional_antecedent();
+                            if suppress_existential2 {
+                                let event_class = self.interner.intern("Event");
+                                self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                            }
                             let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                event_var: self.get_event_var(),
+                                event_var: know_event_var,
                                 verb,
                                 roles: self.ctx.roles.alloc_slice(vec![
                                     (ThematicRole::Agent, subject_term),
                                     (ThematicRole::Theme, Term::Proposition(question)),
                                 ]),
                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                suppress_existential: suppress_existential2,
                             })));
 
                             let result = if is_negated {
@@ -5861,12 +5888,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term)];
                 let modifiers: Vec<Symbol> = vec![];
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                if suppress_existential {
+                    let event_class = self.interner.intern("Event");
+                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                }
 
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 if is_negated {
@@ -6153,11 +6186,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         };
 
                         let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        if suppress_existential {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb: template.verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                            suppress_existential,
                         })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -6166,14 +6205,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
 
                         // Build: Know(subject, question)
+                        let know_event_var = self.get_event_var();
+                        let suppress_existential2 = self.drs.in_conditional_antecedent();
+                        if suppress_existential2 {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var: self.get_event_var(),
+                            event_var: know_event_var,
                             verb,
                             roles: self.ctx.roles.alloc_slice(vec![
                                 (ThematicRole::Agent, subject_term),
                                 (ThematicRole::Theme, Term::Proposition(question)),
                             ]),
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential: suppress_existential2,
                         })));
 
                         return self.wrap_with_definiteness_full(&subject, know_event);
@@ -6188,14 +6234,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 });
 
                 // Build: Know(subject, question)
+                let know_event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                if suppress_existential {
+                    let event_class = self.interner.intern("Event");
+                    self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                }
                 let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var: self.get_event_var(),
+                    event_var: know_event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(vec![
                         (ThematicRole::Agent, subject_term),
                         (ThematicRole::Theme, Term::Proposition(question)),
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
 
                 return self.wrap_with_definiteness_full(&subject, know_event);
@@ -6308,11 +6361,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             (ThematicRole::Theme, intension_term),
                         ];
 
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        if suppress_existential {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(modifiers),
+                            suppress_existential,
                         })));
 
                         return self.wrap_with_definiteness_full(&subject, neo_event);
@@ -6359,11 +6418,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     ];
                     self.capture_event_template(verb, &template_roles, &modifiers);
 
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let obj_kind = match obj_q {
@@ -6443,11 +6508,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let pp_obj_term = Term::Constant(pp_obj.noun);
 
                     let roles = vec![(ThematicRole::Agent, subject_term_for_event)];
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -6478,11 +6549,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     (ThematicRole::Theme, focused_term.clone()),
                 ];
 
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                if suppress_existential {
+                    let event_class = self.interner.intern("Event");
+                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                }
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
@@ -6697,11 +6774,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.capture_event_template(verb, &roles, &modifiers);
 
             // Create NeoEvent structure with all modifiers including time/aspect
+            let suppress_existential = self.drs.in_conditional_antecedent();
+            if suppress_existential {
+                let event_class = self.interner.intern("Event");
+                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+            }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
                 verb,
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(modifiers),
+                suppress_existential,
             })));
 
             // Combine with PP predicates if any

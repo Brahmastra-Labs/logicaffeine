@@ -559,8 +559,8 @@ fn different_words_get_different_symbols() {
 #[test]
 fn same_word_gets_same_symbol() {
     let output = compile("All cats are cats.").unwrap();
-    let c_count = output.matches("C(").count();
-    assert!(c_count >= 2);
+    let c_count = output.matches("Cats(").count();
+    assert!(c_count >= 2, "Same word should produce same symbol: got '{}'", output);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -577,8 +577,8 @@ fn passive_with_agent() {
 fn passive_without_agent() {
     let result = compile("The book was read.").unwrap();
     assert!(
-        result.contains("∃") && result.contains("R("),
-        "Agentless passive should produce ∃x.R(x, B): got '{}'",
+        result.contains("∃") && result.contains("Read("),
+        "Agentless passive should produce ∃x.Read(x, B): got '{}'",
         result
     );
 }
@@ -1584,8 +1584,12 @@ fn pragmatics_full_pipeline_complex() {
 #[test]
 fn complex_control_chain_nested() {
     let output = compile("John wants to try to leave.").unwrap();
+    // Control verbs may use abbreviated or full forms
+    let has_want = output.contains("Want(") || output.contains("W(");
+    let has_try = output.contains("Try(") || output.contains("T(");
+    let has_leave = output.contains("Leave(") || output.contains("L(");
     assert!(
-        output.contains("W(") && output.contains("T(") && output.contains("L("),
+        has_want && has_try && has_leave,
         "Nested control chain should contain all verbs: got '{}'",
         output
     );
@@ -1594,8 +1598,12 @@ fn complex_control_chain_nested() {
 #[test]
 fn raising_mixed_with_control() {
     let output = compile("John seems to want to stay.").unwrap();
+    // Control verbs may use abbreviated or full forms
+    let has_seem = output.contains("Seem(") || output.contains("S(");
+    let has_want = output.contains("Want(") || output.contains("W(");
+    let has_stay = output.contains("Stay(") || output.contains("S(");
     assert!(
-        output.contains("Seem") && output.contains("W(") && output.contains("S("),
+        has_seem && has_want && has_stay,
         "Raising + control should contain all verbs: got '{}'",
         output
     );
@@ -1604,8 +1612,13 @@ fn raising_mixed_with_control() {
 #[test]
 fn object_control_with_passive_complement() {
     let output = compile("John persuaded Mary to be examined.").unwrap();
+    // Control verbs may use abbreviated or full forms
+    let has_persuade = output.contains("Persuade(") || output.contains("P(");
+    let has_mary = output.contains("Mary") || output.contains("M");
+    let has_examine = output.contains("Examine(") || output.contains("E(");
+    let has_passive = output.contains("Pass");
     assert!(
-        output.contains("P(") && output.contains("M") && output.contains("E(") && output.contains("Pass"),
+        has_persuade && has_mary && has_examine && has_passive,
         "Object control + passive complement should parse: got '{}'",
         output
     );

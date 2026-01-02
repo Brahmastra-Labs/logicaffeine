@@ -5,7 +5,9 @@ use super::quantifier::QuantifierParsing;
 use super::question::QuestionParsing;
 use super::verb::LogicVerbParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
+use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term, ThematicRole};
+use crate::lexer::Lexer;
+use crate::lexicon::Time;
 use crate::drs::BoxType;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
@@ -199,6 +201,91 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_counterfactual_antecedent(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
         if self.check_content_word() || self.check_pronoun() || self.check_article() {
+            // Weather verb detection: "if it rains" → ∃e(Rain(e))
+            // Must check BEFORE pronoun resolution since "it" would resolve to "?"
+            if self.check_pronoun() {
+                let token = self.peek();
+                let token_text = self.interner.resolve(token.lexeme);
+                if token_text.eq_ignore_ascii_case("it") {
+                    // Look ahead for weather verb
+                    if self.current + 1 < self.tokens.len() {
+                        if let TokenType::Verb { lemma, time, .. } = &self.tokens[self.current + 1].kind {
+                            let lemma_str = self.interner.resolve(*lemma);
+                            if Lexer::is_weather_verb(lemma_str) {
+                                let verb = *lemma;
+                                let verb_time = *time;
+                                self.advance(); // consume "it"
+                                self.advance(); // consume weather verb
+
+                                let event_var = self.get_event_var();
+
+                                // DRT: Register event var for universal quantification in conditionals
+                                let suppress_existential = self.drs.in_conditional_antecedent();
+                                if suppress_existential {
+                                    let event_class = self.interner.intern("Event");
+                                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                                }
+
+                                let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(vec![]),
+                                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                    suppress_existential,
+                                })));
+
+                                // Handle coordinated weather verbs: "rains and thunders" or "rains or thunders"
+                                // SHARE the same event_var for all coordinated verbs
+                                while self.check(&TokenType::And) || self.check(&TokenType::Or) {
+                                    let is_disjunction = self.check(&TokenType::Or);
+                                    self.advance(); // consume "and" or "or"
+
+                                    if let TokenType::Verb { lemma: lemma2, .. } = &self.peek().kind.clone() {
+                                        let lemma2_str = self.interner.resolve(*lemma2);
+                                        if Lexer::is_weather_verb(lemma2_str) {
+                                            let verb2 = *lemma2;
+                                            self.advance(); // consume second weather verb
+
+                                            // REUSE same event_var - no new variable, no DRS registration
+                                            let neo_event2 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                                event_var,  // Same variable as first weather verb
+                                                verb: verb2,
+                                                roles: self.ctx.roles.alloc_slice(vec![]),
+                                                modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                                suppress_existential,
+                                            })));
+
+                                            let op = if is_disjunction { TokenType::Or } else { TokenType::And };
+                                            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                                left: result,
+                                                op,
+                                                right: neo_event2,
+                                            });
+                                        } else {
+                                            break; // Not a weather verb, stop coordination
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                return Ok(match verb_time {
+                                    Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                        operator: TemporalOperator::Past,
+                                        body: result,
+                                    }),
+                                    Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                        operator: TemporalOperator::Future,
+                                        body: result,
+                                    }),
+                                    _ => result,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
             // Track if subject is an indefinite that needs DRS registration
             let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
@@ -363,6 +450,99 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_counterfactual_consequent(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
         if self.check_content_word() || self.check_pronoun() {
+            // Check for grammatically incorrect "its" + weather adjective
+            // "its" is possessive, "it's" is contraction - common typo
+            if self.check_pronoun() {
+                let token = self.peek();
+                let token_text = self.interner.resolve(token.lexeme).to_lowercase();
+                if token_text == "its" {
+                    // Check if followed by weather adjective
+                    if self.current + 1 < self.tokens.len() {
+                        let next_token = &self.tokens[self.current + 1];
+                        let next_str = self.interner.resolve(next_token.lexeme).to_lowercase();
+                        if let Some(meta) = crate::lexicon::lookup_adjective_db(&next_str) {
+                            if meta.features.contains(&crate::lexicon::Feature::Weather) {
+                                return Err(ParseError {
+                                    kind: ParseErrorKind::GrammarError(
+                                        "Did you mean 'it's' (it is)? 'its' is a possessive pronoun.".to_string()
+                                    ),
+                                    span: self.current_span(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check for expletive "it" + copula + weather adjective: "it's wet" → Wet
+            if self.check_pronoun() {
+                let token_text = self.interner.resolve(self.peek().lexeme).to_lowercase();
+                if token_text == "it" {
+                    // Look ahead for copula + weather adjective
+                    // Handle both "it is wet" and "it's wet" (where 's is Possessive token)
+                    if self.current + 2 < self.tokens.len() {
+                        let next = &self.tokens[self.current + 1].kind;
+                        if matches!(next, TokenType::Is | TokenType::Was | TokenType::Possessive) {
+                            // Check if followed by weather adjective
+                            let adj_token = &self.tokens[self.current + 2];
+                            let adj_sym = adj_token.lexeme;
+                            let adj_str = self.interner.resolve(adj_sym).to_lowercase();
+                            if let Some(meta) = crate::lexicon::lookup_adjective_db(&adj_str) {
+                                if meta.features.contains(&crate::lexicon::Feature::Weather) {
+                                    self.advance(); // consume "it"
+                                    self.advance(); // consume copula
+                                    self.advance(); // consume adjective token
+
+                                    // Use the canonical lemma from lexicon (e.g., "Wet" not "wet")
+                                    let adj_lemma = self.interner.intern(meta.lemma);
+
+                                    // Get event variable from DRS (introduced in antecedent)
+                                    let event_var = self.drs.get_last_event_referent(self.interner)
+                                        .unwrap_or_else(|| self.interner.intern("e"));
+
+                                    // First weather adjective predicate
+                                    let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                        name: adj_lemma,
+                                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                    });
+
+                                    // Handle coordinated adjectives: "wet and cold"
+                                    while self.check(&TokenType::And) {
+                                        self.advance(); // consume "and"
+                                        if self.check_content_word() {
+                                            let adj2_lexeme = self.peek().lexeme;
+                                            let adj2_str = self.interner.resolve(adj2_lexeme).to_lowercase();
+
+                                            // Check if it's also a weather adjective
+                                            if let Some(meta2) = crate::lexicon::lookup_adjective_db(&adj2_str) {
+                                                if meta2.features.contains(&crate::lexicon::Feature::Weather) {
+                                                    self.advance(); // consume adjective token
+                                                    // Use the canonical lemma from lexicon (e.g., "Cold" not "cold")
+                                                    let adj2_lemma = self.interner.intern(meta2.lemma);
+                                                    let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                                        name: adj2_lemma,
+                                                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                                    });
+                                                    result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                                        left: result,
+                                                        op: TokenType::And,
+                                                        right: pred2,
+                                                    });
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    }
+
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let subject = if self.check_pronoun() {
                 let token = self.advance().clone();
                 if let TokenType::Pronoun { gender, number, .. } = token.kind {
@@ -420,6 +600,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         let subject_term = self.noun_phrase_to_term(&subject);
         let event_var = self.get_event_var();
+        let suppress_existential = self.drs.in_conditional_antecedent();
 
         // Check if next token is temporal adverb (gapping with adjunct only)
         if self.check_temporal_adverb() {
@@ -436,6 +617,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     (ThematicRole::Agent, subject_term),
                 ]),
                 modifiers: self.ctx.syms.alloc_slice(vec![adv_sym]),
+                suppress_existential,
             }))));
         }
 
@@ -456,6 +638,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 verb: borrowed_verb,
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(vec![]),
+                suppress_existential,
             }))))
     }
 
@@ -633,11 +816,13 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 }
 
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let this_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
 
                 if let Some((nested_var, nested_clause)) = nested_relative {
@@ -755,6 +940,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // Reconstruct from template
         let template = self.last_event_template.clone().unwrap();
         let event_var = self.get_event_var();
+        let suppress_existential = self.drs.in_conditional_antecedent();
 
         // Build roles with new subject as Agent
         let mut roles: Vec<(ThematicRole, Term<'a>)> = vec![
@@ -767,6 +953,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             verb: template.verb,
             roles: self.ctx.roles.alloc_slice(roles),
             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+            suppress_existential,
         })));
 
         // Apply modal if auxiliary is modal

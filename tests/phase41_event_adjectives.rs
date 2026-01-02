@@ -11,8 +11,8 @@ use logos::compile_forest;
 #[test]
 fn beautiful_dancer_two_readings() {
     // "Olga is a beautiful dancer" should produce two readings:
-    // Reading 1 (Intersective): B(O) ∧ D(O)  (Beautiful(Olga) ∧ Dancer(Olga))
-    // Reading 2 (Event): ∃e((D(e) ∧ A(e, O)) ∧ B(e))  (Dance(e) ∧ Agent(e, Olga) ∧ Beautiful(e))
+    // Reading 1 (Intersective): Beautiful(Olga) ∧ Dancer(Olga)
+    // Reading 2 (Event): ∃e((Dance(e) ∧ Agent(e, Olga)) ∧ Beautiful(e))
     let results = compile_forest("Olga is a beautiful dancer.");
 
     eprintln!("DEBUG beautiful_dancer readings: {:?}", results);
@@ -21,14 +21,14 @@ fn beautiful_dancer_two_readings() {
         "Expected at least 2 readings for 'beautiful dancer', got {}: {:?}",
         results.len(), results);
 
-    // Check that one reading has intersective B(O) ∧ D(O)
+    // Check that one reading has intersective Beautiful(Olga) ∧ Dancer(Olga)
     let has_intersective = results.iter().any(|r|
-        r.contains("B(O)") && r.contains("D(O)"));
+        r.contains("Beautiful(Olga)") && r.contains("Dancer(Olga)"));
     assert!(has_intersective, "Missing intersective reading: {:?}", results);
 
-    // Check that one reading has event-modifying D(e) and B(e)
+    // Check that one reading has event-modifying Dance(e) and Beautiful(e)
     let has_event_mod = results.iter().any(|r|
-        r.contains("D(e)") && r.contains("B(e)") && r.contains("∃e"));
+        r.contains("Dance(e)") && r.contains("Beautiful(e)") && r.contains("∃e"));
     assert!(has_event_mod, "Missing event-modifying reading: {:?}", results);
 }
 
@@ -108,13 +108,13 @@ fn regular_adjective_noun_single_reading() {
 #[test]
 fn event_reading_structure() {
     // Verify the event reading has correct structure:
-    // ∃e((D(e) ∧ A(e, O)) ∧ B(e))  (Dance(e) ∧ Agent(e, Olga) ∧ Beautiful(e))
+    // ∃e((Dance(e) ∧ Agent(e, Olga)) ∧ Beautiful(e))
     let results = compile_forest("Olga is a beautiful dancer.");
 
     // Find the event reading (contains existential and event variable)
-    let event_reading = results.iter().find(|r| r.contains("∃e") && r.contains("D(e)"));
-    assert!(event_reading.is_some(), "Should have event reading with D(e): {:?}", results);
+    let event_reading = results.iter().find(|r| r.contains("∃e") && r.contains("Dance(e)"));
+    assert!(event_reading.is_some(), "Should have event reading with Dance(e): {:?}", results);
 
     let reading = event_reading.unwrap();
-    assert!(reading.contains("A(e"), "Event reading should have Agent role A(e, O): {}", reading);
+    assert!(reading.contains("Agent(e"), "Event reading should have Agent role: {}", reading);
 }

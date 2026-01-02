@@ -46,8 +46,7 @@ fn test_mwe_pipeline_token_merging() {
 #[test]
 fn test_fire_engine_compound() {
     let output = compile("The fire engine arrived.").unwrap();
-    // F is the symbol registry's shortening of FireEngine
-    assert!(output.contains("F("), "Should contain FireEngine predicate");
+    assert!(output.contains("FireEngine("), "Should contain FireEngine predicate");
     assert!(output.contains("Arriv"), "Should contain Arrive verb");
 }
 
@@ -64,8 +63,7 @@ fn test_ice_cream_compound() {
 fn test_compound_with_definite_article() {
     // Test with definite article (indefinite "A" has lexer capitalization bug)
     let output = compile("The fire engine arrived.").unwrap();
-    // F is FireEngine shortened by registry
-    assert!(output.contains("F("), "Should contain FireEngine predicate");
+    assert!(output.contains("FireEngine("), "Should contain FireEngine predicate");
     assert!(output.contains("Arriv"), "Should contain Arrive verb");
 }
 
@@ -98,8 +96,7 @@ fn test_give_up_phrasal_verb() {
 #[test]
 fn test_united_states_proper() {
     let output = compile("The United States is large.").unwrap();
-    // U is UnitedStates shortened by registry
-    assert!(output.contains("U(") || output.contains("L("), "Should contain predicate");
+    assert!(output.contains("UnitedStates") || output.contains("Large("), "Should contain predicate");
 }
 
 // ===== INDEFINITE ARTICLE FIX =====
@@ -108,7 +105,7 @@ fn test_united_states_proper() {
 fn test_indefinite_article_at_start() {
     // Regression test: "A" at sentence start should be Article, not ProperName
     let output = compile("A dog ran.").unwrap();
-    assert!(output.contains("D("), "Should contain Dog predicate: got {}", output);
+    assert!(output.contains("Dogs(") || output.contains("Dog("), "Should contain Dog predicate: got {}", output);
     assert!(output.contains("Run"), "Should contain Run verb: got {}", output);
 }
 
@@ -116,7 +113,7 @@ fn test_indefinite_article_at_start() {
 fn test_indefinite_article_with_unknown_word() {
     // "fire" isn't in common nouns list, but "A fire" should still parse correctly
     let output = compile("A fire burned.").unwrap();
-    assert!(output.contains("F("), "Should contain Fire predicate: got {}", output);
+    assert!(output.contains("Fire("), "Should contain Fire predicate: got {}", output);
     assert!(output.contains("Burn"), "Should contain Burn verb: got {}", output);
 }
 
@@ -124,7 +121,7 @@ fn test_indefinite_article_with_unknown_word() {
 fn test_indefinite_article_with_mwe() {
     // "A fire engine arrived" - MWE with indefinite article
     let output = compile("A fire engine arrived.").unwrap();
-    assert!(output.contains("F("), "Should contain FireEngine predicate: got {}", output);
+    assert!(output.contains("FireEngine("), "Should contain FireEngine predicate: got {}", output);
     assert!(output.contains("Arriv"), "Should contain Arrive verb: got {}", output);
 }
 
@@ -143,7 +140,7 @@ fn test_stopped_intransitive() {
 fn test_stopped_with_definite_noun_subject() {
     let output = compile("The car stopped.").unwrap();
     assert!(output.contains("Stop"), "Should contain Stop verb: got {}", output);
-    assert!(output.contains("C("), "Should contain Car predicate: got {}", output);
+    assert!(output.contains("Car("), "Should contain Car predicate: got {}", output);
 }
 
 #[test]
@@ -158,14 +155,12 @@ fn test_stopped_with_gerund_still_presupposition() {
 #[test]
 fn test_fire_alone_not_merged() {
     let output = compile("The fire burned.").unwrap();
-    // F represents "fire" here (not merged with anything)
-    assert!(output.contains("F("), "Should contain Fire predicate");
+    assert!(output.contains("Fire("), "Should contain Fire predicate");
     assert!(output.contains("Burn"), "Should contain Burn verb");
 }
 
 #[test]
 fn test_engine_alone_not_merged() {
     let output = compile("The engine ran.").unwrap();
-    // E represents "engine"
-    assert!(output.contains("E("), "Should contain Engine predicate");
+    assert!(output.contains("Engine("), "Should contain Engine predicate");
 }

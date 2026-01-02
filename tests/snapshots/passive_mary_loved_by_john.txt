@@ -1,1 +1,1 @@
-P(L(J, M))
+P(Love(John, Mary))

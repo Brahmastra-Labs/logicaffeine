@@ -883,6 +883,7 @@ fn replace_theme_with_intension<'a>(
                 verb: data.verb,
                 roles: role_arena.alloc_slice(new_roles),
                 modifiers: data.modifiers,
+                suppress_existential: false,
             })))
         }
         LogicExpr::Predicate { name, args } => {
@@ -963,6 +964,7 @@ fn build_de_re_from_de_dicto<'a>(
                             verb: data.verb,
                             roles: role_arena.alloc_slice(new_roles),
                             modifiers: data.modifiers,
+                            suppress_existential: false,
                         })));
 
                         // Build: ∃x(Noun(x) ∧ Event)

@@ -404,7 +404,13 @@ impl<'a> LogicExpr<'a> {
                         write_capitalized(&mut body, interner.resolve(*mod_sym))?;
                         write!(body, "({})", e)?;
                     }
-                    write!(w, "{}", fmt.quantifier(&QuantifierKind::Existential, e, &body))
+                    if data.suppress_existential {
+                        // Event var will be bound by outer ∀ from DRS (generic conditionals)
+                        write!(w, "{}", body)
+                    } else {
+                        // Normal case: emit ∃e(...)
+                        write!(w, "{}", fmt.quantifier(&QuantifierKind::Existential, e, &body))
+                    }
                 }
             }
 

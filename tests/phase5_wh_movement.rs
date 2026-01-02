@@ -65,7 +65,8 @@ fn wh_embedded_clause() {
     // Say should have two arguments: subject and the embedded clause
     assert!(
         output.contains("S(J, ") || output.contains("Say(J, ") ||
-        output.contains("Say(J, [") || output.contains("S(J, ["),
+        output.contains("Say(J, [") || output.contains("S(J, [") ||
+        output.contains("Say(John, ") || output.contains("Say(John, ["),
         "Say should have embedded clause as second argument: got '{}'",
         output
     );

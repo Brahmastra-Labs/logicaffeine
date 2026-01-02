@@ -30,7 +30,7 @@ fn unique_topic() -> String {
 /// until the mesh forms and peers are available.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_rapid_publish_before_mesh() {
+fn e2e_test_rapid_publish_before_mesh() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -114,7 +114,7 @@ If state's clicks equals 15:
 /// Test multiple topics - nodes on different topics should be isolated.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_multiple_topics_isolation() {
+fn e2e_test_multiple_topics_isolation() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -198,7 +198,7 @@ If state's clicks equals 200:
 /// Test same topic with three nodes to verify broadcast.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_three_node_same_topic() {
+fn e2e_test_three_node_same_topic() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -313,7 +313,7 @@ If state's clicks equals 42:
 /// that a late-starting node can still sync properly.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_late_rejoin_sync() {
+fn e2e_test_late_rejoin_sync() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;

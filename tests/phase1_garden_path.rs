@@ -6,9 +6,9 @@ fn garden_path_reduced_relative() {
     // Standard parse fails: "The horse raced past the barn" is complete, but "fell" remains
     // Correct parse: "The horse [that was] raced past the barn" + "fell"
     let output = compile("The horse raced past the barn fell.").unwrap();
-    // Should contain both Race and Fall predicates
-    assert!(output.contains("Race") || output.contains("R(") || output.contains("Raced"));
-    assert!(output.contains("Fall") || output.contains("F(") || output.contains("Fell"));
+    // Should contain both Race and Fall predicates (may use abbreviated forms like Rac)
+    assert!(output.contains("Race(") || output.contains("Rac("), "Should contain Race: got {}", output);
+    assert!(output.contains("Fall("), "Should contain Fall: got {}", output);
 }
 
 #[test]

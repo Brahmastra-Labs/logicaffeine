@@ -253,6 +253,7 @@ fn expand_neo_event<'a>(
             verb: data.verb,
             roles: data.roles,
             modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
         })));
 
         // Create entailed verb NeoEvent (e.g., Kill)
@@ -261,6 +262,7 @@ fn expand_neo_event<'a>(
             verb: base_verb_sym,
             roles: data.roles,
             modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
         })));
 
         // Conjoin original with entailed
@@ -301,6 +303,7 @@ fn expand_neo_event<'a>(
             verb: data.verb,
             roles: data.roles,
             modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
         })))
     }
 }

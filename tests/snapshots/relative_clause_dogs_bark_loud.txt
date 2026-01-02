@@ -1,1 +1,1 @@
-∀x(((D(x) ∧ B(x)) → L(x)))
+∀x(((Dogs(x) ∧ Bark(x)) → Loud(x)))

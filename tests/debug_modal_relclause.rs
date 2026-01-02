@@ -5,10 +5,10 @@ fn quantified_subject_with_relative_clause_and_verb() {
     let output = compile("Every user who has a key enters the room.");
     assert!(output.is_ok(), "Should parse quantified subject with relative clause followed by verb");
     let result = output.unwrap();
-    assert!(result.contains("U(x)"), "Should have User predicate");
-    assert!(result.contains("K("), "Should have Key predicate");
-    assert!(result.contains("H("), "Should have Has predicate");
-    assert!(result.contains("E("), "Should have Enter predicate");
+    assert!(result.contains("User(x)"), "Should have User predicate");
+    assert!(result.contains("Key("), "Should have Key predicate");
+    assert!(result.contains("Have("), "Should have Have predicate");
+    assert!(result.contains("Enter("), "Should have Enter predicate");
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn negative_quantifier_with_relative_clause_and_modal() {
     assert!(output.is_ok(), "Should parse negative quantifier with relative clause and modal");
     let result = output.unwrap();
     assert!(!result.contains("?"), "Should not contain unknown marker");
-    assert!(result.contains("L("), "Should have Lack predicate");
+    assert!(result.contains("Lack("), "Should have Lack predicate");
 }
 
 #[test]

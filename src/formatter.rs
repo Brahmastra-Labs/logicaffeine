@@ -255,6 +255,9 @@ impl LogicFormatter for UnicodeFormatter {
     fn categorical_no(&self) -> &'static str { "∀¬" }
     fn categorical_some(&self) -> &'static str { "∃" }
     fn categorical_not(&self) -> &'static str { "¬" }
+
+    // Use full predicate names (e.g., "Wet" not "W")
+    fn use_full_names(&self) -> bool { true }
 }
 
 pub struct LatexFormatter;

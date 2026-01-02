@@ -30,7 +30,7 @@ fn unique_topic() -> String {
 /// never a partial state that only contains one operation.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_causal_order_preserved() {
+fn e2e_test_causal_order_preserved() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -109,7 +109,7 @@ If state's clicks equals 30:
 /// both should see each other's values eventually.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_concurrent_detection_across_nodes() {
+fn e2e_test_concurrent_detection_across_nodes() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -193,7 +193,7 @@ If state's clicks equals 350:
 /// A writes, B sees A then writes more, C should see both.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_happens_before_chain() {
+fn e2e_test_happens_before_chain() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;

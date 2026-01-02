@@ -127,6 +127,8 @@ pub enum ParseErrorKind {
     },
     // Phase 43C: Refinement types
     InvalidRefinementPredicate,
+    // Phase 42: Grammar errors (e.g., "its" vs "it's")
+    GrammarError(String),
     // Phase 8.5: Escape analysis errors
     Custom(String),
 }
@@ -327,6 +329,13 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 "At position {}, the refinement predicate is not valid. \
                 A refinement predicate must be a comparison like 'x > 0' or 'n < 100'.",
                 pos
+            )
+        }
+        // Phase 42: Grammar errors
+        ParseErrorKind::GrammarError(msg) => {
+            format!(
+                "At position {}, grammar issue: {}",
+                pos, msg
             )
         }
         // Phase 8.5: Escape analysis - the message is already Socratic

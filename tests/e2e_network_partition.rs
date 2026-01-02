@@ -32,7 +32,7 @@ fn unique_topic() -> String {
 /// 4. After delay, both should converge to 30
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_partition_and_heal() {
+fn e2e_test_partition_and_heal() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -121,7 +121,7 @@ If state's clicks equals 30:
 /// Test that heavy concurrent mutations during partition still converge.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_concurrent_mutations_during_partition() {
+fn e2e_test_concurrent_mutations_during_partition() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -212,7 +212,7 @@ If state's clicks equals 75:
 /// Test that a late joiner gets the full merged state.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_late_joiner_after_mutations() {
+fn e2e_test_late_joiner_after_mutations() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -289,7 +289,7 @@ If state's clicks equals 100:
 /// Test repeated mutation cycles from both nodes.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn test_repeated_mutation_cycles() {
+fn e2e_test_repeated_mutation_cycles() {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::Duration;

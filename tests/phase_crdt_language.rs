@@ -22,7 +22,7 @@ fn tokenize(source: &str) -> Vec<TokenType> {
 // ===== WAVE 5.1: TOKEN TESTS =====
 
 #[test]
-fn test_tokenize_decrease() {
+fn e2e_test_tokenize_decrease() {
     let source = "## Main\nDecrease x's count by 5.";
     let tokens = tokenize(source);
     assert!(
@@ -33,7 +33,7 @@ fn test_tokenize_decrease() {
 }
 
 #[test]
-fn test_tokenize_tally() {
+fn e2e_test_tokenize_tally() {
     let source = "## Definition\nA Game is Shared and has:\n    a score, which is a Tally.";
     let tokens = tokenize(source);
     assert!(
@@ -44,7 +44,7 @@ fn test_tokenize_tally() {
 }
 
 #[test]
-fn test_tokenize_shared_set() {
+fn e2e_test_tokenize_shared_set() {
     let source = "## Definition\nA Party is Shared and has:\n    a guests, which is a SharedSet of Text.";
     let tokens = tokenize(source);
     assert!(
@@ -55,7 +55,7 @@ fn test_tokenize_shared_set() {
 }
 
 #[test]
-fn test_tokenize_shared_sequence() {
+fn e2e_test_tokenize_shared_sequence() {
     let source = "## Definition\nA Doc is Shared and has:\n    a lines, which is a SharedSequence of Text.";
     let tokens = tokenize(source);
     assert!(
@@ -66,7 +66,7 @@ fn test_tokenize_shared_sequence() {
 }
 
 #[test]
-fn test_tokenize_divergent() {
+fn e2e_test_tokenize_divergent() {
     let source = "## Definition\nA Page is Shared and has:\n    a title, which is a Divergent Text.";
     let tokens = tokenize(source);
     assert!(
@@ -77,7 +77,7 @@ fn test_tokenize_divergent() {
 }
 
 #[test]
-fn test_tokenize_append() {
+fn e2e_test_tokenize_append() {
     let source = "## Main\nAppend \"hello\" to doc's lines.";
     let tokens = tokenize(source);
     assert!(
@@ -88,7 +88,7 @@ fn test_tokenize_append() {
 }
 
 #[test]
-fn test_tokenize_resolve() {
+fn e2e_test_tokenize_resolve() {
     let source = "## Main\nResolve page's title to \"Final\".";
     let tokens = tokenize(source);
     assert!(
@@ -101,7 +101,7 @@ fn test_tokenize_resolve() {
 // ===== WAVE 5.2: CODEGEN TYPE TESTS =====
 
 #[test]
-fn test_codegen_tally_type() {
+fn e2e_test_codegen_tally_type() {
     let source = r#"
 ## Definition
 A Game is Shared and has:
@@ -121,7 +121,7 @@ Show "done".
 }
 
 #[test]
-fn test_codegen_shared_set_type() {
+fn e2e_test_codegen_shared_set_type() {
     let source = r#"
 ## Definition
 A Party is Shared and has:
@@ -141,7 +141,7 @@ Show "done".
 }
 
 #[test]
-fn test_codegen_shared_sequence_type() {
+fn e2e_test_codegen_shared_sequence_type() {
     let source = r#"
 ## Definition
 A Document is Shared and has:
@@ -161,7 +161,7 @@ Show "done".
 }
 
 #[test]
-fn test_codegen_divergent_type() {
+fn e2e_test_codegen_divergent_type() {
     let source = r#"
 ## Definition
 A WikiPage is Shared and has:
@@ -183,7 +183,7 @@ Show "done".
 // ===== WAVE 5.3: STATEMENT CODEGEN TESTS =====
 
 #[test]
-fn test_codegen_decrease_statement() {
+fn e2e_test_codegen_decrease_statement() {
     let source = r#"
 ## Definition
 A Game is Shared and has:
@@ -205,7 +205,7 @@ Show "done".
 }
 
 #[test]
-fn test_codegen_append_statement() {
+fn e2e_test_codegen_append_statement() {
     let source = r#"
 ## Definition
 A Document is Shared and has:
@@ -226,7 +226,7 @@ Show "done".
 }
 
 #[test]
-fn test_codegen_add_to_set_statement() {
+fn e2e_test_codegen_add_to_set_statement() {
     let source = r#"
 ## Definition
 A Party is Shared and has:
@@ -247,7 +247,7 @@ Show "done".
 }
 
 #[test]
-fn test_codegen_resolve_statement() {
+fn e2e_test_codegen_resolve_statement() {
     let source = r#"
 ## Definition
 A WikiPage is Shared and has:
@@ -279,7 +279,7 @@ fn run_logos_e2e(source: &str) -> Result<String, String> {
 }
 
 #[test]
-fn test_tally_e2e() {
+fn e2e_test_tally_e2e() {
     let source = r#"
 ## Definition
 A Game is Shared and has:
@@ -303,7 +303,7 @@ Show g's score.
 }
 
 #[test]
-fn test_shared_set_contains_e2e() {
+fn e2e_test_shared_set_contains_e2e() {
     let source = r#"
 ## Definition
 A Party is Shared and has:
@@ -329,7 +329,7 @@ Otherwise:
 }
 
 #[test]
-fn test_shared_sequence_append_e2e() {
+fn e2e_test_shared_sequence_append_e2e() {
     let source = r#"
 ## Definition
 A Document is Shared and has:
@@ -353,7 +353,7 @@ Show length of d's lines.
 }
 
 #[test]
-fn test_divergent_values_e2e() {
+fn e2e_test_divergent_values_e2e() {
     // Test basic Divergent (MVRegister) usage - set and show
     let source = r#"
 ## Definition

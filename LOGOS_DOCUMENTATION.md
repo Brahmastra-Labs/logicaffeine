@@ -2232,15 +2232,15 @@ Tests for lexer improvements and edge cases.
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2441 lines
-Parser (ast/, parser/):               14058 lines
-Transpilation:                        1341 lines
-Code Generation:                      2804 lines
-Semantics (lambda, context, view):    2880 lines
-Type Analysis (analysis/):            2677 lines
-Support Infrastructure:               4323 lines
-Desktop UI:                              17598 lines
-CRDT (logos_core/src/crdt/):          1853 lines
+Lexer (token.rs, lexer.rs):           2451 lines
+Parser (ast/, parser/):               14566 lines
+Transpilation:                        1347 lines
+Code Generation:                      2904 lines
+Semantics (lambda, context, view):    2882 lines
+Type Analysis (analysis/):            2834 lines
+Support Infrastructure:               4334 lines
+Desktop UI:                              17920 lines
+CRDT (logos_core/src/crdt/):          1854 lines
 Network (logos_core/src/network/):    1596 lines
 VFS (logos_core/src/fs/):             511 lines
 Entry Point:                                16 lines
@@ -2248,15 +2248,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        57497
-Test lines:          25486
-Total Rust lines: 82983
+Source lines:        58630
+Test lines:          26455
+Total Rust lines: 85085
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   139
+Test files:   142
 ```
 ## Lexicon Data
 
@@ -2281,6 +2281,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     "no": "No",
     "some": "Some",
     "any": "Any",
+    "both": "Both",
     "most": "Most",
     "few": "Few",
     "many": "Many",
@@ -2355,6 +2356,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "word": "her", "gender": "Female", "number": "Singular", "case": "Object" },
     { "word": "her", "gender": "Female", "number": "Singular", "case": "Possessive" },
     { "word": "his", "gender": "Male", "number": "Singular", "case": "Possessive" },
+    { "word": "its", "gender": "Neuter", "number": "Singular", "case": "Possessive" },
     { "word": "my", "gender": "Unknown", "number": "Singular", "case": "Possessive" },
     { "word": "their", "gender": "Unknown", "number": "Plural", "case": "Possessive" },
     { "word": "them", "gender": "Unknown", "number": "Plural", "case": "Object" }
@@ -2465,6 +2467,11 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Stop", "class": "Achievement", "forms": { "past": "stopped", "gerund": "stopping" } },
     { "lemma": "Smoke", "class": "Activity", "forms": { "past": "smoked", "gerund": "smoking" } },
     { "lemma": "Open", "class": "Achievement", "forms": { "past": "opened", "gerund": "opening" } },
+    { "lemma": "Rain", "class": "Activity", "regular": true, "features": ["Weather"] },
+    { "lemma": "Snow", "class": "Activity", "regular": true, "features": ["Weather"] },
+    { "lemma": "Hail", "class": "Semelfactive", "regular": true, "features": ["Weather"] },
+    { "lemma": "Thunder", "class": "Activity", "regular": true, "features": ["Weather"] },
+    { "lemma": "Pour", "class": "Activity", "regular": true, "features": ["Weather"] },
     { "lemma": "Gather", "class": "Activity", "regular": true, "features": ["Collective"] },
     { "lemma": "Assemble", "class": "Accomplishment", "regular": true, "features": ["Collective"] },
     { "lemma": "Convene", "class": "Activity", "regular": true, "features": ["Collective"] },
@@ -2810,18 +2817,23 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Deep", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Thick", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Thin", "regular": true, "features": ["Intersective", "Gradable"] },
-    { "lemma": "Hot", "regular": true, "features": ["Intersective", "Gradable"] },
-    { "lemma": "Cold", "regular": true, "features": ["Intersective", "Gradable"] },
-    { "lemma": "Warm", "regular": true, "features": ["Intersective", "Gradable"] },
-    { "lemma": "Cool", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Hot", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
+    { "lemma": "Cold", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
+    { "lemma": "Warm", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
+    { "lemma": "Cool", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
     { "lemma": "Hard", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Soft", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Dark", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Light", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Clean", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Dirty", "regular": true, "features": ["Intersective", "Gradable"] },
-    { "lemma": "Dry", "regular": true, "features": ["Intersective", "Gradable"] },
-    { "lemma": "Wet", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Dry", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
+    { "lemma": "Wet", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
+    { "lemma": "Sunny", "regular": true, "features": ["Intersective", "Weather"] },
+    { "lemma": "Cloudy", "regular": true, "features": ["Intersective", "Weather"] },
+    { "lemma": "Foggy", "regular": true, "features": ["Intersective", "Weather"] },
+    { "lemma": "Humid", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
+    { "lemma": "Windy", "regular": true, "features": ["Intersective", "Gradable", "Weather"] },
     { "lemma": "New", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Bright", "regular": true, "features": ["Intersective", "Gradable"] },
     { "lemma": "Sweet", "regular": true, "features": ["Intersective", "Gradable"] },
@@ -3141,6 +3153,7 @@ pub enum TokenType {
     No,
     Some,
     Any,
+    Both, // Correlative conjunction marker: "both X and Y"
     Most,
     Few,
     Many,
@@ -3256,6 +3269,7 @@ pub enum TokenType {
     Tally,          // "which is a Tally" -> PNCounter type
     SharedSet,      // "which is a SharedSet of T" -> ORSet type
     SharedSequence, // "which is a SharedSequence of T" -> RGA type
+    CollaborativeSequence, // "which is a CollaborativeSequence of T" -> YATA type
     SharedMap,      // "which is a SharedMap from K to V" -> ORMap type
     Divergent,      // "which is a Divergent T" -> MVRegister type
     Append,         // "Append x to seq" -> RGA append
@@ -5008,6 +5022,7 @@ impl<'a> Lexer<'a> {
             "tally" => return TokenType::Tally,
             "sharedset" => return TokenType::SharedSet,
             "sharedsequence" => return TokenType::SharedSequence,
+            "collaborativesequence" => return TokenType::CollaborativeSequence,
             "sharedmap" => return TokenType::SharedMap,
             "divergent" => return TokenType::Divergent,
             "removewins" => return TokenType::RemoveWins,
@@ -5238,6 +5253,13 @@ impl<'a> Lexer<'a> {
 
     pub fn is_object_control_verb(lemma: &str) -> bool {
         lexicon::is_object_control_verb(&lemma.to_lowercase())
+    }
+
+    pub fn is_weather_verb(lemma: &str) -> bool {
+        matches!(
+            lemma.to_lowercase().as_str(),
+            "rain" | "snow" | "hail" | "thunder" | "pour"
+        )
     }
 
     fn try_parse_superlative(&self, word: &str) -> Option<String> {
@@ -5730,6 +5752,8 @@ pub struct NeoEventData<'a> {
     pub verb: Symbol,
     pub roles: &'a [(ThematicRole, Term<'a>)],
     pub modifiers: &'a [Symbol],
+    /// When true, suppress local ∃e quantification (DRT: event var will be bound by outer ∀)
+    pub suppress_existential: bool,
 }
 
 impl<'a> NounPhrase<'a> {
@@ -6941,6 +6965,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Tally => Ok(self.interner.intern("Tally")),
             TokenType::SharedSet => Ok(self.interner.intern("SharedSet")),
             TokenType::SharedSequence => Ok(self.interner.intern("SharedSequence")),
+            TokenType::CollaborativeSequence => Ok(self.interner.intern("CollaborativeSequence")),
             TokenType::SharedMap => Ok(self.interner.intern("SharedMap")),
             TokenType::Divergent => Ok(self.interner.intern("Divergent")),
             other => Err(ParseError {
@@ -6965,7 +6990,49 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
-        let base = self.consume_type_name()?;
+        let mut base = self.consume_type_name()?;
+
+        // Phase 49c: Check for bias modifier on SharedSet: "SharedSet (RemoveWins) of T"
+        let base_name = self.interner.resolve(base);
+        if base_name == "SharedSet" || base_name == "ORSet" {
+            if self.check(&TokenType::LParen) {
+                self.advance(); // consume "("
+                if self.check(&TokenType::RemoveWins) {
+                    self.advance(); // consume "RemoveWins"
+                    base = self.interner.intern("SharedSet_RemoveWins");
+                } else if self.check(&TokenType::AddWins) {
+                    self.advance(); // consume "AddWins"
+                    // AddWins is default, but we can be explicit
+                    base = self.interner.intern("SharedSet_AddWins");
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+            }
+        }
+
+        // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+        let base_name = self.interner.resolve(base);
+        if base_name == "SharedSequence" || base_name == "RGA" {
+            if self.check(&TokenType::LParen) {
+                self.advance(); // consume "("
+                if self.check(&TokenType::YATA) {
+                    self.advance(); // consume "YATA"
+                    base = self.interner.intern("SharedSequence_YATA");
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+            }
+        }
 
         // Phase 36: Check for "from Module" qualification
         let base_type = if self.check(&TokenType::From) {
@@ -6990,8 +7057,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
                     // Phase 49b: CRDT generic types
-                    "SharedSet" | "ORSet" => Some(1),      // SharedSet of T
-                    "SharedSequence" | "RGA" => Some(1),   // SharedSequence of T
+                    "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" => Some(1),
+                    "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => Some(1),
                     "SharedMap" | "ORMap" => Some(2),      // SharedMap from K to V
                     "Divergent" | "MVRegister" => Some(1), // Divergent T
                     _ => None,
@@ -11180,6 +11247,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Overloaded tokens that are valid identifiers in code context
             TokenType::Pronoun { .. } |  // "i", "it"
             TokenType::Items |           // "items"
+            TokenType::Values |          // "values"
             TokenType::Item |            // "item"
             TokenType::Nothing |         // "nothing"
             // Phase 38: Adverbs can be function names (now, sleep, etc.)
@@ -11326,6 +11394,45 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let token_text = self.interner.resolve(token.lexeme);
 
+            // Weather verb + expletive "it" detection: "it rains" → ∃e(Rain(e))
+            // Must check BEFORE pronoun resolution since "it" resolves to "?"
+            if token_text.eq_ignore_ascii_case("it") && self.check_verb() {
+                if let TokenType::Verb { lemma, time, .. } = &self.peek().kind {
+                    let lemma_str = self.interner.resolve(*lemma);
+                    if Lexer::is_weather_verb(lemma_str) {
+                        let verb = *lemma;
+                        let verb_time = *time;
+                        self.advance(); // consume the weather verb
+
+                        let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        if suppress_existential {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        }
+                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                            event_var,
+                            verb,
+                            roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
+                            modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential,
+                        })));
+
+                        return Ok(match verb_time {
+                            Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                operator: TemporalOperator::Past,
+                                body: neo_event,
+                            }),
+                            Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                operator: TemporalOperator::Future,
+                                body: neo_event,
+                            }),
+                            _ => neo_event,
+                        });
+                    }
+                }
+            }
+
             // Handle deictic pronouns that don't need discourse resolution
             let resolved = if token_text.eq_ignore_ascii_case("i") {
                 self.interner.intern("Speaker")
@@ -11376,6 +11483,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Continue parsing verb phrase with resolved subject
             return self.parse_predicate_with_subject(resolved);
         }
+
+        // Consume "both" correlative marker if present: "both X and Y"
+        // The existing try_parse_plural_subject will handle the "X and Y" pattern
+        let _had_both = self.match_token(&[TokenType::Both]);
 
         let subject = self.parse_noun_phrase(true)?;
 
@@ -11507,6 +11618,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let var_term = Term::Variable(var_name);
 
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let mut modifiers = vec![];
                 if verb_time == Time::Past {
                     modifiers.push(self.interner.intern("Past"));
@@ -11518,6 +11630,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         (ThematicRole::Agent, var_term),
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -12239,11 +12352,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
 
                     let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     self.negative_depth -= 1;
@@ -12379,11 +12498,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             };
 
                             let event_var = self.get_event_var();
+                            let suppress_existential = self.drs.in_conditional_antecedent();
+                            if suppress_existential {
+                                let event_class = self.interner.intern("Event");
+                                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            }
                             let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var,
                                 verb: template.verb,
                                 roles: self.ctx.roles.alloc_slice(roles),
                                 modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                                suppress_existential,
                             })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -12391,14 +12516,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 body: reconstructed,
                             });
 
+                            let know_event_var = self.get_event_var();
+                            let suppress_existential2 = self.drs.in_conditional_antecedent();
+                            if suppress_existential2 {
+                                let event_class = self.interner.intern("Event");
+                                self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                            }
                             let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                                event_var: self.get_event_var(),
+                                event_var: know_event_var,
                                 verb,
                                 roles: self.ctx.roles.alloc_slice(vec![
                                     (ThematicRole::Agent, subject_term),
                                     (ThematicRole::Theme, Term::Proposition(question)),
                                 ]),
                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                suppress_existential: suppress_existential2,
                             })));
 
                             let result = if is_negated {
@@ -12440,12 +12572,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term)];
                 let modifiers: Vec<Symbol> = vec![];
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                if suppress_existential {
+                    let event_class = self.interner.intern("Event");
+                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                }
 
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 if is_negated {
@@ -12732,11 +12870,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         };
 
                         let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        if suppress_existential {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb: template.verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                            suppress_existential,
                         })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -12745,14 +12889,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         });
 
                         // Build: Know(subject, question)
+                        let know_event_var = self.get_event_var();
+                        let suppress_existential2 = self.drs.in_conditional_antecedent();
+                        if suppress_existential2 {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                            event_var: self.get_event_var(),
+                            event_var: know_event_var,
                             verb,
                             roles: self.ctx.roles.alloc_slice(vec![
                                 (ThematicRole::Agent, subject_term),
                                 (ThematicRole::Theme, Term::Proposition(question)),
                             ]),
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential: suppress_existential2,
                         })));
 
                         return self.wrap_with_definiteness_full(&subject, know_event);
@@ -12767,14 +12918,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 });
 
                 // Build: Know(subject, question)
+                let know_event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                if suppress_existential {
+                    let event_class = self.interner.intern("Event");
+                    self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                }
                 let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                    event_var: self.get_event_var(),
+                    event_var: know_event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(vec![
                         (ThematicRole::Agent, subject_term),
                         (ThematicRole::Theme, Term::Proposition(question)),
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
 
                 return self.wrap_with_definiteness_full(&subject, know_event);
@@ -12887,11 +13045,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             (ThematicRole::Theme, intension_term),
                         ];
 
+                        let suppress_existential = self.drs.in_conditional_antecedent();
+                        if suppress_existential {
+                            let event_class = self.interner.intern("Event");
+                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(modifiers),
+                            suppress_existential,
                         })));
 
                         return self.wrap_with_definiteness_full(&subject, neo_event);
@@ -12938,11 +13102,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     ];
                     self.capture_event_template(verb, &template_roles, &modifiers);
 
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let obj_kind = match obj_q {
@@ -13022,11 +13192,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let pp_obj_term = Term::Constant(pp_obj.noun);
 
                     let roles = vec![(ThematicRole::Agent, subject_term_for_event)];
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -13057,11 +13233,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     (ThematicRole::Theme, focused_term.clone()),
                 ];
 
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                if suppress_existential {
+                    let event_class = self.interner.intern("Event");
+                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                }
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
@@ -13276,11 +13458,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.capture_event_template(verb, &roles, &modifiers);
 
             // Create NeoEvent structure with all modifiers including time/aspect
+            let suppress_existential = self.drs.in_conditional_antecedent();
+            if suppress_existential {
+                let event_class = self.interner.intern("Event");
+                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+            }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
                 verb,
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(modifiers),
+                suppress_existential,
             })));
 
             // Combine with PP predicates if any
@@ -14207,7 +14395,9 @@ use super::quantifier::QuantifierParsing;
 use super::question::QuestionParsing;
 use super::verb::LogicVerbParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
+use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term, ThematicRole};
+use crate::lexer::Lexer;
+use crate::lexicon::Time;
 use crate::drs::BoxType;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
@@ -14401,6 +14591,91 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_counterfactual_antecedent(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
         if self.check_content_word() || self.check_pronoun() || self.check_article() {
+            // Weather verb detection: "if it rains" → ∃e(Rain(e))
+            // Must check BEFORE pronoun resolution since "it" would resolve to "?"
+            if self.check_pronoun() {
+                let token = self.peek();
+                let token_text = self.interner.resolve(token.lexeme);
+                if token_text.eq_ignore_ascii_case("it") {
+                    // Look ahead for weather verb
+                    if self.current + 1 < self.tokens.len() {
+                        if let TokenType::Verb { lemma, time, .. } = &self.tokens[self.current + 1].kind {
+                            let lemma_str = self.interner.resolve(*lemma);
+                            if Lexer::is_weather_verb(lemma_str) {
+                                let verb = *lemma;
+                                let verb_time = *time;
+                                self.advance(); // consume "it"
+                                self.advance(); // consume weather verb
+
+                                let event_var = self.get_event_var();
+
+                                // DRT: Register event var for universal quantification in conditionals
+                                let suppress_existential = self.drs.in_conditional_antecedent();
+                                if suppress_existential {
+                                    let event_class = self.interner.intern("Event");
+                                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                                }
+
+                                let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                    event_var,
+                                    verb,
+                                    roles: self.ctx.roles.alloc_slice(vec![]),
+                                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                    suppress_existential,
+                                })));
+
+                                // Handle coordinated weather verbs: "rains and thunders" or "rains or thunders"
+                                // SHARE the same event_var for all coordinated verbs
+                                while self.check(&TokenType::And) || self.check(&TokenType::Or) {
+                                    let is_disjunction = self.check(&TokenType::Or);
+                                    self.advance(); // consume "and" or "or"
+
+                                    if let TokenType::Verb { lemma: lemma2, .. } = &self.peek().kind.clone() {
+                                        let lemma2_str = self.interner.resolve(*lemma2);
+                                        if Lexer::is_weather_verb(lemma2_str) {
+                                            let verb2 = *lemma2;
+                                            self.advance(); // consume second weather verb
+
+                                            // REUSE same event_var - no new variable, no DRS registration
+                                            let neo_event2 = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                                event_var,  // Same variable as first weather verb
+                                                verb: verb2,
+                                                roles: self.ctx.roles.alloc_slice(vec![]),
+                                                modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                                suppress_existential,
+                                            })));
+
+                                            let op = if is_disjunction { TokenType::Or } else { TokenType::And };
+                                            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                                left: result,
+                                                op,
+                                                right: neo_event2,
+                                            });
+                                        } else {
+                                            break; // Not a weather verb, stop coordination
+                                        }
+                                    } else {
+                                        break;
+                                    }
+                                }
+
+                                return Ok(match verb_time {
+                                    Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                        operator: TemporalOperator::Past,
+                                        body: result,
+                                    }),
+                                    Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                        operator: TemporalOperator::Future,
+                                        body: result,
+                                    }),
+                                    _ => result,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
             // Track if subject is an indefinite that needs DRS registration
             let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
@@ -14565,6 +14840,99 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_counterfactual_consequent(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
         if self.check_content_word() || self.check_pronoun() {
+            // Check for grammatically incorrect "its" + weather adjective
+            // "its" is possessive, "it's" is contraction - common typo
+            if self.check_pronoun() {
+                let token = self.peek();
+                let token_text = self.interner.resolve(token.lexeme).to_lowercase();
+                if token_text == "its" {
+                    // Check if followed by weather adjective
+                    if self.current + 1 < self.tokens.len() {
+                        let next_token = &self.tokens[self.current + 1];
+                        let next_str = self.interner.resolve(next_token.lexeme).to_lowercase();
+                        if let Some(meta) = crate::lexicon::lookup_adjective_db(&next_str) {
+                            if meta.features.contains(&crate::lexicon::Feature::Weather) {
+                                return Err(ParseError {
+                                    kind: ParseErrorKind::GrammarError(
+                                        "Did you mean 'it's' (it is)? 'its' is a possessive pronoun.".to_string()
+                                    ),
+                                    span: self.current_span(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check for expletive "it" + copula + weather adjective: "it's wet" → Wet
+            if self.check_pronoun() {
+                let token_text = self.interner.resolve(self.peek().lexeme).to_lowercase();
+                if token_text == "it" {
+                    // Look ahead for copula + weather adjective
+                    // Handle both "it is wet" and "it's wet" (where 's is Possessive token)
+                    if self.current + 2 < self.tokens.len() {
+                        let next = &self.tokens[self.current + 1].kind;
+                        if matches!(next, TokenType::Is | TokenType::Was | TokenType::Possessive) {
+                            // Check if followed by weather adjective
+                            let adj_token = &self.tokens[self.current + 2];
+                            let adj_sym = adj_token.lexeme;
+                            let adj_str = self.interner.resolve(adj_sym).to_lowercase();
+                            if let Some(meta) = crate::lexicon::lookup_adjective_db(&adj_str) {
+                                if meta.features.contains(&crate::lexicon::Feature::Weather) {
+                                    self.advance(); // consume "it"
+                                    self.advance(); // consume copula
+                                    self.advance(); // consume adjective token
+
+                                    // Use the canonical lemma from lexicon (e.g., "Wet" not "wet")
+                                    let adj_lemma = self.interner.intern(meta.lemma);
+
+                                    // Get event variable from DRS (introduced in antecedent)
+                                    let event_var = self.drs.get_last_event_referent(self.interner)
+                                        .unwrap_or_else(|| self.interner.intern("e"));
+
+                                    // First weather adjective predicate
+                                    let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                        name: adj_lemma,
+                                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                    });
+
+                                    // Handle coordinated adjectives: "wet and cold"
+                                    while self.check(&TokenType::And) {
+                                        self.advance(); // consume "and"
+                                        if self.check_content_word() {
+                                            let adj2_lexeme = self.peek().lexeme;
+                                            let adj2_str = self.interner.resolve(adj2_lexeme).to_lowercase();
+
+                                            // Check if it's also a weather adjective
+                                            if let Some(meta2) = crate::lexicon::lookup_adjective_db(&adj2_str) {
+                                                if meta2.features.contains(&crate::lexicon::Feature::Weather) {
+                                                    self.advance(); // consume adjective token
+                                                    // Use the canonical lemma from lexicon (e.g., "Cold" not "cold")
+                                                    let adj2_lemma = self.interner.intern(meta2.lemma);
+                                                    let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                                        name: adj2_lemma,
+                                                        args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                                    });
+                                                    result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                                        left: result,
+                                                        op: TokenType::And,
+                                                        right: pred2,
+                                                    });
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    }
+
+                                    return Ok(result);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let subject = if self.check_pronoun() {
                 let token = self.advance().clone();
                 if let TokenType::Pronoun { gender, number, .. } = token.kind {
@@ -14622,6 +14990,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         let subject_term = self.noun_phrase_to_term(&subject);
         let event_var = self.get_event_var();
+        let suppress_existential = self.drs.in_conditional_antecedent();
 
         // Check if next token is temporal adverb (gapping with adjunct only)
         if self.check_temporal_adverb() {
@@ -14638,6 +15007,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     (ThematicRole::Agent, subject_term),
                 ]),
                 modifiers: self.ctx.syms.alloc_slice(vec![adv_sym]),
+                suppress_existential,
             }))));
         }
 
@@ -14658,6 +15028,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 verb: borrowed_verb,
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(vec![]),
+                suppress_existential,
             }))))
     }
 
@@ -14835,11 +15206,13 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 }
 
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let this_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
 
                 if let Some((nested_var, nested_clause)) = nested_relative {
@@ -14957,6 +15330,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         // Reconstruct from template
         let template = self.last_event_template.clone().unwrap();
         let event_var = self.get_event_var();
+        let suppress_existential = self.drs.in_conditional_antecedent();
 
         // Build roles with new subject as Agent
         let mut roles: Vec<(ThematicRole, Term<'a>)> = vec![
@@ -14969,6 +15343,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             verb: template.verb,
             roles: self.ctx.roles.alloc_slice(roles),
             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+            suppress_existential,
         })));
 
         // Apply modal if auxiliary is modal
@@ -16647,6 +17022,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     verb: data.verb,
                     roles: self.ctx.roles.alloc_slice(new_roles),
                     modifiers: data.modifiers,
+                    suppress_existential: data.suppress_existential,
                 }))))
             }
             LogicExpr::Distributive { predicate } => Ok(self.ctx.exprs.alloc(LogicExpr::Distributive {
@@ -16818,6 +17194,70 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
     ) -> ParseResult<&'a LogicExpr<'a>> {
         let subject_term = Term::Constant(subject_symbol);
 
+        // Weather verb + expletive "it" detection: "it rains" → ∃e(Rain(e))
+        let subject_str = self.interner.resolve(subject_symbol).to_lowercase();
+        if subject_str == "it" && self.check_verb() {
+            if let TokenType::Verb { lemma, time, .. } = &self.peek().kind {
+                let lemma_str = self.interner.resolve(*lemma);
+                if Lexer::is_weather_verb(lemma_str) {
+                    let verb = *lemma;
+                    let verb_time = *time;
+                    self.advance(); // consume the weather verb
+
+                    let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
+                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
+                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                        suppress_existential,
+                    })));
+
+                    return Ok(match verb_time {
+                        Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Past,
+                            body: neo_event,
+                        }),
+                        Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Future,
+                            body: neo_event,
+                        }),
+                        _ => neo_event,
+                    });
+                }
+            }
+        }
+
+        // Weather adjective + expletive "it" detection: "it is wet" → Wet
+        // Also handle "it's wet" where 's is Possessive token
+        if subject_str == "it" && (self.check(&TokenType::Is) || self.check(&TokenType::Was) || self.check(&TokenType::Possessive)) {
+            let saved_pos = self.current;
+            self.advance(); // consume copula
+
+            if self.check_content_word() {
+                let adj_lexeme = self.peek().lexeme;
+                let adj_str = self.interner.resolve(adj_lexeme).to_lowercase();
+
+                if let Some(meta) = crate::lexicon::lookup_adjective_db(&adj_str) {
+                    if meta.features.contains(&crate::lexicon::Feature::Weather) {
+                        let adj_sym = self.consume_content_word().unwrap_or(adj_lexeme);
+                        // Atmospheric predicate: "it is wet" → Wet
+                        return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: adj_sym,
+                            args: self.ctx.terms.alloc_slice([]),
+                        }));
+                    }
+                }
+            }
+            // Not a weather adjective, restore position
+            self.current = saved_pos;
+        }
+
         if self.check(&TokenType::Never) {
             self.advance();
             let verb = self.consume_verb();
@@ -16903,11 +17343,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                             };
 
                             let event_var = self.get_event_var();
+                            let suppress_existential = self.drs.in_conditional_antecedent();
                             let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var,
                                 verb: template.verb,
                                 roles: self.ctx.roles.alloc_slice(roles),
                                 modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                                suppress_existential,
                             })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -16923,6 +17365,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                                     (ThematicRole::Theme, Term::Proposition(question)),
                                 ]),
                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                suppress_existential,
                             })));
 
                             let result = if is_negated {
@@ -16943,12 +17386,14 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term.clone())];
                 let modifiers: Vec<Symbol> = vec![];
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
 
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 if is_negated {
@@ -17132,6 +17577,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     }
 
                     let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
                     let effective_time = self.pending_time.take().unwrap_or(Time::None);
                     let mut modifiers = Vec::new();
                     match effective_time {
@@ -17145,6 +17591,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     self.negative_depth -= 1;
@@ -17212,7 +17659,10 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             }
 
             let predicate = self.consume_content_word()?;
-            return Ok(self.ctx.exprs.alloc(LogicExpr::Atom(predicate)));
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: predicate,
+                args: self.ctx.terms.alloc_slice([subject_term]),
+            }));
         }
 
         if self.check_verb() {
@@ -17251,11 +17701,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         };
 
                         let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
                         let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb: template.verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                            suppress_existential,
                         })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -17271,6 +17723,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                                 (ThematicRole::Theme, Term::Proposition(question)),
                             ]),
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential,
                         })));
 
                         return Ok(know_event);
@@ -17284,6 +17737,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     body: embedded,
                 });
 
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var: self.get_event_var(),
                     verb,
@@ -17292,6 +17746,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         (ThematicRole::Theme, Term::Proposition(question)),
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
 
                 return Ok(know_event);
@@ -17379,11 +17834,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         (ThematicRole::Theme, Term::Variable(obj_var)),
                     ];
 
+                    let suppress_existential = self.drs.in_conditional_antecedent();
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let obj_kind = match obj_q {
@@ -17461,11 +17918,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     let pp_obj_term = Term::Constant(pp_obj.noun);
 
                     let roles = vec![(ThematicRole::Agent, subject_term)];
+                    let suppress_existential = self.drs.in_conditional_antecedent();
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -17496,11 +17955,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     (ThematicRole::Theme, focused_term),
                 ];
 
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
@@ -17724,11 +18185,17 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             }
 
             let event_var = self.get_event_var();
+            let suppress_existential = self.drs.in_conditional_antecedent();
+            if suppress_existential {
+                let event_class = self.interner.intern("Event");
+                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+            }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
                 verb,
                 roles: self.ctx.roles.alloc_slice(roles.clone()),
                 modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
+                suppress_existential,
             })));
 
             // Capture template for ellipsis reconstruction
@@ -17814,6 +18281,65 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             } else {
                 break;
             }
+        }
+
+        // Check for copula (is/are/was/were) with predicate nominative
+        // "Both Socrates and Plato are men" -> M(s) ∧ M(p)
+        if self.check(&TokenType::Is) || self.check(&TokenType::Are)
+            || self.check(&TokenType::Was) || self.check(&TokenType::Were)
+        {
+            let copula_time = if self.check(&TokenType::Was) || self.check(&TokenType::Were) {
+                Time::Past
+            } else {
+                Time::Present
+            };
+            self.advance(); // consume the copula
+
+            // Parse the predicate nominative (e.g., "men" in "are men")
+            if !self.check_content_word() && !self.check_article() {
+                self.current = saved_pos;
+                return Ok(None);
+            }
+
+            let predicate_np = match self.parse_noun_phrase(false) {
+                Ok(np) => np,
+                Err(_) => {
+                    self.current = saved_pos;
+                    return Ok(None);
+                }
+            };
+            let predicate = predicate_np.noun;
+
+            // Build distributed predicate: P(s1) ∧ P(s2) ∧ ...
+            let mut conjuncts: Vec<&'a LogicExpr<'a>> = Vec::new();
+            for subj in &subjects {
+                let pred_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: predicate,
+                    args: self.ctx.terms.alloc_slice([Term::Constant(*subj)]),
+                });
+                conjuncts.push(pred_expr);
+            }
+
+            // Fold conjuncts into binary conjunction tree
+            let mut result = conjuncts[0];
+            for conjunct in &conjuncts[1..] {
+                result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: result,
+                    op: TokenType::And,
+                    right: *conjunct,
+                });
+            }
+
+            // Apply temporal modifier for past tense
+            let with_time = match copula_time {
+                Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Past,
+                    body: result,
+                }),
+                _ => result,
+            };
+
+            return Ok(Some(with_time));
         }
 
         if !self.check_verb() {
@@ -17919,6 +18445,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
 
             // Build pairwise predicates: See(J,T) ∧ See(M,J) ∧ ...
             let mut conjuncts: Vec<&'a LogicExpr<'a>> = Vec::new();
+            let suppress_existential = self.drs.in_conditional_antecedent();
             for (subj, obj) in subjects.iter().zip(objects.iter()) {
                 let event_var = self.get_event_var();
                 let roles = vec![
@@ -17930,6 +18457,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
                 conjuncts.push(neo_event);
             }
@@ -19018,11 +19546,13 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 _ => {}
             }
         }
+        let suppress_existential = self.drs.in_conditional_antecedent();
         let base_pred = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
             event_var,
             verb,
             roles: self.ctx.roles.alloc_slice(roles.clone()),
             modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
+            suppress_existential,
         })));
 
         // Capture template for ellipsis reconstruction
@@ -20175,7 +20705,13 @@ impl<'a> LogicExpr<'a> {
                         write_capitalized(&mut body, interner.resolve(*mod_sym))?;
                         write!(body, "({})", e)?;
                     }
-                    write!(w, "{}", fmt.quantifier(&QuantifierKind::Existential, e, &body))
+                    if data.suppress_existential {
+                        // Event var will be bound by outer ∀ from DRS (generic conditionals)
+                        write!(w, "{}", body)
+                    } else {
+                        // Normal case: emit ∃e(...)
+                        write!(w, "{}", fmt.quantifier(&QuantifierKind::Existential, e, &body))
+                    }
                 }
             }
 
@@ -22037,6 +22573,7 @@ fn replace_theme_with_intension<'a>(
                 verb: data.verb,
                 roles: role_arena.alloc_slice(new_roles),
                 modifiers: data.modifiers,
+                suppress_existential: false,
             })))
         }
         LogicExpr::Predicate { name, args } => {
@@ -22117,6 +22654,7 @@ fn build_de_re_from_de_dicto<'a>(
                             verb: data.verb,
                             roles: role_arena.alloc_slice(new_roles),
                             modifiers: data.modifiers,
+                            suppress_existential: false,
                         })));
 
                         // Build: ∃x(Noun(x) ∧ Event)
@@ -23574,6 +24112,20 @@ impl Drs {
         result
     }
 
+    /// Get the most recent event referent (for binding weather adjectives to events)
+    pub fn get_last_event_referent(&self, interner: &crate::intern::Interner) -> Option<Symbol> {
+        // Search all boxes in reverse order for event referents
+        for drs_box in self.boxes.iter().rev() {
+            for referent in drs_box.universe.iter().rev() {
+                let class_str = interner.resolve(referent.noun_class);
+                if class_str == "Event" {
+                    return Some(referent.variable);
+                }
+            }
+        }
+        None
+    }
+
     /// Check if we're currently in a conditional antecedent
     pub fn in_conditional_antecedent(&self) -> bool {
         matches!(
@@ -24797,6 +25349,7 @@ fn expand_neo_event<'a>(
             verb: data.verb,
             roles: data.roles,
             modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
         })));
 
         // Create entailed verb NeoEvent (e.g., Kill)
@@ -24805,6 +25358,7 @@ fn expand_neo_event<'a>(
             verb: base_verb_sym,
             roles: data.roles,
             modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
         })));
 
         // Conjoin original with entailed
@@ -24845,6 +25399,7 @@ fn expand_neo_event<'a>(
             verb: data.verb,
             roles: data.roles,
             modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
         })))
     }
 }
@@ -25920,25 +26475,83 @@ impl<'a> DiscoveryPass<'a> {
         }
 
         if let Some(name) = self.consume_noun_or_proper() {
+            let name_str = self.interner.resolve(name);
+
+            // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
+            let modified_name = if name_str == "SharedSet" || name_str == "ORSet" {
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_removewins() {
+                        self.advance(); // consume "RemoveWins"
+                        Some("SharedSet_RemoveWins")
+                    } else if self.check_addwins() {
+                        self.advance(); // consume "AddWins"
+                        Some("SharedSet_AddWins")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else if name_str == "SharedSequence" {
+                // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_yata() {
+                        self.advance(); // consume "YATA"
+                        Some("SharedSequence_YATA")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use modified name if we found a modifier, otherwise use original
+            let final_name = modified_name.unwrap_or(name);
+            let final_name_str = self.interner.resolve(final_name);
+
+            // Phase 49c: Handle "SharedMap from K to V" / "ORMap from K to V" syntax
+            if (final_name_str == "SharedMap" || final_name_str == "ORMap") && self.check_from() {
+                self.advance(); // consume "from"
+                let key_type = self.consume_field_type();
+                // Expect "to" (can be TokenType::To or preposition)
+                if self.check_to() {
+                    self.advance(); // consume "to"
+                }
+                let value_type = self.consume_field_type();
+                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+            }
+
             // Check for generic: "List of Int", "Seq of Text"
             if self.check_preposition("of") {
                 self.advance();
                 let param = self.consume_field_type();
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
-            let name_str = self.interner.resolve(name);
-            if name_str == "Divergent" {
+            if final_name_str == "Divergent" {
                 // Next token should be the inner type
                 let param = self.consume_field_type();
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Check if primitive
-            match name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
-                _ => FieldType::Named(name),
+            match final_name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                _ => FieldType::Named(final_name),
             }
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))
@@ -26036,6 +26649,10 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(self.interner.intern("SharedSequence"))
             }
+            TokenType::CollaborativeSequence => {
+                self.advance();
+                Some(self.interner.intern("CollaborativeSequence"))
+            }
             TokenType::SharedMap => {
                 self.advance();
                 Some(self.interner.intern("SharedMap"))
@@ -26101,6 +26718,43 @@ impl<'a> DiscoveryPass<'a> {
 
     fn check_rparen(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
+    }
+
+    /// Phase 49c: Check for AddWins token
+    fn check_addwins(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::AddWins, .. }))
+    }
+
+    /// Phase 49c: Check for RemoveWins token
+    fn check_removewins(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::RemoveWins, .. }))
+    }
+
+    /// Phase 49c: Check for YATA token
+    fn check_yata(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::YATA, .. }))
+    }
+
+    /// Phase 49c: Check for "to" (either TokenType::To or preposition "to")
+    fn check_to(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::To, .. }) => true,
+            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
+                self.interner.resolve(*sym) == "to"
+            }
+            _ => false,
+        }
+    }
+
+    /// Phase 49c: Check for "from" (either TokenType::From or preposition "from")
+    fn check_from(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::From, .. }) => true,
+            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
+                self.interner.resolve(*sym) == "from"
+            }
+            _ => false,
+        }
     }
 
     /// Phase 47: Check for Portable token
@@ -26171,25 +26825,83 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::TypeParam(name);
             }
 
+            let name_str = self.interner.resolve(name);
+
+            // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
+            let modified_name = if name_str == "SharedSet" || name_str == "ORSet" {
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_removewins() {
+                        self.advance(); // consume "RemoveWins"
+                        Some("SharedSet_RemoveWins")
+                    } else if self.check_addwins() {
+                        self.advance(); // consume "AddWins"
+                        Some("SharedSet_AddWins")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else if name_str == "SharedSequence" {
+                // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_yata() {
+                        self.advance(); // consume "YATA"
+                        Some("SharedSequence_YATA")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use modified name if we found a modifier, otherwise use original
+            let final_name = modified_name.unwrap_or(name);
+            let final_name_str = self.interner.resolve(final_name);
+
+            // Phase 49c: Handle "SharedMap from K to V" / "ORMap from K to V" syntax
+            if (final_name_str == "SharedMap" || final_name_str == "ORMap") && self.check_from() {
+                self.advance(); // consume "from"
+                let key_type = self.consume_field_type_with_params(type_params);
+                // Expect "to" (can be TokenType::To or preposition)
+                if self.check_to() {
+                    self.advance(); // consume "to"
+                }
+                let value_type = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+            }
+
             // Check for generic: "List of Int", "Seq of Text", "List of T"
             if self.check_preposition("of") {
                 self.advance();
                 let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
-            let name_str = self.interner.resolve(name);
-            if name_str == "Divergent" {
+            if final_name_str == "Divergent" {
                 // Next token should be the inner type
                 let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Check if primitive
-            match name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
-                _ => FieldType::Named(name),
+            match final_name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                _ => FieldType::Named(final_name),
             }
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))
@@ -27922,6 +28634,16 @@ fn requires_vfs_stmt(stmt: &Stmt) -> bool {
     }
 }
 
+/// Phase 49b: Extract root identifier from expression for mutability analysis.
+/// Works with both simple identifiers and field accesses.
+fn get_root_identifier_for_mutability(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => get_root_identifier_for_mutability(object),
+        _ => None,
+    }
+}
+
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
 /// - Variables that are targets of `Set` statements (reassignment)
@@ -27953,15 +28675,15 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
             }
         }
         Stmt::Add { collection, .. } => {
-            // If collection is an identifier (Set), it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier (Set) or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::Remove { collection, .. } => {
-            // If collection is an identifier (Set), it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier (Set) or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::SetIndex { collection, .. } => {
@@ -27999,6 +28721,29 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             for s in *tasks {
                 collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        // Phase 49b: CRDT operations require mutable access
+        Stmt::IncreaseCrdt { object, .. } | Stmt::DecreaseCrdt { object, .. } => {
+            // Extract root variable from field access (e.g., g.score -> g)
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
+            }
+        }
+        Stmt::AppendToSequence { sequence, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(sequence) {
+                targets.insert(sym);
+            }
+        }
+        Stmt::ResolveConflict { object, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
+            }
+        }
+        // Phase 49b: SetField on MVRegister/LWWRegister uses .set() which requires &mut self
+        Stmt::SetField { object, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
             }
         }
         _ => {}
@@ -28106,8 +28851,8 @@ fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) ->
     }
 }
 
-/// Collect LWWRegister field paths for special handling in SetField codegen.
-/// Returns a set of (type_name, field_name) pairs where the field is an LWWRegister.
+/// Collect LWWRegister and MVRegister field paths for special handling in SetField codegen.
+/// Returns a set of (type_name, field_name) pairs where the field uses .set() method.
 fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String)> {
     let mut lww_fields = HashSet::new();
     for (type_sym, def) in registry.iter_types() {
@@ -28116,7 +28861,8 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
             for field in fields {
                 if let FieldType::Generic { base, .. } = &field.ty {
                     let base_name = interner.resolve(*base);
-                    if base_name == "LastWriteWins" {
+                    // Phase 49b: Both LWWRegister and MVRegister (Divergent) use .set()
+                    if base_name == "LastWriteWins" || base_name == "Divergent" || base_name == "MVRegister" {
                         let field_name = interner.resolve(field.name).to_string();
                         lww_fields.insert((type_name.clone(), field_name));
                     }
@@ -28639,8 +29385,8 @@ fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
             let name = interner.resolve(*base);
             matches!(name,
                 "LastWriteWins" | "LWWRegister" |
-                "SharedSet" | "ORSet" |
-                "SharedSequence" | "RGA" |
+                "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" |
+                "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" |
                 "SharedMap" | "ORMap" |
                 "Divergent" | "MVRegister"
             )
@@ -28722,7 +29468,28 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
             }
         }
         FieldType::Generic { base, params } => {
-            let base_str = match interner.resolve(*base) {
+            let base_name = interner.resolve(*base);
+            let param_strs: Vec<String> = params.iter()
+                .map(|p| codegen_field_type(p, interner))
+                .collect();
+
+            // Phase 49c: Handle CRDT types with bias/algorithm modifiers
+            match base_name {
+                // SharedSet with explicit bias
+                "SharedSet_RemoveWins" => {
+                    return format!("logos_core::crdt::ORSet<{}, logos_core::crdt::RemoveWins>", param_strs.join(", "));
+                }
+                "SharedSet_AddWins" => {
+                    return format!("logos_core::crdt::ORSet<{}, logos_core::crdt::AddWins>", param_strs.join(", "));
+                }
+                // SharedSequence with YATA algorithm
+                "SharedSequence_YATA" | "CollaborativeSequence" => {
+                    return format!("logos_core::crdt::YATA<{}>", param_strs.join(", "));
+                }
+                _ => {}
+            }
+
+            let base_str = match base_name {
                 "List" | "Seq" => "Vec",
                 "Set" => "std::collections::HashSet",
                 "Map" => "std::collections::HashMap",
@@ -28730,16 +29497,13 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logos_core::crdt::LWWRegister",
-                // Phase 49b: New CRDT generic types (Wave 5)
+                // Phase 49b: New CRDT generic types (Wave 5) - default to AddWins for ORSet
                 "SharedSet" | "ORSet" => "logos_core::crdt::ORSet",
                 "SharedSequence" | "RGA" => "logos_core::crdt::RGA",
                 "SharedMap" | "ORMap" => "logos_core::crdt::ORMap",
                 "Divergent" | "MVRegister" => "logos_core::crdt::MVRegister",
                 other => other,
             };
-            let param_strs: Vec<String> = params.iter()
-                .map(|p| codegen_field_type(p, interner))
-                .collect();
             format!("{}<{}>", base_str, param_strs.join(", "))
         }
         // Phase 34: Type parameter reference (T, U, etc.)
@@ -30218,33 +30982,81 @@ logos_core = {{ path = "./logos_core" }}
     Ok(())
 }
 
-/// Copy the embedded logos_core crate to the output directory.
+/// Copy the logos_core crate to the output directory.
+/// This recursively copies the entire crate including all modules.
 pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
-    let core_dir = output_dir.join("logos_core");
-    let src_dir = core_dir.join("src");
+    let dest_dir = output_dir.join("logos_core");
 
-    fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+    // Find the logos_core source directory relative to the CARGO_MANIFEST_DIR
+    // or use the embedded constants as fallback
+    let source_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(|d| Path::new(&d).join("logos_core"))
+        .ok()
+        .filter(|p| p.exists());
 
-    fs::write(core_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    // Phase 38: Write standard library modules
-    fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    // Phase 8.5: Zone-based memory management
-    fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
+    if let Some(src) = source_dir {
+        // Recursively copy the actual logos_core directory
+        copy_dir_recursive(&src, &dest_dir)?;
+    } else {
+        // Fallback to embedded files for distribution builds
+        let src_dir = dest_dir.join("src");
+        fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+
+        fs::write(dest_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
+/// Recursively copy a directory.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
+    fs::create_dir_all(dst).map_err(|e| CompileError::Io(e.to_string()))?;
+
+    for entry in fs::read_dir(src).map_err(|e| CompileError::Io(e.to_string()))? {
+        let entry = entry.map_err(|e| CompileError::Io(e.to_string()))?;
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+
+        // Skip target directory and other build artifacts
+        if file_name == "target" || file_name == ".git" {
+            continue;
+        }
+
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if file_name == "Cargo.toml" {
+            // Special handling for Cargo.toml: remove [workspace] line
+            // which can interfere with nested crate dependencies
+            let content = fs::read_to_string(&src_path)
+                .map_err(|e| CompileError::Io(e.to_string()))?;
+            let filtered: String = content
+                .lines()
+                .filter(|line| !line.trim().starts_with("[workspace]"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            fs::write(&dst_path, filtered).map_err(|e| CompileError::Io(e.to_string()))?;
+        } else {
+            fs::copy(&src_path, &dst_path).map_err(|e| CompileError::Io(e.to_string()))?;
+        }
+    }
 
     Ok(())
 }
@@ -34060,6 +34872,7 @@ pub enum Feature {
     Performative, // "I promise"
     Collective,  // "The group gathered"
     Mixed,       // "Lift" - can be collective or distributive
+    Weather,     // "Rain", "Snow" - weather verbs with expletive "it"
 
     // Noun Features
     Count,
@@ -34096,6 +34909,7 @@ impl Feature {
             "Factive" => Some(Feature::Factive),
             "Performative" => Some(Feature::Performative),
             "Collective" => Some(Feature::Collective),
+            "Weather" => Some(Feature::Weather),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),
@@ -35548,6 +36362,8 @@ pub enum ParseErrorKind {
     },
     // Phase 43C: Refinement types
     InvalidRefinementPredicate,
+    // Phase 42: Grammar errors (e.g., "its" vs "it's")
+    GrammarError(String),
     // Phase 8.5: Escape analysis errors
     Custom(String),
 }
@@ -35748,6 +36564,13 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 "At position {}, the refinement predicate is not valid. \
                 A refinement predicate must be a comparison like 'x > 0' or 'n < 100'.",
                 pos
+            )
+        }
+        // Phase 42: Grammar errors
+        ParseErrorKind::GrammarError(msg) => {
+            format!(
+                "At position {}, grammar issue: {}",
+                pos, msg
             )
         }
         // Phase 8.5: Escape analysis - the message is already Socratic
@@ -48248,6 +49071,7 @@ Commercial licensing information page with Fair Source explanation and enterpris
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::state::LicenseState;
 
 const PRICING_STYLE: &str = r#"
 * { box-sizing: border-box; }
@@ -48839,6 +49663,44 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+.active-license-banner {
+  position: relative;
+  background: linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(96,165,250,0.10) 100%);
+  border: 2px solid rgba(34,197,94,0.5);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
+  margin-bottom: 40px;
+  width: 100%;
+  text-align: center;
+  backdrop-filter: blur(18px);
+  animation: fadeInUp 0.6s ease both;
+}
+
+.active-license-banner h2 {
+  color: var(--color-success);
+  font-size: var(--font-heading-lg);
+  margin-bottom: var(--spacing-md);
+  font-weight: 700;
+}
+
+.active-license-banner .plan-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--color-success), #16a34a);
+  color: #060814;
+  font-size: var(--font-body-md);
+  font-weight: 700;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-lg);
+  text-transform: uppercase;
+}
+
+.active-license-banner p {
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
+  line-height: 1.65;
+}
 "#;
 
 const STRIPE_FREE_LICENSE: &str = "https://buy.stripe.com/9B63cx77ZgB5cKu40Ue3e06";
@@ -48852,6 +49714,20 @@ const STRIPE_CUSTOMER_PORTAL: &str = "https://billing.stripe.com/p/login/8x200l3
 
 #[component]
 pub fn Pricing() -> Element {
+    let license_state = use_context::<LicenseState>();
+    let has_license = license_state.has_license();
+    let plan = license_state.plan.read().clone();
+
+    let plan_name = match plan {
+        crate::ui::state::LicensePlan::None => "None",
+        crate::ui::state::LicensePlan::Free => "Free",
+        crate::ui::state::LicensePlan::Supporter => "Supporter",
+        crate::ui::state::LicensePlan::Pro => "Pro",
+        crate::ui::state::LicensePlan::Premium => "Premium",
+        crate::ui::state::LicensePlan::Lifetime => "Lifetime",
+        crate::ui::state::LicensePlan::Enterprise => "Enterprise",
+    };
+
     rsx! {
         style { "{PRICING_STYLE}" }
 
@@ -48863,6 +49739,20 @@ pub fn Pricing() -> Element {
             MainNav { active: ActivePage::Pricing }
 
             div { class: "pricing-container",
+                if has_license {
+                    div { class: "active-license-banner",
+                        h2 { "Active License" }
+                        span { class: "plan-badge", "{plan_name}" }
+                        p { "Thank you for supporting LOGOS! Manage your subscription below." }
+                        a {
+                            class: "btn-primary",
+                            href: STRIPE_CUSTOMER_PORTAL,
+                            target: "_blank",
+                            "Manage Subscription"
+                        }
+                    }
+                }
+
                 div { class: "pricing-header",
                     h1 { "Commercial Licensing" }
                     p { "Business Source License — free for individuals and small teams" }
@@ -49049,13 +49939,15 @@ pub fn Pricing() -> Element {
                     }
                 }
 
-                div { class: "manage-section",
-                    p { "Already a subscriber? Manage your subscription, update payment methods, or view invoices." }
-                    a {
-                        class: "btn-secondary",
-                        href: STRIPE_CUSTOMER_PORTAL,
-                        target: "_blank",
-                        "Manage Subscription"
+                if !has_license {
+                    div { class: "manage-section",
+                        p { "Already purchased a license? Access your subscription to update payment methods, view invoices, or download receipts." }
+                        a {
+                            class: "btn-secondary",
+                            href: STRIPE_CUSTOMER_PORTAL,
+                            target: "_blank",
+                            "Manage Existing Subscription"
+                        }
                     }
                 }
 
@@ -59012,15 +59904,49 @@ Mark a struct as `Shared` to enable automatic merge support. The compiler genera
 | Type | Description | Operations |
 |------|-------------|------------|
 | `ConvergentCount` | Counter that only grows | `Increase` |
-| `LastWriteWins of T` | Register with timestamp-based conflict resolution | Assignment |
+| `Tally` | Counter that grows and shrinks | `Increase`, `Decrease` |
+| `LastWriteWins of T` | Register with timestamp-based conflict resolution | `Set` |
+| `Divergent T` | Register that preserves concurrent values | `Set`, `Resolve` |
+| `SharedSet of T` | Set with add/remove support | `Add`, `Remove`, `contains` |
+| `SharedSequence of T` | Ordered list (RGA algorithm) | `Append`, `length of` |
+| `CollaborativeSequence of T` | Text-optimized sequence (YATA) | `Append`, `length of` |
+| `SharedMap from K to V` | Key-value CRDT map | `[]` access and assignment |
 
 ### ConvergentCount
 
-A grow-only counter. Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+A grow-only counter (G-Counter). Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+
+### Tally
+
+A bidirectional counter (PN-Counter) that supports both increment and decrement. Unlike ConvergentCount, values can go up and down—even negative. Useful for scores, balances, and temperatures.
 
 ### LastWriteWins
 
 A register that resolves conflicts by timestamp. The most recent write wins. Works with any type: `Text`, `Int`, `Bool`, etc.
+
+### Divergent
+
+A multi-value register that preserves all concurrent writes instead of silently picking a winner. When replicas write different values concurrently, both are kept until you explicitly `Resolve` the conflict. Useful for collaborative editing where conflicts should be visible.
+
+### SharedSet
+
+An observed-remove set (OR-Set) that supports both adding and removing elements. By default uses **add-wins** semantics: if one replica adds while another removes, the element stays.
+
+**Configuring bias:**
+- `SharedSet (AddWins) of T` — concurrent add beats remove (default)
+- `SharedSet (RemoveWins) of T` — concurrent remove beats add
+
+### SharedSequence
+
+An ordered CRDT list using the RGA (Replicated Growable Array) algorithm. Elements maintain their order across replicas. Useful for ordered lists, chat history, and document lines.
+
+### CollaborativeSequence
+
+A text-optimized sequence using the YATA algorithm. Better conflict resolution for concurrent insertions at the same position. Ideal for collaborative text editing. Alternative syntax: `SharedSequence (YATA) of T`.
+
+### SharedMap
+
+A key-value CRDT map (OR-Map). Keys can be added and removed, and values are themselves CRDTs that merge recursively. Alternative syntax: `ORMap from K to V`.
 
 ### Merge Operations
 
@@ -59159,6 +60085,112 @@ Let mutable c: Persistent Counter be mounted at "counter.lsf".
 Increase c's value by 1.
 Show c's value."#,
             },
+            CodeExample {
+                id: "crdt-tally",
+                label: "Tally (Bidirectional Counter)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Score is Shared and has:
+    a points, which is a Tally.
+
+## Main
+Let mutable s be a new Score.
+Increase s's points by 100.
+Decrease s's points by 30.
+Show s's points."#,
+            },
+            CodeExample {
+                id: "crdt-divergent",
+                label: "Divergent (Multi-Value Register)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A WikiPage is Shared and has:
+    a title, which is Divergent Text.
+
+## Main
+Let mutable page be a new WikiPage.
+Set page's title to "Draft".
+Show page's title.
+Resolve page's title to "Final".
+Show page's title."#,
+            },
+            CodeExample {
+                id: "crdt-sharedset",
+                label: "SharedSet (Add/Remove Set)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Party is Shared and has:
+    a guests, which is a SharedSet of Text.
+
+## Main
+Let mutable p be a new Party.
+Add "Alice" to p's guests.
+Add "Bob" to p's guests.
+Remove "Alice" from p's guests.
+If p's guests contains "Bob":
+    Show "Bob is invited".
+Show length of p's guests."#,
+            },
+            CodeExample {
+                id: "crdt-sharedset-bias",
+                label: "SharedSet with Bias",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Moderation is Shared and has:
+    a tags, which is a SharedSet (AddWins) of Text.
+    a blocked, which is a SharedSet (RemoveWins) of Text.
+
+## Main
+Let mutable m be a new Moderation.
+Add "safe" to m's tags.
+Add "spammer" to m's blocked.
+Show m's tags.
+Show m's blocked."#,
+            },
+            CodeExample {
+                id: "crdt-sequence",
+                label: "SharedSequence (Ordered List)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Document is Shared and has:
+    a lines, which is a SharedSequence of Text.
+
+## Main
+Let mutable doc be a new Document.
+Append "Line 1" to doc's lines.
+Append "Line 2" to doc's lines.
+Append "Line 3" to doc's lines.
+Show length of doc's lines."#,
+            },
+            CodeExample {
+                id: "crdt-collaborative",
+                label: "CollaborativeSequence (Text)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Editor is Shared and has:
+    a text, which is a CollaborativeSequence of Text.
+
+## Main
+Let mutable e be a new Editor.
+Append "Hello" to e's text.
+Append " " to e's text.
+Append "World" to e's text.
+Show length of e's text."#,
+            },
+            CodeExample {
+                id: "crdt-sharedmap",
+                label: "SharedMap (Key-Value CRDT)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Inventory is Shared and has:
+    an items, which is a SharedMap from Text to Int.
+
+## Main
+Let mutable inv be a new Inventory.
+Set inv's items["wood"] to 50.
+Set inv's items["stone"] to 30.
+Show inv's items["wood"]."#,
+            },
         ],
     },
 
@@ -59268,6 +60300,7 @@ LOGOS includes built-in peer-to-peer networking primitives for building distribu
 | **Connect** | Dial a peer at an address |
 | **PeerAgent** | A handle to a remote peer |
 | **Send** | Transmit a message to a peer |
+| **Sync** | Subscribe a CRDT to a GossipSub topic |
 
 ### Portable Types
 
@@ -59282,6 +60315,36 @@ LOGOS uses libp2p multiaddresses:
 | `/ip4/0.0.0.0/tcp/8000` | Listen on all interfaces, port 8000 |
 | `/ip4/127.0.0.1/tcp/8000` | Localhost only, port 8000 |
 | `/ip4/192.168.1.5/tcp/8000` | Specific IP address |
+| `/ip4/0.0.0.0/tcp/0` | Listen on any available port |
+
+### Automatic Peer Discovery (mDNS)
+
+When you `Listen`, LOGOS automatically enables **mDNS** (multicast DNS) for local network peer discovery. Peers on the same LAN will discover each other without manual configuration.
+
+- Works on WiFi networks, local development
+- No configuration required—just Listen
+- Peers are auto-connected when discovered
+
+### GossipSub (Pub/Sub)
+
+The `Sync` statement uses **GossipSub**, a pub/sub protocol for broadcasting messages to topic subscribers:
+
+- Topics are strings (e.g., `"game-scores"`, `"player-data"`)
+- When you mutate a synced variable, the full state broadcasts to all subscribers
+- Incoming messages are automatically merged in the background
+- Retry with exponential backoff: 1s, 2s, 4s, 8s, 16s
+
+### File Transfer
+
+For large file transfers, LOGOS provides **FileSipper**—a chunked transfer protocol:
+
+| Component | Description |
+|-----------|-------------|
+| **FileSipper** | Zero-copy file chunker (1 MB default chunks) |
+| **FileManifest** | Describes file: chunk count, SHA256 hashes |
+| **FileChunk** | Individual chunk with verification hash |
+
+This enables resumable transfers over unreliable networks.
 
 ### Building a P2P Application
 
@@ -59290,6 +60353,7 @@ LOGOS uses libp2p multiaddresses:
 3. Connect to peers (client)
 4. Create PeerAgent handles
 5. Send messages
+6. Use `Sync` for automatic CRDT replication
 "#,
         examples: &[
             CodeExample {
@@ -59330,6 +60394,55 @@ Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
 Let msg be a new Greeting with message "Hello, peer!".
 Show "Sending: " + msg's message.
 Send msg to remote."#,
+            },
+            CodeExample {
+                id: "network-distributed",
+                label: "Persistent + Synced (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a value, which is ConvergentCount.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/0".
+Let mutable c: Persistent Counter be mounted at "counter.lsf".
+Sync c on "shared-counter".
+Increase c's value by 1.
+Show c's value."#,
+            },
+            CodeExample {
+                id: "network-mdns",
+                label: "Automatic Peer Discovery",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A GameState is Shared and has:
+    a score, which is ConvergentCount.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/0".
+Show "Listening... mDNS will auto-discover peers".
+
+Let mutable state be a new GameState.
+Sync state on "game-session".
+Show "Synced to game-session topic"."#,
+            },
+            CodeExample {
+                id: "network-file-transfer",
+                label: "File Transfer Pattern",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A FileRequest is Portable and has:
+    a filename: Text.
+    a chunk_index: Int.
+
+A FileResponse is Portable and has:
+    a data: Text.
+    a is_last: Bool.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/8000".
+Show "File server ready".
+Show "Supports resumable chunked transfers"."#,
             },
         ],
     },
@@ -59981,11 +61094,29 @@ Show "Positives: " + positives."#,
 
 **Shared Structs:**
 - `A Counter is Shared and has:` — CRDT-enabled struct
-- `ConvergentCount` — Grow-only counter type
-- `LastWriteWins of T` — Timestamp-based register
+
+**CRDT Field Types:**
+- `ConvergentCount` — Grow-only counter (`Increase`)
+- `Tally` — Bidirectional counter (`Increase`, `Decrease`)
+- `LastWriteWins of T` — Timestamp-based register (`Set`)
+- `Divergent T` — Multi-value register (`Set`, `Resolve`)
+- `SharedSet of T` — Add/remove set (`Add`, `Remove`, `contains`)
+- `SharedSet (AddWins) of T` — Set where add wins conflicts
+- `SharedSet (RemoveWins) of T` — Set where remove wins conflicts
+- `SharedSequence of T` — Ordered list RGA (`Append`)
+- `CollaborativeSequence of T` — Text-optimized YATA (`Append`)
+- `SharedSequence (YATA) of T` — Alternate YATA syntax
+- `SharedMap from K to V` — Key-value CRDT (`[]` access)
+- `ORMap from K to V` — Alternate map syntax
 
 **CRDT Operations:**
-- `Increase x's field by amount.` — Increment a ConvergentCount
+- `Increase x's field by amount.` — Increment counter
+- `Decrease x's field by amount.` — Decrement Tally
+- `Set x's field to value.` — Set register value
+- `Resolve x's field to value.` — Resolve Divergent conflict
+- `Add value to x's field.` — Add to SharedSet
+- `Remove value from x's field.` — Remove from SharedSet
+- `Append value to x's field.` — Append to sequence
 - `Merge source into target.` — Combine two CRDT instances
 
 **Persistence (Compiled Only):**
@@ -60000,12 +61131,26 @@ Show "Positives: " + positives."#,
 
 **Server/Client:**
 - `Listen on "/ip4/0.0.0.0/tcp/8000".` — Bind to address
+- `Listen on "/ip4/0.0.0.0/tcp/0".` — Listen on any available port
 - `Connect to addr.` — Dial a peer
 - `Let remote be a PeerAgent at addr.` — Create remote handle
 - `Send msg to remote.` — Transmit message
 
 **Portable Types:**
 - `A Message is Portable and has:` — Network-serializable struct
+
+**Automatic Discovery:**
+- mDNS auto-discovers peers on local network when you Listen
+- Peers are automatically connected when discovered
+
+**GossipSub (via Sync):**
+- Topics broadcast state changes to all subscribers
+- Retry with exponential backoff (1s, 2s, 4s, 8s, 16s)
+
+**File Transfer:**
+- FileSipper for chunked transfers (1 MB chunks)
+- FileManifest with SHA256 hashes for verification
+- Enables resumable transfers
 
 ### Security
 
@@ -62400,6 +63545,15 @@ impl LogosContains<char> for String {
     }
 }
 
+// Phase 49b: LogosContains for CRDT ORSet
+impl<T: Eq + Hash + Clone, B: crate::crdt::SetBias> LogosContains<T>
+    for crate::crdt::ORSet<T, B>
+{
+    fn logos_contains(&self, value: &T) -> bool {
+        self.contains(value)
+    }
+}
+
 /// Dynamic value type for heterogeneous collections (tuples)
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -63220,7 +64374,7 @@ pub use pncounter::PNCounter;
 pub use mvregister::MVRegister;
 
 // Wave 3: Export complex CRDTs
-pub use orset::{AddWins, ORSet, RemoveWins};
+pub use orset::{AddWins, ORSet, RemoveWins, SetBias};
 pub use ormap::ORMap;
 pub use sequence::{RGA, YATA};
 
@@ -69517,6 +70671,16 @@ fn requires_vfs_stmt(stmt: &Stmt) -> bool {
     }
 }
 
+/// Phase 49b: Extract root identifier from expression for mutability analysis.
+/// Works with both simple identifiers and field accesses.
+fn get_root_identifier_for_mutability(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => get_root_identifier_for_mutability(object),
+        _ => None,
+    }
+}
+
 /// Grand Challenge: Collect all variables that need `let mut` in Rust.
 /// This includes:
 /// - Variables that are targets of `Set` statements (reassignment)
@@ -69548,15 +70712,15 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
             }
         }
         Stmt::Add { collection, .. } => {
-            // If collection is an identifier (Set), it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier (Set) or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::Remove { collection, .. } => {
-            // If collection is an identifier (Set), it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier (Set) or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::SetIndex { collection, .. } => {
@@ -69594,6 +70758,29 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             for s in *tasks {
                 collect_mutable_vars_stmt(s, targets);
+            }
+        }
+        // Phase 49b: CRDT operations require mutable access
+        Stmt::IncreaseCrdt { object, .. } | Stmt::DecreaseCrdt { object, .. } => {
+            // Extract root variable from field access (e.g., g.score -> g)
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
+            }
+        }
+        Stmt::AppendToSequence { sequence, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(sequence) {
+                targets.insert(sym);
+            }
+        }
+        Stmt::ResolveConflict { object, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
+            }
+        }
+        // Phase 49b: SetField on MVRegister/LWWRegister uses .set() which requires &mut self
+        Stmt::SetField { object, .. } => {
+            if let Some(sym) = get_root_identifier_for_mutability(object) {
+                targets.insert(sym);
             }
         }
         _ => {}
@@ -69701,8 +70888,8 @@ fn codegen_policy_condition(condition: &PolicyCondition, interner: &Interner) ->
     }
 }
 
-/// Collect LWWRegister field paths for special handling in SetField codegen.
-/// Returns a set of (type_name, field_name) pairs where the field is an LWWRegister.
+/// Collect LWWRegister and MVRegister field paths for special handling in SetField codegen.
+/// Returns a set of (type_name, field_name) pairs where the field uses .set() method.
 fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String)> {
     let mut lww_fields = HashSet::new();
     for (type_sym, def) in registry.iter_types() {
@@ -69711,7 +70898,8 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
             for field in fields {
                 if let FieldType::Generic { base, .. } = &field.ty {
                     let base_name = interner.resolve(*base);
-                    if base_name == "LastWriteWins" {
+                    // Phase 49b: Both LWWRegister and MVRegister (Divergent) use .set()
+                    if base_name == "LastWriteWins" || base_name == "Divergent" || base_name == "MVRegister" {
                         let field_name = interner.resolve(field.name).to_string();
                         lww_fields.insert((type_name.clone(), field_name));
                     }
@@ -70234,8 +71422,8 @@ fn is_crdt_field_type(ty: &FieldType, interner: &Interner) -> bool {
             let name = interner.resolve(*base);
             matches!(name,
                 "LastWriteWins" | "LWWRegister" |
-                "SharedSet" | "ORSet" |
-                "SharedSequence" | "RGA" |
+                "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" |
+                "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" |
                 "SharedMap" | "ORMap" |
                 "Divergent" | "MVRegister"
             )
@@ -70317,7 +71505,28 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
             }
         }
         FieldType::Generic { base, params } => {
-            let base_str = match interner.resolve(*base) {
+            let base_name = interner.resolve(*base);
+            let param_strs: Vec<String> = params.iter()
+                .map(|p| codegen_field_type(p, interner))
+                .collect();
+
+            // Phase 49c: Handle CRDT types with bias/algorithm modifiers
+            match base_name {
+                // SharedSet with explicit bias
+                "SharedSet_RemoveWins" => {
+                    return format!("logos_core::crdt::ORSet<{}, logos_core::crdt::RemoveWins>", param_strs.join(", "));
+                }
+                "SharedSet_AddWins" => {
+                    return format!("logos_core::crdt::ORSet<{}, logos_core::crdt::AddWins>", param_strs.join(", "));
+                }
+                // SharedSequence with YATA algorithm
+                "SharedSequence_YATA" | "CollaborativeSequence" => {
+                    return format!("logos_core::crdt::YATA<{}>", param_strs.join(", "));
+                }
+                _ => {}
+            }
+
+            let base_str = match base_name {
                 "List" | "Seq" => "Vec",
                 "Set" => "std::collections::HashSet",
                 "Map" => "std::collections::HashMap",
@@ -70325,16 +71534,13 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logos_core::crdt::LWWRegister",
-                // Phase 49b: New CRDT generic types (Wave 5)
+                // Phase 49b: New CRDT generic types (Wave 5) - default to AddWins for ORSet
                 "SharedSet" | "ORSet" => "logos_core::crdt::ORSet",
                 "SharedSequence" | "RGA" => "logos_core::crdt::RGA",
                 "SharedMap" | "ORMap" => "logos_core::crdt::ORMap",
                 "Divergent" | "MVRegister" => "logos_core::crdt::MVRegister",
                 other => other,
             };
-            let param_strs: Vec<String> = params.iter()
-                .map(|p| codegen_field_type(p, interner))
-                .collect();
             format!("{}<{}>", base_str, param_strs.join(", "))
         }
         // Phase 34: Type parameter reference (T, U, etc.)
@@ -71813,33 +73019,81 @@ logos_core = {{ path = "./logos_core" }}
     Ok(())
 }
 
-/// Copy the embedded logos_core crate to the output directory.
+/// Copy the logos_core crate to the output directory.
+/// This recursively copies the entire crate including all modules.
 pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
-    let core_dir = output_dir.join("logos_core");
-    let src_dir = core_dir.join("src");
+    let dest_dir = output_dir.join("logos_core");
 
-    fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+    // Find the logos_core source directory relative to the CARGO_MANIFEST_DIR
+    // or use the embedded constants as fallback
+    let source_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(|d| Path::new(&d).join("logos_core"))
+        .ok()
+        .filter(|p| p.exists());
 
-    fs::write(core_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    // Phase 38: Write standard library modules
-    fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    // Phase 8.5: Zone-based memory management
-    fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
+    if let Some(src) = source_dir {
+        // Recursively copy the actual logos_core directory
+        copy_dir_recursive(&src, &dest_dir)?;
+    } else {
+        // Fallback to embedded files for distribution builds
+        let src_dir = dest_dir.join("src");
+        fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+
+        fs::write(dest_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
+/// Recursively copy a directory.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
+    fs::create_dir_all(dst).map_err(|e| CompileError::Io(e.to_string()))?;
+
+    for entry in fs::read_dir(src).map_err(|e| CompileError::Io(e.to_string()))? {
+        let entry = entry.map_err(|e| CompileError::Io(e.to_string()))?;
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+
+        // Skip target directory and other build artifacts
+        if file_name == "target" || file_name == ".git" {
+            continue;
+        }
+
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if file_name == "Cargo.toml" {
+            // Special handling for Cargo.toml: remove [workspace] line
+            // which can interfere with nested crate dependencies
+            let content = fs::read_to_string(&src_path)
+                .map_err(|e| CompileError::Io(e.to_string()))?;
+            let filtered: String = content
+                .lines()
+                .filter(|line| !line.trim().starts_with("[workspace]"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            fs::write(&dst_path, filtered).map_err(|e| CompileError::Io(e.to_string()))?;
+        } else {
+            fs::copy(&src_path, &dst_path).map_err(|e| CompileError::Io(e.to_string()))?;
+        }
+    }
 
     Ok(())
 }
@@ -72734,6 +73988,20 @@ impl Drs {
             }
         }
         result
+    }
+
+    /// Get the most recent event referent (for binding weather adjectives to events)
+    pub fn get_last_event_referent(&self, interner: &crate::intern::Interner) -> Option<Symbol> {
+        // Search all boxes in reverse order for event referents
+        for drs_box in self.boxes.iter().rev() {
+            for referent in drs_box.universe.iter().rev() {
+                let class_str = interner.resolve(referent.noun_class);
+                if class_str == "Event" {
+                    return Some(referent.variable);
+                }
+            }
+        }
+        None
     }
 
     /// Check if we're currently in a conditional antecedent
@@ -77878,6 +79146,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "No" => "crate::token::TokenType::No",
             "Some" => "crate::token::TokenType::Some",
             "Any" => "crate::token::TokenType::Any",
+            "Both" => "crate::token::TokenType::Both",
             "Most" => "crate::token::TokenType::Most",
             "Few" => "crate::token::TokenType::Few",
             "Many" => "crate::token::TokenType::Many",
@@ -78735,11 +80004,11 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Thu Jan  1 04:41:01 CST 2026
+- **Generated:** Fri Jan  2 11:37:24 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 5d63949
-- **Documentation Size:** 2.7M
+- **Git Commit:** 5e6d70f
+- **Documentation Size:** 3.0M
 
 ---
 

@@ -71,11 +71,17 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     self.advance(); // consume the weather verb
 
                     let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
                         modifiers: self.ctx.syms.alloc_slice(vec![]),
+                        suppress_existential,
                     })));
 
                     return Ok(match verb_time {
@@ -91,6 +97,31 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     });
                 }
             }
+        }
+
+        // Weather adjective + expletive "it" detection: "it is wet" → Wet
+        // Also handle "it's wet" where 's is Possessive token
+        if subject_str == "it" && (self.check(&TokenType::Is) || self.check(&TokenType::Was) || self.check(&TokenType::Possessive)) {
+            let saved_pos = self.current;
+            self.advance(); // consume copula
+
+            if self.check_content_word() {
+                let adj_lexeme = self.peek().lexeme;
+                let adj_str = self.interner.resolve(adj_lexeme).to_lowercase();
+
+                if let Some(meta) = crate::lexicon::lookup_adjective_db(&adj_str) {
+                    if meta.features.contains(&crate::lexicon::Feature::Weather) {
+                        let adj_sym = self.consume_content_word().unwrap_or(adj_lexeme);
+                        // Atmospheric predicate: "it is wet" → Wet
+                        return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                            name: adj_sym,
+                            args: self.ctx.terms.alloc_slice([]),
+                        }));
+                    }
+                }
+            }
+            // Not a weather adjective, restore position
+            self.current = saved_pos;
         }
 
         if self.check(&TokenType::Never) {
@@ -178,11 +209,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                             };
 
                             let event_var = self.get_event_var();
+                            let suppress_existential = self.drs.in_conditional_antecedent();
                             let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var,
                                 verb: template.verb,
                                 roles: self.ctx.roles.alloc_slice(roles),
                                 modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                                suppress_existential,
                             })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -198,6 +231,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                                     (ThematicRole::Theme, Term::Proposition(question)),
                                 ]),
                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                suppress_existential,
                             })));
 
                             let result = if is_negated {
@@ -218,12 +252,14 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term.clone())];
                 let modifiers: Vec<Symbol> = vec![];
                 let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
 
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 if is_negated {
@@ -407,6 +443,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     }
 
                     let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
                     let effective_time = self.pending_time.take().unwrap_or(Time::None);
                     let mut modifiers = Vec::new();
                     match effective_time {
@@ -420,6 +457,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     self.negative_depth -= 1;
@@ -529,11 +567,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         };
 
                         let event_var = self.get_event_var();
+                        let suppress_existential = self.drs.in_conditional_antecedent();
                         let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
                             verb: template.verb,
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
+                            suppress_existential,
                         })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -549,6 +589,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                                 (ThematicRole::Theme, Term::Proposition(question)),
                             ]),
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
+                            suppress_existential,
                         })));
 
                         return Ok(know_event);
@@ -562,6 +603,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     body: embedded,
                 });
 
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var: self.get_event_var(),
                     verb,
@@ -570,6 +612,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         (ThematicRole::Theme, Term::Proposition(question)),
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
 
                 return Ok(know_event);
@@ -657,11 +700,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                         (ThematicRole::Theme, Term::Variable(obj_var)),
                     ];
 
+                    let suppress_existential = self.drs.in_conditional_antecedent();
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let obj_kind = match obj_q {
@@ -739,11 +784,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     let pp_obj_term = Term::Constant(pp_obj.noun);
 
                     let roles = vec![(ThematicRole::Agent, subject_term)];
+                    let suppress_existential = self.drs.in_conditional_antecedent();
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
                         verb,
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
                     })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -774,11 +821,13 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     (ThematicRole::Theme, focused_term),
                 ];
 
+                let suppress_existential = self.drs.in_conditional_antecedent();
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
+                    suppress_existential,
                 })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
@@ -1002,11 +1051,17 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             }
 
             let event_var = self.get_event_var();
+            let suppress_existential = self.drs.in_conditional_antecedent();
+            if suppress_existential {
+                let event_class = self.interner.intern("Event");
+                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+            }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
                 verb,
                 roles: self.ctx.roles.alloc_slice(roles.clone()),
                 modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
+                suppress_existential,
             })));
 
             // Capture template for ellipsis reconstruction
@@ -1092,6 +1147,65 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             } else {
                 break;
             }
+        }
+
+        // Check for copula (is/are/was/were) with predicate nominative
+        // "Both Socrates and Plato are men" -> M(s) ∧ M(p)
+        if self.check(&TokenType::Is) || self.check(&TokenType::Are)
+            || self.check(&TokenType::Was) || self.check(&TokenType::Were)
+        {
+            let copula_time = if self.check(&TokenType::Was) || self.check(&TokenType::Were) {
+                Time::Past
+            } else {
+                Time::Present
+            };
+            self.advance(); // consume the copula
+
+            // Parse the predicate nominative (e.g., "men" in "are men")
+            if !self.check_content_word() && !self.check_article() {
+                self.current = saved_pos;
+                return Ok(None);
+            }
+
+            let predicate_np = match self.parse_noun_phrase(false) {
+                Ok(np) => np,
+                Err(_) => {
+                    self.current = saved_pos;
+                    return Ok(None);
+                }
+            };
+            let predicate = predicate_np.noun;
+
+            // Build distributed predicate: P(s1) ∧ P(s2) ∧ ...
+            let mut conjuncts: Vec<&'a LogicExpr<'a>> = Vec::new();
+            for subj in &subjects {
+                let pred_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                    name: predicate,
+                    args: self.ctx.terms.alloc_slice([Term::Constant(*subj)]),
+                });
+                conjuncts.push(pred_expr);
+            }
+
+            // Fold conjuncts into binary conjunction tree
+            let mut result = conjuncts[0];
+            for conjunct in &conjuncts[1..] {
+                result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: result,
+                    op: TokenType::And,
+                    right: *conjunct,
+                });
+            }
+
+            // Apply temporal modifier for past tense
+            let with_time = match copula_time {
+                Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Past,
+                    body: result,
+                }),
+                _ => result,
+            };
+
+            return Ok(Some(with_time));
         }
 
         if !self.check_verb() {
@@ -1197,6 +1311,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
 
             // Build pairwise predicates: See(J,T) ∧ See(M,J) ∧ ...
             let mut conjuncts: Vec<&'a LogicExpr<'a>> = Vec::new();
+            let suppress_existential = self.drs.in_conditional_antecedent();
             for (subj, obj) in subjects.iter().zip(objects.iter()) {
                 let event_var = self.get_event_var();
                 let roles = vec![
@@ -1208,6 +1323,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     verb,
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
                 })));
                 conjuncts.push(neo_event);
             }

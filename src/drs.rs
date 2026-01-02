@@ -286,6 +286,20 @@ impl Drs {
         result
     }
 
+    /// Get the most recent event referent (for binding weather adjectives to events)
+    pub fn get_last_event_referent(&self, interner: &crate::intern::Interner) -> Option<Symbol> {
+        // Search all boxes in reverse order for event referents
+        for drs_box in self.boxes.iter().rev() {
+            for referent in drs_box.universe.iter().rev() {
+                let class_str = interner.resolve(referent.noun_class);
+                if class_str == "Event" {
+                    return Some(referent.variable);
+                }
+            }
+        }
+        None
+    }
+
     /// Check if we're currently in a conditional antecedent
     pub fn in_conditional_antecedent(&self) -> bool {
         matches!(

@@ -6,7 +6,7 @@ mod common;
 use common::run_logos;
 
 #[test]
-fn map_create_empty() {
+fn e2e_map_create_empty() {
     let source = r#"
 ## Main
 Let prices be a new Map of Text to Int.
@@ -17,7 +17,7 @@ Show "ok".
 }
 
 #[test]
-fn map_set_and_get() {
+fn e2e_map_set_and_get() {
     let source = r#"
 ## Main
 Let mut prices be a new Map of Text to Int.
@@ -30,7 +30,7 @@ Show cost.
 }
 
 #[test]
-fn map_multiple_keys() {
+fn e2e_map_multiple_keys() {
     let source = r#"
 ## Main
 Let mut inventory be a new Map of Text to Int.
@@ -45,7 +45,7 @@ Show total.
 }
 
 #[test]
-fn map_overwrite_key() {
+fn e2e_map_overwrite_key() {
     let source = r#"
 ## Main
 Let mut prices be a new Map of Text to Int.
@@ -59,7 +59,7 @@ Show cost.
 }
 
 #[test]
-fn map_with_text_values() {
+fn e2e_map_with_text_values() {
     let source = r#"
 ## Main
 Let mut names be a new Map of Text to Text.
@@ -72,7 +72,7 @@ Show name.
 }
 
 #[test]
-fn map_bracket_get() {
+fn e2e_map_bracket_get() {
     let source = r#"
 ## Main
 Let mut prices be a new Map of Text to Int.
@@ -85,7 +85,7 @@ Show cost.
 }
 
 #[test]
-fn map_bracket_set() {
+fn e2e_map_bracket_set() {
     let source = r#"
 ## Main
 Let mut prices be a new Map of Text to Int.
@@ -99,7 +99,7 @@ Show cost.
 }
 
 #[test]
-fn map_mixed_syntax() {
+fn e2e_map_mixed_syntax() {
     let source = r#"
 ## Main
 Let mut inventory be a new Map of Text to Int.

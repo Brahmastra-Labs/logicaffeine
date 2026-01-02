@@ -1636,6 +1636,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     verb: data.verb,
                     roles: self.ctx.roles.alloc_slice(new_roles),
                     modifiers: data.modifiers,
+                    suppress_existential: data.suppress_existential,
                 }))))
             }
             LogicExpr::Distributive { predicate } => Ok(self.ctx.exprs.alloc(LogicExpr::Distributive {

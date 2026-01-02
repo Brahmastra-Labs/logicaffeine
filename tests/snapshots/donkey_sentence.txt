@@ -1,1 +1,1 @@
-∀y(∀x(((F(x) ∧ (D(y) ∧ O(x, y))) → B(x, y))))
+∀y(∀x(((Farmer(x) ∧ (Donkey(y) ∧ Own(x, y))) → Beat(x, y))))

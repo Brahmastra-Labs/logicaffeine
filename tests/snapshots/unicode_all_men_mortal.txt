@@ -1,1 +1,1 @@
-∀x((M(x) → M2(x)))
+∀x((Men(x) → Mortal(x)))
