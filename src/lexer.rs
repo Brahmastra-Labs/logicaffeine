@@ -1246,13 +1246,15 @@ impl<'a> Lexer<'a> {
                     return TokenType::ProperName(sym);
                 }
 
-                // If next word is a verb (like "has", "is", "ran"), A is likely a name
+                // If next word is ONLY a verb (like "has", "is", "ran"), A is likely a name
                 // Exception: gerunds (like "running") can follow articles
                 // Exception: words in disambiguation_not_verbs (like "red") are not verbs
+                // Exception: words that are also nouns/adjectives (like "fire") can follow articles
                 let is_verb = self.lexicon.lookup_verb(&next_lower).is_some()
                     && !lexicon::is_disambiguation_not_verb(&next_lower);
                 let is_gerund = next_lower.ends_with("ing");
-                if is_verb && !is_gerund {
+                let is_also_noun_or_adj = self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
+                if is_verb && !is_gerund && !is_also_noun_or_adj {
                     let sym = self.interner.intern(word);
                     return TokenType::ProperName(sym);
                 }
