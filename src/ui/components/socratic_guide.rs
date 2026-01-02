@@ -3,45 +3,33 @@ use dioxus::prelude::*;
 const GUIDE_STYLE: &str = r#"
 .socratic-guide {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 16px 20px;
-    background: rgba(255, 255, 255, 0.03);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 60px;
-}
-
-.guide-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
+    gap: 12px;
+    padding: 12px 20px;
+    background: transparent;
+    min-height: 44px;
 }
 
 .guide-content {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
 }
 
 .guide-label {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: #667eea;
+    white-space: nowrap;
 }
 
 .guide-message {
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.5;
-    color: #c8c8c8;
+    color: #e0e0e0;
 }
 
 .guide-message.error {
@@ -61,7 +49,7 @@ const GUIDE_STYLE: &str = r#"
     background: rgba(255, 255, 255, 0.08);
     padding: 2px 6px;
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 15px;
 }
 
 .guide-actions {
@@ -127,11 +115,9 @@ pub fn SocraticGuide(
             return rsx! {
                 style { "{GUIDE_STYLE}" }
                 div { class: "socratic-guide",
-                    div { class: "guide-avatar", "\u{1F989}" }
                     div { class: "guide-content",
-                        div { class: "guide-label", "Socrates" }
                         div { class: "guide-message guide-empty",
-                            "Type a sentence to begin your journey into logic..."
+                            "Type an English sentence to translate it to First-Order Logic"
                         }
                     }
                 }
@@ -147,7 +133,6 @@ pub fn SocraticGuide(
         style { "{GUIDE_STYLE}" }
 
         div { class: "socratic-guide",
-            div { class: "guide-avatar", "\u{1F989}" }
             div { class: "guide-content",
                 div { class: "guide-label", "{label}" }
                 div { class: "{message_class}",

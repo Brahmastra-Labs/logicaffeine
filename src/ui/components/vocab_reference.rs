@@ -13,15 +13,15 @@ const VOCAB_REFERENCE_STYLE: &str = r#"
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    background: #667eea;
     border: none;
-    color: #060814;
+    color: #fff;
     font-size: 24px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 20px rgba(96, 165, 250, 0.3);
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     z-index: 1000;
 }
@@ -36,16 +36,32 @@ const VOCAB_REFERENCE_STYLE: &str = r#"
     color: var(--text-primary);
 }
 
+/* Attention animation - pulses after delay */
+.vocab-reference-toggle.attention {
+    animation: attentionPulse 2s ease-in-out 3;
+}
+
+@keyframes attentionPulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+    }
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 6px 30px rgba(102, 126, 234, 0.6);
+    }
+}
+
 .vocab-reference-panel {
     position: fixed;
     bottom: 84px;
     right: 24px;
     width: 360px;
     max-height: 70vh;
-    background: linear-gradient(180deg, #0d1424 0%, #0a0f1a 100%);
+    background: #12161c;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: var(--radius-xl);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 30px rgba(96, 165, 250, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     z-index: 999;
     overflow: hidden;
     animation: slideUp 0.2s ease;
@@ -324,6 +340,19 @@ pub struct VocabReferenceProps {
 pub fn VocabReference(props: VocabReferenceProps) -> Element {
     let mut is_open = use_signal(|| props.initial_open);
     let mut search_query = use_signal(|| String::new());
+    let mut show_attention = use_signal(|| false);
+
+    // Trigger attention animation after 10 seconds if not opened
+    use_effect(move || {
+        spawn(async move {
+            // Wait 10 seconds
+            gloo_timers::future::TimeoutFuture::new(10_000).await;
+            // Only show attention if panel hasn't been opened
+            if !*is_open.peek() {
+                show_attention.set(true);
+            }
+        });
+    });
 
     let symbols = get_symbols();
     let vocab_terms = get_vocab_terms();
@@ -359,10 +388,22 @@ pub fn VocabReference(props: VocabReferenceProps) -> Element {
 
         // Toggle button
         button {
-            class: if *is_open.read() { "vocab-reference-toggle active" } else { "vocab-reference-toggle" },
+            class: {
+                let open = *is_open.read();
+                let attention = *show_attention.read();
+                if open {
+                    "vocab-reference-toggle active"
+                } else if attention {
+                    "vocab-reference-toggle attention"
+                } else {
+                    "vocab-reference-toggle"
+                }
+            },
             onclick: move |_| {
                 let current = *is_open.read();
                 is_open.set(!current);
+                // Stop attention animation once clicked
+                show_attention.set(false);
             },
             title: "Symbol & Vocabulary Reference",
             if *is_open.read() { "×" } else { "📖" }

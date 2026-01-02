@@ -2114,20 +2114,20 @@ Code Generation:                      1775 lines
 Semantics (lambda, context, view):    2880 lines
 Type Analysis (analysis/):            2069 lines
 Support Infrastructure:               4322 lines
-Desktop UI:                              15246 lines
+Desktop UI:                              17882 lines
 Entry Point:                                16 lines
 ```
 
 ### Totals
 ```
-Source lines:        51560
-Test lines:          16508
-Total Rust lines: 68068
+Source lines:        54310
+Test lines:          16509
+Total Rust lines: 70819
 ```
 
 ### File Counts
 ```
-Source files: 119
+Source files: 122
 Test files:   106
 ```
 ## Lexicon Data
@@ -37211,9 +37211,514 @@ pub mod hooks;
 pub mod router;
 pub mod pages;
 pub mod theme;
+pub mod responsive;
 
 pub use app::App;
 pub use theme::{colors, font_size, font_family, spacing, radius};
+pub use responsive::{breakpoints, media, touch};
+
+```
+
+---
+
+### UI: responsive
+
+**File:** `src/ui/responsive.rs`
+
+UI module built with Dioxus 0.6.
+
+```rust
+/// Unified responsive and mobile styling system for Logicaffeine.
+///
+/// This module centralizes all mobile/responsive concerns:
+/// - Breakpoint definitions
+/// - Touch target standards
+/// - Mobile-specific CSS utilities
+/// - Reusable mobile component styles (tabs, bottom sheets, etc.)
+///
+/// Usage: Import this module and include `MOBILE_BASE_STYLES` in your root component,
+/// then use the provided class names and CSS variables throughout.
+
+// =============================================================================
+// BREAKPOINTS
+// =============================================================================
+
+/// Standard breakpoint values used across the application
+pub mod breakpoints {
+    /// Extra small devices (phones in portrait)
+    pub const XS: &str = "480px";
+    /// Small devices (phones in landscape, small tablets)
+    pub const SM: &str = "640px";
+    /// Medium devices (tablets)
+    pub const MD: &str = "768px";
+    /// Large devices (small laptops)
+    pub const LG: &str = "1024px";
+    /// Extra large devices (desktops)
+    pub const XL: &str = "1280px";
+}
+
+/// Media query helpers - use these in your CSS strings
+pub mod media {
+    pub const MOBILE: &str = "@media (max-width: 768px)";
+    pub const TABLET: &str = "@media (min-width: 769px) and (max-width: 1024px)";
+    pub const DESKTOP: &str = "@media (min-width: 1025px)";
+    pub const MOBILE_LANDSCAPE: &str = "@media (max-height: 500px) and (orientation: landscape)";
+    pub const TOUCH_DEVICE: &str = "@media (hover: none) and (pointer: coarse)";
+    pub const REDUCED_MOTION: &str = "@media (prefers-reduced-motion: reduce)";
+}
+
+// =============================================================================
+// TOUCH TARGETS
+// =============================================================================
+
+/// WCAG 2.5 compliant touch target sizes
+pub mod touch {
+    /// Minimum touch target size (44x44px per WCAG 2.5)
+    pub const MIN_TARGET: &str = "44px";
+    /// Comfortable touch target size
+    pub const COMFORTABLE_TARGET: &str = "48px";
+    /// Large touch target for primary actions
+    pub const LARGE_TARGET: &str = "56px";
+}
+
+// =============================================================================
+// BASE MOBILE STYLES
+// =============================================================================
+
+/// Include this in your root component (app.rs) for global mobile utilities
+pub const MOBILE_BASE_STYLES: &str = r#"
+/* ============================================ */
+/* MOBILE CSS VARIABLES                         */
+/* ============================================ */
+:root {
+    /* Touch targets */
+    --touch-min: 44px;
+    --touch-comfortable: 48px;
+    --touch-large: 56px;
+
+    /* Mobile spacing */
+    --mobile-padding: 12px;
+    --mobile-gap: 8px;
+
+    /* Safe area insets for notched devices */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ============================================ */
+/* MOBILE UTILITY CLASSES                       */
+/* ============================================ */
+
+/* Hide on mobile, show on desktop */
+.desktop-only {
+    display: block;
+}
+
+/* Show on mobile, hide on desktop */
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .desktop-only {
+        display: none !important;
+    }
+    .mobile-only {
+        display: block !important;
+    }
+    .mobile-only-flex {
+        display: flex !important;
+    }
+}
+
+/* Touch-friendly button base */
+.touch-target {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+/* Safe area padding utilities */
+.safe-top {
+    padding-top: max(var(--mobile-padding), var(--safe-top));
+}
+
+.safe-bottom {
+    padding-bottom: max(var(--mobile-padding), var(--safe-bottom));
+}
+
+.safe-horizontal {
+    padding-left: max(var(--mobile-padding), var(--safe-left));
+    padding-right: max(var(--mobile-padding), var(--safe-right));
+}
+
+/* Smooth scrolling with momentum on iOS */
+.scroll-smooth {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+}
+
+/* Prevent text selection on interactive elements */
+.no-select {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE TAB BAR COMPONENT STYLES
+// =============================================================================
+
+/// Reusable mobile tab bar styles - use for any tabbed interface on mobile
+pub const MOBILE_TAB_BAR_STYLES: &str = r#"
+/* Mobile Tab Bar Container */
+.mobile-tabs {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobile-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 8px var(--mobile-padding, 12px);
+        background: rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-shrink: 0;
+        /* Hide scrollbar but keep functionality */
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .mobile-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Individual Tab Button */
+    .mobile-tab {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 8px;
+        border: none;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #888;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-height: var(--touch-min, 44px);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-tab-icon {
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .mobile-tab-label {
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    .mobile-tab:active {
+        background: rgba(255, 255, 255, 0.15);
+        transform: scale(0.97);
+    }
+
+    .mobile-tab.active {
+        background: rgba(102, 126, 234, 0.25);
+        color: #e8e8e8;
+        border: 1px solid rgba(102, 126, 234, 0.4);
+    }
+
+    /* Tab indicator dots (optional, for swipe hint) */
+    .mobile-tab-indicator {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .mobile-tab-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        transition: all 0.2s ease;
+    }
+
+    .mobile-tab-dot.active {
+        background: #667eea;
+        width: 18px;
+        border-radius: 3px;
+    }
+}
+
+/* Landscape mobile - horizontal tab layout */
+@media (max-height: 500px) and (orientation: landscape) {
+    .mobile-tabs {
+        padding: 4px 8px;
+    }
+
+    .mobile-tab {
+        padding: 6px 12px;
+        flex-direction: row;
+        gap: 6px;
+        min-height: 36px;
+    }
+
+    .mobile-tab-icon {
+        font-size: 16px;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE PANEL STYLES
+// =============================================================================
+
+/// Styles for switchable panel content (used with mobile tabs)
+pub const MOBILE_PANEL_STYLES: &str = r#"
+/* Desktop: show all panels side by side */
+.panel-container {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.panel-content {
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+    .panel-container {
+        flex-direction: column;
+        position: relative;
+    }
+
+    /* On mobile, panels stack and only active one shows */
+    .panel {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+        min-width: unset;
+    }
+
+    .panel.panel-active {
+        position: relative;
+        flex: 1;
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Panel headers hidden on mobile (tabs replace them) */
+    .panel .panel-header {
+        display: none;
+    }
+
+    /* But show header for active panel if it has controls */
+    .panel.panel-active .panel-header.has-controls {
+        display: flex;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE BUTTON STYLES
+// =============================================================================
+
+/// Mobile-optimized button styles with proper touch targets
+pub const MOBILE_BUTTON_STYLES: &str = r#"
+@media (max-width: 768px) {
+    /* Ensure all buttons meet touch target requirements */
+    button,
+    .btn,
+    [role="button"] {
+        min-height: var(--touch-min, 44px);
+        min-width: var(--touch-min, 44px);
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+
+    /* Toggle button groups */
+    .toggle-group {
+        gap: 6px;
+        padding: 4px;
+        border-radius: 8px;
+    }
+
+    .toggle-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        min-height: var(--touch-min, 44px);
+        min-width: var(--touch-min, 44px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Small icon buttons */
+    .icon-btn {
+        width: var(--touch-min, 44px);
+        height: var(--touch-min, 44px);
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .icon-btn svg,
+    .icon-btn .icon {
+        width: 20px;
+        height: 20px;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE INPUT STYLES
+// =============================================================================
+
+/// Mobile-optimized form input styles
+pub const MOBILE_INPUT_STYLES: &str = r#"
+@media (max-width: 768px) {
+    /* Text inputs and textareas */
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="search"],
+    textarea {
+        font-size: 16px; /* Prevents iOS zoom on focus */
+        min-height: var(--touch-min, 44px);
+        padding: 12px 16px;
+        border-radius: 10px;
+    }
+
+    textarea {
+        min-height: 120px;
+        resize: vertical;
+    }
+
+    /* Labels above inputs */
+    label {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+
+    /* Form groups */
+    .form-group {
+        margin-bottom: 16px;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE RESIZER ALTERNATIVE
+// =============================================================================
+
+/// On mobile, hide desktop resizers entirely
+pub const MOBILE_RESIZER_STYLES: &str = r#"
+.panel-resizer {
+    width: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    cursor: col-resize;
+    transition: background 0.2s ease;
+    flex-shrink: 0;
+}
+
+.panel-resizer:hover,
+.panel-resizer.active {
+    background: rgba(102, 126, 234, 0.5);
+}
+
+@media (max-width: 768px) {
+    .panel-resizer {
+        display: none;
+    }
+}
+"#;
+
+// =============================================================================
+// COMBINED MOBILE STYLES
+// =============================================================================
+
+/// All mobile styles combined - include this for a complete mobile solution
+pub fn all_mobile_styles() -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        MOBILE_BASE_STYLES,
+        MOBILE_TAB_BAR_STYLES,
+        MOBILE_PANEL_STYLES,
+        MOBILE_BUTTON_STYLES,
+        MOBILE_INPUT_STYLES,
+        MOBILE_RESIZER_STYLES,
+    )
+}
+
+/// Generate a complete mobile-ready style block for a page
+/// This combines the base mobile utilities with any page-specific styles
+pub fn with_mobile_styles(page_styles: &str) -> String {
+    format!("{}\n{}", MOBILE_BASE_STYLES, page_styles)
+}
 
 ```
 
@@ -37227,7 +37732,7 @@ Dioxus Router with routes: / (Home), /pricing (Pricing), /studio (Studio), /lear
 
 ```rust
 use dioxus::prelude::*;
-use crate::ui::pages::{Home, Landing, Learn, Pricing, Privacy, Roadmap, Success, Terms, Workspace, Studio, Guide};
+use crate::ui::pages::{Home, Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 #[derive(Clone, Routable, Debug, PartialEq)]
@@ -37263,6 +37768,9 @@ pub enum Route {
     // Replaces: /lesson/:era/:module/:mode and /review
     #[route("/learn")]
     Learn {},
+
+    #[route("/profile")]
+    Profile {},
 
     #[route("/workspace/:subject")]
     Workspace { subject: String },
@@ -39380,15 +39888,18 @@ use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::learn_sidebar::{LearnSidebar, ModuleInfo};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
+use crate::ui::components::vocab_reference::VocabReference;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::pages::guide::content::ExampleMode;
 use crate::content::ContentEngine;
 use crate::generator::{Generator, AnswerType, Challenge};
 use crate::grader::check_answer;
-use crate::struggle::{StruggleDetector, StruggleReason};
+use crate::struggle::StruggleDetector;
+use crate::unlock::check_module_unlocked;
+use crate::progress::UserProgress;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 const LEARN_STYLE: &str = r#"
 .learn-page {
@@ -39532,6 +40043,43 @@ const LEARN_STYLE: &str = r#"
     border-color: rgba(255,255,255,0.12);
 }
 
+.learn-module-card.locked {
+    opacity: 0.6;
+    cursor: not-allowed;
+    position: relative;
+}
+
+.learn-module-card.locked:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.08);
+}
+
+.learn-module-card.locked::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--radius-xl);
+    pointer-events: none;
+}
+
+.locked-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: rgba(251, 146, 60, 0.15);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+    border-radius: var(--radius-full);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: #fb923c;
+}
+
+.locked-badge-icon {
+    font-size: 12px;
+}
+
 .learn-module-header {
     display: flex;
     justify-content: space-between;
@@ -39670,6 +40218,381 @@ const LEARN_STYLE: &str = r#"
     border-top: 1px solid rgba(255,255,255,0.08);
 }
 
+/* Mode selector inline card header */
+.mode-selector-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--spacing-xl);
+    padding: var(--spacing-lg);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+}
+
+.mode-selector-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.mode-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    border: 1px solid transparent;
+    background: rgba(255,255,255,0.05);
+    color: var(--text-secondary);
+}
+
+.mode-tab-btn:hover {
+    background: rgba(255,255,255,0.08);
+    color: var(--text-primary);
+}
+
+.mode-tab-btn.active {
+    background: linear-gradient(135deg, rgba(96,165,250,0.2), rgba(167,139,250,0.2));
+    border-color: rgba(96,165,250,0.3);
+    color: var(--color-accent-blue);
+}
+
+.mode-tab-btn.test {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+}
+
+.mode-stats {
+    display: flex;
+    gap: var(--spacing-lg);
+}
+
+.mode-stat {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    font-size: var(--font-body-sm);
+}
+
+.mode-stat-value {
+    font-weight: 700;
+    color: var(--color-accent-blue);
+}
+
+.mode-stat-value.streak {
+    color: #fbbf24;
+}
+
+.mode-stat-label {
+    color: var(--text-tertiary);
+}
+
+.combo-multiplier {
+    font-weight: 700;
+    color: #4ade80;
+    margin-left: 2px;
+}
+
+.mode-stat.combo {
+    background: rgba(251, 191, 36, 0.1);
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+/* Content tab selector */
+.content-tabs {
+    display: flex;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xl);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    padding-bottom: var(--spacing-md);
+}
+
+.content-tab-btn {
+    padding: 8px 16px;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    border: none;
+    background: transparent;
+    color: var(--text-tertiary);
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+}
+
+.content-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.content-tab-btn.active {
+    color: var(--color-accent-blue);
+    border-bottom-color: var(--color-accent-blue);
+}
+
+/* Practice tab - green accent */
+.content-tab-btn.practice {
+    color: var(--color-success);
+}
+
+.content-tab-btn.practice:hover {
+    color: var(--color-success);
+    background: rgba(74, 222, 128, 0.08);
+}
+
+.content-tab-btn.practice.active {
+    color: var(--color-success);
+    border-bottom-color: var(--color-success);
+    background: rgba(74, 222, 128, 0.1);
+}
+
+/* Test tab - orange/yellow accent */
+.content-tab-btn.test {
+    color: #fbbf24;
+}
+
+.content-tab-btn.test:hover {
+    color: #fbbf24;
+    background: rgba(251, 191, 36, 0.08);
+}
+
+.content-tab-btn.test.active {
+    color: #fbbf24;
+    border-bottom-color: #fbbf24;
+    background: rgba(251, 191, 36, 0.1);
+}
+
+/* Lesson section styling */
+.lesson-section {
+    margin-bottom: var(--spacing-xxl);
+    padding-bottom: var(--spacing-xl);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.lesson-section:last-child {
+    border-bottom: none;
+}
+
+.lesson-section-title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.lesson-section-number {
+    font-size: 1rem;
+    color: var(--color-accent-blue);
+    font-weight: 600;
+}
+
+.lesson-paragraph {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.85);
+    line-height: 1.75;
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-definition {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-definition-term {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-accent-purple);
+    margin-bottom: var(--spacing-xs);
+}
+
+.lesson-definition-text {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.65;
+}
+
+.lesson-example {
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+}
+
+.lesson-example-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-accent-blue);
+    margin-bottom: var(--spacing-md);
+}
+
+.lesson-example-premise {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.8);
+    padding-left: var(--spacing-lg);
+    margin-bottom: var(--spacing-xs);
+    line-height: 1.6;
+}
+
+.lesson-example-conclusion {
+    font-size: 1rem;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-top: var(--spacing-md);
+    padding-left: var(--spacing-lg);
+}
+
+.lesson-example-note {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.9rem;
+    font-style: italic;
+    line-height: 1.5;
+}
+
+/* Symbol glossary block */
+.lesson-symbols {
+    background: rgba(96, 165, 250, 0.08);
+    border: 1px solid rgba(96, 165, 250, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+.lesson-symbols-title {
+    font-weight: 700;
+    color: #60a5fa;
+    margin-bottom: var(--spacing-md);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.lesson-symbols-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.lesson-symbol-item {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-md);
+    text-align: center;
+}
+
+.lesson-symbol-glyph {
+    font-size: 2rem;
+    font-family: var(--font-mono);
+    color: #60a5fa;
+    text-align: center;
+}
+
+.lesson-symbol-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.lesson-symbol-meaning {
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.85rem;
+}
+
+.lesson-symbol-example {
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.8rem;
+    font-style: italic;
+    margin-top: 4px;
+}
+
+/* Quiz block */
+.lesson-quiz {
+    background: rgba(167, 139, 250, 0.08);
+    border: 1px solid rgba(167, 139, 250, 0.2);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+}
+
+.lesson-quiz-question {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    font-size: 1rem;
+}
+
+.lesson-quiz-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.lesson-quiz-option {
+    text-align: left;
+    padding: var(--spacing-md);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.lesson-quiz-option:hover:not(:disabled) {
+    background: rgba(255,255,255,0.08);
+    border-color: rgba(255,255,255,0.2);
+    color: var(--text-primary);
+}
+
+.lesson-quiz-option:disabled {
+    cursor: default;
+}
+
+.lesson-quiz-option.correct {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+
+.lesson-quiz-option.incorrect {
+    background: rgba(248, 113, 113, 0.15);
+    border-color: var(--color-error);
+    color: var(--color-error);
+}
+
+.lesson-quiz-option.answered {
+    opacity: 0.5;
+}
+
+.lesson-quiz-explanation {
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+    display: none;
+}
+
+.lesson-quiz-explanation.visible {
+    display: block;
+}
+
 .learn-module-close {
     position: absolute;
     top: var(--spacing-lg);
@@ -39715,6 +40638,50 @@ const LEARN_STYLE: &str = r#"
     color: var(--text-secondary);
 }
 
+/* Examples panel */
+.tab-panel-examples {
+    padding: var(--spacing-lg) 0;
+}
+
+.examples-intro {
+    margin-bottom: var(--spacing-xl);
+}
+
+.examples-intro h3 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.examples-intro p {
+    font-size: 1rem;
+    color: rgba(255, 255, 255, 0.7);
+    line-height: 1.6;
+}
+
+.examples-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xl);
+}
+
+.example-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+}
+
+.example-card .example-sentence {
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    padding-bottom: var(--spacing-md);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
 .exercise-card {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
@@ -39723,19 +40690,12 @@ const LEARN_STYLE: &str = r#"
     margin-bottom: var(--spacing-lg);
 }
 
-.exercise-prompt {
-    font-size: var(--font-caption-md);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-tertiary);
-    margin-bottom: var(--spacing-sm);
-}
-
 .exercise-sentence {
-    font-size: var(--font-heading-sm);
+    font-size: 1.15rem;
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: var(--spacing-lg);
+    line-height: 1.5;
 }
 
 .exercise-input-row {
@@ -39812,16 +40772,6 @@ const LEARN_STYLE: &str = r#"
     border-radius: var(--radius-md);
     color: var(--color-accent-blue);
     margin: var(--spacing-lg) 0;
-}
-
-/* Focus mode - fade other eras */
-.learn-era.faded {
-    opacity: 0.3;
-    pointer-events: none;
-}
-
-.learn-era.faded .learn-module-card {
-    pointer-events: none;
 }
 
 /* Responsive */
@@ -39901,7 +40851,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "introduction",
                     title: "Introduction",
                     description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
-                    exercise_count: 4,
+                    exercise_count: 5,
                     difficulty: 1,
                     preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
                 },
@@ -39909,7 +40859,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "syllogistic",
                     title: "Syllogistic Logic",
                     description: "Translate English into syllogistic notation. Master the classical form of logical reasoning.",
-                    exercise_count: 99,
+                    exercise_count: 98,
                     difficulty: 1,
                     preview_code: Some("All humans are mortal."),
                 },
@@ -39917,7 +40867,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "definitions",
                     title: "Meaning and Definitions",
                     description: "Understand uses of language, types of definitions, and the analytic/synthetic distinction.",
-                    exercise_count: 49,
+                    exercise_count: 48,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -39925,7 +40875,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "fallacies",
                     title: "Fallacies and Argumentation",
                     description: "Identify good arguments vs. fallacious reasoning. Master informal fallacies.",
-                    exercise_count: 5,
+                    exercise_count: 16,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -39933,7 +40883,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "inductive",
                     title: "Inductive Reasoning",
                     description: "Master probability, analogical reasoning, Mill's methods, and inference to best explanation.",
-                    exercise_count: 10,
+                    exercise_count: 12,
                     difficulty: 2,
                     preview_code: Some("90% of observed swans are white..."),
                 },
@@ -39949,7 +40899,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "propositional",
                     title: "Basic Propositional Logic",
                     description: "Master AND, OR, NOT, and IF-THEN connectives. Truth tables, S-rules, and I-rules.",
-                    exercise_count: 115,
+                    exercise_count: 114,
                     difficulty: 2,
                     preview_code: Some("If John runs, then Mary walks."),
                 },
@@ -39957,7 +40907,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "proofs",
                     title: "Propositional Proofs",
                     description: "Construct formal proofs and refutations. Learn natural deduction and truth trees.",
-                    exercise_count: 6,
+                    exercise_count: 14,
                     difficulty: 3,
                     preview_code: Some("1. P → Q  2. P  ∴ Q"),
                 },
@@ -39973,7 +40923,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "quantificational",
                     title: "Basic Quantificational Logic",
                     description: "Master universal and existential quantifiers. Translations, proofs, and refutations.",
-                    exercise_count: 6,
+                    exercise_count: 12,
                     difficulty: 3,
                     preview_code: Some("All birds fly."),
                 },
@@ -39981,7 +40931,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "relations",
                     title: "Relations and Identity",
                     description: "Extend predicate logic with identity and relations. Handle definite descriptions.",
-                    exercise_count: 3,
+                    exercise_count: 8,
                     difficulty: 3,
                     preview_code: Some("John loves Mary."),
                 },
@@ -39989,7 +40939,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "modal",
                     title: "Basic Modal Logic",
                     description: "Explore possibility and necessity operators. Express what could be or must be true.",
-                    exercise_count: 37,
+                    exercise_count: 36,
                     difficulty: 3,
                     preview_code: Some("It is possible that John runs."),
                 },
@@ -39997,7 +40947,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "further_modal",
                     title: "Further Modal Systems",
                     description: "Advanced modal systems including quantified modal logic and temporal operators.",
-                    exercise_count: 3,
+                    exercise_count: 2,
                     difficulty: 4,
                     preview_code: Some("John will run tomorrow."),
                 },
@@ -40005,7 +40955,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "deontic",
                     title: "Deontic and Imperative Logic",
                     description: "Reason about obligation, permission, and prohibition. The logic of ethics and law.",
-                    exercise_count: 39,
+                    exercise_count: 38,
                     difficulty: 3,
                     preview_code: Some("John ought to leave."),
                 },
@@ -40013,7 +40963,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "belief",
                     title: "Belief Logic",
                     description: "Express beliefs, knowledge, willing, and rationality. Model propositional attitudes.",
-                    exercise_count: 16,
+                    exercise_count: 15,
                     difficulty: 3,
                     preview_code: Some("John believes that Mary runs."),
                 },
@@ -40029,7 +40979,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "ethics",
                     title: "A Formalized Ethical Theory",
                     description: "Apply logic to ethics: practical reason, consistency, and the golden rule formalized.",
-                    exercise_count: 6,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -40045,7 +40995,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "history",
                     title: "History of Logic",
                     description: "Trace logic from Aristotle through Frege, Russell, and modern developments.",
-                    exercise_count: 5,
+                    exercise_count: 8,
                     difficulty: 2,
                     preview_code: None,
                 },
@@ -40053,7 +41003,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "deviant",
                     title: "Deviant Logics",
                     description: "Explore non-classical logics: many-valued, paraconsistent, intuitionist, and relevance logic.",
-                    exercise_count: 4,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -40061,7 +41011,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     id: "philosophy",
                     title: "Philosophy of Logic",
                     description: "Examine philosophical foundations: abstract entities, truth, paradoxes, and logic's scope.",
-                    exercise_count: 5,
+                    exercise_count: 8,
                     difficulty: 4,
                     preview_code: None,
                 },
@@ -40080,6 +41030,10 @@ pub fn Learn() -> Element {
     let mut expanded_module = use_signal::<ExpandedModuleKey>(|| None);
 
     let eras = get_curriculum_data();
+
+    // For module unlock checking
+    let content_engine = ContentEngine::new();
+    let user_progress = UserProgress::new(); // TODO: Load from storage
 
     // Build module info for sidebar
     let sidebar_modules: Vec<ModuleInfo> = eras.iter().flat_map(|era| {
@@ -40226,7 +41180,8 @@ pub fn Learn() -> Element {
                                 }
 
                                 // Era section
-                                section { class: "learn-era",
+                                section {
+                                    class: "learn-era",
                                     div { class: "learn-era-header",
                                         h2 { "{era.title}" }
                                         p { "{era.description}" }
@@ -40239,15 +41194,18 @@ pub fn Learn() -> Element {
                                                 let module_id = module.id.to_string();
                                                 let module_number = idx + 1;
 
+                                                // Check if this module is locked
+                                                let is_unlocked = check_module_unlocked(&user_progress, &content_engine, &era_id, &module_id);
+
                                                 // Check if this module is expanded
                                                 let is_expanded = expanded_module.read().as_ref()
                                                     .map(|(e, m)| e == era.id && m == module.id)
                                                     .unwrap_or(false);
 
-                                                let card_class = if is_expanded {
-                                                    "learn-module-card expanded"
-                                                } else {
-                                                    "learn-module-card"
+                                                let card_class = match (is_expanded, is_unlocked) {
+                                                    (true, _) => "learn-module-card expanded",
+                                                    (false, true) => "learn-module-card",
+                                                    (false, false) => "learn-module-card locked",
                                                 };
 
                                                 rsx! {
@@ -40258,12 +41216,41 @@ pub fn Learn() -> Element {
 
                                                         // Close button when expanded
                                                         if is_expanded {
-                                                            button {
-                                                                class: "learn-module-close",
-                                                                onclick: move |_| {
-                                                                    expanded_module.set(None);
-                                                                },
-                                                                "×"
+                                                            {
+                                                                let module_id_for_scroll = module_id.clone();
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "learn-module-close",
+                                                                        onclick: move |_| {
+                                                                            expanded_module.set(None);
+                                                                            // Scroll to the module card after collapse
+                                                                            #[cfg(target_arch = "wasm32")]
+                                                                            {
+                                                                                let id = module_id_for_scroll.clone();
+                                                                                wasm_bindgen_futures::spawn_local(async move {
+                                                                                    // Delay to let the DOM update after collapse
+                                                                                    gloo_timers::future::TimeoutFuture::new(150).await;
+                                                                                    if let Some(window) = web_sys::window() {
+                                                                                        if let Some(document) = window.document() {
+                                                                                            if let Some(element) = document.get_element_by_id(&id) {
+                                                                                                // Get element position and scroll with offset for nav
+                                                                                                let rect = element.get_bounding_client_rect();
+                                                                                                let scroll_y = window.scroll_y().unwrap_or(0.0);
+                                                                                                let target_y = scroll_y + rect.top() - 100.0; // 100px offset for nav
+                                                                                                let _ = window.scroll_to_with_scroll_to_options(
+                                                                                                    web_sys::ScrollToOptions::new()
+                                                                                                        .top(target_y)
+                                                                                                        .behavior(web_sys::ScrollBehavior::Smooth)
+                                                                                                );
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                });
+                                                                            }
+                                                                        },
+                                                                        "×"
+                                                                    }
+                                                                }
                                                             }
                                                         }
 
@@ -40290,30 +41277,40 @@ pub fn Learn() -> Element {
 
                                                         // Show preview only when collapsed
                                                         if !is_expanded {
-                                                            if let Some(preview) = module.preview_code {
-                                                                div { class: "learn-module-preview",
-                                                                    div { class: "learn-preview-label", "Try an Example" }
-                                                                    GuideCodeBlock {
-                                                                        id: format!("preview-{}", module.id),
-                                                                        label: "Example".to_string(),
-                                                                        mode: ExampleMode::Logic,
-                                                                        initial_code: preview.to_string(),
+                                                            if is_unlocked {
+                                                                if let Some(preview) = module.preview_code {
+                                                                    div { class: "learn-module-preview",
+                                                                        div { class: "learn-preview-label", "Try an Example" }
+                                                                        GuideCodeBlock {
+                                                                            id: format!("preview-{}", module.id),
+                                                                            label: "Example".to_string(),
+                                                                            mode: ExampleMode::Logic,
+                                                                            initial_code: preview.to_string(),
+                                                                        }
                                                                     }
                                                                 }
-                                                            }
 
-                                                            // Action buttons (only when collapsed)
-                                                            div { class: "learn-module-actions",
-                                                                button {
-                                                                    class: "learn-action-btn primary",
-                                                                    onclick: {
-                                                                        let era = era_id.clone();
-                                                                        let module = module_id.clone();
-                                                                        move |_| {
-                                                                            expanded_module.set(Some((era.clone(), module.clone())));
-                                                                        }
-                                                                    },
-                                                                    "Start Learning"
+                                                                // Action buttons (only when collapsed and unlocked)
+                                                                div { class: "learn-module-actions",
+                                                                    button {
+                                                                        class: "learn-action-btn primary",
+                                                                        onclick: {
+                                                                            let era = era_id.clone();
+                                                                            let module = module_id.clone();
+                                                                            move |_| {
+                                                                                expanded_module.set(Some((era.clone(), module.clone())));
+                                                                            }
+                                                                        },
+                                                                        "Start Learning"
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                // Locked module - show lock badge
+                                                                div { class: "learn-module-actions",
+                                                                    div { class: "locked-badge",
+                                                                        span { class: "locked-badge-icon", "\u{1F512}" }
+                                                                        "Complete previous module to unlock"
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -40338,6 +41335,9 @@ pub fn Learn() -> Element {
                     }
                 }
             }
+
+            // Floating vocab reference panel
+            VocabReference {}
         }
     }
 }
@@ -40366,11 +41366,26 @@ enum PracticeMode {
     Test,
 }
 
+/// Content view tab state - corresponds to the 4 tabs
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum ContentView {
+    #[default]
+    Lesson,
+    Examples,
+    Practice,
+    Test,
+}
+
 /// Interactive exercise panel with reveal buttons instead of tabs
 #[component]
 fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
+    use crate::content::{ContentBlock, Section};
+
     let engine = ContentEngine::new();
     let generator = Generator::new();
+
+    // Content view state (Lesson vs Practice)
+    let mut content_view = use_signal(ContentView::default);
 
     // Exercise state
     let mut current_exercise_idx = use_signal(|| 0usize);
@@ -40386,6 +41401,14 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let mut exercise_attempts = use_signal(|| std::collections::HashMap::<usize, u32>::new());
     // Track which exercises have been completed (earned XP) - prevents double XP
     let mut completed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+    // Track which exercises have had their answer revealed (forfeits XP)
+    let mut answer_revealed_exercises = use_signal(|| std::collections::HashSet::<usize>::new());
+
+    // Priority queue for wrong answers - re-queue at position +3
+    // When wrong, insert exercise index to be shown again after 3 more exercises
+    let mut retry_queue = use_signal(|| std::collections::VecDeque::<usize>::new());
+    // Count exercises since last retry to trigger queue pop after 3
+    let mut exercises_since_retry = use_signal(|| 0usize);
 
     // Test mode state
     let mut test_question = use_signal(|| 0usize);
@@ -40395,6 +41418,10 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     // Struggle detection state
     let mut struggle_detector = use_signal(StruggleDetector::default);
     let mut show_socratic_hint = use_signal(|| false);
+
+    // Lesson quiz state - tracks which quizzes have been answered and their result
+    // Key: quiz question string, Value: (selected_index, is_correct)
+    let mut quiz_answers = use_signal(|| std::collections::HashMap::<String, (usize, bool)>::new());
 
     // Stable seed per exercise - only set once when component mounts or exercise changes
     // Use a signal to store the base seed so it doesn't change on re-renders
@@ -40445,8 +41472,249 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
     let is_test_mode = *practice_mode.read() == PracticeMode::Test;
     let current_test_q = *test_question.read();
 
+    // Get sections for lesson content
+    let sections: Vec<Section> = module_opt.as_ref()
+        .map(|m| m.sections.clone())
+        .unwrap_or_default();
+    let has_sections = !sections.is_empty();
+    let current_view = *content_view.read();
+
     rsx! {
         div { class: "interactive-exercise-panel",
+            // Content tabs (Lesson | Examples | Practice | Test)
+            div { class: "content-tabs",
+                button {
+                    class: if current_view == ContentView::Lesson { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| content_view.set(ContentView::Lesson),
+                    "Lesson"
+                }
+                button {
+                    class: if current_view == ContentView::Examples { "content-tab-btn active" } else { "content-tab-btn" },
+                    onclick: move |_| content_view.set(ContentView::Examples),
+                    "Examples"
+                }
+                button {
+                    class: if current_view == ContentView::Practice { "content-tab-btn practice active" } else { "content-tab-btn practice" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Practice);
+                        practice_mode.set(PracticeMode::Practice);
+                    },
+                    "Practice"
+                }
+                button {
+                    class: if current_view == ContentView::Test { "content-tab-btn test active" } else { "content-tab-btn test" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Test);
+                        practice_mode.set(PracticeMode::Test);
+                        test_question.set(0);
+                        test_answers.set(Vec::new());
+                        test_complete.set(false);
+                        user_answer.set(String::new());
+                        feedback.set(None);
+                    },
+                    "Test"
+                }
+            }
+
+            // Lesson content view
+            if current_view == ContentView::Lesson {
+                div { class: "tab-panel-lesson",
+                    if has_sections {
+                        for section in sections.iter() {
+                            div { class: "lesson-section",
+                                h3 { class: "lesson-section-title",
+                                    span { class: "lesson-section-number", "{section.id}" }
+                                    "{section.title}"
+                                }
+
+                                // Render content blocks
+                                for block in section.content.iter() {
+                                    match block {
+                                        ContentBlock::Paragraph { text } => rsx! {
+                                            p { class: "lesson-paragraph",
+                                                dangerous_inner_html: text.replace("**", "<strong>").replace("**", "</strong>").replace("*", "<em>").replace("*", "</em>")
+                                            }
+                                        },
+                                        ContentBlock::Definition { term, definition } => rsx! {
+                                            div { class: "lesson-definition",
+                                                div { class: "lesson-definition-term", "{term}" }
+                                                div { class: "lesson-definition-text", "{definition}" }
+                                            }
+                                        },
+                                        ContentBlock::Example { title, premises, conclusion, note } => rsx! {
+                                            div { class: "lesson-example",
+                                                div { class: "lesson-example-title", "{title}" }
+                                                for premise in premises.iter() {
+                                                    div { class: "lesson-example-premise", "• {premise}" }
+                                                }
+                                                if let Some(concl) = conclusion {
+                                                    div { class: "lesson-example-conclusion", "{concl}" }
+                                                }
+                                                if let Some(n) = note {
+                                                    div { class: "lesson-example-note", "{n}" }
+                                                }
+                                            }
+                                        },
+                                        ContentBlock::Symbols { title, symbols } => rsx! {
+                                            div { class: "lesson-symbols",
+                                                div { class: "lesson-symbols-title", "{title}" }
+                                                div { class: "lesson-symbols-grid",
+                                                    for sym in symbols.iter() {
+                                                        div { class: "lesson-symbol-item",
+                                                            span { class: "lesson-symbol-glyph", "{sym.symbol}" }
+                                                            div { class: "lesson-symbol-info",
+                                                                div { class: "lesson-symbol-name", "{sym.name}" }
+                                                                div { class: "lesson-symbol-meaning", "{sym.meaning}" }
+                                                                if let Some(example) = &sym.example {
+                                                                    div { class: "lesson-symbol-example", "Example: {example}" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        ContentBlock::Quiz { question, options, correct, explanation } => {
+                                            let q_key = question.clone();
+                                            let answered = quiz_answers.read().get(&q_key).cloned();
+                                            let correct_idx = *correct;
+                                            rsx! {
+                                                div { class: "lesson-quiz",
+                                                    div { class: "lesson-quiz-question", "{question}" }
+                                                    div { class: "lesson-quiz-options",
+                                                        for (i, opt) in options.iter().enumerate() {
+                                                            {
+                                                                let q_key_click = q_key.clone();
+                                                                let opt_class = match &answered {
+                                                                    Some((selected, _)) if *selected == i && i == correct_idx => "lesson-quiz-option correct",
+                                                                    Some((selected, _)) if *selected == i => "lesson-quiz-option incorrect",
+                                                                    Some(_) if i == correct_idx => "lesson-quiz-option correct",
+                                                                    Some(_) => "lesson-quiz-option answered",
+                                                                    None => "lesson-quiz-option",
+                                                                };
+                                                                rsx! {
+                                                                    button {
+                                                                        class: "{opt_class}",
+                                                                        disabled: answered.is_some(),
+                                                                        onclick: move |_| {
+                                                                            let is_correct = i == correct_idx;
+                                                                            quiz_answers.write().insert(q_key_click.clone(), (i, is_correct));
+                                                                        },
+                                                                        "{opt}"
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                    if answered.is_some() {
+                                                        if let Some(expl) = explanation {
+                                                            div { class: "lesson-quiz-explanation visible", "{expl}" }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+
+                            }
+                        }
+
+                        // Start practicing button
+                        div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                            button {
+                                class: "learn-action-btn primary",
+                                onclick: move |_| content_view.set(ContentView::Examples),
+                                "Try Examples →"
+                            }
+                        }
+                    } else {
+                        p { style: "color: var(--text-tertiary); text-align: center; padding: var(--spacing-xl);",
+                            "Lesson content coming soon. Click Examples to see interactive demos."
+                        }
+                    }
+                }
+            } else if current_view == ContentView::Examples {
+                // Examples view - Interactive code execution
+                div { class: "tab-panel-examples",
+                    div { class: "examples-intro",
+                        h3 { "Interactive Examples" }
+                        p { "Try translating sentences and see how logic notation works. The symbol dictionary will explain each symbol used." }
+                    }
+
+                    // Example sentences to try
+                    div { class: "examples-list",
+                        {
+                            let examples: Vec<(&str, &str)> = vec![
+                                ("ex1", "All cats are mammals."),
+                                ("ex2", "Socrates is mortal."),
+                                ("ex3", "If it rains, the ground is wet."),
+                                ("ex4", "Some birds can fly."),
+                                ("ex5", "No reptiles are mammals."),
+                            ];
+
+                            rsx! {
+                                for (id, sentence) in examples {
+                                    div { class: "example-card",
+                                        key: "{id}",
+                                        div { class: "example-sentence", "{sentence}" }
+                                        GuideCodeBlock {
+                                            id: id.to_string(),
+                                            label: "Try it".to_string(),
+                                            mode: ExampleMode::Logic,
+                                            initial_code: sentence.to_string(),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Navigation to Practice
+                    div { class: "learn-module-actions", style: "justify-content: center; margin-top: var(--spacing-xl);",
+                        button {
+                            class: "learn-action-btn primary",
+                            onclick: move |_| {
+                                content_view.set(ContentView::Practice);
+                                practice_mode.set(PracticeMode::Practice);
+                            },
+                            "Start Practice →"
+                        }
+                    }
+                }
+            } else {
+                // Practice/Test view
+                // Stats header
+                div { class: "mode-stats",
+                    div { class: "mode-stat",
+                        span { class: "mode-stat-value", "{score}" }
+                        span { class: "mode-stat-label", " XP" }
+                    }
+                    if *streak.read() > 0 {
+                        {
+                            let s = *streak.read();
+                            let mult = match s {
+                                0 => "1x",
+                                1 => "1.25x",
+                                2 => "1.5x",
+                                3 => "1.75x",
+                                _ => "2x",
+                            };
+                            rsx! {
+                                div { class: "mode-stat combo",
+                                    span { class: "mode-stat-value streak", "{s}" }
+                                    span { class: "mode-stat-label", " streak " }
+                                    span { class: "combo-multiplier", "({mult})" }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "mode-stat",
+                        span { class: "mode-stat-value", "{correct_count}" }
+                        span { class: "mode-stat-label", " correct" }
+                    }
+                }
+
             // Test mode header
             if is_test_mode {
                 if *test_complete.read() {
@@ -40528,8 +41796,6 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
             if !(is_test_mode && *test_complete.read()) {
             if let Some(challenge) = current_challenge.as_ref() {
                 div { class: "exercise-card",
-                    // Exercise prompt
-                    div { class: "exercise-prompt", "{challenge.prompt}" }
                     div { class: "exercise-sentence", "{challenge.sentence}" }
 
                     // Answer input based on exercise type
@@ -40543,13 +41809,79 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                         None => "exercise-input",
                                     },
                                     r#type: "text",
-                                    placeholder: "Enter your logic translation...",
+                                    placeholder: "Enter your logic translation... (Enter to submit)",
                                     value: "{user_answer}",
                                     oninput: {
                                         move |e: Event<FormData>| {
                                             user_answer.set(e.value());
                                             // Record activity to reset inactivity timer
                                             struggle_detector.write().record_activity();
+                                        }
+                                    },
+                                    onkeydown: {
+                                        let golden = golden_answer.clone();
+                                        move |e: Event<KeyboardData>| {
+                                            if e.key() == Key::Enter {
+                                                e.prevent_default();
+                                                // Trigger submit logic - same as Check button
+                                                let answer = user_answer.read().clone();
+                                                if !answer.is_empty() {
+                                                    if let Some(ref expected) = golden {
+                                                        let result = check_answer(&answer, expected);
+                                                        if result.correct {
+                                                            // Handle correct answer
+                                                            let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+                                                            let already_completed = if is_test_mode { false } else { completed_exercises.read().contains(&current_idx) };
+
+                                                            if answer_was_revealed {
+                                                                let cc = *correct_count.read();
+                                                                correct_count.set(cc + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                            } else if !already_completed {
+                                                                let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
+                                                                let base_xp = 10u32.saturating_sub(wrong_count * 5);
+                                                                if base_xp > 0 {
+                                                                    let cs = *streak.read();
+                                                                    let sc = *score.read();
+                                                                    let cc = *correct_count.read();
+                                                                    let multiplier = match cs { 0 => 1.0, 1 => 1.25, 2 => 1.5, 3 => 1.75, _ => 2.0 };
+                                                                    let xp = ((base_xp as f64) * multiplier).round() as u32;
+                                                                    score.set(sc + xp);
+                                                                    streak.set(cs + 1);
+                                                                    correct_count.set(cc + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    let msg = if multiplier > 1.0 { format!("Correct! +{} XP ({}x combo)", xp, multiplier) } else { format!("Correct! +{} XP", xp) };
+                                                                    feedback.set(Some((true, msg)));
+                                                                } else {
+                                                                    let cc = *correct_count.read();
+                                                                    correct_count.set(cc + 1);
+                                                                    completed_exercises.write().insert(current_idx);
+                                                                    feedback.set(Some((true, "Correct! (no XP - too many attempts)".to_string())));
+                                                                }
+                                                            } else {
+                                                                feedback.set(Some((true, "Correct! (already completed)".to_string())));
+                                                            }
+                                                            struggle_detector.write().record_correct_attempt();
+                                                            show_socratic_hint.set(false);
+                                                        } else {
+                                                            // Wrong answer
+                                                            let attempts = exercise_attempts.read().get(&current_idx).copied().unwrap_or(0);
+                                                            exercise_attempts.write().insert(current_idx, attempts + 1);
+                                                            let remaining = 10u32.saturating_sub((attempts + 1) * 5);
+                                                            let penalty_msg = if remaining > 0 { format!(" (-5 XP, {} remaining)", remaining) } else { " (no XP remaining)".to_string() };
+                                                            feedback.set(Some((false, format!("{}{}", result.feedback, penalty_msg))));
+                                                            struggle_detector.write().record_wrong_attempt();
+                                                            show_socratic_hint.set(true);
+                                                            streak.set(0);
+                                                            if !is_test_mode {
+                                                                let mut queue = retry_queue.write();
+                                                                if !queue.contains(&current_idx) { queue.push_back(current_idx); }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     },
                                 }
@@ -40564,9 +41896,23 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                     // Use the real grader
                                                     let result = check_answer(&answer, expected);
                                                     if result.correct {
-                                                        // Only award XP if this exercise hasn't been completed yet
-                                                        let already_completed = completed_exercises.read().contains(&current_idx);
-                                                        if !already_completed {
+                                                        // Check if answer was revealed (forfeits XP)
+                                                        let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+
+                                                        // Only check completed_exercises in practice mode, not test mode
+                                                        let already_completed = if is_test_mode {
+                                                            false // Test mode always gives fresh XP
+                                                        } else {
+                                                            completed_exercises.read().contains(&current_idx)
+                                                        };
+
+                                                        if answer_was_revealed {
+                                                            // Answer was revealed - no XP
+                                                            let current_correct = *correct_count.read();
+                                                            correct_count.set(current_correct + 1);
+                                                            completed_exercises.write().insert(current_idx);
+                                                            feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                        } else if !already_completed {
                                                             // Calculate XP based on wrong attempts (each wrong costs 5 XP)
                                                             let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
                                                             let base_xp = 10u32.saturating_sub(wrong_count * 5);
@@ -40575,13 +41921,28 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                                 let current_streak = *streak.read();
                                                                 let current_score = *score.read();
                                                                 let current_correct = *correct_count.read();
-                                                                let bonus = (current_streak as u32).min(5);
-                                                                let xp = base_xp + bonus;
+
+                                                                // Combo multiplier: 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+                                                                let multiplier = match current_streak {
+                                                                    0 => 1.0,
+                                                                    1 => 1.25,
+                                                                    2 => 1.5,
+                                                                    3 => 1.75,
+                                                                    _ => 2.0, // Max 2x
+                                                                };
+                                                                let xp = ((base_xp as f64) * multiplier).round() as u32;
+
                                                                 score.set(current_score + xp);
                                                                 streak.set(current_streak + 1);
                                                                 correct_count.set(current_correct + 1);
                                                                 completed_exercises.write().insert(current_idx);
-                                                                feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+
+                                                                let msg = if multiplier > 1.0 {
+                                                                    format!("Correct! +{} XP ({}x combo)", xp, multiplier)
+                                                                } else {
+                                                                    format!("Correct! +{} XP", xp)
+                                                                };
+                                                                feedback.set(Some((true, msg)));
                                                             } else {
                                                                 // Too many wrong attempts - no XP but still mark complete
                                                                 let current_correct = *correct_count.read();
@@ -40611,6 +41972,15 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                         struggle_detector.write().record_wrong_attempt();
                                                         show_socratic_hint.set(true);
                                                         streak.set(0);
+
+                                                        // In practice mode, add wrong exercise to retry queue (at +3 position)
+                                                        if !is_test_mode {
+                                                            let mut queue = retry_queue.write();
+                                                            // Only add if not already in queue
+                                                            if !queue.contains(&current_idx) {
+                                                                queue.push_back(current_idx);
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -40646,9 +42016,23 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                     move |_| {
                                                         user_answer.set(opt.clone());
                                                         if correct {
-                                                            // Only award XP if this exercise hasn't been completed yet
-                                                            let already_completed = completed_exercises.read().contains(&current_idx);
-                                                            if !already_completed {
+                                                            // Check if answer was revealed (forfeits XP)
+                                                            let answer_was_revealed = answer_revealed_exercises.read().contains(&current_idx);
+
+                                                            // Only check completed_exercises in practice mode, not test mode
+                                                            let already_completed = if is_test_mode {
+                                                                false // Test mode always gives fresh XP
+                                                            } else {
+                                                                completed_exercises.read().contains(&current_idx)
+                                                            };
+
+                                                            if answer_was_revealed {
+                                                                // Answer was revealed - no XP
+                                                                let current_correct = *correct_count.read();
+                                                                correct_count.set(current_correct + 1);
+                                                                completed_exercises.write().insert(current_idx);
+                                                                feedback.set(Some((true, "Correct! (no XP - answer was revealed)".to_string())));
+                                                            } else if !already_completed {
                                                                 // Calculate XP based on wrong attempts (each wrong costs 5 XP)
                                                                 let wrong_count = *exercise_attempts.read().get(&current_idx).unwrap_or(&0);
                                                                 let base_xp = 10u32.saturating_sub(wrong_count * 5);
@@ -40657,13 +42041,28 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                                     let current_streak = *streak.read();
                                                                     let current_score = *score.read();
                                                                     let current_correct = *correct_count.read();
-                                                                    let bonus = (current_streak as u32).min(5);
-                                                                    let xp = base_xp + bonus;
+
+                                                                    // Combo multiplier: 1.0x, 1.25x, 1.5x, 1.75x, 2.0x
+                                                                    let multiplier = match current_streak {
+                                                                        0 => 1.0,
+                                                                        1 => 1.25,
+                                                                        2 => 1.5,
+                                                                        3 => 1.75,
+                                                                        _ => 2.0, // Max 2x
+                                                                    };
+                                                                    let xp = ((base_xp as f64) * multiplier).round() as u32;
+
                                                                     score.set(current_score + xp);
                                                                     streak.set(current_streak + 1);
                                                                     correct_count.set(current_correct + 1);
                                                                     completed_exercises.write().insert(current_idx);
-                                                                    feedback.set(Some((true, format!("Correct! +{} XP", xp))));
+
+                                                                    let msg = if multiplier > 1.0 {
+                                                                        format!("Correct! +{} XP ({}x combo)", xp, multiplier)
+                                                                    } else {
+                                                                        format!("Correct! +{} XP", xp)
+                                                                    };
+                                                                    feedback.set(Some((true, msg)));
                                                                 } else {
                                                                     // Too many wrong attempts - no XP but still mark complete
                                                                     let current_correct = *correct_count.read();
@@ -40692,6 +42091,14 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                                             struggle_detector.write().record_wrong_attempt();
                                                             show_socratic_hint.set(true);
                                                             streak.set(0);
+
+                                                            // In practice mode, add wrong exercise to retry queue
+                                                            if !is_test_mode {
+                                                                let mut queue = retry_queue.write();
+                                                                if !queue.contains(&current_idx) {
+                                                                    queue.push_back(current_idx);
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 },
@@ -40754,14 +42161,18 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 "💡 Show Hint"
                             }
 
-                            // Show Answer button - toggles independently
+                            // Show Answer button - toggles independently, forfeits XP when revealed
                             button {
                                 class: if reveal_state.read().answer { "reveal-btn active" } else { "reveal-btn" },
                                 onclick: move |_| {
                                     let current = reveal_state.read().answer;
+                                    if !current {
+                                        // Revealing answer for first time - forfeit XP for this exercise
+                                        answer_revealed_exercises.write().insert(current_idx);
+                                    }
                                     reveal_state.write().answer = !current;
                                 },
-                                "✓ Show Answer"
+                                "✓ Show Answer (No XP)"
                             }
 
                             // Symbol Dictionary button (only for FreeForm/Ambiguity) - toggles independently
@@ -40866,12 +42277,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                             class: "learn-action-btn secondary",
                             onclick: {
                                 move |_| {
-                                    // Move to next exercise
+                                    // Simple linear progression - skip to next
                                     let next = current_idx + 1;
                                     if next < total_exercises {
                                         current_exercise_idx.set(next);
                                     } else {
-                                        current_exercise_idx.set(0); // Loop back
+                                        current_exercise_idx.set(0); // Loop back to start
                                     }
                                     // Reset state
                                     user_answer.set(String::new());
@@ -40889,11 +42300,12 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                 class: "learn-action-btn primary",
                                 onclick: {
                                     move |_| {
+                                        // Simple linear progression after correct answer
                                         let next = current_idx + 1;
                                         if next < total_exercises {
                                             current_exercise_idx.set(next);
                                         } else {
-                                            current_exercise_idx.set(0);
+                                            current_exercise_idx.set(0); // Loop back to start
                                         }
                                         user_answer.set(String::new());
                                         feedback.set(None);
@@ -40927,9 +42339,15 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     }
                 }
             } else {
-                p { "Loading exercises..." }
+                div { style: "text-align: center; padding: var(--spacing-xl); color: var(--text-secondary);",
+                    p { "No exercises available for this module yet." }
+                    p { style: "font-size: var(--font-caption-md); margin-top: var(--spacing-md);",
+                        "Total loaded: {total_exercises}"
+                    }
+                }
             }
             } // end if !(is_test_mode && test_complete)
+            } // end else (Practice view)
         }
     }
 }
@@ -42040,6 +43458,7 @@ pub mod terms;
 pub mod workspace;
 pub mod studio;
 pub mod guide;
+pub mod profile;
 
 pub use home::Home;
 pub use landing::Landing;
@@ -42052,6 +43471,7 @@ pub use terms::Terms;
 pub use workspace::Workspace;
 pub use studio::Studio;
 pub use guide::Guide;
+pub use profile::Profile;
 
 ```
 
@@ -43052,6 +44472,350 @@ pub fn Privacy() -> Element {
                 Link { to: Route::Privacy {}, "Privacy Policy" }
                 span { " • " }
                 Link { to: Route::Terms {}, "Terms of Use" }
+            }
+        }
+    }
+}
+
+```
+
+---
+
+### Page: profile
+
+**File:** `src/ui/pages/profile.rs`
+
+Application page component.
+
+```rust
+//! User Profile page
+//!
+//! Displays user statistics, progress, and achievements.
+
+use dioxus::prelude::*;
+use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::progress::UserProgress;
+use crate::content::ContentEngine;
+
+const PROFILE_STYLE: &str = r#"
+.profile-page {
+    min-height: 100vh;
+    color: var(--text-primary);
+    background:
+        radial-gradient(1200px 600px at 50% -120px, rgba(167,139,250,0.14), transparent 60%),
+        radial-gradient(900px 500px at 15% 30%, rgba(96,165,250,0.14), transparent 60%),
+        radial-gradient(800px 450px at 90% 45%, rgba(34,197,94,0.08), transparent 62%),
+        linear-gradient(180deg, #070a12, #0b1022 55%, #070a12);
+    font-family: var(--font-sans);
+}
+
+.profile-hero {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 60px var(--spacing-xl) 40px;
+    text-align: center;
+}
+
+.profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    margin: 0 auto var(--spacing-lg);
+    box-shadow: 0 8px 32px rgba(96, 165, 250, 0.3);
+}
+
+.profile-name {
+    font-size: var(--font-heading-lg);
+    font-weight: 900;
+    margin-bottom: var(--spacing-sm);
+    background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.78) 65%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.profile-title {
+    font-size: var(--font-body-lg);
+    color: var(--color-accent-purple);
+    font-weight: 600;
+}
+
+.profile-content {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 0 var(--spacing-xl) 80px;
+}
+
+.profile-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-xxl);
+}
+
+.stat-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-xl);
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.stat-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateY(-2px);
+}
+
+.stat-value {
+    font-size: var(--font-display-md);
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-value.xp {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.stat-value.streak {
+    background: linear-gradient(135deg, #4ade80, #22c55e);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.stat-value.level {
+    background: linear-gradient(135deg, var(--color-accent-purple), #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.stat-label {
+    font-size: var(--font-body-md);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.profile-section {
+    margin-bottom: var(--spacing-xxl);
+}
+
+.profile-section-title {
+    font-size: var(--font-heading-sm);
+    font-weight: 700;
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.progress-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+}
+
+.progress-era-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-sm);
+}
+
+.progress-bar-container {
+    height: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+    margin-bottom: var(--spacing-xs);
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-accent-blue), var(--color-accent-purple));
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    font-size: var(--font-caption-md);
+    color: var(--text-tertiary);
+}
+
+.achievements-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--spacing-md);
+}
+
+.achievement-badge {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.achievement-badge:hover {
+    background: rgba(255, 255, 255, 0.06);
+    transform: scale(1.02);
+}
+
+.achievement-badge.locked {
+    opacity: 0.4;
+    filter: grayscale(100%);
+}
+
+.achievement-icon {
+    font-size: 32px;
+    margin-bottom: var(--spacing-sm);
+}
+
+.achievement-name {
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-xxl);
+    color: var(--text-tertiary);
+}
+"#;
+
+#[component]
+pub fn Profile() -> Element {
+    let progress = UserProgress::new(); // TODO: Load from storage
+    let engine = ContentEngine::new();
+
+    // Calculate totals
+    let total_exercises: usize = engine.eras()
+        .iter()
+        .flat_map(|e| e.modules.iter())
+        .map(|m| m.exercises.len())
+        .sum();
+
+    let completed_modules = progress.modules.values().filter(|m| m.completed).count();
+    let total_modules: usize = engine.eras().iter().map(|e| e.modules.len()).sum();
+
+    rsx! {
+        style { "{PROFILE_STYLE}" }
+        div { class: "profile-page",
+            MainNav { active: ActivePage::Profile }
+
+            // Hero section
+            div { class: "profile-hero",
+                div { class: "profile-avatar", "L" }
+                h1 { class: "profile-name", "Logic Learner" }
+                p { class: "profile-title",
+                    if progress.title.is_some() {
+                        "{progress.title.as_ref().unwrap()}"
+                    } else {
+                        "Apprentice Logician"
+                    }
+                }
+            }
+
+            // Content
+            div { class: "profile-content",
+                // Stats grid
+                div { class: "profile-stats",
+                    div { class: "stat-card",
+                        div { class: "stat-value xp", "{progress.xp}" }
+                        div { class: "stat-label", "Total XP" }
+                    }
+                    div { class: "stat-card",
+                        div { class: "stat-value level", "Level {progress.level}" }
+                        div { class: "stat-label", "Current Level" }
+                    }
+                    div { class: "stat-card",
+                        div { class: "stat-value streak", "{progress.streak_days}" }
+                        div { class: "stat-label", "Day Streak" }
+                    }
+                    div { class: "stat-card",
+                        div { class: "stat-value", "{completed_modules}/{total_modules}" }
+                        div { class: "stat-label", "Modules Completed" }
+                    }
+                }
+
+                // Era Progress
+                div { class: "profile-section",
+                    h2 { class: "profile-section-title", "Progress by Era" }
+
+                    for era in engine.eras() {
+                        {
+                            let era_modules = era.modules.len();
+                            let era_completed = era.modules.iter()
+                                .filter(|m| progress.modules.get(&m.meta.id).map_or(false, |p| p.completed))
+                                .count();
+                            let percent = if era_modules > 0 { (era_completed * 100) / era_modules } else { 0 };
+
+                            rsx! {
+                                div { class: "progress-card",
+                                    div { class: "progress-era-name", "{era.meta.title}" }
+                                    div { class: "progress-bar-container",
+                                        div {
+                                            class: "progress-bar",
+                                            style: "width: {percent}%;",
+                                        }
+                                    }
+                                    div { class: "progress-text", "{era_completed} of {era_modules} modules completed" }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Achievements
+                div { class: "profile-section",
+                    h2 { class: "profile-section-title", "Achievements" }
+
+                    if progress.achievements.is_empty() {
+                        div { class: "empty-state",
+                            p { "Complete modules and practice exercises to earn achievements!" }
+                        }
+                    } else {
+                        div { class: "achievements-grid",
+                            for achievement in progress.achievements.iter() {
+                                div { class: "achievement-badge",
+                                    div { class: "achievement-icon", "🏆" }
+                                    div { class: "achievement-name", "{achievement}" }
+                                }
+                            }
+                        }
+                    }
+
+                    // Show locked achievements
+                    div { class: "achievements-grid", style: "margin-top: var(--spacing-lg);",
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "🎯" }
+                            div { class: "achievement-name", "First Blood" }
+                        }
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "🔥" }
+                            div { class: "achievement-name", "7-Day Streak" }
+                        }
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "💯" }
+                            div { class: "achievement-name", "Perfect Score" }
+                        }
+                        div { class: "achievement-badge locked",
+                            div { class: "achievement-icon", "🧠" }
+                            div { class: "achievement-name", "Logic Master" }
+                        }
+                    }
+                }
             }
         }
     }
@@ -44553,102 +46317,81 @@ use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::symbol_dictionary::SymbolDictionary;
+use crate::ui::components::vocab_reference::VocabReference;
+use crate::ui::responsive::{MOBILE_BASE_STYLES, MOBILE_TAB_BAR_STYLES};
 
+/// Studio-specific styles that extend the shared responsive styles
 const STUDIO_STYLE: &str = r#"
+/* ============================================ */
+/* STUDIO PAGE - Design Tokens                  */
+/* ============================================ */
+:root {
+    --studio-bg: #0f1419;
+    --studio-panel-bg: #12161c;
+    --studio-elevated: #1a1f27;
+    --studio-border: rgba(255, 255, 255, 0.08);
+    --studio-border-hover: rgba(255, 255, 255, 0.15);
+    --studio-text: #e8eaed;
+    --studio-text-secondary: #9ca3af;
+    --studio-text-muted: #6b7280;
+    --studio-accent: #667eea;
+}
+
+/* ============================================ */
+/* STUDIO PAGE - Desktop Layout                 */
+/* ============================================ */
 .studio-container {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #e8e8e8;
+    height: 100dvh;
+    background: var(--studio-bg);
+    color: var(--studio-text);
+    overflow: hidden;
 }
 
-.studio-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 24px;
-    background: rgba(0, 0, 0, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.studio-logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.studio-logo-icon {
-    font-size: 24px;
-}
-
-.studio-logo-text {
-    font-size: 20px;
-    font-weight: 700;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.studio-nav {
-    display: flex;
-    gap: 8px;
-}
-
-.studio-nav-btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.05);
-    color: #888;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-decoration: none;
-}
-
-.studio-nav-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #e8e8e8;
-}
-
+/* Desktop: 3-column panel layout */
 .studio-main {
     flex: 1;
     display: flex;
     overflow: hidden;
+    gap: 1px;
+    background: var(--studio-border);
 }
 
 .studio-panel {
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--studio-panel-bg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     min-width: 200px;
 }
 
-.panel-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 12px;
+.studio-panel .panel-header {
+    padding: 16px 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--studio-border);
+    font-size: 16px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #888;
+    letter-spacing: 0.3px;
+    color: var(--studio-text);
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-shrink: 0;
 }
 
-.panel-content {
+.studio-panel .panel-content {
     flex: 1;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
+/* Panel Resizers (desktop only) */
 .panel-resizer {
-    width: 6px;
-    background: rgba(255, 255, 255, 0.05);
+    width: 4px;
+    background: var(--studio-border);
     cursor: col-resize;
     transition: background 0.2s ease;
     flex-shrink: 0;
@@ -44656,13 +46399,15 @@ const STUDIO_STYLE: &str = r#"
 
 .panel-resizer:hover,
 .panel-resizer.active {
-    background: rgba(102, 126, 234, 0.5);
+    background: var(--studio-accent);
 }
 
+/* Format Toggle (Unicode/LaTeX) */
 .format-toggle {
     display: flex;
     gap: 4px;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--studio-border);
     border-radius: 6px;
     padding: 2px;
 }
@@ -44671,42 +46416,133 @@ const STUDIO_STYLE: &str = r#"
     padding: 4px 10px;
     border: none;
     background: transparent;
-    color: #888;
-    font-size: 11px;
+    color: var(--studio-text-muted);
+    font-size: 12px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
+    line-height: 1;
 }
 
 .format-btn:hover {
-    color: #e8e8e8;
+    color: var(--studio-text);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .format-btn.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #e8e8e8;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--studio-text);
 }
 
-.studio-footer {
-    background: rgba(0, 0, 0, 0.3);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+/* Guide Bar - above panels */
+.studio-guide {
+    background: var(--studio-panel-bg);
+    border-bottom: 1px solid var(--studio-border);
+    flex-shrink: 0;
 }
 
+/* ============================================ */
+/* STUDIO PAGE - Mobile Overrides               */
+/* ============================================ */
 @media (max-width: 768px) {
+    /* Hide desktop resizers */
+    .panel-resizer {
+        display: none;
+    }
+
+    /* Mobile main switches to column with stacked panels */
     .studio-main {
         flex-direction: column;
+        position: relative;
+        gap: 0;
+        background: var(--studio-bg);
     }
-    .panel-resizer {
-        width: 100%;
-        height: 6px;
-        cursor: row-resize;
-    }
+
+    /* Panels are absolute positioned and hidden by default */
     .studio-panel {
         min-width: unset;
-        min-height: 150px;
+        min-height: unset;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+        width: 100% !important;
+    }
+
+    /* Active panel becomes visible */
+    .studio-panel.mobile-active {
+        position: relative;
+        flex: 1;
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Hide panel headers on mobile (tabs replace them) */
+    .studio-panel .panel-header {
+        display: none;
+    }
+
+    /* Show header only for Logic panel when it has format toggle */
+    .studio-panel.mobile-active.has-controls .panel-header {
+        display: flex;
+        padding: 10px 14px;
+        background: var(--studio-elevated);
+        border-bottom: 1px solid var(--studio-border);
+    }
+
+    /* Mobile-sized format toggle */
+    .format-toggle {
+        gap: 6px;
+        padding: 4px;
+        border-radius: 8px;
+    }
+
+    .format-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        min-height: var(--touch-min, 44px);
+        min-width: var(--touch-min, 44px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Footer constraints */
+    .studio-footer {
+        max-height: 30vh;
+        overflow: auto;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .format-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+}
+
+/* Landscape mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+    .studio-footer {
+        max-height: 25vh;
     }
 }
 "#;
+
+/// Mobile tab options
+#[derive(Clone, Copy, PartialEq, Default)]
+enum MobileTab {
+    #[default]
+    Input,
+    Logic,
+    Tree,
+}
 
 #[component]
 pub fn Studio() -> Element {
@@ -44720,9 +46556,17 @@ pub fn Studio() -> Element {
     });
     let mut format = use_signal(|| OutputFormat::Unicode);
 
+    // Desktop panel resizing state
     let mut left_width = use_signal(|| 35.0f64);
     let mut right_width = use_signal(|| 25.0f64);
     let mut resizing = use_signal(|| None::<&'static str>);
+
+    // Mobile tab state
+    let mut active_tab = use_signal(|| MobileTab::Input);
+
+    // Touch gesture state for swipe detection
+    let mut touch_start_x = use_signal(|| 0.0f64);
+    let mut touch_start_y = use_signal(|| 0.0f64);
 
     let handle_input = move |new_value: String| {
         input.set(new_value.clone());
@@ -44758,6 +46602,7 @@ pub fn Studio() -> Element {
     let right_w = *right_width.read();
     let center_w = 100.0 - left_w - right_w;
 
+    // Desktop mouse handlers for panel resizing
     let handle_mouse_move = move |evt: MouseEvent| {
         if let Some(which) = *resizing.read() {
             let window = web_sys::window().unwrap();
@@ -44784,9 +46629,76 @@ pub fn Studio() -> Element {
         resizing.set(None);
     };
 
+    // Mobile touch handlers for swipe gestures
+    let handle_touch_start = move |evt: TouchEvent| {
+        let touches = evt.data().touches();
+        if let Some(touch) = touches.first() {
+            let coords = touch.client_coordinates();
+            touch_start_x.set(coords.x);
+            touch_start_y.set(coords.y);
+        }
+    };
+
+    let handle_touch_end = move |evt: TouchEvent| {
+        let changed = evt.data().touches_changed();
+        if let Some(touch) = changed.first() {
+            let coords = touch.client_coordinates();
+            let end_x = coords.x;
+            let end_y = coords.y;
+            let dx = end_x - *touch_start_x.read();
+            let dy = end_y - *touch_start_y.read();
+
+            // Only trigger swipe if horizontal movement > vertical and > 50px threshold
+            if dx.abs() > dy.abs() && dx.abs() > 50.0 {
+                let current = *active_tab.read();
+                if dx < 0.0 {
+                    // Swipe left - go to next tab
+                    match current {
+                        MobileTab::Input => active_tab.set(MobileTab::Logic),
+                        MobileTab::Logic => active_tab.set(MobileTab::Tree),
+                        MobileTab::Tree => {} // Already at last tab
+                    }
+                } else {
+                    // Swipe right - go to previous tab
+                    match current {
+                        MobileTab::Input => {} // Already at first tab
+                        MobileTab::Logic => active_tab.set(MobileTab::Input),
+                        MobileTab::Tree => active_tab.set(MobileTab::Logic),
+                    }
+                }
+            }
+        }
+    };
+
     let current_format = *format.read();
+    let current_tab = *active_tab.read();
+
+    // Helper classes for panels based on active tab
+    let input_panel_class = if current_tab == MobileTab::Input {
+        "studio-panel mobile-active"
+    } else {
+        "studio-panel"
+    };
+
+    let logic_panel_class = if current_tab == MobileTab::Logic {
+        "studio-panel mobile-active has-controls"
+    } else {
+        "studio-panel"
+    };
+
+    let tree_panel_class = if current_tab == MobileTab::Tree {
+        "studio-panel mobile-active"
+    } else {
+        "studio-panel"
+    };
+
+    // Clone logic for VocabReference (needs owned String)
+    let _vocab_logic = current_result.logic.clone();
 
     rsx! {
+        // Include shared mobile styles from responsive module
+        style { "{MOBILE_BASE_STYLES}" }
+        style { "{MOBILE_TAB_BAR_STYLES}" }
         style { "{STUDIO_STYLE}" }
 
         div {
@@ -44794,12 +46706,45 @@ pub fn Studio() -> Element {
             onmousemove: handle_mouse_move,
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
+            ontouchstart: handle_touch_start,
+            ontouchend: handle_touch_end,
 
             MainNav { active: ActivePage::Studio }
 
+            // Mobile Tab Bar - shown only on mobile via CSS
+            nav { class: "mobile-tabs",
+                button {
+                    class: if current_tab == MobileTab::Input { "mobile-tab active" } else { "mobile-tab" },
+                    onclick: move |_| active_tab.set(MobileTab::Input),
+                    span { class: "mobile-tab-icon", "\u{270F}" } // Pencil icon
+                    span { class: "mobile-tab-label", "Input" }
+                }
+                button {
+                    class: if current_tab == MobileTab::Logic { "mobile-tab active" } else { "mobile-tab" },
+                    onclick: move |_| active_tab.set(MobileTab::Logic),
+                    span { class: "mobile-tab-icon", "\u{2200}" } // Forall symbol
+                    span { class: "mobile-tab-label", "Logic" }
+                }
+                button {
+                    class: if current_tab == MobileTab::Tree { "mobile-tab active" } else { "mobile-tab" },
+                    onclick: move |_| active_tab.set(MobileTab::Tree),
+                    span { class: "mobile-tab-icon", "\u{1F333}" } // Tree emoji
+                    span { class: "mobile-tab-label", "Tree" }
+                }
+            }
+
+            // Socratic Guide - prominent position above panels
+            div { class: "studio-guide",
+                SocraticGuide {
+                    mode: guide_mode.clone(),
+                    on_hint_request: None,
+                }
+            }
+
             main { class: "studio-main",
+                // Input Panel
                 section {
-                    class: "studio-panel",
+                    class: "{input_panel_class}",
                     style: "width: {left_w}%;",
                     div { class: "panel-header",
                         span { "English Input" }
@@ -44812,13 +46757,15 @@ pub fn Studio() -> Element {
                     }
                 }
 
+                // Left resizer (desktop only)
                 div {
                     class: if resizing.read().is_some() { "panel-resizer active" } else { "panel-resizer" },
                     onmousedown: move |_| resizing.set(Some("left")),
                 }
 
+                // Logic Output Panel
                 section {
-                    class: "studio-panel",
+                    class: "{logic_panel_class}",
                     style: "width: {center_w}%;",
                     div { class: "panel-header",
                         span { "Logic Output" }
@@ -44842,19 +46789,29 @@ pub fn Studio() -> Element {
                             error: current_result.error.clone(),
                             format: current_format,
                         }
+                        // Symbol Dictionary - auto-generated from FOL output
+                        if let Some(ref logic) = current_result.logic {
+                            SymbolDictionary {
+                                logic: logic.clone(),
+                                collapsed: false,
+                                inline: false,
+                            }
+                        }
                     }
                 }
 
+                // Right resizer (desktop only)
                 div {
                     class: if resizing.read().is_some() { "panel-resizer active" } else { "panel-resizer" },
                     onmousedown: move |_| resizing.set(Some("right")),
                 }
 
+                // Syntax Tree Panel
                 aside {
-                    class: "studio-panel",
+                    class: "{tree_panel_class}",
                     style: "width: {right_w}%;",
                     div { class: "panel-header",
-                        span { "AST Inspector" }
+                        span { "Syntax Tree" }
                     }
                     div { class: "panel-content",
                         AstTree {
@@ -44864,12 +46821,8 @@ pub fn Studio() -> Element {
                 }
             }
 
-            footer { class: "studio-footer",
-                SocraticGuide {
-                    mode: guide_mode,
-                    on_hint_request: None,
-                }
-            }
+            // Floating vocab reference button
+            VocabReference {}
         }
     }
 }
@@ -46949,6 +48902,7 @@ const TREE_STYLE: &str = r#"
     height: 100%;
     overflow: auto;
     padding: 16px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .ast-tree-empty {
@@ -46986,6 +48940,7 @@ const TREE_STYLE: &str = r#"
     cursor: pointer;
     transition: background 0.15s ease;
     position: relative;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .ast-node-label:hover {
@@ -47028,6 +48983,7 @@ const TREE_STYLE: &str = r#"
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.08);
     color: #888;
+    white-space: nowrap;
 }
 
 .ast-node-type.quantifier { background: rgba(198, 120, 221, 0.2); color: #c678dd; }
@@ -47057,6 +49013,85 @@ const TREE_STYLE: &str = r#"
 
 .ast-root > .ast-node-label:before {
     display: none;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .ast-tree-container {
+        padding: 12px;
+    }
+
+    .ast-tree-empty {
+        padding: 30px 16px;
+        font-size: 14px;
+    }
+
+    /* Larger touch targets for tree nodes */
+    .ast-node {
+        margin-left: 14px;
+    }
+
+    .ast-node-label {
+        padding: 8px 10px;
+        gap: 8px;
+        min-height: 40px;
+        border-radius: 6px;
+    }
+
+    .ast-node-label:active {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .ast-node-toggle {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+    }
+
+    .ast-node-text {
+        font-size: 14px;
+        word-break: break-word;
+    }
+
+    .ast-node-type {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+
+    .ast-node:before {
+        left: -10px;
+    }
+
+    .ast-node-label:before {
+        left: -10px;
+        width: 6px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .ast-tree-container {
+        padding: 10px;
+    }
+
+    .ast-node {
+        margin-left: 12px;
+    }
+
+    .ast-node-label {
+        padding: 6px 8px;
+        min-height: 36px;
+    }
+
+    .ast-node-text {
+        font-size: 13px;
+    }
+
+    .ast-node-type {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
 }
 "#;
 
@@ -47332,6 +49367,7 @@ const EDITOR_STYLE: &str = r#"
     color: #e8e8e8;
     resize: none;
     outline: none;
+    -webkit-overflow-scrolling: touch;
 }
 
 .editor-fallback:focus {
@@ -47341,6 +49377,59 @@ const EDITOR_STYLE: &str = r#"
 
 .editor-fallback::placeholder {
     color: #666;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .editor-container {
+        padding: 12px;
+        min-height: unset;
+    }
+
+    .editor-fallback {
+        /* 16px minimum prevents iOS zoom on focus */
+        font-size: 16px;
+        padding: 14px;
+        border-radius: 10px;
+        min-height: 120px;
+        /* Allow textarea to grow with content */
+        resize: vertical;
+    }
+
+    .editor-fallback:focus {
+        /* Slightly stronger focus for mobile visibility */
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.25);
+    }
+
+    .editor-fallback::placeholder {
+        color: #777;
+        font-size: 15px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .editor-container {
+        padding: 10px;
+    }
+
+    .editor-fallback {
+        padding: 12px;
+        font-size: 16px; /* Keep at 16px to prevent zoom */
+        min-height: 100px;
+    }
+}
+
+/* Landscape mobile - more horizontal space for input */
+@media (max-height: 500px) and (orientation: landscape) {
+    .editor-container {
+        padding: 8px;
+    }
+
+    .editor-fallback {
+        min-height: 80px;
+        padding: 10px 12px;
+    }
 }
 "#;
 
@@ -48557,6 +50646,7 @@ const OUTPUT_STYLE: &str = r#"
     align-items: center;
     gap: 8px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
 }
 
 .reading-selector span {
@@ -48582,22 +50672,23 @@ const OUTPUT_STYLE: &str = r#"
 }
 
 .reading-btn.active {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: #667eea;
     border-color: transparent;
     color: white;
 }
 
 .logic-display {
-    flex: 1;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 12px;
-    padding: 20px;
+    padding: 16px;
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 18px;
+    font-size: 16px;
     line-height: 1.6;
     color: #e8e8e8;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    word-break: break-word;
 }
 
 .logic-display.empty {
@@ -48606,6 +50697,8 @@ const OUTPUT_STYLE: &str = r#"
     display: flex;
     align-items: center;
     justify-content: center;
+    text-align: center;
+    padding: 40px 20px;
 }
 
 .logic-display.error {
@@ -48619,6 +50712,60 @@ const OUTPUT_STYLE: &str = r#"
 .logic-connective { color: #c678dd; }
 .logic-constant { color: #e5c07b; }
 .logic-paren { color: #abb2bf; }
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .logic-output-container {
+        padding: 12px;
+    }
+
+    .reading-selector {
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .reading-selector span {
+        font-size: 13px;
+    }
+
+    /* Touch-friendly reading buttons */
+    .reading-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 14px;
+        border-radius: 8px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .reading-btn:active {
+        transform: scale(0.95);
+    }
+
+    .logic-display {
+        padding: 16px;
+        font-size: 16px;
+        border-radius: 10px;
+    }
+
+    .logic-display.empty {
+        font-size: 14px;
+        padding: 30px 16px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .reading-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 13px;
+    }
+
+    .logic-display {
+        font-size: 15px;
+        padding: 14px;
+    }
+}
 "#;
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -48782,6 +50929,7 @@ pub enum ActivePage {
     Roadmap,
     Pricing,
     Registry,
+    Profile,
     Other,
 }
 
@@ -48800,6 +50948,7 @@ impl ActivePage {
             Route::Success {} => ActivePage::Pricing,
             Route::Registry {} => ActivePage::Registry,
             Route::PackageDetail { .. } => ActivePage::Registry,
+            Route::Profile {} => ActivePage::Profile,
             _ => ActivePage::Other,
         }
     }
@@ -49069,6 +51218,19 @@ pub fn MainNav(
                             }
                         }
                     }
+                    // Profile button
+                    Link {
+                        to: Route::Profile {},
+                        class: if active == ActivePage::Profile { "main-nav-btn main-nav-btn-icon active" } else { "main-nav-btn main-nav-btn-icon" },
+                        title: "Your Profile",
+                        svg {
+                            xmlns: "http://www.w3.org/2000/svg",
+                            view_box: "0 0 24 24",
+                            path {
+                                d: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
+                            }
+                        }
+                    }
                     // Primary CTA
                     Link {
                         to: primary_cta_route,
@@ -49146,6 +51308,7 @@ pub mod learn_sidebar;
 pub mod main_nav;
 pub mod module_tabs;
 pub mod symbol_dictionary;
+pub mod vocab_reference;
 
 ```
 
@@ -49611,31 +51774,18 @@ use dioxus::prelude::*;
 const GUIDE_STYLE: &str = r#"
 .socratic-guide {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 16px 20px;
-    background: rgba(255, 255, 255, 0.03);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 60px;
-}
-
-.guide-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
+    gap: 12px;
+    padding: 12px 20px;
+    background: transparent;
+    min-height: 44px;
 }
 
 .guide-content {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
 }
 
 .guide-label {
@@ -49644,6 +51794,7 @@ const GUIDE_STYLE: &str = r#"
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: #667eea;
+    white-space: nowrap;
 }
 
 .guide-message {
@@ -49735,11 +51886,9 @@ pub fn SocraticGuide(
             return rsx! {
                 style { "{GUIDE_STYLE}" }
                 div { class: "socratic-guide",
-                    div { class: "guide-avatar", "\u{1F989}" }
                     div { class: "guide-content",
-                        div { class: "guide-label", "Socrates" }
                         div { class: "guide-message guide-empty",
-                            "Type a sentence to begin your journey into logic..."
+                            "Type an English sentence to translate it to First-Order Logic"
                         }
                     }
                 }
@@ -49755,7 +51904,6 @@ pub fn SocraticGuide(
         style { "{GUIDE_STYLE}" }
 
         div { class: "socratic-guide",
-            div { class: "guide-avatar", "\u{1F989}" }
             div { class: "guide-content",
                 div { class: "guide-label", "{label}" }
                 div { class: "{message_class}",
@@ -50220,6 +52368,8 @@ pub fn SymbolDictionary(props: SymbolDictionaryProps) -> Element {
                                 SymbolKind::Variable => "variable",
                                 SymbolKind::Constant => "constant",
                                 SymbolKind::Temporal => "temporal",
+                                SymbolKind::Identity => "connective",
+                                SymbolKind::Punctuation => "variable",
                             };
 
                             rsx! {
@@ -50271,6 +52421,528 @@ mod tests {
     fn test_symbol_kind_class_names() {
         assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
         assert_eq!(SymbolKind::Connective.label(), "Connective");
+    }
+}
+
+```
+
+---
+
+### Component: vocab_reference
+
+**File:** `src/ui/components/vocab_reference.rs`
+
+Reusable UI component.
+
+```rust
+//! Vocabulary Reference component
+//!
+//! A collapsible reference panel showing all common logic symbols
+//! and vocabulary terms, accessible from anywhere in the learning experience.
+
+use dioxus::prelude::*;
+
+const VOCAB_REFERENCE_STYLE: &str = r#"
+.vocab-reference-toggle {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: #667eea;
+    border: none;
+    color: #fff;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    z-index: 1000;
+}
+
+.vocab-reference-toggle:hover {
+    transform: scale(1.05);
+    box-shadow: 0 6px 24px rgba(96, 165, 250, 0.4);
+}
+
+.vocab-reference-toggle.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+/* Attention animation - pulses after delay */
+.vocab-reference-toggle.attention {
+    animation: attentionPulse 2s ease-in-out 3;
+}
+
+@keyframes attentionPulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+    }
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 6px 30px rgba(102, 126, 234, 0.6);
+    }
+}
+
+.vocab-reference-panel {
+    position: fixed;
+    bottom: 84px;
+    right: 24px;
+    width: 360px;
+    max-height: 70vh;
+    background: #12161c;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    overflow: hidden;
+    animation: slideUp 0.2s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.vocab-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.vocab-panel-title {
+    font-size: var(--font-body-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.vocab-panel-close {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.vocab-panel-close:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: var(--text-primary);
+}
+
+.vocab-panel-content {
+    padding: var(--spacing-lg);
+    max-height: calc(70vh - 60px);
+    overflow-y: auto;
+}
+
+.vocab-section {
+    margin-bottom: var(--spacing-xl);
+}
+
+.vocab-section:last-child {
+    margin-bottom: 0;
+}
+
+.vocab-section-title {
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.vocab-section-title.quantifiers {
+    color: #60a5fa;
+}
+
+.vocab-section-title.connectives {
+    color: #f472b6;
+}
+
+.vocab-section-title.predicates {
+    color: #4ade80;
+}
+
+.vocab-section-title.terms {
+    color: #a78bfa;
+}
+
+.vocab-items {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.vocab-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    transition: background 0.15s ease;
+}
+
+.vocab-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.vocab-symbol {
+    font-family: var(--font-mono);
+    font-size: var(--font-body-lg);
+    min-width: 36px;
+    text-align: center;
+    font-weight: 600;
+}
+
+.vocab-symbol.quantifier {
+    color: #60a5fa;
+}
+
+.vocab-symbol.connective {
+    color: #f472b6;
+}
+
+.vocab-symbol.predicate {
+    color: #4ade80;
+}
+
+.vocab-info {
+    flex: 1;
+}
+
+.vocab-name {
+    font-size: var(--font-body-sm);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.vocab-meaning {
+    font-size: var(--font-caption-md);
+    color: var(--text-tertiary);
+}
+
+.vocab-term-item {
+    padding: var(--spacing-md);
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-sm);
+}
+
+.vocab-term-name {
+    font-weight: 600;
+    color: var(--color-accent-purple);
+    margin-bottom: var(--spacing-xs);
+}
+
+.vocab-term-def {
+    font-size: var(--font-body-sm);
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+/* Search box */
+.vocab-search {
+    margin-bottom: var(--spacing-lg);
+}
+
+.vocab-search-input {
+    width: 100%;
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: var(--font-body-sm);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+
+.vocab-search-input:focus {
+    border-color: var(--color-accent-blue);
+}
+
+.vocab-search-input::placeholder {
+    color: var(--text-tertiary);
+}
+"#;
+
+/// Symbol entry for the reference
+struct SymbolRef {
+    symbol: &'static str,
+    name: &'static str,
+    meaning: &'static str,
+    category: &'static str,
+}
+
+/// Vocabulary term entry
+struct VocabTerm {
+    term: &'static str,
+    definition: &'static str,
+}
+
+/// Get all reference symbols
+fn get_symbols() -> Vec<SymbolRef> {
+    vec![
+        // Quantifiers
+        SymbolRef { symbol: "∀", name: "Universal", meaning: "for all", category: "quantifier" },
+        SymbolRef { symbol: "∃", name: "Existential", meaning: "there exists", category: "quantifier" },
+        SymbolRef { symbol: "∃!", name: "Unique", meaning: "there exists exactly one", category: "quantifier" },
+        // Connectives
+        SymbolRef { symbol: "∧", name: "Conjunction", meaning: "and", category: "connective" },
+        SymbolRef { symbol: "∨", name: "Disjunction", meaning: "or", category: "connective" },
+        SymbolRef { symbol: "→", name: "Implication", meaning: "if...then", category: "connective" },
+        SymbolRef { symbol: "↔", name: "Biconditional", meaning: "if and only if", category: "connective" },
+        SymbolRef { symbol: "¬", name: "Negation", meaning: "not", category: "connective" },
+        // Modal
+        SymbolRef { symbol: "□", name: "Necessity", meaning: "necessarily", category: "connective" },
+        SymbolRef { symbol: "◇", name: "Possibility", meaning: "possibly", category: "connective" },
+        // Identity
+        SymbolRef { symbol: "=", name: "Identity", meaning: "equals", category: "predicate" },
+        SymbolRef { symbol: "≠", name: "Non-identity", meaning: "not equal to", category: "predicate" },
+    ]
+}
+
+/// Get vocabulary terms
+fn get_vocab_terms() -> Vec<VocabTerm> {
+    vec![
+        VocabTerm {
+            term: "Predicate",
+            definition: "A property or relation, written as a capitalized name with arguments in parentheses. E.g., Happy(alice)"
+        },
+        VocabTerm {
+            term: "Constant",
+            definition: "A name for a specific individual, written in lowercase. E.g., alice, bob, socrates"
+        },
+        VocabTerm {
+            term: "Variable",
+            definition: "A placeholder that can refer to any individual, typically x, y, z"
+        },
+        VocabTerm {
+            term: "Valid Argument",
+            definition: "An argument where the conclusion necessarily follows from the premises"
+        },
+        VocabTerm {
+            term: "Sound Argument",
+            definition: "A valid argument with premises that are actually true"
+        },
+        VocabTerm {
+            term: "Domain",
+            definition: "The set of all objects that variables can refer to"
+        },
+        VocabTerm {
+            term: "Scope",
+            definition: "The part of a formula to which a quantifier or connective applies"
+        },
+    ]
+}
+
+/// Props for VocabReference
+#[derive(Props, Clone, PartialEq)]
+pub struct VocabReferenceProps {
+    /// Whether to show the panel initially
+    #[props(default = false)]
+    pub initial_open: bool,
+}
+
+/// Vocabulary Reference floating panel
+#[component]
+pub fn VocabReference(props: VocabReferenceProps) -> Element {
+    let mut is_open = use_signal(|| props.initial_open);
+    let mut search_query = use_signal(|| String::new());
+    let mut show_attention = use_signal(|| false);
+
+    // Trigger attention animation after 10 seconds if not opened
+    use_effect(move || {
+        spawn(async move {
+            // Wait 10 seconds
+            gloo_timers::future::TimeoutFuture::new(10_000).await;
+            // Only show attention if panel hasn't been opened
+            if !*is_open.peek() {
+                show_attention.set(true);
+            }
+        });
+    });
+
+    let symbols = get_symbols();
+    let vocab_terms = get_vocab_terms();
+
+    // Filter based on search
+    let query = search_query.read().to_lowercase();
+    let filtered_symbols: Vec<_> = if query.is_empty() {
+        symbols.iter().collect()
+    } else {
+        symbols.iter().filter(|s| {
+            s.symbol.to_lowercase().contains(&query) ||
+            s.name.to_lowercase().contains(&query) ||
+            s.meaning.to_lowercase().contains(&query)
+        }).collect()
+    };
+
+    let filtered_terms: Vec<_> = if query.is_empty() {
+        vocab_terms.iter().collect()
+    } else {
+        vocab_terms.iter().filter(|t| {
+            t.term.to_lowercase().contains(&query) ||
+            t.definition.to_lowercase().contains(&query)
+        }).collect()
+    };
+
+    // Group symbols by category
+    let quantifiers: Vec<_> = filtered_symbols.iter().filter(|s| s.category == "quantifier").collect();
+    let connectives: Vec<_> = filtered_symbols.iter().filter(|s| s.category == "connective").collect();
+    let predicates: Vec<_> = filtered_symbols.iter().filter(|s| s.category == "predicate").collect();
+
+    rsx! {
+        style { "{VOCAB_REFERENCE_STYLE}" }
+
+        // Toggle button
+        button {
+            class: {
+                let open = *is_open.read();
+                let attention = *show_attention.read();
+                if open {
+                    "vocab-reference-toggle active"
+                } else if attention {
+                    "vocab-reference-toggle attention"
+                } else {
+                    "vocab-reference-toggle"
+                }
+            },
+            onclick: move |_| {
+                let current = *is_open.read();
+                is_open.set(!current);
+                // Stop attention animation once clicked
+                show_attention.set(false);
+            },
+            title: "Symbol & Vocabulary Reference",
+            if *is_open.read() { "×" } else { "📖" }
+        }
+
+        // Panel
+        if *is_open.read() {
+            div { class: "vocab-reference-panel",
+                // Header
+                div { class: "vocab-panel-header",
+                    div { class: "vocab-panel-title",
+                        "📖 Reference"
+                    }
+                    button {
+                        class: "vocab-panel-close",
+                        onclick: move |_| is_open.set(false),
+                        "×"
+                    }
+                }
+
+                // Content
+                div { class: "vocab-panel-content",
+                    // Search
+                    div { class: "vocab-search",
+                        input {
+                            class: "vocab-search-input",
+                            r#type: "text",
+                            placeholder: "Search symbols or terms...",
+                            value: "{search_query}",
+                            oninput: move |e| search_query.set(e.value()),
+                        }
+                    }
+
+                    // Quantifiers
+                    if !quantifiers.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title quantifiers", "Quantifiers" }
+                            div { class: "vocab-items",
+                                for sym in quantifiers {
+                                    div { class: "vocab-item",
+                                        span { class: "vocab-symbol quantifier", "{sym.symbol}" }
+                                        div { class: "vocab-info",
+                                            div { class: "vocab-name", "{sym.name}" }
+                                            div { class: "vocab-meaning", "{sym.meaning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Connectives
+                    if !connectives.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title connectives", "Connectives" }
+                            div { class: "vocab-items",
+                                for sym in connectives {
+                                    div { class: "vocab-item",
+                                        span { class: "vocab-symbol connective", "{sym.symbol}" }
+                                        div { class: "vocab-info",
+                                            div { class: "vocab-name", "{sym.name}" }
+                                            div { class: "vocab-meaning", "{sym.meaning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Predicates
+                    if !predicates.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title predicates", "Predicates & Relations" }
+                            div { class: "vocab-items",
+                                for sym in predicates {
+                                    div { class: "vocab-item",
+                                        span { class: "vocab-symbol predicate", "{sym.symbol}" }
+                                        div { class: "vocab-info",
+                                            div { class: "vocab-name", "{sym.name}" }
+                                            div { class: "vocab-meaning", "{sym.meaning}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Vocabulary Terms
+                    if !filtered_terms.is_empty() {
+                        div { class: "vocab-section",
+                            div { class: "vocab-section-title terms", "Key Terms" }
+                            for term in filtered_terms {
+                                div { class: "vocab-term-item",
+                                    div { class: "vocab-term-name", "{term.term}" }
+                                    div { class: "vocab-term-def", "{term.definition}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -50568,10 +53240,68 @@ pub enum ExerciseType {
     Ambiguity,
 }
 
+/// A symbol definition for the glossary
+#[derive(Debug, Clone, Deserialize)]
+pub struct SymbolDef {
+    pub symbol: String,
+    pub name: String,
+    pub meaning: String,
+    #[serde(default)]
+    pub example: Option<String>,
+}
+
+/// A content block within a section (paragraph, definition, example, etc.)
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+    Paragraph {
+        text: String,
+    },
+    Definition {
+        term: String,
+        definition: String,
+    },
+    Example {
+        title: String,
+        #[serde(default)]
+        premises: Vec<String>,
+        #[serde(default)]
+        conclusion: Option<String>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+    /// Symbol glossary block - shows relevant symbols for this section
+    Symbols {
+        title: String,
+        symbols: Vec<SymbolDef>,
+    },
+    /// Quiz question embedded in the lesson
+    Quiz {
+        question: String,
+        options: Vec<String>,
+        correct: usize,
+        #[serde(default)]
+        explanation: Option<String>,
+    },
+}
+
+/// A lesson section with structured content
+#[derive(Debug, Clone, Deserialize)]
+pub struct Section {
+    pub id: String,
+    pub title: String,
+    pub order: u32,
+    #[serde(default)]
+    pub content: Vec<ContentBlock>,
+    #[serde(default)]
+    pub key_symbols: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Module {
     pub meta: ModuleMeta,
     pub exercises: Vec<ExerciseConfig>,
+    pub sections: Vec<Section>,
 }
 
 #[derive(Debug, Clone)]
@@ -50636,13 +53366,23 @@ impl ContentEngine {
         let meta: ModuleMeta = serde_json::from_str(meta_content).ok()?;
 
         let mut exercises = Vec::new();
+        let mut sections = Vec::new();
+
         for file in module_dir.files() {
             if let Some(name) = file.path().file_name() {
                 let name_str = name.to_string_lossy();
                 if name_str.starts_with("ex_") && name_str.ends_with(".json") {
+                    // Load exercise
                     if let Some(content) = file.contents_utf8() {
                         if let Ok(exercise) = serde_json::from_str::<ExerciseConfig>(content) {
                             exercises.push(exercise);
+                        }
+                    }
+                } else if name_str.starts_with("sec_") && name_str.ends_with(".json") {
+                    // Load section
+                    if let Some(content) = file.contents_utf8() {
+                        if let Ok(section) = serde_json::from_str::<Section>(content) {
+                            sections.push(section);
                         }
                     }
                 }
@@ -50650,7 +53390,8 @@ impl ContentEngine {
         }
 
         exercises.sort_by(|a, b| a.id.cmp(&b.id));
-        Some(Module { meta, exercises })
+        sections.sort_by_key(|s| s.order);
+        Some(Module { meta, exercises, sections })
     }
 
     pub fn get_era(&self, era_id: &str) -> Option<&Era> {
@@ -51090,8 +53831,8 @@ mod tests {
         let mut rng = StdRng::seed_from_u64(42);
 
         // Use introduction module which has Translation exercises
-        let exercise = engine.get_exercise("first-steps", "introduction", "ex_01");
-        assert!(exercise.is_some(), "Exercise first-steps/introduction/ex_01 should exist");
+        let exercise = engine.get_exercise("first-steps", "introduction", "I_1.1");
+        assert!(exercise.is_some(), "Exercise first-steps/introduction/I_1.1 should exist");
         let exercise = exercise.unwrap();
         let challenge = generator.generate(exercise, &mut rng);
 
@@ -51167,6 +53908,83 @@ mod tests {
         let result2 = generator.fill_template("{ProperName} is {Adjective}.", &constraints, &mut rng2);
 
         assert_eq!(result1, result2, "Same seed should produce same output");
+    }
+
+    #[test]
+    fn test_all_introduction_exercises() {
+        let engine = ContentEngine::new();
+        let generator = Generator::new();
+
+        let module = engine.get_module("first-steps", "introduction");
+        assert!(module.is_some(), "Introduction module should exist");
+        let module = module.unwrap();
+
+        println!("Introduction module has {} exercises", module.exercises.len());
+
+        for (i, exercise) in module.exercises.iter().enumerate() {
+            let mut rng = StdRng::seed_from_u64(42 + i as u64);
+            println!("Exercise {}: id={}, type={:?}", i, exercise.id, exercise.exercise_type);
+
+            let challenge = generator.generate(exercise, &mut rng);
+            if challenge.is_none() {
+                println!("  FAILED to generate challenge!");
+                if let Some(template) = &exercise.template {
+                    println!("  Template: {}", template);
+                    let filled = generator.fill_template(template, &exercise.constraints, &mut StdRng::seed_from_u64(42));
+                    println!("  Filled template: {:?}", filled);
+                    if let Some(sentence) = filled {
+                        let compiled = crate::compile(&sentence);
+                        println!("  Compile result: {:?}", compiled);
+                    }
+                }
+            } else {
+                println!("  OK: {:?}", challenge.as_ref().map(|c| &c.sentence));
+            }
+            assert!(challenge.is_some(), "Exercise {} ({}) should generate a challenge", i, exercise.id);
+        }
+    }
+
+    #[test]
+    fn test_all_exercises_across_all_modules() {
+        let engine = ContentEngine::new();
+        let generator = Generator::new();
+
+        let mut total_exercises = 0;
+        let mut successful = 0;
+        let mut failed_exercises = Vec::new();
+
+        for era in engine.eras() {
+            for module in &era.modules {
+                if let Some(m) = engine.get_module(&era.meta.id, &module.meta.id) {
+                    for (i, exercise) in m.exercises.iter().enumerate() {
+                        total_exercises += 1;
+                        let mut rng = StdRng::seed_from_u64(42 + i as u64);
+
+                        let challenge = generator.generate(exercise, &mut rng);
+                        if challenge.is_some() {
+                            successful += 1;
+                        } else {
+                            failed_exercises.push(format!("{}/{}/{}", era.meta.id, module.meta.id, exercise.id));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("Total exercises: {}", total_exercises);
+        println!("Successful: {}", successful);
+        println!("Failed: {}", failed_exercises.len());
+
+        if !failed_exercises.is_empty() {
+            println!("\nFailed exercises:");
+            for ex in &failed_exercises {
+                println!("  - {}", ex);
+            }
+        }
+
+        // Allow some failures for now, but ensure most work
+        let success_rate = successful as f64 / total_exercises as f64;
+        assert!(success_rate >= 0.8, "At least 80% of exercises should generate (got {:.1}%)", success_rate * 100.0);
     }
 }
 
@@ -59137,239 +61955,122 @@ pub struct InterpreterResult {
 Additional source module.
 
 ```rust
-//! State management for the integrated Learn page.
+//! Tab & Focus State Management for Learn Page
 //!
-//! This module provides state types for:
-//! - Tab navigation within modules (LESSON | EXAMPLES | PRACTICE | TEST)
-//! - Focus mode (collapse other eras when one is expanded)
-//! - Module expansion state
+//! Manages the state for the integrated learn page experience:
+//! - Tab modes (Lesson, Examples, Practice, Test)
+//! - Focus state (which era/module is expanded)
+//! - Exercise navigation within modes
 
-use serde::{Deserialize, Serialize};
-
-// ═══════════════════════════════════════════════════════════════════
-// Tab Mode
-// ═══════════════════════════════════════════════════════════════════
-
-/// The available tabs within a module section
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+/// The four tab modes available for each module
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabMode {
-    /// Reading content from lesson.md
     #[default]
     Lesson,
-    /// Interactive code blocks with symbol dictionary
     Examples,
-    /// Infinite flashcard mode, earn XP per correct answer
     Practice,
-    /// 17-question assessment with final score
     Test,
 }
 
 impl TabMode {
-    /// Get the display label for this tab
+    /// Get display label for the tab
     pub fn label(&self) -> &'static str {
         match self {
             TabMode::Lesson => "LESSON",
             TabMode::Examples => "EXAMPLES",
-            TabMode::Practice => "PRACTICE \u{221E}",  // ∞ infinity symbol
-            TabMode::Test => "TEST \u{1F4DD}",          // 📝 memo emoji
+            TabMode::Practice => "PRACTICE",
+            TabMode::Test => "TEST",
         }
     }
 
-    /// Get all tab modes in display order
+    /// Get all tab modes in order
     pub fn all() -> [TabMode; 4] {
         [TabMode::Lesson, TabMode::Examples, TabMode::Practice, TabMode::Test]
     }
-
-    /// Check if this is a practice or test mode (earns XP)
-    pub fn is_exercise_mode(&self) -> bool {
-        matches!(self, TabMode::Practice | TabMode::Test)
-    }
-
-    /// Check if hints are allowed in this mode
-    pub fn allows_hints(&self) -> bool {
-        !matches!(self, TabMode::Test)
-    }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Module Tab State
-// ═══════════════════════════════════════════════════════════════════
-
-/// State for a single module's tab navigation and exercise progress
-#[derive(Debug, Clone)]
+/// State for a single module's tab interface
+#[derive(Debug, Clone, Default)]
 pub struct ModuleTabState {
-    /// The module ID this state belongs to
     pub module_id: String,
-    /// Currently selected tab
     pub current_tab: TabMode,
-    /// Current exercise index (for Practice/Test modes)
     pub exercise_index: usize,
-    /// Whether the current exercise has been submitted
     pub submitted: bool,
-    /// User's answer for the current exercise
-    pub user_answer: Option<String>,
-    /// Combo counter for Practice mode
-    pub combo: u32,
-    /// Session statistics
-    pub session_correct: u32,
-    pub session_wrong: u32,
 }
 
 impl ModuleTabState {
-    /// Create a new module tab state
     pub fn new(module_id: &str) -> Self {
         Self {
             module_id: module_id.to_string(),
             current_tab: TabMode::Lesson,
             exercise_index: 0,
             submitted: false,
-            user_answer: None,
-            combo: 0,
-            session_correct: 0,
-            session_wrong: 0,
         }
     }
 
-    /// Switch to a different tab, resetting exercise state if changing tabs
-    pub fn set_tab(&mut self, tab: TabMode) {
-        if self.current_tab != tab {
-            self.current_tab = tab;
-            self.exercise_index = 0;
-            self.submitted = false;
-            self.user_answer = None;
-            // Reset combo when leaving Practice mode
-            if !matches!(tab, TabMode::Practice) {
-                self.combo = 0;
-            }
-        }
-    }
-
-    /// Move to the next exercise
-    pub fn next_exercise(&mut self) {
-        self.exercise_index += 1;
-        self.submitted = false;
-        self.user_answer = None;
-    }
-
-    /// Record an answer result
-    pub fn record_answer(&mut self, correct: bool) {
-        self.submitted = true;
-        if correct {
-            self.session_correct += 1;
-            self.combo += 1;
-        } else {
-            self.session_wrong += 1;
-            self.combo = 0;
-        }
-    }
-
-    /// Get session accuracy as a percentage
-    pub fn accuracy(&self) -> f64 {
-        let total = self.session_correct + self.session_wrong;
-        if total == 0 {
-            0.0
-        } else {
-            (self.session_correct as f64 / total as f64) * 100.0
-        }
-    }
-
-    /// Reset session statistics
-    pub fn reset_session(&mut self) {
-        self.session_correct = 0;
-        self.session_wrong = 0;
-        self.combo = 0;
+    /// Switch to a new tab, resetting exercise state
+    pub fn switch_tab(&mut self, tab: TabMode) {
+        self.current_tab = tab;
         self.exercise_index = 0;
         self.submitted = false;
-        self.user_answer = None;
+    }
+
+    /// Reset exercise state without changing tab
+    pub fn reset_exercise(&mut self) {
+        self.exercise_index = 0;
+        self.submitted = false;
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Focus State
-// ═══════════════════════════════════════════════════════════════════
-
-/// State for focus mode - which era/module is expanded
+/// Tracks which era is currently focused (expanded)
 #[derive(Debug, Clone, Default)]
 pub struct FocusState {
-    /// Currently focused era (if any)
+    /// The currently focused era (None = no focus, all eras visible)
     pub focused_era: Option<String>,
-    /// Currently focused module within the era (if any)
-    pub focused_module: Option<String>,
+    /// The currently expanded module within the focused era
+    pub expanded_module: Option<(String, String)>, // (era_id, module_id)
 }
 
 impl FocusState {
-    /// Create a new focus state with nothing focused
     pub fn new() -> Self {
-        Self {
-            focused_era: None,
-            focused_module: None,
-        }
+        Self::default()
     }
 
-    /// Check if any era is focused
-    pub fn is_focused(&self) -> bool {
-        self.focused_era.is_some()
-    }
-
-    /// Set focus to a specific era
-    pub fn set_focus(&mut self, era_id: &str) {
+    /// Focus on a specific era
+    pub fn focus_era(&mut self, era_id: &str) {
         self.focused_era = Some(era_id.to_string());
-        self.focused_module = None;
     }
 
-    /// Toggle focus on an era - if already focused, clear; otherwise focus
-    pub fn toggle_focus(&mut self, era_id: &str) {
-        if self.focused_era.as_deref() == Some(era_id) {
-            self.focused_era = None;
-            self.focused_module = None;
-        } else {
-            self.focused_era = Some(era_id.to_string());
-            self.focused_module = None;
-        }
+    /// Expand a module within an era
+    pub fn expand_module(&mut self, era_id: &str, module_id: &str) {
+        self.focused_era = Some(era_id.to_string());
+        self.expanded_module = Some((era_id.to_string(), module_id.to_string()));
     }
 
-    /// Clear all focus
-    pub fn clear_focus(&mut self) {
+    /// Collapse the current module (but keep era focused)
+    pub fn collapse_module(&mut self) {
+        self.expanded_module = None;
+    }
+
+    /// Unfocus completely (show all eras)
+    pub fn unfocus(&mut self) {
         self.focused_era = None;
-        self.focused_module = None;
+        self.expanded_module = None;
     }
 
-    /// Check if a specific era is visible (not hidden by focus mode)
+    /// Check if a specific era is visible (either focused or no focus)
     pub fn is_era_visible(&self, era_id: &str) -> bool {
         match &self.focused_era {
-            None => true, // No focus means all visible
+            None => true,
             Some(focused) => focused == era_id,
         }
     }
 
-    /// Set focus to a specific module within an era
-    pub fn set_focus_module(&mut self, era_id: &str, module_id: &str) {
-        self.focused_era = Some(era_id.to_string());
-        self.focused_module = Some(module_id.to_string());
-    }
-
-    /// Toggle focus on a module - if already focused, clear; otherwise focus
-    pub fn toggle_focus_module(&mut self, era_id: &str, module_id: &str) {
-        if self.is_module_focused(era_id, module_id) {
-            self.focused_module = None;
-        } else {
-            self.focused_era = Some(era_id.to_string());
-            self.focused_module = Some(module_id.to_string());
-        }
-    }
-
-    /// Check if a specific module is focused
-    pub fn is_module_focused(&self, era_id: &str, module_id: &str) -> bool {
-        self.focused_era.as_deref() == Some(era_id)
-            && self.focused_module.as_deref() == Some(module_id)
-    }
-
-    /// Check if a module is expanded (either focused or in a focused era with no module focus)
+    /// Check if a specific module is expanded
     pub fn is_module_expanded(&self, era_id: &str, module_id: &str) -> bool {
-        match (&self.focused_era, &self.focused_module) {
-            (None, _) => false, // Nothing focused = nothing expanded
-            (Some(e), None) => e == era_id, // Era focused, all modules in era are "semi-expanded"
-            (Some(e), Some(m)) => e == era_id && m == module_id, // Specific module focused
+        match &self.expanded_module {
+            None => false,
+            Some((e, m)) => e == era_id && m == module_id,
         }
     }
 }
@@ -59379,43 +62080,72 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_tab_mode_is_exercise_mode() {
-        assert!(!TabMode::Lesson.is_exercise_mode());
-        assert!(!TabMode::Examples.is_exercise_mode());
-        assert!(TabMode::Practice.is_exercise_mode());
-        assert!(TabMode::Test.is_exercise_mode());
+    fn test_tab_modes_all_four_exist() {
+        let tabs = TabMode::all();
+        assert_eq!(tabs.len(), 4);
+        assert_eq!(tabs[0], TabMode::Lesson);
+        assert_eq!(tabs[1], TabMode::Examples);
+        assert_eq!(tabs[2], TabMode::Practice);
+        assert_eq!(tabs[3], TabMode::Test);
     }
 
     #[test]
-    fn test_tab_mode_allows_hints() {
-        assert!(TabMode::Lesson.allows_hints());
-        assert!(TabMode::Examples.allows_hints());
-        assert!(TabMode::Practice.allows_hints());
-        assert!(!TabMode::Test.allows_hints());
+    fn test_initial_tab_is_lesson() {
+        let state = ModuleTabState::new("test-module");
+        assert_eq!(state.current_tab, TabMode::Lesson);
     }
 
     #[test]
-    fn test_module_tab_state_accuracy() {
-        let mut state = ModuleTabState::new("test");
-        assert_eq!(state.accuracy(), 0.0);
+    fn test_tab_switch_resets_exercise_index() {
+        let mut state = ModuleTabState::new("test-module");
+        state.exercise_index = 5;
+        state.submitted = true;
 
-        state.record_answer(true);
-        state.record_answer(true);
-        state.record_answer(false);
-        assert!((state.accuracy() - 66.67).abs() < 0.1);
+        state.switch_tab(TabMode::Practice);
+
+        assert_eq!(state.current_tab, TabMode::Practice);
+        assert_eq!(state.exercise_index, 0);
+        assert!(!state.submitted);
     }
 
     #[test]
-    fn test_module_tab_state_combo() {
-        let mut state = ModuleTabState::new("test");
-        state.set_tab(TabMode::Practice);
+    fn test_focus_state_toggles_era() {
+        let mut focus = FocusState::new();
+        assert!(focus.focused_era.is_none());
 
-        state.record_answer(true);
-        assert_eq!(state.combo, 1);
-        state.record_answer(true);
-        assert_eq!(state.combo, 2);
-        state.record_answer(false);
-        assert_eq!(state.combo, 0);
+        focus.focus_era("first-steps");
+        assert_eq!(focus.focused_era, Some("first-steps".to_string()));
+
+        focus.unfocus();
+        assert!(focus.focused_era.is_none());
+    }
+
+    #[test]
+    fn test_is_era_visible_when_focused() {
+        let mut focus = FocusState::new();
+
+        // No focus = all eras visible
+        assert!(focus.is_era_visible("first-steps"));
+        assert!(focus.is_era_visible("mastery"));
+
+        // Focus on one era = only that era visible
+        focus.focus_era("first-steps");
+        assert!(focus.is_era_visible("first-steps"));
+        assert!(!focus.is_era_visible("mastery"));
+    }
+
+    #[test]
+    fn test_module_expansion() {
+        let mut focus = FocusState::new();
+
+        focus.expand_module("first-steps", "introduction");
+        assert!(focus.is_module_expanded("first-steps", "introduction"));
+        assert!(!focus.is_module_expanded("first-steps", "syllogistic"));
+
+        focus.collapse_module();
+        assert!(!focus.is_module_expanded("first-steps", "introduction"));
+        // Era should still be focused
+        assert!(focus.is_era_visible("first-steps"));
     }
 }
 
@@ -60371,166 +63101,128 @@ pub fn clear() {
 Additional source module.
 
 ```rust
-//! Struggle detection for triggering Socratic hints.
+//! Struggle Detection Logic
 //!
-//! The struggle detector monitors user activity and triggers hints when:
-//! - The user has been inactive for 5+ seconds (configurable)
-//! - The user submits a wrong answer
-//!
-//! This implements a gentle pedagogical approach: hints appear when
-//! students need them most, not as punishments but as support.
+//! Detects when a user is struggling with an exercise based on:
+//! - Inactivity (no answer attempt after threshold time)
+//! - Wrong attempts (incorrect answers)
 
-use std::time::Duration;
-
-/// Default inactivity threshold before triggering a hint
-const DEFAULT_INACTIVITY_THRESHOLD: Duration = Duration::from_secs(5);
-
-/// The reason why the user is struggling
+/// Reasons why a user might be struggling
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StruggleReason {
-    /// User hasn't typed anything for a while
     Inactivity,
-    /// User submitted an incorrect answer
     WrongAttempt,
 }
 
 impl StruggleReason {
-    /// Get a human-readable message for this reason
+    /// Get a message describing the struggle reason
     pub fn message(&self) -> &'static str {
         match self {
-            StruggleReason::Inactivity => "Taking your time? Here's a hint.",
-            StruggleReason::WrongAttempt => "Not quite. Let me help you.",
+            StruggleReason::Inactivity => "Taking your time? Here's a hint to help you along.",
+            StruggleReason::WrongAttempt => "Not quite! Let me help you think through this.",
         }
     }
 }
 
-/// Detects when a user is struggling and should receive a hint.
-#[derive(Debug, Clone)]
+/// Configuration for struggle detection
+#[derive(Debug, Clone, Copy)]
+pub struct StruggleConfig {
+    /// Seconds of inactivity before considering the user stuck
+    pub inactivity_threshold_secs: u64,
+    /// Number of wrong attempts before showing help
+    pub wrong_attempt_threshold: u32,
+}
+
+impl Default for StruggleConfig {
+    fn default() -> Self {
+        Self {
+            inactivity_threshold_secs: 5,
+            wrong_attempt_threshold: 1,
+        }
+    }
+}
+
+/// Tracks struggle state for an exercise
+#[derive(Debug, Clone, Default)]
 pub struct StruggleDetector {
-    /// Inactivity threshold before triggering
-    threshold: Duration,
-    /// Whether the user is currently struggling
-    is_struggling: bool,
-    /// The reason for struggling (if any)
-    reason: Option<StruggleReason>,
-    /// Number of wrong attempts on current exercise
-    wrong_attempts: u32,
-    /// Whether a hint has been shown for this struggle
-    hint_shown: bool,
+    pub config: StruggleConfig,
+    pub is_struggling: bool,
+    pub reason: Option<StruggleReason>,
+    pub wrong_attempts: u32,
+    pub inactivity_triggered: bool,
 }
 
 impl StruggleDetector {
-    /// Create a new detector with default 5-second threshold
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_config(config: StruggleConfig) -> Self {
         Self {
-            threshold: DEFAULT_INACTIVITY_THRESHOLD,
-            is_struggling: false,
-            reason: None,
-            wrong_attempts: 0,
-            hint_shown: false,
+            config,
+            ..Default::default()
         }
     }
 
-    /// Create a detector with a custom inactivity threshold
-    pub fn with_threshold(threshold: Duration) -> Self {
-        Self {
-            threshold,
-            is_struggling: false,
-            reason: None,
-            wrong_attempts: 0,
-            hint_shown: false,
-        }
-    }
-
-    /// Get the current inactivity threshold
-    pub fn threshold(&self) -> Duration {
-        self.threshold
-    }
-
-    /// Check if the user is currently struggling
-    pub fn is_struggling(&self) -> bool {
-        self.is_struggling
-    }
-
-    /// Get the reason for struggling (if any)
-    pub fn reason(&self) -> Option<StruggleReason> {
-        self.reason
-    }
-
-    /// Get the number of wrong attempts on the current exercise
-    pub fn wrong_attempts(&self) -> u32 {
-        self.wrong_attempts
-    }
-
-    /// Check if a hint has been shown for this struggle
-    pub fn hint_shown(&self) -> bool {
-        self.hint_shown
-    }
-
-    /// Record a period of inactivity
-    ///
-    /// If the duration exceeds the threshold, triggers struggling state.
-    pub fn record_inactivity(&mut self, duration: Duration) {
-        if duration >= self.threshold {
-            self.is_struggling = true;
-            self.reason = Some(StruggleReason::Inactivity);
-        }
-    }
-
-    /// Record that the user did something (typed, clicked, etc.)
-    ///
-    /// This clears inactivity-based struggling but not wrong-attempt struggling.
-    pub fn record_activity(&mut self) {
-        if self.reason == Some(StruggleReason::Inactivity) {
-            self.is_struggling = false;
-            self.reason = None;
-            self.hint_shown = false;
-        }
-    }
-
-    /// Record a wrong answer attempt
+    /// Record a wrong attempt - may trigger struggle state
     pub fn record_wrong_attempt(&mut self) {
         self.wrong_attempts += 1;
-        self.is_struggling = true;
-        self.reason = Some(StruggleReason::WrongAttempt);
-        self.hint_shown = false;
+        if self.wrong_attempts >= self.config.wrong_attempt_threshold {
+            self.is_struggling = true;
+            self.reason = Some(StruggleReason::WrongAttempt);
+        }
     }
 
-    /// Record a correct answer attempt
-    ///
-    /// This clears the struggling state since the user succeeded.
+    /// Record a correct attempt - resets inactivity but keeps struggle state for hints
     pub fn record_correct_attempt(&mut self) {
-        // Correct answers clear struggling but we keep wrong_attempts
-        // for statistics purposes
+        // User got it right - they're no longer struggling
         self.is_struggling = false;
-        self.reason = None;
-        self.hint_shown = false;
+        self.inactivity_triggered = false;
     }
 
-    /// Mark that a hint has been shown to the user
-    pub fn mark_hint_shown(&mut self) {
-        self.hint_shown = true;
+    /// Record user activity (typing, clicking) - resets inactivity timer
+    pub fn record_activity(&mut self) {
+        // Activity resets inactivity detection
+        self.inactivity_triggered = false;
     }
 
-    /// Reset all state for a new exercise
+    /// Called when inactivity threshold is reached
+    pub fn trigger_inactivity(&mut self) {
+        if !self.inactivity_triggered {
+            self.inactivity_triggered = true;
+            self.is_struggling = true;
+            // Only set reason if not already struggling from wrong attempts
+            if self.reason.is_none() {
+                self.reason = Some(StruggleReason::Inactivity);
+            }
+        }
+    }
+
+    /// Reset struggle state (e.g., when moving to next exercise)
     pub fn reset(&mut self) {
         self.is_struggling = false;
         self.reason = None;
         self.wrong_attempts = 0;
-        self.hint_shown = false;
+        self.inactivity_triggered = false;
     }
 
-    /// Check if we should show a hint now
-    ///
-    /// Returns true if struggling and hint hasn't been shown yet.
-    pub fn should_show_hint(&self) -> bool {
-        self.is_struggling && !self.hint_shown
+    /// Check if we should show hints
+    pub fn should_show_hints(&self) -> bool {
+        self.is_struggling
     }
-}
 
-impl Default for StruggleDetector {
-    fn default() -> Self {
-        Self::new()
+    /// Get the current struggle reason
+    pub fn reason(&self) -> Option<StruggleReason> {
+        self.reason
+    }
+
+    /// Get the current struggle reason for display
+    pub fn struggle_message(&self) -> Option<&'static str> {
+        match self.reason {
+            Some(StruggleReason::Inactivity) => Some("Taking your time? Here's a hint to help you along."),
+            Some(StruggleReason::WrongAttempt) => Some("Not quite! Let me help you think through this."),
+            None => None,
+        }
     }
 }
 
@@ -60539,38 +63231,94 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_struggle_reason_messages() {
-        assert!(!StruggleReason::Inactivity.message().is_empty());
-        assert!(!StruggleReason::WrongAttempt.message().is_empty());
+    fn test_no_struggle_initially() {
+        let detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
     }
 
     #[test]
-    fn test_should_show_hint() {
+    fn test_struggle_after_5s_inactivity() {
         let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
 
-        // Initially: not struggling
-        assert!(!detector.should_show_hint());
+        detector.trigger_inactivity();
 
-        // After wrong attempt: should show
-        detector.record_wrong_attempt();
-        assert!(detector.should_show_hint());
-
-        // After hint shown: should not show again
-        detector.mark_hint_shown();
-        assert!(!detector.should_show_hint());
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::Inactivity));
     }
 
     #[test]
-    fn test_activity_only_clears_inactivity_struggle() {
+    fn test_struggle_after_wrong_attempt() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.is_struggling);
+
+        detector.record_wrong_attempt();
+
+        assert!(detector.is_struggling);
+        assert_eq!(detector.reason, Some(StruggleReason::WrongAttempt));
+    }
+
+    #[test]
+    fn test_reset_clears_struggle() {
+        let mut detector = StruggleDetector::new();
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+
+        detector.reset();
+
+        assert!(!detector.is_struggling);
+        assert!(detector.reason.is_none());
+        assert_eq!(detector.wrong_attempts, 0);
+    }
+
+    #[test]
+    fn test_configurable_threshold() {
+        let config = StruggleConfig {
+            inactivity_threshold_secs: 10,
+            wrong_attempt_threshold: 2,
+        };
+        let mut detector = StruggleDetector::with_config(config);
+
+        // First wrong attempt shouldn't trigger with threshold of 2
+        detector.record_wrong_attempt();
+        assert!(!detector.is_struggling);
+
+        // Second wrong attempt should trigger
+        detector.record_wrong_attempt();
+        assert!(detector.is_struggling);
+    }
+
+    #[test]
+    fn test_inactivity_only_triggers_once() {
         let mut detector = StruggleDetector::new();
 
-        // Wrong attempt struggle should NOT be cleared by activity
-        detector.record_wrong_attempt();
-        assert!(detector.is_struggling());
+        detector.trigger_inactivity();
+        assert!(detector.inactivity_triggered);
 
-        detector.record_activity();
-        // Still struggling because it was wrong-attempt, not inactivity
-        assert!(detector.is_struggling());
+        // Triggering again shouldn't change the reason
+        detector.reason = None;
+        detector.trigger_inactivity();
+        assert!(detector.reason.is_none()); // Didn't set it again
+    }
+
+    #[test]
+    fn test_should_show_hints() {
+        let mut detector = StruggleDetector::new();
+        assert!(!detector.should_show_hints());
+
+        detector.record_wrong_attempt();
+        assert!(detector.should_show_hints());
+    }
+
+    #[test]
+    fn test_struggle_message() {
+        let mut detector = StruggleDetector::new();
+        assert!(detector.struggle_message().is_none());
+
+        detector.trigger_inactivity();
+        assert!(detector.struggle_message().is_some());
+        assert!(detector.struggle_message().unwrap().contains("hint"));
     }
 }
 
@@ -60585,35 +63333,28 @@ mod tests {
 Additional source module.
 
 ```rust
-//! Symbol Dictionary extraction from First-Order Logic output.
+//! Symbol Dictionary Extraction
 //!
-//! This module parses FOL strings and extracts symbols with their meanings,
-//! allowing the UI to display a "Symbol Dictionary" that helps students
-//! understand the notation.
+//! Extracts logical symbols from FOL strings for display in a symbol dictionary.
+//! Groups symbols by kind and provides descriptions.
 
 use std::collections::HashSet;
 
-/// The category of a logical symbol
+/// Categories of logical symbols
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
-    /// ∀, ∃ - quantifiers
     Quantifier,
-    /// ∧, ∨, →, ↔, ¬ - logical connectives
     Connective,
-    /// x, y, z - bound variables
     Variable,
-    /// Dog, Bark, Loves - predicate symbols
     Predicate,
-    /// J, M, S - individual constants (named entities)
     Constant,
-    /// □, ◇ - modal necessity/possibility
     Modal,
-    /// ○, G, F, H, P - temporal operators (future, past, etc.)
+    Identity,
+    Punctuation,
     Temporal,
 }
 
 impl SymbolKind {
-    /// Get a display label for this kind
     pub fn label(&self) -> &'static str {
         match self {
             SymbolKind::Quantifier => "Quantifier",
@@ -60622,215 +63363,245 @@ impl SymbolKind {
             SymbolKind::Predicate => "Predicate",
             SymbolKind::Constant => "Constant",
             SymbolKind::Modal => "Modal",
+            SymbolKind::Identity => "Identity",
+            SymbolKind::Punctuation => "Punctuation",
             SymbolKind::Temporal => "Temporal",
         }
     }
 }
 
-/// A single entry in the symbol dictionary
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A single symbol entry in the dictionary
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SymbolEntry {
-    /// The symbol itself (e.g., "∀", "Dog", "x")
     pub symbol: String,
-    /// The category of the symbol
     pub kind: SymbolKind,
-    /// Human-readable description of what it means
     pub description: String,
 }
 
-/// Extract all unique symbols from a First-Order Logic string.
-///
-/// # Arguments
-/// * `logic` - A FOL formula string (e.g., "∀x(Dog(x) → Bark(x))")
-///
-/// # Returns
-/// A vector of `SymbolEntry` items, one for each unique symbol found.
-/// Duplicates are automatically removed.
+/// Extract symbols from a FOL logic string
 pub fn extract_symbols(logic: &str) -> Vec<SymbolEntry> {
+    let mut entries = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
-    let mut symbols: Vec<SymbolEntry> = Vec::new();
 
-    let mut chars = logic.chars().peekable();
+    // Quantifiers
+    if logic.contains("∀") && seen.insert("∀".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∀".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Universal quantifier: \"for all\"".to_string(),
+        });
+    }
+    if logic.contains("∃") && seen.insert("∃".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Existential quantifier: \"there exists\"".to_string(),
+        });
+    }
+    if logic.contains("∃!") && seen.insert("∃!".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∃!".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Unique existence: \"there exists exactly one\"".to_string(),
+        });
+    }
+    if logic.contains("MOST") && seen.insert("MOST".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "MOST".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"most\"".to_string(),
+        });
+    }
+    if logic.contains("FEW") && seen.insert("FEW".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "FEW".to_string(),
+            kind: SymbolKind::Quantifier,
+            description: "Generalized quantifier: \"few\"".to_string(),
+        });
+    }
 
-    while let Some(c) = chars.next() {
-        let entry = match c {
-            // ═══════════════════════════════════════════════════════════════
-            // Quantifiers
-            // ═══════════════════════════════════════════════════════════════
-            '∀' | '\u{2200}' => Some(SymbolEntry {
-                symbol: "∀".to_string(),
-                kind: SymbolKind::Quantifier,
-                description: "Universal quantifier: \"for all\"".to_string(),
-            }),
-            '∃' | '\u{2203}' => Some(SymbolEntry {
-                symbol: "∃".to_string(),
-                kind: SymbolKind::Quantifier,
-                description: "Existential quantifier: \"there exists\"".to_string(),
-            }),
+    // Connectives
+    if logic.contains("∧") && seen.insert("∧".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∧".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Conjunction: \"and\"".to_string(),
+        });
+    }
+    if logic.contains("∨") && seen.insert("∨".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "∨".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Disjunction: \"or\"".to_string(),
+        });
+    }
+    if logic.contains("→") && seen.insert("→".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "→".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Implication: \"if...then\"".to_string(),
+        });
+    }
+    if logic.contains("↔") && seen.insert("↔".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "↔".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Biconditional: \"if and only if\"".to_string(),
+        });
+    }
+    if logic.contains("¬") && seen.insert("¬".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "¬".to_string(),
+            kind: SymbolKind::Connective,
+            description: "Negation: \"not\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Connectives
-            // ═══════════════════════════════════════════════════════════════
-            '¬' | '\u{00AC}' => Some(SymbolEntry {
-                symbol: "¬".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Negation: \"not\"".to_string(),
-            }),
-            '∧' | '\u{2227}' => Some(SymbolEntry {
-                symbol: "∧".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Conjunction: \"and\"".to_string(),
-            }),
-            '∨' | '\u{2228}' => Some(SymbolEntry {
-                symbol: "∨".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Disjunction: \"or\"".to_string(),
-            }),
-            '→' | '\u{2192}' => Some(SymbolEntry {
-                symbol: "→".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Implication: \"if...then\"".to_string(),
-            }),
-            '↔' | '\u{2194}' => Some(SymbolEntry {
-                symbol: "↔".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Biconditional: \"if and only if\"".to_string(),
-            }),
-            '⊃' | '\u{2283}' => Some(SymbolEntry {
-                symbol: "⊃".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Material conditional: \"if...then\" (horseshoe)".to_string(),
-            }),
-            '≡' | '\u{2261}' => Some(SymbolEntry {
-                symbol: "≡".to_string(),
-                kind: SymbolKind::Connective,
-                description: "Material equivalence: \"if and only if\"".to_string(),
-            }),
+    // Modal operators
+    if logic.contains("□") && seen.insert("□".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "□".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Necessity: \"it is necessary that\"".to_string(),
+        });
+    }
+    if logic.contains("◇") && seen.insert("◇".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "◇".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Possibility: \"it is possible that\"".to_string(),
+        });
+    }
+    if logic.contains("O_") && seen.insert("O".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "O".to_string(),
+            kind: SymbolKind::Modal,
+            description: "Deontic obligation: \"it ought to be that\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Modal Operators
-            // ═══════════════════════════════════════════════════════════════
-            '□' | '\u{25A1}' | '\u{25FB}' => Some(SymbolEntry {
-                symbol: "□".to_string(),
-                kind: SymbolKind::Modal,
-                description: "Necessity: \"necessarily\" or \"it must be that\"".to_string(),
-            }),
-            '◇' | '\u{25C7}' | '\u{25CA}' => Some(SymbolEntry {
-                symbol: "◇".to_string(),
-                kind: SymbolKind::Modal,
-                description: "Possibility: \"possibly\" or \"it might be that\"".to_string(),
-            }),
+    // Identity
+    if logic.contains(" = ") && seen.insert("=".to_string()) {
+        entries.push(SymbolEntry {
+            symbol: "=".to_string(),
+            kind: SymbolKind::Identity,
+            description: "Identity: \"is identical to\"".to_string(),
+        });
+    }
 
-            // ═══════════════════════════════════════════════════════════════
-            // Variables (lowercase single letters)
-            // ═══════════════════════════════════════════════════════════════
-            c if c.is_ascii_lowercase() => {
-                // Check if standalone variable (not part of a word)
-                let is_standalone = chars.peek().map_or(true, |next| {
-                    !next.is_alphanumeric()
-                });
+    // Extract predicates (uppercase letters followed by parenthesis)
+    extract_predicates(logic, &mut entries, &mut seen);
 
-                if is_standalone {
-                    Some(SymbolEntry {
-                        symbol: c.to_string(),
-                        kind: SymbolKind::Variable,
-                        description: format!("Variable: bound by a quantifier"),
-                    })
-                } else {
-                    None
-                }
+    // Extract variables (lowercase x, y, z, etc.)
+    extract_variables(logic, &mut entries, &mut seen);
+
+    // Extract constants (uppercase single letters not followed by parenthesis)
+    extract_constants(logic, &mut entries, &mut seen);
+
+    entries
+}
+
+fn extract_predicates(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Match patterns like "Dog(", "Mortal(", "Loves("
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric() || chars[i] == '_') {
+                i += 1;
             }
-
-            // ═══════════════════════════════════════════════════════════════
-            // Predicates and Constants (uppercase)
-            // ═══════════════════════════════════════════════════════════════
-            c if c.is_ascii_uppercase() => {
-                // Collect the full word
-                let mut word = String::from(c);
-                while let Some(&next) = chars.peek() {
-                    if next.is_alphanumeric() || next == '_' {
-                        word.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-
-                // Check if followed by parenthesis (predicate) or not (constant)
-                let is_predicate = chars.peek() == Some(&'(');
-
-                if is_predicate {
-                    Some(SymbolEntry {
-                        symbol: word.clone(),
+            if i < chars.len() && chars[i] == '(' {
+                let predicate: String = chars[start..i].iter().collect();
+                if seen.insert(format!("pred_{}", predicate)) {
+                    entries.push(SymbolEntry {
+                        symbol: predicate.clone(),
                         kind: SymbolKind::Predicate,
-                        description: format!("Predicate: {}", humanize_predicate(&word)),
-                    })
-                } else {
-                    // Single uppercase letter is typically a constant
-                    Some(SymbolEntry {
-                        symbol: word.clone(),
-                        kind: SymbolKind::Constant,
-                        description: format!("Constant: individual named \"{}\"", word),
-                    })
+                        description: format!("Predicate: {}", predicate),
+                    });
                 }
             }
+        }
+        i += 1;
+    }
+}
 
-            _ => None,
-        };
-
-        if let Some(e) = entry {
-            if !seen.contains(&e.symbol) {
-                seen.insert(e.symbol.clone());
-                symbols.push(e);
+fn extract_variables(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Variables are lowercase letters typically x, y, z, w
+    for var in ['x', 'y', 'z', 'w', 'e'] {
+        let var_str = var.to_string();
+        // Check if variable appears in context (not as part of a word)
+        if logic.contains(&format!("({})", var))
+            || logic.contains(&format!("({},", var))
+            || logic.contains(&format!(", {})", var))
+            || logic.contains(&format!("{}.", var))
+            || logic.contains(&format!(" {}", var))
+        {
+            if seen.insert(format!("var_{}", var)) {
+                entries.push(SymbolEntry {
+                    symbol: var_str,
+                    kind: SymbolKind::Variable,
+                    description: "Bound variable".to_string(),
+                });
             }
         }
     }
-
-    symbols
 }
 
-/// Convert a predicate name to a more human-readable form
-fn humanize_predicate(name: &str) -> String {
-    // Handle common patterns
-    match name {
-        "D" => "is a dog".to_string(),
-        "C" => "is a cat".to_string(),
-        "B" => "barks".to_string(),
-        "M" => "is a man / is mortal".to_string(),
-        "W" => "is a woman / walks".to_string(),
-        "L" => "loves".to_string(),
-        "R" => "runs".to_string(),
-        "S" => "sleeps / is a student".to_string(),
-        "P" => "is a property".to_string(),
-        "Q" => "is a property".to_string(),
-        _ if name.len() == 1 => format!("property {}", name),
-        _ => format!("\"{}\"", name.to_lowercase()),
+fn extract_constants(logic: &str, entries: &mut Vec<SymbolEntry>, seen: &mut HashSet<String>) {
+    // Constants are uppercase letters like J (John), M (Mary), etc.
+    // But not predicates (followed by parenthesis)
+    let chars: Vec<char> = logic.chars().collect();
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i].is_ascii_uppercase() {
+            let start = i;
+            // Collect the full name (may have numbers like J2)
+            while i < chars.len() && (chars[i].is_ascii_alphanumeric()) {
+                i += 1;
+            }
+            // Check if NOT followed by parenthesis (would be predicate)
+            if i >= chars.len() || chars[i] != '(' {
+                let constant: String = chars[start..i].iter().collect();
+                // Skip very long names (likely predicates) and known quantifiers
+                if constant.len() <= 3
+                    && !["MOST", "FEW", "ALL", "THE"].contains(&constant.as_str())
+                    && seen.insert(format!("const_{}", constant))
+                {
+                    entries.push(SymbolEntry {
+                        symbol: constant.clone(),
+                        kind: SymbolKind::Constant,
+                        description: format!("Constant: {}", constant),
+                    });
+                }
+            }
+        }
+        i += 1;
     }
 }
 
-/// Group symbols by their kind for display
-pub fn group_symbols_by_kind(symbols: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
+/// Get symbols grouped by kind for display
+pub fn group_symbols_by_kind(entries: &[SymbolEntry]) -> Vec<(SymbolKind, Vec<&SymbolEntry>)> {
     let kinds = [
         SymbolKind::Quantifier,
         SymbolKind::Connective,
         SymbolKind::Modal,
+        SymbolKind::Identity,
         SymbolKind::Predicate,
         SymbolKind::Variable,
         SymbolKind::Constant,
-        SymbolKind::Temporal,
     ];
 
     kinds
         .iter()
         .filter_map(|&kind| {
-            let entries: Vec<&SymbolEntry> = symbols
-                .iter()
-                .filter(|s| s.kind == kind)
-                .collect();
-
-            if entries.is_empty() {
+            let matching: Vec<_> = entries.iter().filter(|e| e.kind == kind).collect();
+            if matching.is_empty() {
                 None
             } else {
-                Some((kind, entries))
+                Some((kind, matching))
             }
         })
         .collect()
@@ -60841,35 +63612,91 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_humanize_predicate_single_letter() {
-        assert!(humanize_predicate("D").contains("dog"));
-        assert!(humanize_predicate("L").contains("loves"));
+    fn test_extract_quantifier_symbols() {
+        let logic = "∀x(Dog(x) → Mortal(x))";
+        let symbols = extract_symbols(logic);
+
+        let quantifiers: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Quantifier).collect();
+        assert!(quantifiers.iter().any(|s| s.symbol == "∀"), "Should find universal quantifier");
     }
 
     #[test]
-    fn test_humanize_predicate_word() {
-        assert!(humanize_predicate("Dog").contains("dog"));
-        assert!(humanize_predicate("Loves").contains("loves"));
+    fn test_extract_existential() {
+        let logic = "∃x(Cat(x) ∧ Black(x))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "∃"), "Should find existential quantifier");
+    }
+
+    #[test]
+    fn test_extract_connective_symbols() {
+        let logic = "∀x(Dog(x) → (Loyal(x) ∧ Friendly(x)))";
+        let symbols = extract_symbols(logic);
+
+        let connectives: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Connective).collect();
+        assert!(connectives.iter().any(|s| s.symbol == "∧"), "Should find conjunction");
+        assert!(connectives.iter().any(|s| s.symbol == "→"), "Should find implication");
+    }
+
+    #[test]
+    fn test_extract_predicate_names() {
+        let logic = "∀x(Dog(x) → Mammal(x))";
+        let symbols = extract_symbols(logic);
+
+        let predicates: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Predicate).collect();
+        assert!(predicates.iter().any(|s| s.symbol == "Dog"), "Should find Dog predicate");
+        assert!(predicates.iter().any(|s| s.symbol == "Mammal"), "Should find Mammal predicate");
+    }
+
+    #[test]
+    fn test_extract_variable_names() {
+        let logic = "∀x∃y(Loves(x, y))";
+        let symbols = extract_symbols(logic);
+
+        let variables: Vec<_> = symbols.iter().filter(|s| s.kind == SymbolKind::Variable).collect();
+        assert!(variables.iter().any(|s| s.symbol == "x"), "Should find variable x");
+        assert!(variables.iter().any(|s| s.symbol == "y"), "Should find variable y");
+    }
+
+    #[test]
+    fn test_no_duplicate_symbols() {
+        let logic = "∀x(Dog(x) → Dog(x))";
+        let symbols = extract_symbols(logic);
+
+        let dog_count = symbols.iter().filter(|s| s.symbol == "Dog").count();
+        assert_eq!(dog_count, 1, "Should not have duplicate predicates");
+    }
+
+    #[test]
+    fn test_symbol_has_description() {
+        let logic = "∀x(P(x))";
+        let symbols = extract_symbols(logic);
+
+        for symbol in &symbols {
+            assert!(!symbol.description.is_empty(), "Every symbol should have a description");
+        }
+    }
+
+    #[test]
+    fn test_modal_symbols() {
+        let logic = "□(P(x)) ∧ ◇(Q(y))";
+        let symbols = extract_symbols(logic);
+
+        assert!(symbols.iter().any(|s| s.symbol == "□"), "Should find necessity operator");
+        assert!(symbols.iter().any(|s| s.symbol == "◇"), "Should find possibility operator");
     }
 
     #[test]
     fn test_group_symbols_by_kind() {
-        let symbols = extract_symbols("∀x(D(x) ∧ B(x))");
+        let logic = "∀x(Dog(x) → ∃y(Loves(x, y)))";
+        let symbols = extract_symbols(logic);
         let grouped = group_symbols_by_kind(&symbols);
 
-        assert!(!grouped.is_empty());
+        // Should have multiple groups
+        assert!(!grouped.is_empty(), "Should have grouped symbols");
 
-        // Find quantifiers group
-        let quantifiers = grouped.iter()
-            .find(|(k, _)| *k == SymbolKind::Quantifier);
-        assert!(quantifiers.is_some());
-    }
-
-    #[test]
-    fn test_symbol_kind_labels() {
-        assert_eq!(SymbolKind::Quantifier.label(), "Quantifier");
-        assert_eq!(SymbolKind::Connective.label(), "Connective");
-        assert_eq!(SymbolKind::Modal.label(), "Modal");
+        // Check quantifiers group exists
+        assert!(grouped.iter().any(|(k, _)| *k == SymbolKind::Quantifier), "Should have quantifier group");
     }
 }
 
@@ -60884,181 +63711,41 @@ mod tests {
 Additional source module.
 
 ```rust
-//! Module unlock logic for the Logicaffeine curriculum.
+//! Module Unlock Logic
 //!
-//! # Unlock Rules
-//!
-//! 1. **First module** in each era is always unlocked
-//! 2. **Sequential unlock**: A module unlocks when the previous module is completed
-//! 3. **Last two restriction**: The last 2 modules in each era remain locked until
-//!    at least one module in that era is 100% complete
-//!
-//! # Module States
-//!
-//! - `Locked`: Cannot access (prerequisites not met)
-//! - `Available`: Can start (unlocked but not started)
-//! - `Started`: In progress (some exercises done)
-//! - `Progressing`: 50-99% complete
-//! - `Mastered`: 100% complete
-//! - `Perfected`: 100% complete with 90%+ accuracy
+//! Rules:
+//! - First module in each era is always unlocked
+//! - Subsequent modules unlock when the previous module is completed
+//! - Last two modules in each era are locked until at least one module has 100% completion
 
 use crate::content::ContentEngine;
-use crate::progress::{ModuleProgress, UserProgress};
+use crate::progress::UserProgress;
 
-/// The state of a module for display purposes
+/// State of a module for the user
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModuleState {
-    /// Cannot access - prerequisites not met
+    /// Module is locked and cannot be accessed
     Locked,
-    /// Can start - unlocked but not started
+    /// Module is unlocked but not started
     Available,
-    /// In progress - some exercises done (1-49%)
+    /// Module has been started (score < 50%)
     Started,
-    /// Making good progress (50-99%)
+    /// Module is in progress (50-89% score)
     Progressing,
-    /// 100% complete
-    Mastered,
-    /// 100% complete with 90%+ accuracy
+    /// Module has been completed but not perfected (90%+ score)
+    Completed,
+    /// Module has been perfected (100% or 3 stars)
     Perfected,
 }
 
-impl ModuleState {
-    /// Get the icon for this state
-    pub fn icon(&self) -> &'static str {
-        match self {
-            ModuleState::Locked => "\u{1F512}",      // 🔒
-            ModuleState::Available => "\u{2591}\u{2591}\u{2591}", // ░░░
-            ModuleState::Started => "\u{2B50}\u{2591}\u{2591}",   // ⭐░░
-            ModuleState::Progressing => "\u{2B50}\u{2B50}\u{2591}", // ⭐⭐░
-            ModuleState::Mastered => "\u{2B50}\u{2B50}\u{2B50}",  // ⭐⭐⭐
-            ModuleState::Perfected => "\u{1F451}",   // 👑
-        }
-    }
-
-    /// Get a label for this state
-    pub fn label(&self) -> &'static str {
-        match self {
-            ModuleState::Locked => "locked",
-            ModuleState::Available => "not started",
-            ModuleState::Started => "in progress",
-            ModuleState::Progressing => "progressing",
-            ModuleState::Mastered => "mastered",
-            ModuleState::Perfected => "perfected",
-        }
-    }
-}
-
-/// Check if a specific module is unlocked for the user.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine with curriculum structure
-/// * `era_id` - The era identifier
-/// * `module_id` - The module identifier to check
-///
-/// # Returns
-/// `true` if the module is unlocked, `false` otherwise
-pub fn check_module_unlocked(
-    progress: &UserProgress,
-    engine: &ContentEngine,
-    era_id: &str,
-    module_id: &str,
-) -> bool {
-    // Get the era
-    let era = match engine.get_era(era_id) {
-        Some(e) => e,
-        None => return false,
-    };
-
-    // Find the module index in this era
-    let module_index = match era
-        .modules
-        .iter()
-        .position(|m| m.meta.id == module_id)
-    {
-        Some(idx) => idx,
-        None => return false,
-    };
-
-    let module_count = era.modules.len();
-
-    // Rule 1: First module is always unlocked
-    if module_index == 0 {
-        return true;
-    }
-
-    // Rule 3: Check if this is one of the last 2 modules
-    let is_last_two = module_index >= module_count.saturating_sub(2);
-
-    if is_last_two {
-        // Last 2 modules require at least 1 completed module in the era
-        let has_any_complete = era
-            .modules
-            .iter()
-            .any(|m| is_module_complete(progress, &m.meta.id));
-
-        if !has_any_complete {
-            return false;
-        }
-    }
-
-    // Rule 2: Previous module must be complete
-    let prev_module_id = &era.modules[module_index - 1].meta.id;
-    is_module_complete(progress, prev_module_id)
-}
-
-/// Check if a module is marked as complete in user progress
-pub fn is_module_complete(progress: &UserProgress, module_id: &str) -> bool {
-    progress
-        .modules
-        .get(module_id)
-        .map(|m| m.completed)
-        .unwrap_or(false)
-}
-
-/// Get a list of all locked module IDs for a given era.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine with curriculum structure
-/// * `era_id` - The era identifier
-///
-/// # Returns
-/// A vector of module IDs that are currently locked
-pub fn get_locked_module_ids(
-    progress: &UserProgress,
-    engine: &ContentEngine,
-    era_id: &str,
-) -> Vec<String> {
-    let era = match engine.get_era(era_id) {
-        Some(e) => e,
-        None => return vec![],
-    };
-
-    era.modules
-        .iter()
-        .filter(|m| !check_module_unlocked(progress, engine, era_id, &m.meta.id))
-        .map(|m| m.meta.id.clone())
-        .collect()
-}
-
-/// Get the display state for a module.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine with curriculum structure
-/// * `era_id` - The era identifier
-/// * `module_id` - The module identifier
-///
-/// # Returns
-/// The current state of the module for UI display
+/// Get the current state of a module for the user
 pub fn get_module_state(
     progress: &UserProgress,
     engine: &ContentEngine,
     era_id: &str,
     module_id: &str,
 ) -> ModuleState {
-    // First check if unlocked
+    // Check if locked
     if !check_module_unlocked(progress, engine, era_id, module_id) {
         return ModuleState::Locked;
     }
@@ -61067,14 +63754,10 @@ pub fn get_module_state(
     match progress.modules.get(module_id) {
         None => ModuleState::Available,
         Some(mp) => {
-            if mp.completed {
-                // Check accuracy for perfected status
-                // For now, use stars as a proxy (3 stars = 90%+)
-                if mp.stars >= 3 && mp.best_score >= 90 {
-                    ModuleState::Perfected
-                } else {
-                    ModuleState::Mastered
-                }
+            if mp.completed && (mp.best_score >= 90 || mp.stars >= 3) {
+                ModuleState::Perfected
+            } else if mp.completed {
+                ModuleState::Completed
             } else if mp.best_score >= 50 {
                 ModuleState::Progressing
             } else if mp.attempts > 0 || mp.best_score > 0 {
@@ -61086,80 +63769,183 @@ pub fn get_module_state(
     }
 }
 
-/// Count how many modules are completed in an era.
-pub fn count_completed_modules(
-    progress: &UserProgress,
-    engine: &ContentEngine,
-    era_id: &str,
-) -> usize {
-    let era = match engine.get_era(era_id) {
-        Some(e) => e,
-        None => return 0,
-    };
-
-    era.modules
-        .iter()
-        .filter(|m| is_module_complete(progress, &m.meta.id))
-        .count()
-}
-
-/// Calculate the completion percentage for a module based on exercises.
-///
-/// # Arguments
-/// * `progress` - The user's progress data
-/// * `engine` - The content engine
-/// * `era_id` - The era identifier
-/// * `module_id` - The module identifier
-///
-/// # Returns
-/// Percentage complete (0-100)
-pub fn get_module_completion_percent(
+/// Check if a specific module is unlocked for the user
+pub fn check_module_unlocked(
     progress: &UserProgress,
     engine: &ContentEngine,
     era_id: &str,
     module_id: &str,
-) -> u32 {
-    let module = match engine.get_module(era_id, module_id) {
-        Some(m) => m,
-        None => return 0,
+) -> bool {
+    let Some(era) = engine.get_era(era_id) else {
+        return false;
     };
 
-    let total_exercises = module.exercises.len();
-    if total_exercises == 0 {
-        return 0;
+    let module_ids: Vec<&str> = era.modules.iter().map(|m| m.meta.id.as_str()).collect();
+    let Some(module_index) = module_ids.iter().position(|&id| id == module_id) else {
+        return false;
+    };
+
+    let total_modules = module_ids.len();
+
+    // First module is always unlocked
+    if module_index == 0 {
+        return true;
     }
 
-    // Count exercises with at least one correct answer
-    let completed = module
-        .exercises
-        .iter()
-        .filter(|ex| {
-            progress
-                .exercises
-                .get(&ex.id)
-                .map(|p| p.correct_count > 0)
-                .unwrap_or(false)
-        })
-        .count();
+    // Check if this is one of the last two modules
+    let is_final_module = total_modules >= 2 && module_index >= total_modules - 2;
 
-    ((completed as f64 / total_exercises as f64) * 100.0) as u32
+    if is_final_module {
+        // Last two modules require at least one module to be 100% complete
+        let has_perfect_completion = module_ids.iter().take(total_modules.saturating_sub(2)).any(|&mid| {
+            progress.modules.get(mid).map_or(false, |mp| mp.completed && mp.best_score >= 100)
+        });
+
+        if !has_perfect_completion {
+            return false;
+        }
+    }
+
+    // Check if previous module is completed
+    let prev_module_id = module_ids[module_index - 1];
+    progress.modules.get(prev_module_id).map_or(false, |mp| mp.completed)
+}
+
+/// Get list of locked module IDs for an era
+pub fn get_locked_module_ids(
+    progress: &UserProgress,
+    engine: &ContentEngine,
+    era_id: &str,
+) -> Vec<String> {
+    let Some(era) = engine.get_era(era_id) else {
+        return Vec::new();
+    };
+
+    era.modules
+        .iter()
+        .filter(|m| !check_module_unlocked(progress, engine, era_id, &m.meta.id))
+        .map(|m| m.meta.id.clone())
+        .collect()
+}
+
+/// Check if any module in the era has 100% completion
+pub fn has_perfect_module(progress: &UserProgress, engine: &ContentEngine, era_id: &str) -> bool {
+    let Some(era) = engine.get_era(era_id) else {
+        return false;
+    };
+
+    era.modules.iter().any(|m| {
+        progress.modules.get(&m.meta.id).map_or(false, |mp| mp.completed && mp.best_score >= 100)
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::progress::ModuleProgress;
 
-    #[test]
-    fn test_module_state_icons() {
-        assert!(!ModuleState::Locked.icon().is_empty());
-        assert!(!ModuleState::Available.icon().is_empty());
-        assert!(!ModuleState::Mastered.icon().is_empty());
+    fn make_progress_with_completed(completed_modules: &[(&str, bool, u32)]) -> UserProgress {
+        let mut progress = UserProgress::new();
+        for (id, completed, score) in completed_modules {
+            progress.modules.insert(id.to_string(), ModuleProgress {
+                module_id: id.to_string(),
+                unlocked: true,
+                completed: *completed,
+                stars: 0,
+                best_score: *score,
+                attempts: 1,
+            });
+        }
+        progress
     }
 
     #[test]
-    fn test_module_state_labels() {
-        assert_eq!(ModuleState::Locked.label(), "locked");
-        assert_eq!(ModuleState::Available.label(), "not started");
+    fn test_first_module_always_unlocked() {
+        let progress = UserProgress::new();
+        let engine = ContentEngine::new();
+
+        // First module of first era should always be unlocked
+        if let Some(era) = engine.eras().first() {
+            if let Some(module) = era.modules.first() {
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, &module.meta.id));
+            }
+        }
+    }
+
+    #[test]
+    fn test_module_locked_until_previous_complete() {
+        let engine = ContentEngine::new();
+
+        if let Some(era) = engine.eras().first() {
+            if era.modules.len() >= 2 {
+                let first_id = &era.modules[0].meta.id;
+                let second_id = &era.modules[1].meta.id;
+
+                // Without completing first module, second should be locked
+                let progress = UserProgress::new();
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, second_id));
+
+                // After completing first module, second should be unlocked
+                let progress = make_progress_with_completed(&[(first_id.as_str(), true, 80)]);
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, second_id));
+            }
+        }
+    }
+
+    #[test]
+    fn test_last_two_locked_until_one_module_100_complete() {
+        let engine = ContentEngine::new();
+
+        // Find an era with at least 4 modules
+        for era in engine.eras() {
+            if era.modules.len() >= 4 {
+                let module_ids: Vec<&str> = era.modules.iter().map(|m| m.meta.id.as_str()).collect();
+                let last_module_id = module_ids[module_ids.len() - 1];
+                let second_last_id = module_ids[module_ids.len() - 2];
+
+                // Complete all modules except last two, but none at 100%
+                let mut completed: Vec<(&str, bool, u32)> = module_ids[..module_ids.len()-2]
+                    .iter()
+                    .map(|id| (*id, true, 80u32))
+                    .collect();
+
+                let progress = make_progress_with_completed(&completed);
+
+                // Last two should still be locked (no 100% completion)
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, second_last_id),
+                    "Second-to-last module should be locked without 100% completion");
+                assert!(!check_module_unlocked(&progress, &engine, &era.meta.id, last_module_id),
+                    "Last module should be locked without 100% completion");
+
+                // Now complete one module at 100%
+                completed[0].2 = 100;
+                let progress = make_progress_with_completed(&completed);
+
+                // Second-to-last should now be unlocked
+                assert!(check_module_unlocked(&progress, &engine, &era.meta.id, second_last_id),
+                    "Second-to-last module should be unlocked with 100% completion");
+
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_locked_module_ids() {
+        let progress = UserProgress::new();
+        let engine = ContentEngine::new();
+
+        if let Some(era) = engine.eras().first() {
+            let locked = get_locked_module_ids(&progress, &engine, &era.meta.id);
+
+            // All modules except the first should be locked initially
+            assert_eq!(locked.len(), era.modules.len() - 1);
+
+            // First module should NOT be in the locked list
+            if let Some(first_module) = era.modules.first() {
+                assert!(!locked.contains(&first_module.meta.id));
+            }
+        }
     }
 }
 
@@ -61996,7 +64782,8 @@ web-sys = { version = "0.3", features = [
     "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
     "Storage", "Navigator", "Clipboard", "UrlSearchParams",
     "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
-    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition"
+    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition",
+    "ScrollToOptions"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -62005,6 +64792,7 @@ rand = "0.8"
 include_dir = "0.7"
 gloo-timers = { version = "0.3", features = ["futures"] }
 gloo-net = "0.6"
+wasm-bindgen-futures = "0.4"
 clap = { version = "4.4", features = ["derive"], optional = true }
 toml = { version = "0.8", optional = true }
 ureq = { version = "2.9", features = ["json"], optional = true }
@@ -63518,10 +66306,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Tue Dec 30 21:06:11 CST 2025
+- **Generated:** Thu Jan  1 17:30:54 CST 2026
 - **Repository:** /Users/collinpounds/dev/logicaffeine
 - **Git Branch:** user-management
-- **Git Commit:** 15c28fe
+- **Git Commit:** b58feb9
 - **Documentation Size:** 3.1M
 
 ---

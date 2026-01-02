@@ -1521,6 +1521,41 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     body: self.substitute_constant_with_var(body, constant_name, var_name)?,
                 }))
             }
+            LogicExpr::NeoEvent(data) => {
+                // Substitute constants in thematic roles (Agent, Theme, etc.)
+                let new_roles: Vec<(crate::ast::ThematicRole, Term<'a>)> = data
+                    .roles
+                    .iter()
+                    .map(|(role, term)| {
+                        let new_term = match term {
+                            Term::Constant(c) if *c == constant_name => Term::Variable(var_name),
+                            Term::Constant(c) => Term::Constant(*c),
+                            Term::Variable(v) => Term::Variable(*v),
+                            Term::Function(n, a) => Term::Function(*n, *a),
+                            Term::Group(m) => Term::Group(*m),
+                            Term::Possessed { possessor, possessed } => Term::Possessed {
+                                possessor: *possessor,
+                                possessed: *possessed,
+                            },
+                            Term::Sigma(p) => Term::Sigma(*p),
+                            Term::Intension(p) => Term::Intension(*p),
+                            Term::Proposition(e) => Term::Proposition(*e),
+                            Term::Value { kind, unit, dimension } => Term::Value {
+                                kind: *kind,
+                                unit: *unit,
+                                dimension: *dimension,
+                            },
+                        };
+                        (*role, new_term)
+                    })
+                    .collect();
+                Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
+                    event_var: data.event_var,
+                    verb: data.verb,
+                    roles: self.ctx.roles.alloc_slice(new_roles),
+                    modifiers: data.modifiers,
+                }))))
+            }
             _ => Ok(expr),
         }
     }

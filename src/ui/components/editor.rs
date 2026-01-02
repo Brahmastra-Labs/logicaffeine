@@ -43,6 +43,7 @@ const EDITOR_STYLE: &str = r#"
     color: #e8e8e8;
     resize: none;
     outline: none;
+    -webkit-overflow-scrolling: touch;
 }
 
 .editor-fallback:focus {
@@ -52,6 +53,59 @@ const EDITOR_STYLE: &str = r#"
 
 .editor-fallback::placeholder {
     color: #666;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .editor-container {
+        padding: 12px;
+        min-height: unset;
+    }
+
+    .editor-fallback {
+        /* 16px minimum prevents iOS zoom on focus */
+        font-size: 16px;
+        padding: 14px;
+        border-radius: 10px;
+        min-height: 120px;
+        /* Allow textarea to grow with content */
+        resize: vertical;
+    }
+
+    .editor-fallback:focus {
+        /* Slightly stronger focus for mobile visibility */
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.25);
+    }
+
+    .editor-fallback::placeholder {
+        color: #777;
+        font-size: 15px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .editor-container {
+        padding: 10px;
+    }
+
+    .editor-fallback {
+        padding: 12px;
+        font-size: 16px; /* Keep at 16px to prevent zoom */
+        min-height: 100px;
+    }
+}
+
+/* Landscape mobile - more horizontal space for input */
+@media (max-height: 500px) and (orientation: landscape) {
+    .editor-container {
+        padding: 8px;
+    }
+
+    .editor-fallback {
+        min-height: 80px;
+        padding: 10px 12px;
+    }
 }
 "#;
 
