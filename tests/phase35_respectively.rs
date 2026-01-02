@@ -17,15 +17,15 @@ fn respectively_basic_pairwise() {
     eprintln!("DEBUG respectively_basic: {}", output);
 
     // Should contain two separate predications with Agent/Theme roles
-    // NeoEvent format: ∃e(See(e) ∧ Agent(e, J) ∧ Theme(e, T))
+    // NeoEvent format: ∃e(See(e) ∧ Agent(e, John) ∧ Theme(e, Tom))
     assert!(
-        output.contains("Agent(e, J)") && output.contains("Theme(e, T)"),
-        "Should have See event with J as Agent, T as Theme: got '{}'",
+        output.contains("Agent(e, John)") && output.contains("Theme(e, Tom)"),
+        "Should have See event with John as Agent, Tom as Theme: got '{}'",
         output
     );
     assert!(
-        output.contains("Agent(e, M)"),
-        "Should have See event with M as Agent: got '{}'",
+        output.contains("Agent(e, Mary)"),
+        "Should have See event with Mary as Agent: got '{}'",
         output
     );
     // Should be conjoined
@@ -45,18 +45,18 @@ fn respectively_three_elements() {
 
     // Should produce 3 conjuncts in NeoEvent format
     assert!(
-        output.contains("Agent(e, A)") && output.contains("Theme(e, D)"),
-        "Should have Love event with A as Agent, D as Theme: got '{}'",
+        output.contains("Agent(e, Alice)") && output.contains("Theme(e, Dave)"),
+        "Should have Love event with Alice as Agent, Dave as Theme: got '{}'",
         output
     );
     assert!(
-        output.contains("Agent(e, B)") && output.contains("Theme(e, E)"),
-        "Should have Love event with B as Agent, E as Theme: got '{}'",
+        output.contains("Agent(e, Bob)") && output.contains("Theme(e, Eve)"),
+        "Should have Love event with Bob as Agent, Eve as Theme: got '{}'",
         output
     );
     assert!(
-        output.contains("Agent(e, C)") && output.contains("Theme(e, F)"),
-        "Should have Love event with C as Agent, F as Theme: got '{}'",
+        output.contains("Agent(e, Carol)") && output.contains("Theme(e, Frank)"),
+        "Should have Love event with Carol as Agent, Frank as Theme: got '{}'",
         output
     );
 }
@@ -113,13 +113,13 @@ fn respectively_past_tense() {
 
     // NeoEvent format with Past modifier
     assert!(
-        output.contains("Agent(e, J)") && output.contains("Theme(e, T)"),
-        "Should have Help event with J as Agent, T as Theme: got '{}'",
+        output.contains("Agent(e, John)") && output.contains("Theme(e, Tom)"),
+        "Should have Help event with John as Agent, Tom as Theme: got '{}'",
         output
     );
     assert!(
-        output.contains("Agent(e, M)"),
-        "Should have Help event with M as Agent: got '{}'",
+        output.contains("Agent(e, Mary)"),
+        "Should have Help event with Mary as Agent: got '{}'",
         output
     );
     assert!(
@@ -136,13 +136,13 @@ fn respectively_present_tense() {
 
     // NeoEvent format
     assert!(
-        output.contains("Agent(e, J)") && output.contains("Theme(e, T)"),
-        "Should have Love event with J as Agent, T as Theme: got '{}'",
+        output.contains("Agent(e, John)") && output.contains("Theme(e, Tom)"),
+        "Should have Love event with John as Agent, Tom as Theme: got '{}'",
         output
     );
     assert!(
-        output.contains("Agent(e, M)"),
-        "Should have Love event with M as Agent: got '{}'",
+        output.contains("Agent(e, Mary)"),
+        "Should have Love event with Mary as Agent: got '{}'",
         output
     );
 }

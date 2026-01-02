@@ -44,6 +44,21 @@ pub enum ParserMode {
     Imperative,
 }
 
+/// Controls scope of negation for lexically negative verbs (lacks, miss).
+/// "user who lacks a key" can mean:
+///   - Wide:   ¬∃y(Key(y) ∧ Have(x,y)) - "has NO keys" (natural reading)
+///   - Narrow: ∃y(Key(y) ∧ ¬Have(x,y)) - "missing SOME key" (literal reading)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NegativeScopeMode {
+    /// Narrow scope negation (literal reading): ∃y(Key(y) ∧ ¬Have(x,y))
+    /// "User is missing some key" - need all keys (default/traditional reading)
+    #[default]
+    Narrow,
+    /// Wide scope negation (natural reading): ¬∃y(Key(y) ∧ Have(x,y))
+    /// "User has no keys" - need at least one key
+    Wide,
+}
+
 #[derive(Clone)]
 struct ParserCheckpoint {
     pos: usize,
@@ -100,7 +115,9 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) var_counter: usize,
     pub(super) pending_time: Option<Time>,
     pub(super) context: Option<&'ctx mut DiscourseContext>,
-    pub(super) donkey_bindings: Vec<(Symbol, Symbol, bool)>,
+    /// Donkey bindings: (noun, var, is_donkey_used, wide_scope_negation)
+    /// The 4th field tracks if this binding's existential needs negation wrapping (for "lacks" scope)
+    pub(super) donkey_bindings: Vec<(Symbol, Symbol, bool, bool)>,
     pub(super) interner: &'int mut Interner,
     pub(super) ctx: AstContext<'a>,
     pub(super) current_island: u32,
@@ -116,6 +133,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) type_registry: Option<TypeRegistry>,
     pub(super) event_reading_mode: bool,
     pub(super) drs: Drs,
+    pub(super) negative_scope_mode: NegativeScopeMode,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -146,6 +164,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             type_registry: None,
             event_reading_mode: false,
             drs: Drs::new(),
+            negative_scope_mode: NegativeScopeMode::default(),
         }
     }
 
@@ -159,6 +178,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn set_event_reading_mode(&mut self, mode: bool) {
         self.event_reading_mode = mode;
+    }
+
+    pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
+        self.negative_scope_mode = mode;
     }
 
     pub fn with_context(
@@ -189,6 +212,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             type_registry: None,
             event_reading_mode: false,
             drs: Drs::new(),
+            negative_scope_mode: NegativeScopeMode::default(),
         }
     }
 
@@ -224,6 +248,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             type_registry: Some(types),
             event_reading_mode: false,
             drs: Drs::new(),
+            negative_scope_mode: NegativeScopeMode::default(),
         }
     }
 
@@ -668,7 +693,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn resolve_donkey_pronoun(&mut self, gender: Gender) -> Option<Symbol> {
-        for (noun_class, var_name, used) in self.donkey_bindings.iter_mut().rev() {
+        for (noun_class, var_name, used, _wide_neg) in self.donkey_bindings.iter_mut().rev() {
             let noun_str = self.interner.resolve(*noun_class);
             let noun_gender = Self::infer_noun_gender(noun_str);
             if noun_gender == gender || gender == Gender::Neuter || noun_gender == Gender::Unknown {
@@ -6342,7 +6367,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let noun_str = self.interner.resolve(object_np.noun).to_string();
                         let first_char = noun_str.chars().next().unwrap_or('X');
                         if first_char.is_alphabetic() {
-                            let symbol = format!("^{}", first_char.to_uppercase());
+                            // Use full noun name with ^ prefix for intensional terms
+                            let symbol = format!("^{}", crate::transpile::capitalize_first(&noun_str));
                             self.register_entity(&symbol, &noun_str, Gender::Neuter, Number::Singular);
                         }
 
@@ -6755,7 +6781,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Build thematic roles for Neo-Davidsonian event semantics
             let mut roles: Vec<(ThematicRole, Term<'a>)> = Vec::new();
-            roles.push((ThematicRole::Agent, subject_term));
+
+            // Check if verb is unaccusative (intransitive subject is Theme, not Agent)
+            let verb_str_for_check = self.interner.resolve(verb).to_lowercase();
+            let is_unaccusative = crate::lexicon::lookup_verb_db(&verb_str_for_check)
+                .map(|meta| meta.features.contains(&crate::lexicon::Feature::Unaccusative))
+                .unwrap_or(false);
+
+            // Unaccusative verbs used intransitively: subject is Theme
+            let has_object = object_term.is_some() || second_object_term.is_some();
+            let subject_role = if is_unaccusative && !has_object {
+                ThematicRole::Theme
+            } else {
+                ThematicRole::Agent
+            };
+
+            roles.push((subject_role, subject_term));
             if let Some(second_obj) = second_object_term {
                 // Ditransitive: first object is Recipient, second is Theme
                 if let Some(first_obj) = object_term {
@@ -7286,7 +7327,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
 
                 let gender = Self::infer_gender(s_str);
-                let symbol_str = s_str.chars().next().unwrap().to_string();
+                // Use full name as symbol for consistent output in Full mode
+                let symbol_str = crate::transpile::capitalize_first(s_str);
                 let noun_class = s_str.to_string();
                 self.register_entity(&symbol_str, &noun_class, gender, Number::Singular);
                 Ok(s)

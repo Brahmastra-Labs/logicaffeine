@@ -820,12 +820,12 @@ fn davidsonian_event_semantics() {
 fn long_distance_wh_movement() {
     let output = compile("Who did John say Mary loves?").unwrap();
     assert!(
-        output.contains("S(J") || output.contains("Say(J"),
+        output.contains("Say(John") || output.contains("S(John"),
         "Main verb found: got '{}'", output
     );
     assert!(
-        output.contains("L(M, x)") || output.contains("Love(M, x)")
-            || (output.contains("Agent(e, M)") && output.contains("Theme(e, x)")),
+        output.contains("Love(Mary, x)") || output.contains("L(Mary, x)")
+            || (output.contains("Agent(e, Mary)") && output.contains("Theme(e, x)")),
         "Nested clause binds 'x' to object position: got '{}'", output
     );
 }

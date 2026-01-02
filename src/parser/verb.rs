@@ -1047,7 +1047,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             let mut roles: Vec<(ThematicRole, Term<'a>)> = Vec::new();
-            roles.push((ThematicRole::Agent, subject_term));
+
+            // Check if verb is unaccusative (intransitive subject is Theme, not Agent)
+            let verb_str = self.interner.resolve(verb).to_lowercase();
+            let is_unaccusative = crate::lexicon::lookup_verb_db(&verb_str)
+                .map(|meta| meta.features.contains(&crate::lexicon::Feature::Unaccusative))
+                .unwrap_or(false);
+
+            // Unaccusative verbs used intransitively: subject is Theme
+            // E.g., "The alarm triggers" → Theme(e, Alarm), not Agent(e, Alarm)
+            let has_object = object_term.is_some() || second_object_term.is_some();
+            let subject_role = if is_unaccusative && !has_object {
+                ThematicRole::Theme
+            } else {
+                ThematicRole::Agent
+            };
+
+            roles.push((subject_role, subject_term));
             if let Some(second_obj) = second_object_term {
                 if let Some(first_obj) = object_term {
                     roles.push((ThematicRole::Recipient, first_obj));

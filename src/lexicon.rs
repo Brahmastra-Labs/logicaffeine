@@ -1,5 +1,12 @@
 include!(concat!(env!("OUT_DIR"), "/lexicon_data.rs"));
 
+/// Get canonical verb form and whether it's lexically negative.
+/// Used at parse time to transform "lacks" → ("Have", true).
+/// Returns (canonical_lemma, is_negative).
+pub fn get_canonical_verb(lemma: &str) -> Option<(&'static str, bool)> {
+    lookup_canonical(lemma).map(|m| (m.lemma, m.polarity == Polarity::Negative))
+}
+
 /// Feature-based lexical properties
 /// Words can have multiple overlapping features
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,6 +28,7 @@ pub enum Feature {
     Collective,  // "The group gathered"
     Mixed,       // "Lift" - can be collective or distributive
     Weather,     // "Rain", "Snow" - weather verbs with expletive "it"
+    Unaccusative, // "The door opens" - intransitive subject is Theme, not Agent
 
     // Noun Features
     Count,
@@ -58,6 +66,7 @@ impl Feature {
             "Performative" => Some(Feature::Performative),
             "Collective" => Some(Feature::Collective),
             "Weather" => Some(Feature::Weather),
+            "Unaccusative" => Some(Feature::Unaccusative),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),

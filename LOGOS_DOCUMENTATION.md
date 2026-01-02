@@ -2233,12 +2233,12 @@ Tests for lexer improvements and edge cases.
 ### By Compiler Stage
 ```
 Lexer (token.rs, lexer.rs):           2458 lines
-Parser (ast/, parser/):               14862 lines
-Transpilation:                        1357 lines
+Parser (ast/, parser/):               15122 lines
+Transpilation:                        1385 lines
 Code Generation:                      2904 lines
 Semantics (lambda, context, view):    2889 lines
 Type Analysis (analysis/):            2834 lines
-Support Infrastructure:               4343 lines
+Support Infrastructure:               4411 lines
 Desktop UI:                              17930 lines
 CRDT (logos_core/src/crdt/):          1854 lines
 Network (logos_core/src/network/):    1596 lines
@@ -2248,9 +2248,9 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        59014
-Test lines:          26657
-Total Rust lines: 85671
+Source lines:        59370
+Test lines:          26823
+Total Rust lines: 86193
 ```
 
 ### File Counts
@@ -2436,9 +2436,9 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Steal", "class": "Achievement", "forms": { "past": "stole", "participle": "stolen", "gerund": "stealing" } },
     { "lemma": "Wake", "class": "Achievement", "forms": { "past": "woke", "participle": "woken", "gerund": "waking" } },
     { "lemma": "Wear", "class": "Activity", "forms": { "past": "wore", "participle": "worn", "gerund": "wearing" } },
-    { "lemma": "Break", "class": "Achievement", "forms": { "past": "broke", "participle": "broken", "gerund": "breaking" } },
+    { "lemma": "Break", "class": "Achievement", "forms": { "past": "broke", "participle": "broken", "gerund": "breaking" }, "features": ["Unaccusative"] },
     { "lemma": "Choose", "class": "Achievement", "forms": { "past": "chose", "participle": "chosen", "gerund": "choosing" } },
-    { "lemma": "Freeze", "class": "Accomplishment", "forms": { "past": "froze", "participle": "frozen", "gerund": "freezing" } },
+    { "lemma": "Freeze", "class": "Accomplishment", "forms": { "past": "froze", "participle": "frozen", "gerund": "freezing" }, "features": ["Unaccusative"] },
     { "lemma": "Bite", "class": "Semelfactive", "forms": { "past": "bit", "participle": "bitten", "gerund": "biting" } },
     { "lemma": "Begin", "class": "Achievement", "forms": { "past": "began", "participle": "begun", "gerund": "beginning" }, "features": ["SubjectControl"] },
     { "lemma": "Sing", "class": "Activity", "forms": { "past": "sang", "participle": "sung", "gerund": "singing" } },
@@ -2467,7 +2467,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Push", "class": "Semelfactive", "forms": { "past": "pushed", "gerund": "pushing" } },
     { "lemma": "Stop", "class": "Achievement", "forms": { "past": "stopped", "gerund": "stopping" } },
     { "lemma": "Smoke", "class": "Activity", "forms": { "past": "smoked", "gerund": "smoking" } },
-    { "lemma": "Open", "class": "Achievement", "forms": { "past": "opened", "gerund": "opening" } },
+    { "lemma": "Open", "class": "Achievement", "forms": { "past": "opened", "gerund": "opening" }, "features": ["Unaccusative"] },
     { "lemma": "Rain", "class": "Activity", "regular": true, "features": ["Weather"] },
     { "lemma": "Snow", "class": "Activity", "regular": true, "features": ["Weather"] },
     { "lemma": "Hail", "class": "Semelfactive", "regular": true, "features": ["Weather"] },
@@ -2542,7 +2542,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Own", "class": "State", "regular": true },
     { "lemma": "Lack", "class": "State", "regular": true },
     { "lemma": "Enter", "class": "Activity", "regular": true },
-    { "lemma": "Trigger", "class": "Achievement", "regular": true },
+    { "lemma": "Trigger", "class": "Achievement", "regular": true, "features": ["Unaccusative"] },
     { "lemma": "Beat", "class": "Activity", "regular": true },
     { "lemma": "Marry", "class": "Achievement", "regular": true },
     { "lemma": "Kill", "class": "Achievement", "regular": true },
@@ -2580,7 +2580,14 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Paint", "class": "Accomplishment", "regular": true },
     { "lemma": "Repair", "class": "Accomplishment", "regular": true },
     { "lemma": "Fix", "class": "Accomplishment", "regular": true },
-    { "lemma": "Melt", "class": "Accomplishment", "regular": true },
+    { "lemma": "Melt", "class": "Accomplishment", "regular": true, "features": ["Unaccusative"] },
+    { "lemma": "Close", "class": "Achievement", "regular": true, "features": ["Unaccusative"] },
+    { "lemma": "Sink", "class": "Achievement", "forms": { "past": "sank", "participle": "sunk", "gerund": "sinking" }, "features": ["Unaccusative"] },
+    { "lemma": "Dry", "class": "Accomplishment", "regular": true, "features": ["Unaccusative"] },
+    { "lemma": "Burn", "class": "Accomplishment", "regular": true, "features": ["Unaccusative"] },
+    { "lemma": "Explode", "class": "Achievement", "regular": true, "features": ["Unaccusative"] },
+    { "lemma": "Collapse", "class": "Achievement", "regular": true, "features": ["Unaccusative"] },
+    { "lemma": "Evaporate", "class": "Accomplishment", "regular": true, "features": ["Unaccusative"] },
     { "lemma": "Destroy", "class": "Accomplishment", "regular": true },
     { "lemma": "Demolish", "class": "Accomplishment", "regular": true },
     { "lemma": "Dissolve", "class": "Accomplishment", "regular": true },
@@ -6747,6 +6754,21 @@ pub enum ParserMode {
     Imperative,
 }
 
+/// Controls scope of negation for lexically negative verbs (lacks, miss).
+/// "user who lacks a key" can mean:
+///   - Wide:   ¬∃y(Key(y) ∧ Have(x,y)) - "has NO keys" (natural reading)
+///   - Narrow: ∃y(Key(y) ∧ ¬Have(x,y)) - "missing SOME key" (literal reading)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NegativeScopeMode {
+    /// Narrow scope negation (literal reading): ∃y(Key(y) ∧ ¬Have(x,y))
+    /// "User is missing some key" - need all keys (default/traditional reading)
+    #[default]
+    Narrow,
+    /// Wide scope negation (natural reading): ¬∃y(Key(y) ∧ Have(x,y))
+    /// "User has no keys" - need at least one key
+    Wide,
+}
+
 #[derive(Clone)]
 struct ParserCheckpoint {
     pos: usize,
@@ -6803,7 +6825,9 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) var_counter: usize,
     pub(super) pending_time: Option<Time>,
     pub(super) context: Option<&'ctx mut DiscourseContext>,
-    pub(super) donkey_bindings: Vec<(Symbol, Symbol, bool)>,
+    /// Donkey bindings: (noun, var, is_donkey_used, wide_scope_negation)
+    /// The 4th field tracks if this binding's existential needs negation wrapping (for "lacks" scope)
+    pub(super) donkey_bindings: Vec<(Symbol, Symbol, bool, bool)>,
     pub(super) interner: &'int mut Interner,
     pub(super) ctx: AstContext<'a>,
     pub(super) current_island: u32,
@@ -6819,6 +6843,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) type_registry: Option<TypeRegistry>,
     pub(super) event_reading_mode: bool,
     pub(super) drs: Drs,
+    pub(super) negative_scope_mode: NegativeScopeMode,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -6849,6 +6874,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             type_registry: None,
             event_reading_mode: false,
             drs: Drs::new(),
+            negative_scope_mode: NegativeScopeMode::default(),
         }
     }
 
@@ -6862,6 +6888,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn set_event_reading_mode(&mut self, mode: bool) {
         self.event_reading_mode = mode;
+    }
+
+    pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
+        self.negative_scope_mode = mode;
     }
 
     pub fn with_context(
@@ -6892,6 +6922,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             type_registry: None,
             event_reading_mode: false,
             drs: Drs::new(),
+            negative_scope_mode: NegativeScopeMode::default(),
         }
     }
 
@@ -6927,6 +6958,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             type_registry: Some(types),
             event_reading_mode: false,
             drs: Drs::new(),
+            negative_scope_mode: NegativeScopeMode::default(),
         }
     }
 
@@ -7371,7 +7403,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn resolve_donkey_pronoun(&mut self, gender: Gender) -> Option<Symbol> {
-        for (noun_class, var_name, used) in self.donkey_bindings.iter_mut().rev() {
+        for (noun_class, var_name, used, _wide_neg) in self.donkey_bindings.iter_mut().rev() {
             let noun_str = self.interner.resolve(*noun_class);
             let noun_gender = Self::infer_noun_gender(noun_str);
             if noun_gender == gender || gender == Gender::Neuter || noun_gender == Gender::Unknown {
@@ -13045,7 +13077,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let noun_str = self.interner.resolve(object_np.noun).to_string();
                         let first_char = noun_str.chars().next().unwrap_or('X');
                         if first_char.is_alphabetic() {
-                            let symbol = format!("^{}", first_char.to_uppercase());
+                            // Use full noun name with ^ prefix for intensional terms
+                            let symbol = format!("^{}", crate::transpile::capitalize_first(&noun_str));
                             self.register_entity(&symbol, &noun_str, Gender::Neuter, Number::Singular);
                         }
 
@@ -13458,7 +13491,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Build thematic roles for Neo-Davidsonian event semantics
             let mut roles: Vec<(ThematicRole, Term<'a>)> = Vec::new();
-            roles.push((ThematicRole::Agent, subject_term));
+
+            // Check if verb is unaccusative (intransitive subject is Theme, not Agent)
+            let verb_str_for_check = self.interner.resolve(verb).to_lowercase();
+            let is_unaccusative = crate::lexicon::lookup_verb_db(&verb_str_for_check)
+                .map(|meta| meta.features.contains(&crate::lexicon::Feature::Unaccusative))
+                .unwrap_or(false);
+
+            // Unaccusative verbs used intransitively: subject is Theme
+            let has_object = object_term.is_some() || second_object_term.is_some();
+            let subject_role = if is_unaccusative && !has_object {
+                ThematicRole::Theme
+            } else {
+                ThematicRole::Agent
+            };
+
+            roles.push((subject_role, subject_term));
             if let Some(second_obj) = second_object_term {
                 // Ditransitive: first object is Recipient, second is Theme
                 if let Some(first_obj) = object_term {
@@ -13989,7 +14037,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
 
                 let gender = Self::infer_gender(s_str);
-                let symbol_str = s_str.chars().next().unwrap().to_string();
+                // Use full name as symbol for consistent output in Full mode
+                let symbol_str = crate::transpile::capitalize_first(s_str);
                 let noun_class = s_str.to_string();
                 self.register_entity(&symbol_str, &noun_class, gender, Number::Singular);
                 Ok(s)
@@ -15411,13 +15460,13 @@ Extension trait for quantified expressions: universal (all/every/each), existent
 use super::clause::ClauseParsing;
 use super::modal::ModalParsing;
 use super::noun::NounParsing;
-use super::{ParseResult, Parser};
+use super::{NegativeScopeMode, ParseResult, Parser};
 use crate::ast::{LogicExpr, NounPhrase, QuantifierKind, Term};
 use crate::context::Number;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
-use crate::lexicon::{is_subsective, Definiteness, Time};
+use crate::lexicon::{get_canonical_verb, is_subsective, Definiteness, Time};
 use crate::token::{PresupKind, TokenType};
 
 pub trait QuantifierParsing<'a, 'ctx, 'int> {
@@ -15600,13 +15649,32 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     }
                 };
 
-                // Return quantifier directly (modal is inside)
-                return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                // Build quantifier (modal is inside)
+                let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
                     variable: var_name,
                     body,
                     island_id: self.current_island,
-                }));
+                });
+
+                // Process donkey bindings for indefinites in restrictions (e.g., "who lacks a key")
+                for (_noun, donkey_var, used, wide_neg) in self.donkey_bindings.iter().rev() {
+                    if *used {
+                        // Donkey anaphora: wrap with ∀ at outer scope
+                        result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                            kind: QuantifierKind::Universal,
+                            variable: *donkey_var,
+                            body: result,
+                            island_id: self.current_island,
+                        });
+                    } else {
+                        // Non-donkey: wrap with ∃ INSIDE the restriction
+                        result = self.wrap_donkey_in_restriction(result, *donkey_var, *wide_neg);
+                    }
+                }
+                self.donkey_bindings.clear();
+
+                return Ok(result);
 
             } else {
                 // === WIDE SCOPE (De Dicto) ===
@@ -15666,17 +15734,34 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     }
                 };
 
-                let quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                let mut result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
                     variable: var_name,
                     body,
                     island_id: self.current_island,
                 });
 
+                // Process donkey bindings for indefinites in restrictions (e.g., "who lacks a key")
+                for (_noun, donkey_var, used, wide_neg) in self.donkey_bindings.iter().rev() {
+                    if *used {
+                        // Donkey anaphora: wrap with ∀ at outer scope
+                        result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                            kind: QuantifierKind::Universal,
+                            variable: *donkey_var,
+                            body: result,
+                            island_id: self.current_island,
+                        });
+                    } else {
+                        // Non-donkey: wrap with ∃ INSIDE the restriction
+                        result = self.wrap_donkey_in_restriction(result, *donkey_var, *wide_neg);
+                    }
+                }
+                self.donkey_bindings.clear();
+
                 // Wrap the entire quantifier in the modal
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
                     vector,
-                    operand: quantified,
+                    operand: result,
                 }));
             }
         }
@@ -16126,7 +16211,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 island_id: self.current_island,
             });
 
-            for (_noun, donkey_var, used) in self.donkey_bindings.iter().rev() {
+            for (_noun, donkey_var, used, wide_neg) in self.donkey_bindings.iter().rev() {
                 if *used {
                     // Donkey anaphora: wrap with ∀ at outer scope
                     result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -16137,7 +16222,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     });
                 } else {
                     // Non-donkey: wrap with ∃ INSIDE the restriction
-                    result = self.wrap_donkey_in_restriction(result, *donkey_var);
+                    result = self.wrap_donkey_in_restriction(result, *donkey_var, *wide_neg);
                 }
             }
             self.donkey_bindings.clear();
@@ -16254,7 +16339,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             island_id: self.current_island,
         });
 
-        for (_noun, donkey_var, used) in self.donkey_bindings.iter().rev() {
+        for (_noun, donkey_var, used, wide_neg) in self.donkey_bindings.iter().rev() {
             if *used {
                 // Donkey anaphora: wrap with ∀ at outer scope
                 result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
@@ -16265,7 +16350,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 });
             } else {
                 // Non-donkey: wrap with ∃ INSIDE the restriction
-                result = self.wrap_donkey_in_restriction(result, *donkey_var);
+                result = self.wrap_donkey_in_restriction(result, *donkey_var, *wide_neg);
             }
         }
         self.donkey_bindings.clear();
@@ -16325,9 +16410,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     fn parse_verb_phrase_for_restriction(&mut self, var_name: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
         let var_term = Term::Variable(var_name);
         let verb = self.consume_verb();
-        let verb_str = self.interner.resolve(verb);
+        let verb_str_owned = self.interner.resolve(verb).to_string();
 
-        if Lexer::is_raising_verb(verb_str) && self.check_to() {
+        // Check EARLY if verb is lexically negative (e.g., "lacks" -> "Have" with negation)
+        // This determines whether donkey bindings need wide scope negation
+        let (canonical_verb, is_negative) = get_canonical_verb(&verb_str_owned.to_lowercase())
+            .map(|(lemma, neg)| (self.interner.intern(lemma), neg))
+            .unwrap_or((verb, false));
+
+        // Determine if this binding needs wide scope negation wrapping
+        let needs_wide_scope = is_negative && self.negative_scope_mode == NegativeScopeMode::Wide;
+
+        if Lexer::is_raising_verb(&verb_str_owned) && self.check_to() {
             self.advance();
             if self.check_verb() {
                 let inf_verb = self.consume_verb();
@@ -16384,7 +16478,53 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let noun = self.consume_content_word()?;
                 let donkey_var = self.next_var_name();
 
-                self.donkey_bindings.push((noun, donkey_var, false));
+                if needs_wide_scope {
+                    // === WIDE SCOPE MODE ===
+                    // Build ¬∃y(Key(y) ∧ Have(x,y)) directly instead of leaking binding
+                    //
+                    // We capture the binding HERE and return the complete structure.
+                    // DO NOT push to donkey_bindings - that would leak y to outer scope.
+
+                    // Build: Key(y)
+                    let restriction_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: noun,
+                        args: self.ctx.terms.alloc_slice([Term::Variable(donkey_var)]),
+                    });
+
+                    // Build: Have(x, y)  (using canonical_verb determined earlier)
+                    let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: canonical_verb,
+                        args: self.ctx.terms.alloc_slice([var_term, Term::Variable(donkey_var)]),
+                    });
+
+                    // Build: Key(y) ∧ Have(x,y)
+                    let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: restriction_pred,
+                        op: TokenType::And,
+                        right: verb_pred,
+                    });
+
+                    // Build: ∃y(Key(y) ∧ Have(x,y))
+                    let existential = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                        kind: QuantifierKind::Existential,
+                        variable: donkey_var,
+                        body,
+                        island_id: self.current_island,
+                    });
+
+                    // Build: ¬∃y(Key(y) ∧ Have(x,y))
+                    let negated_existential = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: existential,
+                    });
+
+                    // Return the complete wide-scope structure directly
+                    return Ok(negated_existential);
+                }
+
+                // === NARROW SCOPE MODE ===
+                // Push binding for later processing (normal donkey binding flow)
+                self.donkey_bindings.push((noun, donkey_var, false, false));
 
                 extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
@@ -16436,10 +16576,24 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
         }
 
-        let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-            name: verb,
+        // Use the canonical verb determined at top of function
+        let base_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+            name: canonical_verb,
             args: self.ctx.terms.alloc_slice(args),
         });
+
+        // Wrap in negation only for NARROW scope mode (de re reading)
+        // Wide scope mode: negation handled via donkey binding flag in wrap_donkey_in_restriction
+        // - Narrow: ∃y(Key(y) ∧ ¬Have(x,y)) - "missing ANY key"
+        // - Wide:   ¬∃y(Key(y) ∧ Have(x,y)) - "has NO keys"
+        let verb_pred = if is_negative && self.negative_scope_mode == NegativeScopeMode::Narrow {
+            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: base_pred,
+            })
+        } else {
+            base_pred
+        };
 
         if extra_conditions.is_empty() {
             Ok(verb_pred)
@@ -16657,7 +16811,8 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                     // Bridging anaphora: check if this noun is a part of a previously mentioned whole
                     if let Some(ref mut ctx) = self.context {
-                        let our_symbol = noun_str.chars().next().unwrap().to_uppercase().to_string();
+                        // Use full name for symbol comparison (matches discourse context storage)
+                        let our_symbol = crate::transpile::capitalize_first(&noun_str);
                         let has_prior_antecedent = ctx.resolve_definite(&noun_str)
                             .map(|e| e.symbol != our_symbol)
                             .unwrap_or(false);
@@ -17284,17 +17439,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    /// Wrap unused donkey bindings inside the restriction of an implication
-    /// Transform: ∀x((P(x) ∧ Q(y)) → R(x)) with unused y
-    /// Into:      ∀x((P(x) ∧ ∃y(Q(y))) → R(x))
+    /// Wrap unused donkey bindings inside the restriction/body of a quantifier structure.
+    ///
+    /// For universals (implications):
+    ///   Transform: ∀x((P(x) ∧ Q(y)) → R(x)) with unused y
+    ///   Into:      ∀x((P(x) ∧ ∃y(Q(y))) → R(x))
+    ///
+    /// For existentials (conjunctions):
+    ///   Transform: ∃x(P(x) ∧ Q(y) ∧ R(x)) with unused y
+    ///   Into:      ∃x(P(x) ∧ ∃y(Q(y)) ∧ R(x))
+    ///
+    /// If wide_scope_negation is true, wrap the existential in negation:
+    ///   Into:      ∀x((P(x) ∧ ¬∃y(Q(y))) → R(x))
     fn wrap_donkey_in_restriction(
         &self,
         body: &'a LogicExpr<'a>,
         donkey_var: Symbol,
+        wide_scope_negation: bool,
     ) -> &'a LogicExpr<'a> {
         // Handle Quantifier wrapping first
         if let LogicExpr::Quantifier { kind, variable, body: inner_body, island_id } = body {
-            let transformed = self.wrap_donkey_in_restriction(inner_body, donkey_var);
+            let transformed = self.wrap_donkey_in_restriction(inner_body, donkey_var, wide_scope_negation);
             return self.ctx.exprs.alloc(LogicExpr::Quantifier {
                 kind: kind.clone(),
                 variable: *variable,
@@ -17303,12 +17468,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             });
         }
 
-        // Must be an implication
-        let (restriction, consequent) = match body {
-            LogicExpr::BinaryOp { left, op: TokenType::If, right } => (*left, *right),
-            _ => return body, // Not an implication, return unchanged
-        };
+        // Handle implication (universal quantifiers)
+        if let LogicExpr::BinaryOp { left, op: TokenType::If, right } = body {
+            return self.wrap_in_implication(*left, *right, donkey_var, wide_scope_negation);
+        }
 
+        // Handle conjunction (existential quantifiers)
+        if let LogicExpr::BinaryOp { left: _, op: TokenType::And, right: _ } = body {
+            return self.wrap_in_conjunction(body, donkey_var, wide_scope_negation);
+        }
+
+        // Not a structure we can process
+        body
+    }
+
+    /// Wrap donkey binding in an implication structure (∀x(P(x) → Q(x)))
+    fn wrap_in_implication(
+        &self,
+        restriction: &'a LogicExpr<'a>,
+        consequent: &'a LogicExpr<'a>,
+        donkey_var: Symbol,
+        wide_scope_negation: bool,
+    ) -> &'a LogicExpr<'a> {
         // Collect all conjuncts in the restriction
         let conjuncts = self.collect_conjuncts(restriction);
 
@@ -17318,7 +17499,72 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             .partition(|c| self.expr_mentions_var(c, donkey_var));
 
         if with_var.is_empty() {
-            // Variable not found in restriction, return unchanged
+            // Variable not found in restriction, return original implication
+            return self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: restriction,
+                op: TokenType::If,
+                right: consequent,
+            });
+        }
+
+        // Combine the "with var" conjuncts
+        let with_var_combined = self.combine_conjuncts(&with_var);
+
+        // Wrap with existential
+        let existential = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable: donkey_var,
+            body: with_var_combined,
+            island_id: self.current_island,
+        });
+
+        // For wide scope negation (de dicto reading of "lacks"), wrap ∃ in ¬
+        let wrapped = if wide_scope_negation {
+            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: existential,
+            })
+        } else {
+            existential
+        };
+
+        // Combine with "without var" conjuncts
+        let new_restriction = if without_var.is_empty() {
+            wrapped
+        } else {
+            let without_combined = self.combine_conjuncts(&without_var);
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: without_combined,
+                op: TokenType::And,
+                right: wrapped,
+            })
+        };
+
+        // Rebuild the implication
+        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: new_restriction,
+            op: TokenType::If,
+            right: consequent,
+        })
+    }
+
+    /// Wrap donkey binding in a conjunction structure (∃x(P(x) ∧ Q(x)))
+    fn wrap_in_conjunction(
+        &self,
+        body: &'a LogicExpr<'a>,
+        donkey_var: Symbol,
+        wide_scope_negation: bool,
+    ) -> &'a LogicExpr<'a> {
+        // Collect all conjuncts
+        let conjuncts = self.collect_conjuncts(body);
+
+        // Partition into those mentioning the donkey var and those not
+        let (with_var, without_var): (Vec<_>, Vec<_>) = conjuncts
+            .into_iter()
+            .partition(|c| self.expr_mentions_var(c, donkey_var));
+
+        if with_var.is_empty() {
+            // Variable not found, return unchanged
             return body;
         }
 
@@ -17333,24 +17579,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             island_id: self.current_island,
         });
 
-        // Combine with "without var" conjuncts
-        let new_restriction = if without_var.is_empty() {
+        // For wide scope negation (de dicto reading of "lacks"), wrap ∃ in ¬
+        let wrapped = if wide_scope_negation {
+            self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: existential,
+            })
+        } else {
             existential
+        };
+
+        // Combine with "without var" conjuncts
+        if without_var.is_empty() {
+            wrapped
         } else {
             let without_combined = self.combine_conjuncts(&without_var);
             self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left: without_combined,
                 op: TokenType::And,
-                right: existential,
+                right: wrapped,
             })
-        };
-
-        // Rebuild the implication
-        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-            left: new_restriction,
-            op: TokenType::If,
-            right: consequent,
-        })
+        }
     }
 
     fn combine_conjuncts(&self, conjuncts: &[&'a LogicExpr<'a>]) -> &'a LogicExpr<'a> {
@@ -18432,7 +18681,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             let mut roles: Vec<(ThematicRole, Term<'a>)> = Vec::new();
-            roles.push((ThematicRole::Agent, subject_term));
+
+            // Check if verb is unaccusative (intransitive subject is Theme, not Agent)
+            let verb_str = self.interner.resolve(verb).to_lowercase();
+            let is_unaccusative = crate::lexicon::lookup_verb_db(&verb_str)
+                .map(|meta| meta.features.contains(&crate::lexicon::Feature::Unaccusative))
+                .unwrap_or(false);
+
+            // Unaccusative verbs used intransitively: subject is Theme
+            // E.g., "The alarm triggers" → Theme(e, Alarm), not Agent(e, Alarm)
+            let has_object = object_term.is_some() || second_object_term.is_some();
+            let subject_role = if is_unaccusative && !has_object {
+                ThematicRole::Theme
+            } else {
+                ThematicRole::Agent
+            };
+
+            roles.push((subject_role, subject_term));
             if let Some(second_obj) = second_object_term {
                 if let Some(first_obj) = object_term {
                     roles.push((ThematicRole::Recipient, first_obj));
@@ -19017,6 +19282,7 @@ use crate::context::{Case, Gender, Number};
 use crate::intern::SymbolEq;
 use crate::lexicon::Definiteness;
 use crate::token::TokenType;
+use crate::transpile::capitalize_first;
 
 pub trait NounParsing<'a, 'ctx, 'int> {
     fn parse_noun_phrase(&mut self, greedy: bool) -> ParseResult<NounPhrase<'a>>;
@@ -19263,7 +19529,8 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let noun_str = self.interner.resolve(noun);
         let first_char = noun_str.chars().next().unwrap_or('X');
         if first_char.is_alphabetic() {
-            let symbol = first_char.to_uppercase().to_string();
+            // Use full noun name as symbol for consistent output in Full mode
+            let symbol = capitalize_first(noun_str);
             let number = if noun_str.ends_with('s') && !noun_str.ends_with("ss") {
                 Number::Plural
             } else {
@@ -20498,7 +20765,7 @@ fn guard_restores_all_fields_on_drop() {
         let mut guard = parser.guard();
         guard.current = 3;
         guard.var_counter = 99;
-        guard.donkey_bindings.push((Symbol::EMPTY, Symbol::EMPTY, false));
+        guard.donkey_bindings.push((Symbol::EMPTY, Symbol::EMPTY, false, false));
         guard.current_island = 42;
         guard.pending_time = Some(Time::Past);
     }
@@ -20613,7 +20880,7 @@ use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
 use crate::{OutputFormat, TranspileContext};
 
-fn capitalize_first(s: &str) -> String {
+pub fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
@@ -20637,6 +20904,10 @@ fn write_capitalized<W: Write>(w: &mut W, s: &str) -> std::fmt::Result {
 impl<'a> NounPhrase<'a> {
     pub fn to_symbol(&self, registry: &mut SymbolRegistry, interner: &Interner) -> String {
         registry.get_symbol(self.noun, interner)
+    }
+
+    pub fn to_symbol_full(&self, registry: &SymbolRegistry, interner: &Interner) -> String {
+        registry.get_symbol_full(self.noun, interner)
     }
 }
 
@@ -20862,8 +21133,16 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Categorical(data) => {
-                let s = fmt.sanitize(&data.subject.to_symbol(registry, interner));
-                let p = fmt.sanitize(&data.predicate.to_symbol(registry, interner));
+                let s = if fmt.use_full_names() {
+                    fmt.sanitize(&data.subject.to_symbol_full(registry, interner))
+                } else {
+                    fmt.sanitize(&data.subject.to_symbol(registry, interner))
+                };
+                let p = if fmt.use_full_names() {
+                    fmt.sanitize(&data.predicate.to_symbol_full(registry, interner))
+                } else {
+                    fmt.sanitize(&data.predicate.to_symbol(registry, interner))
+                };
                 match (&data.quantifier, data.copula_negative) {
                     (TokenType::All, false) => write!(w, "{} {} is {}", fmt.categorical_all(), s, p),
                     (TokenType::No, false) => write!(w, "{} {} is {}", fmt.categorical_no(), s, p),
@@ -20875,9 +21154,21 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Relation(data) => {
-                let s = data.subject.to_symbol(registry, interner);
-                let v = fmt.sanitize(&registry.get_symbol(data.verb, interner));
-                let o = data.object.to_symbol(registry, interner);
+                let s = if fmt.use_full_names() {
+                    data.subject.to_symbol_full(registry, interner)
+                } else {
+                    data.subject.to_symbol(registry, interner)
+                };
+                let v = if fmt.use_full_names() {
+                    fmt.sanitize(&registry.get_symbol_full(data.verb, interner))
+                } else {
+                    fmt.sanitize(&registry.get_symbol(data.verb, interner))
+                };
+                let o = if fmt.use_full_names() {
+                    data.object.to_symbol_full(registry, interner)
+                } else {
+                    data.object.to_symbol(registry, interner)
+                };
                 write!(w, "{}({}, {})", v, s, o)
             }
 
@@ -21008,7 +21299,11 @@ impl<'a> LogicExpr<'a> {
                             ThematicRole::Manner => "Manner",
                         };
                         write!(body, " {} {}({}, ", fmt.and(), role_str, e)?;
-                        term.write_to(&mut body, registry, interner)?;
+                        if fmt.use_full_names() {
+                            term.write_to_full(&mut body, registry, interner)?;
+                        } else {
+                            term.write_to(&mut body, registry, interner)?;
+                        }
                         write!(body, ")")?;
                     }
                     for mod_sym in data.modifiers.iter() {
@@ -24041,7 +24336,7 @@ mod tests {
     fn register_and_resolve_male() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "J".into(),
+            symbol: "John".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "John".into(),
@@ -24049,14 +24344,14 @@ mod tests {
         });
         let resolved = ctx.resolve_pronoun(Gender::Male, Number::Singular);
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "J");
+        assert_eq!(resolved.unwrap().symbol, "John");
     }
 
     #[test]
     fn resolve_female_pronoun() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "M".into(),
+            symbol: "Mary".into(),
             gender: Gender::Female,
             number: Number::Singular,
             noun_class: "Mary".into(),
@@ -24064,35 +24359,35 @@ mod tests {
         });
         let resolved = ctx.resolve_pronoun(Gender::Female, Number::Singular);
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "M");
+        assert_eq!(resolved.unwrap().symbol, "Mary");
     }
 
     #[test]
     fn resolve_most_recent() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "J".into(),
+            symbol: "John".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "John".into(),
             ownership: OwnershipState::Owned,
         });
         ctx.register(Entity {
-            symbol: "B".into(),
+            symbol: "Bob".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "Bob".into(),
             ownership: OwnershipState::Owned,
         });
         let resolved = ctx.resolve_pronoun(Gender::Male, Number::Singular);
-        assert_eq!(resolved.unwrap().symbol, "B");
+        assert_eq!(resolved.unwrap().symbol, "Bob");
     }
 
     #[test]
     fn resolve_definite_by_class() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "D".into(),
+            symbol: "Dog".into(),
             gender: Gender::Neuter,
             number: Number::Singular,
             noun_class: "Dog".into(),
@@ -24100,21 +24395,21 @@ mod tests {
         });
         let resolved = ctx.resolve_definite("dog");
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "D");
+        assert_eq!(resolved.unwrap().symbol, "Dog");
     }
 
     #[test]
     fn gender_filtering() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "J".into(),
+            symbol: "John".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "John".into(),
             ownership: OwnershipState::Owned,
         });
         ctx.register(Entity {
-            symbol: "M".into(),
+            symbol: "Mary".into(),
             gender: Gender::Female,
             number: Number::Singular,
             noun_class: "Mary".into(),
@@ -24122,8 +24417,8 @@ mod tests {
         });
         let he = ctx.resolve_pronoun(Gender::Male, Number::Singular);
         let she = ctx.resolve_pronoun(Gender::Female, Number::Singular);
-        assert_eq!(he.unwrap().symbol, "J");
-        assert_eq!(she.unwrap().symbol, "M");
+        assert_eq!(he.unwrap().symbol, "John");
+        assert_eq!(she.unwrap().symbol, "Mary");
     }
 }
 
@@ -33443,7 +33738,7 @@ pub use debug::{DebugWorld, DisplayWith, WithInterner};
 pub use formatter::{LatexFormatter, LogicFormatter, UnicodeFormatter};
 pub use intern::{Interner, Symbol, SymbolEq};
 pub use lexer::Lexer;
-pub use parser::{Parser, ParserMode};
+pub use parser::{Parser, ParserMode, NegativeScopeMode};
 pub use parser::QuantifierParsing;
 pub use registry::SymbolRegistry;
 pub use scope::{ScopeStack, ScopeEntry};
@@ -33602,6 +33897,7 @@ pub fn compile_with_context_options(
     // Pass 2: Parse with type context
     let mut parser = Parser::with_types(tokens, ctx, &mut interner, ast_ctx, type_registry);
     let ast = parser.parse()?;
+    let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
     Ok(ast.transpile(&mut registry, &interner, options.format))
 }
@@ -33653,6 +33949,7 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
         let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
         parser.set_discourse_event_var(event_var_symbol);
         let ast = parser.parse()?;
+        let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
         results.push(ast.transpile(&mut registry, &interner, options.format));
     }
 
@@ -33732,6 +34029,7 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
             &intensional_role_arena,
         );
         for reading in intensional_readings {
+            let reading = semantics::apply_axioms(reading, &intensional_arena, &intensional_term_arena, &mut interner);
             let mut registry = SymbolRegistry::new();
             results.push(reading.transpile(&mut registry, &interner, options.format));
         }
@@ -33779,6 +34077,7 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
     let mut discourse = DiscourseContext::new();
     let mut parser = Parser::with_types(tokens.clone(), &mut discourse, &mut interner, ctx, type_registry.clone());
     let ast = parser.parse()?;
+    let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
     let reading1 = ast.transpile(&mut registry, &interner, options.format);
 
@@ -33812,6 +34111,7 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
         let mut parser2 = Parser::with_types(tokens, &mut discourse2, &mut interner, ctx2, type_registry);
         parser2.set_pp_attachment_mode(true);
         let ast2 = parser2.parse()?;
+        let ast2 = semantics::apply_axioms(ast2, ctx2.exprs, ctx2.terms, &mut interner);
         let mut registry2 = SymbolRegistry::new();
         let reading2 = ast2.transpile(&mut registry2, &interner, options.format);
 
@@ -33902,6 +34202,18 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         has_event_adj && has_agentive_noun
     };
 
+    // Detect lexically negative verbs (e.g., "lacks", "miss") for scope ambiguity
+    // These verbs transform to canonical form + negation, which can take wide or narrow scope
+    let has_negative_verb = tokens.iter().any(|t| {
+        if let token::TokenType::Verb { lemma, .. } = &t.kind {
+            lexicon::get_canonical_verb(&interner.resolve(*lemma).to_lowercase())
+                .map(|(_, is_neg)| is_neg)
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    });
+
     let mut results: Vec<String> = Vec::new();
 
     // Reading 1: Default mode (verb priority for Ambiguous tokens)
@@ -33928,6 +34240,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_noun_priority_mode(false);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             results.push(ast.transpile(&mut registry, &interner, options.format));
         }
@@ -33956,6 +34269,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_noun_priority_mode(true);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -33987,6 +34301,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_pp_attachment_mode(true);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -34020,6 +34335,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         if let Ok(ast) = parser.parse() {
             // Transform cardinal quantifiers to group quantifiers for collective reading
             if let Ok(transformed) = parser.transform_cardinal_to_group(ast) {
+                let transformed = semantics::apply_axioms(transformed, ast_ctx.exprs, ast_ctx.terms, &mut interner);
                 let mut registry = SymbolRegistry::new();
                 let reading = transformed.transpile(&mut registry, &interner, options.format);
                 if !results.contains(&reading) {
@@ -34048,10 +34364,45 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_event_reading_mode(true);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 6: Wide scope negation mode (for lexically negative verbs like "lacks")
+    // Produces: ¬∃y(Key(y) ∧ Have(x,y)) - "has NO keys" (de dicto reading)
+    // vs default: ∃y(Key(y) ∧ ¬Have(x,y)) - "missing SOME key" (de re reading)
+    if has_negative_verb {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -34326,6 +34677,9 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
 
     match parser.parse() {
         Ok(ast) => {
+            // Apply semantic normalization (canonical forms: lack -> ¬Have, etc.)
+            let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
+            let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
             let ast_node = expr_to_ast_node(ast, &interner);
             let mut registry = SymbolRegistry::new();
             let logic = ast.transpile(&mut registry, &interner, OutputFormat::Unicode);
@@ -34643,8 +34997,8 @@ mod tests {
     fn binary_relation_basic() {
         let result = compile("John loves Mary.").unwrap();
         assert!(
-            (result.contains("Agent(e, J)") && result.contains("Theme(e, M)"))
-                || result.contains("(J, M)"),
+            (result.contains("Agent(e, John)") && result.contains("Theme(e, Mary)"))
+                || result.contains("(John, Mary)"),
             "Binary relation should have Agent and Theme roles: got '{}'",
             result
         );
@@ -34714,8 +35068,8 @@ mod tests {
     fn parse_transitive_verb() {
         let output = compile("John loves Mary.").unwrap();
         assert!(
-            (output.contains("Agent(e, J)") && output.contains("Theme(e, M)"))
-                || output.contains("(J, M)"),
+            (output.contains("Agent(e, John)") && output.contains("Theme(e, Mary)"))
+                || output.contains("(John, Mary)"),
             "transitive verb should produce Agent/Theme roles or binary predicate: got '{}'",
             output
         );
@@ -34725,8 +35079,8 @@ mod tests {
     fn parse_transitive_verb_symbols_unique() {
         let output = compile("John sees Jane.").unwrap();
         assert!(
-            output.contains("J2") || output.contains("(J, J2)"),
-            "John and Jane should get unique symbols: got '{}'",
+            output.contains("Agent(e, John)") && output.contains("Theme(e, Jane)"),
+            "John and Jane should get unique full names: got '{}'",
             output
         );
     }
@@ -34840,8 +35194,8 @@ mod tests {
     fn reflexive_binds_to_subject() {
         let result = compile("John loves himself.").unwrap();
         assert!(
-            (result.contains("Agent(e, J)") && result.contains("Theme(e, J)"))
-                || result.contains("(J, J)"),
+            (result.contains("Agent(e, John)") && result.contains("Theme(e, John)"))
+                || result.contains("(John, John)"),
             "Reflexive should bind Agent and Theme to same entity: got '{}'",
             result
         );
@@ -34851,8 +35205,8 @@ mod tests {
     fn reflexive_with_herself() {
         let result = compile("Mary sees herself.").unwrap();
         assert!(
-            (result.contains("Agent(e, M)") && result.contains("Theme(e, M)"))
-                || result.contains("(M, M)"),
+            (result.contains("Agent(e, Mary)") && result.contains("Theme(e, Mary)"))
+                || result.contains("(Mary, Mary)"),
             "Reflexive herself should bind: got '{}'",
             result
         );
@@ -34862,8 +35216,8 @@ mod tests {
     fn reflexive_in_prepositional_phrase() {
         let result = compile("John gave the book to himself.").unwrap();
         assert!(
-            result.contains("Agent(e, J)") && result.contains("Theme(e, B)")
-                || result.contains("(J, B, J)"),
+            result.contains("Agent(e, John)") && result.contains("Theme(e, Book)")
+                || result.contains("(John, Book, John)"),
             "Reflexive in preposition should bind to subject: got '{}'",
             result
         );
@@ -34964,9 +35318,9 @@ mod tests {
         compile_with_context("John saw Mary.", &mut ctx).unwrap();
         let result = compile_with_context("He loves her.", &mut ctx).unwrap();
         assert!(
-            (result.contains("Agent(e, J)") && result.contains("Theme(e, M)"))
-                || result.contains("(J, M)")
-                || result.contains("(J,M)"),
+            (result.contains("Agent(e, John)") && result.contains("Theme(e, Mary)"))
+                || result.contains("(John, Mary)")
+                || result.contains("(John,Mary)"),
             "He->John, her->Mary: got '{}'",
             result
         );
@@ -35005,8 +35359,8 @@ mod tests {
         compile_with_context("John entered.", &mut ctx).unwrap();
         let result = compile_with_context("Mary saw him.", &mut ctx).unwrap();
         assert!(
-            (result.contains("Agent(e, M)") && result.contains("Theme(e, J)"))
-                || result.contains("(M, J)"),
+            (result.contains("Agent(e, Mary)") && result.contains("Theme(e, John)"))
+                || result.contains("(Mary, John)"),
             "him should resolve to John: got '{}'",
             result
         );
@@ -35085,7 +35439,7 @@ mod tests {
         // "The book that John read is good."
         let result = compile("The book that John read is good.").unwrap();
         assert!(
-            result.contains("Agent(e, J)") && result.contains("Theme(e, x)"),
+            result.contains("Agent(e, John)") && result.contains("Theme(e, x)"),
             "Book is object of read: got '{}'",
             result
         );
@@ -35223,6 +35577,13 @@ Feature-based lexical database. Feature enum (22 variants) classifies words by t
 ```rust
 include!(concat!(env!("OUT_DIR"), "/lexicon_data.rs"));
 
+/// Get canonical verb form and whether it's lexically negative.
+/// Used at parse time to transform "lacks" → ("Have", true).
+/// Returns (canonical_lemma, is_negative).
+pub fn get_canonical_verb(lemma: &str) -> Option<(&'static str, bool)> {
+    lookup_canonical(lemma).map(|m| (m.lemma, m.polarity == Polarity::Negative))
+}
+
 /// Feature-based lexical properties
 /// Words can have multiple overlapping features
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35244,6 +35605,7 @@ pub enum Feature {
     Collective,  // "The group gathered"
     Mixed,       // "Lift" - can be collective or distributive
     Weather,     // "Rain", "Snow" - weather verbs with expletive "it"
+    Unaccusative, // "The door opens" - intransitive subject is Theme, not Agent
 
     // Noun Features
     Count,
@@ -35281,6 +35643,7 @@ impl Feature {
             "Performative" => Some(Feature::Performative),
             "Collective" => Some(Feature::Collective),
             "Weather" => Some(Feature::Weather),
+            "Unaccusative" => Some(Feature::Unaccusative),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),
@@ -52583,7 +52946,7 @@ pub fn Studio() -> Element {
         tokens: Vec::new(),
         error: None,
     });
-    let mut format = use_signal(|| OutputFormat::Unicode);
+    let mut format = use_signal(|| OutputFormat::SimpleFOL);
 
     let mut left_width = use_signal(|| 35.0f64);
     let mut right_width = use_signal(|| 25.0f64);
@@ -52690,14 +53053,14 @@ pub fn Studio() -> Element {
                         span { "Logic Output" }
                         div { class: "format-toggle",
                             button {
-                                class: if current_format == OutputFormat::Unicode { "format-btn active" } else { "format-btn" },
-                                onclick: move |_| format.set(OutputFormat::Unicode),
-                                "\u{2200}x"
-                            }
-                            button {
                                 class: if current_format == OutputFormat::SimpleFOL { "format-btn active" } else { "format-btn" },
                                 onclick: move |_| format.set(OutputFormat::SimpleFOL),
                                 "Simple"
+                            }
+                            button {
+                                class: if current_format == OutputFormat::Unicode { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| format.set(OutputFormat::Unicode),
+                                "Full"
                             }
                             button {
                                 class: if current_format == OutputFormat::LaTeX { "format-btn active" } else { "format-btn" },
@@ -80455,10 +80818,10 @@ fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
 
 ## Metadata
 
-- **Generated:** Fri Jan  2 14:20:39 CST 2026
+- **Generated:** Fri Jan  2 16:33:31 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 3933518
+- **Git Commit:** 13c987f
 - **Documentation Size:** 3.0M
 
 ---

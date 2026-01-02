@@ -53,9 +53,9 @@ fn test_fire_engine_compound() {
 #[test]
 fn test_ice_cream_compound() {
     let output = compile("John ate ice cream.").unwrap();
-    // MWE: ice cream → IceCream, shortened to I by registry
-    // John ate produces: Agent(e, J) ∧ Theme(e, I) where I is IceCream
-    assert!(output.contains("Agent(e, J)"), "Should have John as agent");
+    // MWE: ice cream → IceCream
+    // John ate produces: Agent(e, John) ∧ Theme(e, IceCream)
+    assert!(output.contains("Agent(e, John)"), "Should have John as agent");
     assert!(output.contains("Eat(e)") || output.contains("Ate("), "Should contain eat verb");
 }
 

@@ -8,7 +8,7 @@ use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
 use crate::{OutputFormat, TranspileContext};
 
-fn capitalize_first(s: &str) -> String {
+pub fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
         None => String::new(),
@@ -32,6 +32,10 @@ fn write_capitalized<W: Write>(w: &mut W, s: &str) -> std::fmt::Result {
 impl<'a> NounPhrase<'a> {
     pub fn to_symbol(&self, registry: &mut SymbolRegistry, interner: &Interner) -> String {
         registry.get_symbol(self.noun, interner)
+    }
+
+    pub fn to_symbol_full(&self, registry: &SymbolRegistry, interner: &Interner) -> String {
+        registry.get_symbol_full(self.noun, interner)
     }
 }
 
@@ -257,8 +261,16 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Categorical(data) => {
-                let s = fmt.sanitize(&data.subject.to_symbol(registry, interner));
-                let p = fmt.sanitize(&data.predicate.to_symbol(registry, interner));
+                let s = if fmt.use_full_names() {
+                    fmt.sanitize(&data.subject.to_symbol_full(registry, interner))
+                } else {
+                    fmt.sanitize(&data.subject.to_symbol(registry, interner))
+                };
+                let p = if fmt.use_full_names() {
+                    fmt.sanitize(&data.predicate.to_symbol_full(registry, interner))
+                } else {
+                    fmt.sanitize(&data.predicate.to_symbol(registry, interner))
+                };
                 match (&data.quantifier, data.copula_negative) {
                     (TokenType::All, false) => write!(w, "{} {} is {}", fmt.categorical_all(), s, p),
                     (TokenType::No, false) => write!(w, "{} {} is {}", fmt.categorical_no(), s, p),
@@ -270,9 +282,21 @@ impl<'a> LogicExpr<'a> {
             }
 
             LogicExpr::Relation(data) => {
-                let s = data.subject.to_symbol(registry, interner);
-                let v = fmt.sanitize(&registry.get_symbol(data.verb, interner));
-                let o = data.object.to_symbol(registry, interner);
+                let s = if fmt.use_full_names() {
+                    data.subject.to_symbol_full(registry, interner)
+                } else {
+                    data.subject.to_symbol(registry, interner)
+                };
+                let v = if fmt.use_full_names() {
+                    fmt.sanitize(&registry.get_symbol_full(data.verb, interner))
+                } else {
+                    fmt.sanitize(&registry.get_symbol(data.verb, interner))
+                };
+                let o = if fmt.use_full_names() {
+                    data.object.to_symbol_full(registry, interner)
+                } else {
+                    data.object.to_symbol(registry, interner)
+                };
                 write!(w, "{}({}, {})", v, s, o)
             }
 
@@ -403,7 +427,11 @@ impl<'a> LogicExpr<'a> {
                             ThematicRole::Manner => "Manner",
                         };
                         write!(body, " {} {}({}, ", fmt.and(), role_str, e)?;
-                        term.write_to(&mut body, registry, interner)?;
+                        if fmt.use_full_names() {
+                            term.write_to_full(&mut body, registry, interner)?;
+                        } else {
+                            term.write_to(&mut body, registry, interner)?;
+                        }
                         write!(body, ")")?;
                     }
                     for mod_sym in data.modifiers.iter() {

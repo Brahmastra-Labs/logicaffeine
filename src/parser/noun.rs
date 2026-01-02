@@ -5,6 +5,7 @@ use crate::context::{Case, Gender, Number};
 use crate::intern::SymbolEq;
 use crate::lexicon::Definiteness;
 use crate::token::TokenType;
+use crate::transpile::capitalize_first;
 
 pub trait NounParsing<'a, 'ctx, 'int> {
     fn parse_noun_phrase(&mut self, greedy: bool) -> ParseResult<NounPhrase<'a>>;
@@ -251,7 +252,8 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let noun_str = self.interner.resolve(noun);
         let first_char = noun_str.chars().next().unwrap_or('X');
         if first_char.is_alphabetic() {
-            let symbol = first_char.to_uppercase().to_string();
+            // Use full noun name as symbol for consistent output in Full mode
+            let symbol = capitalize_first(noun_str);
             let number = if noun_str.ends_with('s') && !noun_str.ends_with("ss") {
                 Number::Plural
             } else {

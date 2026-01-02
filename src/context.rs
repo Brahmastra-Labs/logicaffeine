@@ -186,7 +186,7 @@ mod tests {
     fn register_and_resolve_male() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "J".into(),
+            symbol: "John".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "John".into(),
@@ -194,14 +194,14 @@ mod tests {
         });
         let resolved = ctx.resolve_pronoun(Gender::Male, Number::Singular);
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "J");
+        assert_eq!(resolved.unwrap().symbol, "John");
     }
 
     #[test]
     fn resolve_female_pronoun() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "M".into(),
+            symbol: "Mary".into(),
             gender: Gender::Female,
             number: Number::Singular,
             noun_class: "Mary".into(),
@@ -209,35 +209,35 @@ mod tests {
         });
         let resolved = ctx.resolve_pronoun(Gender::Female, Number::Singular);
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "M");
+        assert_eq!(resolved.unwrap().symbol, "Mary");
     }
 
     #[test]
     fn resolve_most_recent() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "J".into(),
+            symbol: "John".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "John".into(),
             ownership: OwnershipState::Owned,
         });
         ctx.register(Entity {
-            symbol: "B".into(),
+            symbol: "Bob".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "Bob".into(),
             ownership: OwnershipState::Owned,
         });
         let resolved = ctx.resolve_pronoun(Gender::Male, Number::Singular);
-        assert_eq!(resolved.unwrap().symbol, "B");
+        assert_eq!(resolved.unwrap().symbol, "Bob");
     }
 
     #[test]
     fn resolve_definite_by_class() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "D".into(),
+            symbol: "Dog".into(),
             gender: Gender::Neuter,
             number: Number::Singular,
             noun_class: "Dog".into(),
@@ -245,21 +245,21 @@ mod tests {
         });
         let resolved = ctx.resolve_definite("dog");
         assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "D");
+        assert_eq!(resolved.unwrap().symbol, "Dog");
     }
 
     #[test]
     fn gender_filtering() {
         let mut ctx = DiscourseContext::new();
         ctx.register(Entity {
-            symbol: "J".into(),
+            symbol: "John".into(),
             gender: Gender::Male,
             number: Number::Singular,
             noun_class: "John".into(),
             ownership: OwnershipState::Owned,
         });
         ctx.register(Entity {
-            symbol: "M".into(),
+            symbol: "Mary".into(),
             gender: Gender::Female,
             number: Number::Singular,
             noun_class: "Mary".into(),
@@ -267,7 +267,7 @@ mod tests {
         });
         let he = ctx.resolve_pronoun(Gender::Male, Number::Singular);
         let she = ctx.resolve_pronoun(Gender::Female, Number::Singular);
-        assert_eq!(he.unwrap().symbol, "J");
-        assert_eq!(she.unwrap().symbol, "M");
+        assert_eq!(he.unwrap().symbol, "John");
+        assert_eq!(she.unwrap().symbol, "Mary");
     }
 }

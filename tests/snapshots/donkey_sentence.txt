@@ -1,1 +1,1 @@
-∀y(∀x(((Farmer(x) ∧ (Donkey(y) ∧ Have(x, y))) → Beat(x, y))))
+∀y(∀x(((Farmer(x) ∧ (Donkey(y) ∧ ∃e(Have(e) ∧ Agent(e, x) ∧ Theme(e, y)))) → ∃e(Beat(e) ∧ Agent(e, x) ∧ Theme(e, y)))))

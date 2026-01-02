@@ -78,7 +78,7 @@ pub use debug::{DebugWorld, DisplayWith, WithInterner};
 pub use formatter::{LatexFormatter, LogicFormatter, UnicodeFormatter};
 pub use intern::{Interner, Symbol, SymbolEq};
 pub use lexer::Lexer;
-pub use parser::{Parser, ParserMode};
+pub use parser::{Parser, ParserMode, NegativeScopeMode};
 pub use parser::QuantifierParsing;
 pub use registry::SymbolRegistry;
 pub use scope::{ScopeStack, ScopeEntry};
@@ -542,6 +542,18 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         has_event_adj && has_agentive_noun
     };
 
+    // Detect lexically negative verbs (e.g., "lacks", "miss") for scope ambiguity
+    // These verbs transform to canonical form + negation, which can take wide or narrow scope
+    let has_negative_verb = tokens.iter().any(|t| {
+        if let token::TokenType::Verb { lemma, .. } = &t.kind {
+            lexicon::get_canonical_verb(&interner.resolve(*lemma).to_lowercase())
+                .map(|(_, is_neg)| is_neg)
+                .unwrap_or(false)
+        } else {
+            false
+        }
+    });
+
     let mut results: Vec<String> = Vec::new();
 
     // Reading 1: Default mode (verb priority for Ambiguous tokens)
@@ -692,8 +704,42 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_event_reading_mode(true);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 6: Wide scope negation mode (for lexically negative verbs like "lacks")
+    // Produces: ¬∃y(Key(y) ∧ Have(x,y)) - "has NO keys" (de dicto reading)
+    // vs default: ∃y(Key(y) ∧ ¬Have(x,y)) - "missing SOME key" (de re reading)
+    if has_negative_verb {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
@@ -1291,8 +1337,8 @@ mod tests {
     fn binary_relation_basic() {
         let result = compile("John loves Mary.").unwrap();
         assert!(
-            (result.contains("Agent(e, J)") && result.contains("Theme(e, M)"))
-                || result.contains("(J, M)"),
+            (result.contains("Agent(e, John)") && result.contains("Theme(e, Mary)"))
+                || result.contains("(John, Mary)"),
             "Binary relation should have Agent and Theme roles: got '{}'",
             result
         );
@@ -1362,8 +1408,8 @@ mod tests {
     fn parse_transitive_verb() {
         let output = compile("John loves Mary.").unwrap();
         assert!(
-            (output.contains("Agent(e, J)") && output.contains("Theme(e, M)"))
-                || output.contains("(J, M)"),
+            (output.contains("Agent(e, John)") && output.contains("Theme(e, Mary)"))
+                || output.contains("(John, Mary)"),
             "transitive verb should produce Agent/Theme roles or binary predicate: got '{}'",
             output
         );
@@ -1373,8 +1419,8 @@ mod tests {
     fn parse_transitive_verb_symbols_unique() {
         let output = compile("John sees Jane.").unwrap();
         assert!(
-            output.contains("J2") || output.contains("(J, J2)"),
-            "John and Jane should get unique symbols: got '{}'",
+            output.contains("Agent(e, John)") && output.contains("Theme(e, Jane)"),
+            "John and Jane should get unique full names: got '{}'",
             output
         );
     }
@@ -1488,8 +1534,8 @@ mod tests {
     fn reflexive_binds_to_subject() {
         let result = compile("John loves himself.").unwrap();
         assert!(
-            (result.contains("Agent(e, J)") && result.contains("Theme(e, J)"))
-                || result.contains("(J, J)"),
+            (result.contains("Agent(e, John)") && result.contains("Theme(e, John)"))
+                || result.contains("(John, John)"),
             "Reflexive should bind Agent and Theme to same entity: got '{}'",
             result
         );
@@ -1499,8 +1545,8 @@ mod tests {
     fn reflexive_with_herself() {
         let result = compile("Mary sees herself.").unwrap();
         assert!(
-            (result.contains("Agent(e, M)") && result.contains("Theme(e, M)"))
-                || result.contains("(M, M)"),
+            (result.contains("Agent(e, Mary)") && result.contains("Theme(e, Mary)"))
+                || result.contains("(Mary, Mary)"),
             "Reflexive herself should bind: got '{}'",
             result
         );
@@ -1510,8 +1556,8 @@ mod tests {
     fn reflexive_in_prepositional_phrase() {
         let result = compile("John gave the book to himself.").unwrap();
         assert!(
-            result.contains("Agent(e, J)") && result.contains("Theme(e, B)")
-                || result.contains("(J, B, J)"),
+            result.contains("Agent(e, John)") && result.contains("Theme(e, Book)")
+                || result.contains("(John, Book, John)"),
             "Reflexive in preposition should bind to subject: got '{}'",
             result
         );
@@ -1520,8 +1566,9 @@ mod tests {
     #[test]
     fn relative_clause_with_preposition() {
         let result = compile("All dogs that ran to the house are tired.").unwrap();
+        // NeoEvent format: ∃e(Run(e) ∧ Agent(e, x) ∧ Theme(e, House))
         assert!(
-            result.contains("Run(x, House)"),
+            result.contains("Run(e)") && result.contains("Agent(e, x)"),
             "Relative clause should support prepositions: got '{}'",
             result
         );
@@ -1530,8 +1577,9 @@ mod tests {
     #[test]
     fn relative_clause_with_reflexive_preposition() {
         let result = compile("All men that speak to themselves are wise.").unwrap();
+        // NeoEvent format: ∃e(Speak(e) ∧ Agent(e, x) ∧ Theme(e, x))
         assert!(
-            result.contains("Speak(x, x)"),
+            result.contains("Speak(e)") && result.contains("Agent(e, x)") && result.contains("Theme(e, x)"),
             "Relative clause reflexive should bind to variable: got '{}'",
             result
         );
@@ -1556,9 +1604,9 @@ mod tests {
     #[test]
     fn relative_clause_basic() {
         let result = compile("All dogs that bark are loud.").unwrap();
-        // Subject should be: Dogs(x) ∧ Bark(x) → Loud(x)
+        // NeoEvent format: Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x)) → Loud(x)
         assert!(
-            result.contains("Dogs(x)") && result.contains("∧") && result.contains("Bark(x)"),
+            result.contains("Dogs(x)") && result.contains("Bark(e)") && result.contains("Agent(e, x)"),
             "Relative clause should create conjunction: got '{}'",
             result
         );
@@ -1567,9 +1615,9 @@ mod tests {
     #[test]
     fn relative_clause_with_object() {
         let result = compile("All cats that chase mice are hunters.").unwrap();
-        // Subject should be: Cats(x) ∧ Chase(x, Mice) → Hunters(x)
+        // NeoEvent format: Cats(x) ∧ ∃e(Chase(e) ∧ Agent(e, x) ∧ Theme(e, Mice)) → Hunters(x)
         assert!(
-            result.contains("∧") && (result.contains("(x, Mice)") || result.contains("(x,Mice)")),
+            result.contains("Chase(e)") && result.contains("Agent(e, x)") && result.contains("Theme(e, Mice)"),
             "Relative clause should include predicate with object: got '{}'",
             result
         );
@@ -1612,9 +1660,9 @@ mod tests {
         compile_with_context("John saw Mary.", &mut ctx).unwrap();
         let result = compile_with_context("He loves her.", &mut ctx).unwrap();
         assert!(
-            (result.contains("Agent(e, J)") && result.contains("Theme(e, M)"))
-                || result.contains("(J, M)")
-                || result.contains("(J,M)"),
+            (result.contains("Agent(e, John)") && result.contains("Theme(e, Mary)"))
+                || result.contains("(John, Mary)")
+                || result.contains("(John,Mary)"),
             "He->John, her->Mary: got '{}'",
             result
         );
@@ -1653,8 +1701,8 @@ mod tests {
         compile_with_context("John entered.", &mut ctx).unwrap();
         let result = compile_with_context("Mary saw him.", &mut ctx).unwrap();
         assert!(
-            (result.contains("Agent(e, M)") && result.contains("Theme(e, J)"))
-                || result.contains("(M, J)"),
+            (result.contains("Agent(e, Mary)") && result.contains("Theme(e, John)"))
+                || result.contains("(Mary, John)"),
             "him should resolve to John: got '{}'",
             result
         );
@@ -1692,9 +1740,9 @@ mod tests {
         // "The man who loves Mary left."
         // "who" = subject of "loves"
         let result = compile("The man who loves Mary left.").unwrap();
-        // Structure: ∃x(Man(x) ∧ Love(x, Mary) ∧ Left(x))
+        // NeoEvent format: ∃x(Man(x) ∧ ∃e(Love(e) ∧ Agent(e, x) ∧ Theme(e, Mary)) ∧ ∃e(Leave(e) ∧ Agent(e, x)))
         assert!(
-            result.contains("(x, Mary)") && result.contains("Man(x)"),
+            result.contains("Love(e)") && result.contains("Agent(e, x)") && result.contains("Man(x)"),
             "Who-clause should bind subject: got '{}'",
             result
         );
@@ -1733,7 +1781,7 @@ mod tests {
         // "The book that John read is good."
         let result = compile("The book that John read is good.").unwrap();
         assert!(
-            result.contains("Agent(e, J)") && result.contains("Theme(e, x)"),
+            result.contains("Agent(e, John)") && result.contains("Theme(e, x)"),
             "Book is object of read: got '{}'",
             result
         );
@@ -1746,9 +1794,10 @@ mod tests {
     #[test]
     fn quantifier_most() {
         let result = compile("Most dogs bark.").unwrap();
+        // NeoEvent format: MOST x(Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x)))
         assert!(
-            result.contains("MOST") && result.contains("Dogs(x)") && result.contains("Bark(x)"),
-            "Most should produce MOST x(Dogs(x), Bark(x)): got '{}'",
+            result.contains("MOST") && result.contains("Dogs(x)") && result.contains("Bark(e)") && result.contains("Agent(e, x)"),
+            "Most should produce MOST x(Dogs(x), Bark(e) ∧ Agent(e, x)): got '{}'",
             result
         );
     }
@@ -1756,9 +1805,10 @@ mod tests {
     #[test]
     fn quantifier_few() {
         let result = compile("Few cats swim.").unwrap();
+        // NeoEvent format: FEW x(Cats(x) ∧ ∃e(Swim(e) ∧ Agent(e, x)))
         assert!(
-            result.contains("FEW") && result.contains("Cats(x)") && result.contains("Swim(x)"),
-            "Few should produce FEW x(Cats(x), Swim(x)): got '{}'",
+            result.contains("FEW") && result.contains("Cats(x)") && result.contains("Swim(e)") && result.contains("Agent(e, x)"),
+            "Few should produce FEW x(Cats(x), Swim(e) ∧ Agent(e, x)): got '{}'",
             result
         );
     }

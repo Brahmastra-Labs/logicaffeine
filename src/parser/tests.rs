@@ -30,7 +30,7 @@ fn guard_restores_all_fields_on_drop() {
         let mut guard = parser.guard();
         guard.current = 3;
         guard.var_counter = 99;
-        guard.donkey_bindings.push((Symbol::EMPTY, Symbol::EMPTY, false));
+        guard.donkey_bindings.push((Symbol::EMPTY, Symbol::EMPTY, false, false));
         guard.current_island = 42;
         guard.pending_time = Some(Time::Past);
     }

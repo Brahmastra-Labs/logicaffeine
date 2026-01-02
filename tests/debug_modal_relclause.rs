@@ -50,7 +50,8 @@ fn negative_quantifier_with_relative_clause_and_modal() {
     eprintln!("Full FOL negative: {}", result);
     assert!(!result.contains("?"), "Should not contain unknown marker");
     // "lacks" is an antonym of "have" so it compiles to ¬Have (canonical form)
-    assert!(result.contains("¬Have("), "Should have negated Have predicate (canonical form of 'lacks')");
+    // NeoEvent format: ¬∃e(Have(e) ∧ Agent(e, x) ∧ Theme(e, y))
+    assert!(result.contains("¬∃e(Have(e)"), "Should have negated Have event (canonical form of 'lacks')");
 }
 
 #[test]
@@ -74,5 +75,6 @@ fn all_three_marketing_sentences() {
     assert!(result.contains("Have("), "Should have sentence 1 Have predicate");
     assert!(result.contains("Trigger("), "Should have sentence 2 Trigger predicate");
     // "lacks" compiles to ¬Have (canonical form normalization)
+    // In Simple mode, this is still ¬Have(
     assert!(result.contains("¬Have("), "Should have sentence 3 negated Have predicate (canonical form)");
 }

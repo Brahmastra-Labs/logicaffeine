@@ -1,1 +1,1 @@
-∀x(((Dogs(x) ∧ Bark(x)) → Loud(x)))
+∀x(((Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x))) → Loud(x)))
