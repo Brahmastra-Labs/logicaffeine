@@ -277,6 +277,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) => Ok(s),
             TokenType::ProperName(s) => Ok(s),
+            // Phase 49b: CRDT type keywords are valid type names
+            TokenType::Tally => Ok(self.interner.intern("Tally")),
+            TokenType::SharedSet => Ok(self.interner.intern("SharedSet")),
+            TokenType::SharedSequence => Ok(self.interner.intern("SharedSequence")),
+            TokenType::CollaborativeSequence => Ok(self.interner.intern("CollaborativeSequence")),
+            TokenType::SharedMap => Ok(self.interner.intern("SharedMap")),
+            TokenType::Divergent => Ok(self.interner.intern("Divergent")),
             other => Err(ParseError {
                 kind: ParseErrorKind::ExpectedContentWord { found: other },
                 span: self.current_span(),
@@ -290,8 +297,58 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
 
+        // Phase 53: Handle "Persistent T" type modifier
+        if self.check(&TokenType::Persistent) {
+            self.advance(); // consume "Persistent"
+            let inner = self.parse_type_expression()?;
+            let inner_ref = self.ctx.alloc_type_expr(inner);
+            return Ok(TypeExpr::Persistent { inner: inner_ref });
+        }
+
         // Get the base type name (must be a noun or proper name - type names bypass entity check)
-        let base = self.consume_type_name()?;
+        let mut base = self.consume_type_name()?;
+
+        // Phase 49c: Check for bias modifier on SharedSet: "SharedSet (RemoveWins) of T"
+        let base_name = self.interner.resolve(base);
+        if base_name == "SharedSet" || base_name == "ORSet" {
+            if self.check(&TokenType::LParen) {
+                self.advance(); // consume "("
+                if self.check(&TokenType::RemoveWins) {
+                    self.advance(); // consume "RemoveWins"
+                    base = self.interner.intern("SharedSet_RemoveWins");
+                } else if self.check(&TokenType::AddWins) {
+                    self.advance(); // consume "AddWins"
+                    // AddWins is default, but we can be explicit
+                    base = self.interner.intern("SharedSet_AddWins");
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+            }
+        }
+
+        // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+        let base_name = self.interner.resolve(base);
+        if base_name == "SharedSequence" || base_name == "RGA" {
+            if self.check(&TokenType::LParen) {
+                self.advance(); // consume "("
+                if self.check(&TokenType::YATA) {
+                    self.advance(); // consume "YATA"
+                    base = self.interner.intern("SharedSequence_YATA");
+                }
+                if !self.check(&TokenType::RParen) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ")"
+            }
+        }
 
         // Phase 36: Check for "from Module" qualification
         let base_type = if self.check(&TokenType::From) {
@@ -311,9 +368,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     "Result" => Some(2),    // Result of T and E
                     "Option" => Some(1),    // Option of T
                     "Seq" | "List" | "Vec" => Some(1),  // Seq of T
+                    "Set" | "HashSet" => Some(1), // Set of T
                     "Map" | "HashMap" => Some(2), // Map of K and V
                     "Pair" => Some(2),      // Pair of A and B
                     "Triple" => Some(3),    // Triple of A and B and C
+                    // Phase 49b: CRDT generic types
+                    "SharedSet" | "ORSet" | "SharedSet_AddWins" | "SharedSet_RemoveWins" => Some(1),
+                    "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => Some(1),
+                    "SharedMap" | "ORMap" => Some(2),      // SharedMap from K to V
+                    "Divergent" | "MVRegister" => Some(1), // Divergent T
                     _ => None,
                 });
 
@@ -472,7 +535,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.mode = match block_type {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
-                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef => ParserMode::Declarative,
+                    BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
+                    BlockType::Policy => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -742,6 +806,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.skip_type_def_content();
                         continue;
                     }
+                    BlockType::Policy => {
+                        // Phase 50: Policy definitions are handled by DiscoveryPass
+                        // Skip content until next block header
+                        in_definition_block = true;  // Reuse flag to skip content
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        continue;
+                    }
                     _ => {
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
@@ -781,6 +853,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        // Phase 32: Function definitions can appear inside Main block
+        // Handle both TokenType::To and Preposition("to")
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            return self.parse_function_def();
+        }
         if self.check(&TokenType::Let) {
             return self.parse_let_statement();
         }
@@ -799,6 +876,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Phase 35: Trust statement
         if self.check(&TokenType::Trust) {
             return self.parse_trust_statement();
+        }
+        // Phase 50: Security Check statement
+        if self.check(&TokenType::Check) {
+            return self.parse_check_statement();
+        }
+        // Phase 51: P2P Networking statements
+        if self.check(&TokenType::Listen) {
+            return self.parse_listen_statement();
+        }
+        if self.check(&TokenType::NetConnect) {
+            return self.parse_connect_statement();
+        }
+        if self.check(&TokenType::Sleep) {
+            return self.parse_sleep_statement();
+        }
+        // Phase 52: GossipSub sync statement
+        if self.check(&TokenType::Sync) {
+            return self.parse_sync_statement();
+        }
+        // Phase 53: Persistent storage mount statement
+        if self.check(&TokenType::Mount) {
+            return self.parse_mount_statement();
         }
         if self.check(&TokenType::While) {
             return self.parse_while_statement();
@@ -827,6 +926,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Pop) {
             return self.parse_pop_statement();
         }
+        // Set operations
+        if self.check(&TokenType::Add) {
+            return self.parse_add_statement();
+        }
+        if self.check(&TokenType::Remove) {
+            return self.parse_remove_statement();
+        }
 
         // Phase 8.5: Memory zone block
         if self.check(&TokenType::Inside) {
@@ -854,9 +960,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_spawn_statement();
         }
         if self.check(&TokenType::Send) {
+            // Phase 54: Disambiguate "Send x into pipe" vs "Send x to agent"
+            if self.lookahead_contains_into() {
+                return self.parse_send_pipe_statement();
+            }
             return self.parse_send_statement();
         }
         if self.check(&TokenType::Await) {
+            // Phase 54: Disambiguate "Await the first of:" vs "Await response from agent"
+            if self.lookahead_is_first_of() {
+                return self.parse_select_statement();
+            }
             return self.parse_await_statement();
         }
 
@@ -866,6 +980,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Increase) {
             return self.parse_increase_statement();
+        }
+        // Phase 49b: Extended CRDT statements
+        if self.check(&TokenType::Decrease) {
+            return self.parse_decrease_statement();
+        }
+        if self.check(&TokenType::Append) {
+            return self.parse_append_statement();
+        }
+        if self.check(&TokenType::Resolve) {
+            return self.parse_resolve_statement();
+        }
+
+        // Phase 54: Go-like Concurrency statements
+        if self.check(&TokenType::Launch) {
+            return self.parse_launch_statement();
+        }
+        if self.check(&TokenType::Stop) {
+            return self.parse_stop_statement();
+        }
+        if self.check(&TokenType::Try) {
+            return self.parse_try_statement();
+        }
+        if self.check(&TokenType::Receive) {
+            return self.parse_receive_pipe_statement();
         }
 
         // Expression-statement: function call without "Call" keyword
@@ -1281,6 +1419,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // "is not X" → NotEq
                 self.advance(); // consume "not"
                 Some(BinaryOpKind::NotEq)
+            } else if self.check_word("equal") {
+                // "is equal to X" → Eq
+                self.advance(); // consume "equal"
+                if self.check_preposition_is("to") {
+                    self.advance(); // consume "to"
+                    Some(BinaryOpKind::Eq)
+                } else {
+                    self.current = saved_pos;
+                    None
+                }
             } else {
                 self.current = saved_pos;
                 None
@@ -1347,6 +1495,143 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         self.advance(); // consume "be"
 
+        // Phase 53: Check for "mounted at [path]" pattern (for Persistent types)
+        if self.check_word("mounted") {
+            self.advance(); // consume "mounted"
+            if !self.check(&TokenType::At) && !self.check_preposition_is("at") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "at"
+            let path = self.parse_imperative_expr()?;
+            return Ok(Stmt::Mount { var, path });
+        }
+
+        // Phase 51: Check for "a PeerAgent at [addr]" pattern
+        if self.check_article() {
+            let saved_pos = self.current;
+            self.advance(); // consume article
+
+            // Check if next word is "PeerAgent" (case insensitive)
+            if let TokenType::Noun(sym) | TokenType::ProperName(sym) = self.peek().kind {
+                let word = self.interner.resolve(sym).to_lowercase();
+                if word == "peeragent" {
+                    self.advance(); // consume "PeerAgent"
+
+                    // Check for "at" keyword
+                    if self.check(&TokenType::At) || self.check_preposition_is("at") {
+                        self.advance(); // consume "at"
+
+                        // Parse address expression
+                        let address = self.parse_imperative_expr()?;
+
+                        // Bind in ScopeStack if context available
+                        if let Some(ctx) = self.context.as_mut() {
+                            use crate::context::{Entity, Gender, Number, OwnershipState};
+                            let var_name = self.interner.resolve(var).to_string();
+                            ctx.register(Entity {
+                                symbol: var_name.clone(),
+                                gender: Gender::Neuter,
+                                number: Number::Singular,
+                                noun_class: var_name,
+                                ownership: OwnershipState::Owned,
+                            });
+                        }
+
+                        return Ok(Stmt::LetPeerAgent { var, address });
+                    }
+                }
+            }
+            // Not a PeerAgent, backtrack
+            self.current = saved_pos;
+        }
+
+        // Phase 54: Check for "a Pipe of Type" pattern
+        if self.check_article() {
+            let saved_pos = self.current;
+            self.advance(); // consume article
+
+            if self.check(&TokenType::Pipe) {
+                self.advance(); // consume "Pipe"
+
+                // Expect "of"
+                if !self.check_word("of") {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume "of"
+
+                // Parse element type
+                let element_type = self.expect_identifier()?;
+
+                // Register variable in scope
+                if let Some(ctx) = self.context.as_mut() {
+                    use crate::context::{Entity, Gender, Number, OwnershipState};
+                    let var_name = self.interner.resolve(var).to_string();
+                    ctx.register(Entity {
+                        symbol: var_name.clone(),
+                        gender: Gender::Neuter,
+                        number: Number::Singular,
+                        noun_class: "Pipe".to_string(),
+                        ownership: OwnershipState::Owned,
+                    });
+                }
+
+                return Ok(Stmt::CreatePipe { var, element_type, capacity: None });
+            }
+            // Not a Pipe, backtrack
+            self.current = saved_pos;
+        }
+
+        // Phase 54: Check for "Launch a task to..." pattern (for task handles)
+        if self.check(&TokenType::Launch) {
+            self.advance(); // consume "Launch"
+
+            // Expect "a"
+            if !self.check_article() {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Expect "task"
+            if !self.check(&TokenType::Task) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Expect "to"
+            if !self.check(&TokenType::To) && !self.check_word("to") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse function name
+            let function = self.expect_identifier()?;
+
+            // Parse optional arguments: "with arg1, arg2"
+            let args = if self.check_word("with") {
+                self.advance();
+                self.parse_call_arguments()?
+            } else {
+                vec![]
+            };
+
+            return Ok(Stmt::LaunchTaskWithHandle { handle: var, function, args });
+        }
+
         // Parse expression value (simple: just a number for now)
         let value = self.parse_imperative_expr()?;
 
@@ -1389,7 +1674,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     fn check_mutable_keyword(&self) -> bool {
         if let TokenType::Noun(sym) | TokenType::Adjective(sym) = self.peek().kind {
-            self.interner.resolve(sym).eq_ignore_ascii_case("mutable")
+            let word = self.interner.resolve(sym).to_lowercase();
+            word == "mutable" || word == "mut"
         } else {
             false
         }
@@ -1400,9 +1686,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match expr {
             Expr::Literal(lit) => match lit {
                 crate::ast::Literal::Number(_) => Some("Int"),
+                crate::ast::Literal::Float(_) => Some("Real"),
                 crate::ast::Literal::Text(_) => Some("Text"),
                 crate::ast::Literal::Boolean(_) => Some("Bool"),
                 crate::ast::Literal::Nothing => Some("Unit"),
+                crate::ast::Literal::Char(_) => Some("Char"),
             },
             _ => None, // Can't infer type for non-literals yet
         }
@@ -1413,9 +1701,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match declared {
             TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
                 let declared_name = self.interner.resolve(*sym);
-                // Nat is compatible with Int literals
+                // Nat and Byte are compatible with Int literals
                 declared_name.eq_ignore_ascii_case(inferred)
                     || (declared_name.eq_ignore_ascii_case("Nat") && inferred == "Int")
+                    || (declared_name.eq_ignore_ascii_case("Byte") && inferred == "Int")
             }
             _ => true, // For generics/functions, skip check for now
         }
@@ -1544,6 +1833,639 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::Trust { proposition, justification })
     }
 
+    /// Phase 50: Parse Check statement - mandatory security guard
+    /// Syntax: Check that [subject] is [predicate].
+    /// Syntax: Check that [subject] can [action] the [object].
+    fn parse_check_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_span = self.current_span();
+        self.advance(); // consume "Check"
+
+        // Optionally consume "that"
+        if self.check(&TokenType::That) {
+            self.advance();
+        }
+
+        // Consume optional "the"
+        if matches!(self.peek().kind, TokenType::Article(_)) {
+            self.advance();
+        }
+
+        // Parse subject identifier (e.g., "user")
+        let subject = match &self.peek().kind {
+            TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                // Try to get an identifier
+                let tok = self.peek();
+                let s = tok.lexeme;
+                self.advance();
+                s
+            }
+        };
+
+        // Determine if this is a predicate check ("is admin") or capability check ("can publish")
+        let is_capability;
+        let predicate;
+        let object;
+
+        if self.check(&TokenType::Is) || self.check(&TokenType::Are) {
+            // Predicate check: "user is admin"
+            is_capability = false;
+            self.advance(); // consume "is" / "are"
+
+            // Parse predicate name (e.g., "admin")
+            predicate = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = None;
+        } else if self.check(&TokenType::Can) {
+            // Capability check: "user can publish the document"
+            is_capability = true;
+            self.advance(); // consume "can"
+
+            // Parse action (e.g., "publish", "edit", "delete")
+            predicate = match &self.peek().kind {
+                TokenType::Verb { lemma, .. } => {
+                    let s = *lemma;
+                    self.advance();
+                    s
+                }
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+
+            // Consume optional "the"
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                self.advance();
+            }
+
+            // Parse object (e.g., "document")
+            let obj = match &self.peek().kind {
+                TokenType::Noun(sym) | TokenType::Adjective(sym) | TokenType::ProperName(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    let tok = self.peek();
+                    let s = tok.lexeme;
+                    self.advance();
+                    s
+                }
+            };
+            object = Some(obj);
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "is/can".to_string() },
+                span: self.current_span(),
+            });
+        }
+
+        // Build source text for error message
+        let source_text = if is_capability {
+            let obj_name = self.interner.resolve(object.unwrap());
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} can {} the {}", subj_name, pred_name, obj_name)
+        } else {
+            let pred_name = self.interner.resolve(predicate);
+            let subj_name = self.interner.resolve(subject);
+            format!("{} is {}", subj_name, pred_name)
+        };
+
+        Ok(Stmt::Check {
+            subject,
+            predicate,
+            is_capability,
+            object,
+            source_text,
+            span: start_span,
+        })
+    }
+
+    /// Phase 51: Parse Listen statement - bind to network address
+    /// Syntax: Listen on [address].
+    fn parse_listen_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Listen"
+
+        // Expect "on" preposition
+        if !self.check_preposition_is("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Parse address expression (string literal or variable)
+        let address = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Listen { address })
+    }
+
+    /// Phase 51: Parse Connect statement - dial remote peer
+    /// Syntax: Connect to [address].
+    fn parse_connect_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Connect"
+
+        // Expect "to" (can be TokenType::To or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse address expression
+        let address = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ConnectTo { address })
+    }
+
+    /// Phase 51: Parse Sleep statement - pause execution
+    /// Syntax: Sleep [milliseconds].
+    fn parse_sleep_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Sleep"
+
+        // Parse milliseconds expression (number or variable)
+        let milliseconds = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Sleep { milliseconds })
+    }
+
+    /// Phase 52: Parse Sync statement - automatic CRDT replication
+    /// Syntax: Sync [var] on [topic].
+    fn parse_sync_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Sync"
+
+        // Parse variable name (must be an identifier)
+        let var = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "on" preposition
+        if !self.check_preposition_is("on") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "on".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "on"
+
+        // Parse topic expression (string literal or variable)
+        let topic = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Sync { var, topic })
+    }
+
+    /// Phase 53: Parse Mount statement
+    /// Syntax: Mount [var] at [path].
+    /// Example: Mount counter at "data/counter.journal".
+    fn parse_mount_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Mount"
+
+        // Parse variable name (must be an identifier)
+        let var = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect "at" keyword (TokenType::At in imperative mode)
+        if !self.check(&TokenType::At) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "at".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "at"
+
+        // Parse path expression (string literal or variable)
+        let path = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Mount { var, path })
+    }
+
+    // =========================================================================
+    // Phase 54: Go-like Concurrency Parser Methods
+    // =========================================================================
+
+    /// Helper: Check if lookahead contains "into" (for Send...into pipe disambiguation)
+    fn lookahead_contains_into(&self) -> bool {
+        for i in self.current..std::cmp::min(self.current + 5, self.tokens.len()) {
+            if matches!(self.tokens[i].kind, TokenType::Into) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Helper: Check if lookahead is "the first of" (for Await select disambiguation)
+    fn lookahead_is_first_of(&self) -> bool {
+        // Check for "Await the first of:"
+        self.current + 3 < self.tokens.len()
+            && matches!(self.tokens.get(self.current + 1), Some(t) if matches!(t.kind, TokenType::Article(_)))
+            && self.tokens.get(self.current + 2)
+                .map(|t| self.interner.resolve(t.lexeme).to_lowercase() == "first")
+                .unwrap_or(false)
+    }
+
+    /// Phase 54: Parse Launch statement - spawn a task
+    /// Syntax: Launch a task to verb(args).
+    fn parse_launch_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Launch"
+
+        // Expect "a"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "a".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "task"
+        if !self.check(&TokenType::Task) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "task".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse function name
+        let function = match &self.tokens[self.current].kind {
+            TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "function name".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Optional arguments in parentheses or with "with" keyword
+        let args = if self.check(&TokenType::LParen) {
+            self.parse_call_arguments()?
+        } else if self.check_word("with") {
+            self.advance(); // consume "with"
+            let mut args = Vec::new();
+            let arg = self.parse_imperative_expr()?;
+            args.push(arg);
+            // Handle additional args separated by "and"
+            while self.check(&TokenType::And) {
+                self.advance();
+                let arg = self.parse_imperative_expr()?;
+                args.push(arg);
+            }
+            args
+        } else {
+            Vec::new()
+        };
+
+        Ok(Stmt::LaunchTask { function, args })
+    }
+
+    /// Phase 54: Parse Send into pipe statement
+    /// Syntax: Send value into pipe.
+    fn parse_send_pipe_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Send"
+
+        // Parse value expression
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "into"
+        if !self.check(&TokenType::Into) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse pipe expression
+        let pipe = self.parse_imperative_expr()?;
+
+        Ok(Stmt::SendPipe { value, pipe })
+    }
+
+    /// Phase 54: Parse Receive from pipe statement
+    /// Syntax: Receive x from pipe.
+    fn parse_receive_pipe_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Receive"
+
+        // Get variable name - use expect_identifier which handles various token types
+        let var = self.expect_identifier()?;
+
+        // Expect "from"
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse pipe expression
+        let pipe = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ReceivePipe { var, pipe })
+    }
+
+    /// Phase 54: Parse Try statement (non-blocking send/receive)
+    /// Syntax: Try to send x into pipe. OR Try to receive x from pipe.
+    fn parse_try_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Try"
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Check if send or receive
+        if self.check(&TokenType::Send) {
+            self.advance(); // consume "Send"
+            let value = self.parse_imperative_expr()?;
+
+            if !self.check(&TokenType::Into) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "into".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+            Ok(Stmt::TrySendPipe { value, pipe, result: None })
+        } else if self.check(&TokenType::Receive) {
+            self.advance(); // consume "Receive"
+
+            let var = self.expect_identifier()?;
+
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+            Ok(Stmt::TryReceivePipe { var, pipe })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "send or receive".to_string() },
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Phase 54: Parse Stop statement
+    /// Syntax: Stop handle.
+    fn parse_stop_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Stop"
+
+        let handle = self.parse_imperative_expr()?;
+
+        Ok(Stmt::StopTask { handle })
+    }
+
+    /// Phase 54: Parse Select statement
+    /// Syntax:
+    /// Await the first of:
+    ///     Receive x from pipe:
+    ///         ...
+    ///     After N seconds:
+    ///         ...
+    fn parse_select_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::stmt::SelectBranch;
+
+        self.advance(); // consume "Await"
+
+        // Expect "the"
+        if !self.check_article() {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "the".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "first"
+        if !self.check_word("first") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "first".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect "of"
+        if !self.check_preposition_is("of") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "of".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse branches
+        let mut branches = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let branch = self.parse_select_branch()?;
+            branches.push(branch);
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        Ok(Stmt::Select { branches })
+    }
+
+    /// Phase 54: Parse a single select branch
+    fn parse_select_branch(&mut self) -> ParseResult<crate::ast::stmt::SelectBranch<'a>> {
+        use crate::ast::stmt::SelectBranch;
+
+        if self.check(&TokenType::Receive) {
+            self.advance(); // consume "Receive"
+
+            let var = match &self.tokens[self.current].kind {
+                TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                    let s = *sym;
+                    self.advance();
+                    s
+                }
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: "variable name".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+            };
+
+            if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let pipe = self.parse_imperative_expr()?;
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse body
+            let body = self.parse_indented_block()?;
+
+            Ok(SelectBranch::Receive { var, pipe, body })
+        } else if self.check_word("after") {
+            self.advance(); // consume "After"
+
+            let milliseconds = self.parse_imperative_expr()?;
+
+            // Skip "seconds" or "milliseconds" if present
+            if self.check_word("seconds") || self.check_word("milliseconds") {
+                self.advance();
+            }
+
+            // Expect colon
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            // Parse body
+            let body = self.parse_indented_block()?;
+
+            Ok(SelectBranch::Timeout { milliseconds, body })
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "Receive or After".to_string() },
+                span: self.current_span(),
+            })
+        }
+    }
+
+    /// Phase 54: Parse an indented block of statements
+    fn parse_indented_block(&mut self) -> ParseResult<crate::ast::stmt::Block<'a>> {
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        let mut stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let block = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(stmts.into_iter());
+
+        Ok(block)
+    }
+
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::context::OwnershipState;
 
@@ -1658,8 +2580,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the collection
         let collection = self.parse_imperative_expr()?;
 
-        // Check for optional "into" binding
-        let into = if self.check_preposition_is("into") {
+        // Check for optional "into" binding (can be Into keyword or preposition)
+        let into = if self.check(&TokenType::Into) || self.check_preposition_is("into") {
             self.advance(); // consume "into"
 
             // Parse variable name
@@ -1683,6 +2605,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         };
 
         Ok(Stmt::Pop { collection, into })
+    }
+
+    /// Parse Add statement for Set insertion
+    /// Syntax: Add x to set.
+    fn parse_add_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Add"
+
+        // Parse the value to add
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" preposition
+        if !self.check_preposition_is("to") && !self.check(&TokenType::To) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse the collection expression
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Add { value, collection })
+    }
+
+    /// Parse Remove statement for Set deletion
+    /// Syntax: Remove x from set.
+    fn parse_remove_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Remove"
+
+        // Parse the value to remove
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "from" preposition
+        if !self.check(&TokenType::From) && !self.check_preposition_is("from") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "from".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "from"
+
+        // Parse the collection expression
+        let collection = self.parse_imperative_expr()?;
+
+        Ok(Stmt::Remove { value, collection })
     }
 
     /// Phase 10: Parse Read statement for console/file input
@@ -2444,9 +3412,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let type_arg = self.expect_identifier()?;
             type_args.push(type_arg);
 
-            // Check for "and" to continue (for multi-param generics like "Result of Int and Text")
-            if self.check(&TokenType::And) {
-                self.advance(); // consume "and"
+            // Check for "and" or "to" to continue (for multi-param generics like "Map of Text to Int")
+            if self.check(&TokenType::And) || self.check_to_preposition() {
+                self.advance(); // consume separator
                 continue;
             }
             break;
@@ -2473,9 +3441,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Phase 32: Parse function definition after `## To` header
     /// Phase 32/38: Parse function definition
-    /// Syntax: [native] name (a: Type) [and (b: Type)] [-> ReturnType]
+    /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        // Consume "To" if present (when called from parse_statement)
+        if self.check(&TokenType::To) || self.check_preposition_is("to") {
+            self.advance();
+        }
+
         // Phase 38: Check for native modifier
         let is_native = if self.check(&TokenType::Native) {
             self.advance(); // consume "native"
@@ -2487,25 +3460,37 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse function name (first identifier after ## To [native])
         let name = self.expect_identifier()?;
 
-        // Parse parameters: (name: Type) groups separated by "and"
+        // Parse parameters: (name: Type) groups separated by "and", or comma-separated in one group
         let mut params = Vec::new();
         while self.check(&TokenType::LParen) {
             self.advance(); // consume (
 
-            let param_name = self.expect_identifier()?;
+            // Parse parameters in this group (possibly comma-separated)
+            loop {
+                let param_name = self.expect_identifier()?;
 
-            // Expect colon
-            if !self.check(&TokenType::Colon) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                    span: self.current_span(),
-                });
+                // Expect colon
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume :
+
+                // Phase 38: Parse full type expression instead of simple identifier
+                let param_type_expr = self.parse_type_expression()?;
+                let param_type = self.ctx.alloc_type_expr(param_type_expr);
+
+                params.push((param_name, param_type));
+
+                // Check for comma (more params in this group) or ) (end of group)
+                if self.check(&TokenType::Comma) {
+                    self.advance(); // consume ,
+                    continue;
+                }
+                break;
             }
-            self.advance(); // consume :
-
-            // Phase 38: Parse full type expression instead of simple identifier
-            let param_type_expr = self.parse_type_expression()?;
-            let param_type = self.ctx.alloc_type_expr(param_type_expr);
 
             // Expect )
             if !self.check(&TokenType::RParen) {
@@ -2516,9 +3501,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             self.advance(); // consume )
 
-            params.push((param_name, param_type));
-
-            // Check for "and", preposition, or "from" between parameters
+            // Check for "and", preposition, or "from" between parameter groups
             // Allows: "## To withdraw (amount: Int) from (balance: Int)"
             if self.check_word("and") || self.check_preposition() || self.check(&TokenType::From) {
                 self.advance();
@@ -2776,6 +3759,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     self.advance(); // consume ')'
                     inner
+                } else if let TokenType::StringLiteral(sym) = self.peek().kind {
+                    // Phase 57B: String literal key for Map access like item "iron" of prices
+                    let sym = sym;
+                    self.advance();
+                    self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(sym)))
                 } else if !self.check_preposition_is("of") {
                     // Variable identifier like i, j, idx (any token that's not "of")
                     let sym = self.peek().lexeme;
@@ -2797,8 +3785,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
                 self.advance(); // consume "of"
 
-                // Parse collection
-                let collection = self.parse_imperative_expr()?;
+                // Parse collection as primary expression (identifier or field chain)
+                // Using primary_expr instead of imperative_expr prevents consuming operators
+                let collection = self.parse_primary_expr()?;
 
                 Ok(self.ctx.alloc_imperative_expr(Expr::Index {
                     collection,
@@ -2822,7 +3811,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     // Treat "items" as a variable identifier
                     let sym = token.lexeme;
                     self.advance();
-                    return Ok(self.ctx.alloc_imperative_expr(Expr::Identifier(sym)));
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                    return self.parse_field_access_chain(base);
                 }
 
                 self.advance(); // consume "items"
@@ -2983,14 +3973,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Number(sym) => {
                 self.advance();
                 let num_str = self.interner.resolve(*sym);
-                let num = num_str.parse::<i64>().unwrap_or(0);
-                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                // Check if it's a float (contains decimal point)
+                if num_str.contains('.') {
+                    let num = num_str.parse::<f64>().unwrap_or(0.0);
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(num))))
+                } else {
+                    let num = num_str.parse::<i64>().unwrap_or(0);
+                    Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num))))
+                }
             }
 
             // Phase 33: String literals
             TokenType::StringLiteral(sym) => {
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym))))
+            }
+
+            // Character literals
+            TokenType::CharLiteral(sym) => {
+                let char_str = self.interner.resolve(*sym);
+                let ch = char_str.chars().next().unwrap_or('\0');
+                self.advance();
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Char(ch))))
             }
 
             // Handle 'nothing' literal
@@ -3135,7 +4139,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Phase 10: IO keywords as function calls (e.g., "read", "write", "file")
-            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console => {
+            // Phase 57: Add/Remove keywords as function calls
+            TokenType::Read | TokenType::Write | TokenType::File | TokenType::Console |
+            TokenType::Add | TokenType::Remove => {
                 let sym = token.lexeme;
                 self.advance();
                 if self.check(&TokenType::LParen) {
@@ -3241,18 +4247,41 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
 
-            // Parenthesized expression: (expr)
+            // Parenthesized expression: (expr) or Tuple literal: (expr, expr, ...)
             TokenType::LParen => {
                 self.advance(); // consume '('
-                let inner = self.parse_imperative_expr()?;
-                if !self.check(&TokenType::RParen) {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
-                        span: self.current_span(),
-                    });
+                let first = self.parse_imperative_expr()?;
+
+                // Check if this is a tuple (has comma) or just grouping
+                if self.check(&TokenType::Comma) {
+                    // It's a tuple - parse remaining elements
+                    let mut items = vec![first];
+                    while self.check(&TokenType::Comma) {
+                        self.advance(); // consume ","
+                        items.push(self.parse_imperative_expr()?);
+                    }
+
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+
+                    let base = self.ctx.alloc_imperative_expr(Expr::Tuple(items));
+                    self.parse_field_access_chain(base)
+                } else {
+                    // Just a parenthesized expression
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ')'
+                    Ok(first)
                 }
-                self.advance(); // consume ')'
-                Ok(inner)
             }
 
             _ => {
@@ -3270,28 +4299,76 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.parse_additive_expr()
     }
 
-    /// Parse additive expressions (+, -) - left-to-right associative
+    /// Parse additive expressions (+, -, combined with, union, intersection, contains) - left-to-right associative
     fn parse_additive_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let mut left = self.parse_multiplicative_expr()?;
 
         loop {
-            let op = match &self.peek().kind {
+            match &self.peek().kind {
                 TokenType::Plus => {
                     self.advance();
-                    BinaryOpKind::Add
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Add,
+                        left,
+                        right,
+                    });
                 }
                 TokenType::Minus => {
                     self.advance();
-                    BinaryOpKind::Subtract
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Subtract,
+                        left,
+                        right,
+                    });
+                }
+                // Phase 53: "combined with" for string concatenation
+                TokenType::Combined => {
+                    self.advance(); // consume "combined"
+                    // Expect "with" (preposition)
+                    if !self.check_preposition_is("with") {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "with".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "with"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
+                        op: BinaryOpKind::Concat,
+                        left,
+                        right,
+                    });
+                }
+                // Set operations: union, intersection
+                TokenType::Union => {
+                    self.advance(); // consume "union"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Union {
+                        left,
+                        right,
+                    });
+                }
+                TokenType::Intersection => {
+                    self.advance(); // consume "intersection"
+                    let right = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Intersection {
+                        left,
+                        right,
+                    });
+                }
+                // Set membership: "set contains value"
+                TokenType::Contains => {
+                    self.advance(); // consume "contains"
+                    let value = self.parse_multiplicative_expr()?;
+                    left = self.ctx.alloc_imperative_expr(Expr::Contains {
+                        collection: left,
+                        value,
+                    });
                 }
                 _ => break,
-            };
-            let right = self.parse_multiplicative_expr()?;
-            left = self.ctx.alloc_imperative_expr(Expr::BinaryOp {
-                op,
-                left,
-                right,
-            });
+            }
         }
 
         Ok(left)
@@ -3486,6 +4563,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Overloaded tokens that are valid identifiers in code context
             TokenType::Pronoun { .. } |  // "i", "it"
             TokenType::Items |           // "items"
+            TokenType::Values |          // "values"
             TokenType::Item |            // "item"
             TokenType::Nothing |         // "nothing"
             // Phase 38: Adverbs can be function names (now, sleep, etc.)
@@ -3499,7 +4577,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Console |
             // Phase 49: CRDT keywords can be function names (Merge, Increase)
             TokenType::Merge |
-            TokenType::Increase => {
+            TokenType::Increase |
+            // Phase 54: "first", "second", etc. can be variable names
+            // Phase 57: "add", "remove" can be function names
+            TokenType::Add |
+            TokenType::Remove |
+            TokenType::First => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -6399,6 +7482,92 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let amount = self.parse_imperative_expr()?;
 
         Ok(Stmt::IncreaseCrdt { object, field: *field, amount })
+    }
+
+    /// Parse decrease statement: "Decrease game's score by 5."
+    fn parse_decrease_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Decrease"
+
+        // Parse object with field access (e.g., "game's score")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's count')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "by"
+        if !self.check_preposition_is("by") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "by".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "by"
+
+        // Parse amount
+        let amount = self.parse_imperative_expr()?;
+
+        Ok(Stmt::DecreaseCrdt { object, field: *field, amount })
+    }
+
+    /// Parse append statement: "Append value to sequence."
+    fn parse_append_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Append"
+
+        // Parse value to append
+        let value = self.parse_imperative_expr()?;
+
+        // Expect "to" (can be TokenType::To or a preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse sequence expression
+        let sequence = self.parse_imperative_expr()?;
+
+        Ok(Stmt::AppendToSequence { sequence, value })
+    }
+
+    /// Parse resolve statement: "Resolve page's title to value."
+    fn parse_resolve_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "Resolve"
+
+        // Parse object with field access (e.g., "page's title")
+        let expr = self.parse_imperative_expr()?;
+
+        // Must be a field access
+        let (object, field) = if let Expr::FieldAccess { object, field } = expr {
+            (object, field)
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "field access (e.g., 'x's title')".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect "to" (can be TokenType::To or a preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse value
+        let value = self.parse_imperative_expr()?;
+
+        Ok(Stmt::ResolveConflict { object, field: *field, value })
     }
 
 }

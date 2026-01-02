@@ -48,6 +48,7 @@ pub enum BlockType {
     Note,
     Function,  // Phase 32: ## To blocks
     TypeDef,   // Inline type definitions: ## A Point has:, ## A Color is one of:
+    Policy,    // Phase 50: ## Policy blocks for security rules
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,6 +135,13 @@ pub enum TokenType {
     Length,   // "length of items" → items.len()
     At,       // "items at i" → items[i]
 
+    // Set Operations
+    Add,          // "Add x to set" (insert)
+    Remove,       // "Remove x from set"
+    Contains,     // "set contains x"
+    Union,        // "a union b"
+    Intersection, // "a intersection b"
+
     // Phase 8.5: Memory Management (Zones)
     Inside,   // "Inside a new zone..."
     Zone,     // "...zone called..."
@@ -162,6 +170,48 @@ pub enum TokenType {
     Shared,   // "A Counter is Shared and has:" -> CRDT struct
     Merge,    // "Merge remote into local" -> CRDT merge
     Increase, // "Increase x's count by 10" -> GCounter increment
+
+    // Phase 49b: Extended CRDT Keywords (Wave 5)
+    Decrease,       // "Decrease x's count by 5" -> PNCounter decrement
+    Tally,          // "which is a Tally" -> PNCounter type
+    SharedSet,      // "which is a SharedSet of T" -> ORSet type
+    SharedSequence, // "which is a SharedSequence of T" -> RGA type
+    CollaborativeSequence, // "which is a CollaborativeSequence of T" -> YATA type
+    SharedMap,      // "which is a SharedMap from K to V" -> ORMap type
+    Divergent,      // "which is a Divergent T" -> MVRegister type
+    Append,         // "Append x to seq" -> RGA append
+    Resolve,        // "Resolve x to value" -> MVRegister resolve
+    RemoveWins,     // "(RemoveWins)" -> ORSet bias
+    AddWins,        // "(AddWins)" -> ORSet bias (default)
+    YATA,           // "(YATA)" -> Sequence algorithm
+    Values,         // "x's values" -> MVRegister values accessor
+
+    // Phase 50: Security Keywords
+    Check,    // "Check that user is admin" -> mandatory runtime guard
+
+    // Phase 51: P2P Networking Keywords
+    Listen,   // "Listen on [addr]" -> bind to network address
+    NetConnect,  // "Connect to [addr]" -> dial a peer (NetConnect to avoid conflict)
+    Sleep,    // "Sleep N." -> pause execution for N milliseconds
+
+    // Phase 52: GossipSub Keywords
+    Sync,     // "Sync x on 'topic'" -> automatic CRDT replication
+
+    // Phase 53: Persistence Keywords
+    Mount,      // "Mount x at [path]" -> load/create persistent CRDT from journal
+    Persistent, // "Persistent Counter" -> type wrapped with journaling
+    Combined,   // "x combined with y" -> string concatenation
+
+    // Phase 54: Go-like Concurrency Keywords
+    Launch,     // "Launch a task to..." -> spawn green thread
+    Task,       // "a task" -> identifier for task context
+    Pipe,       // "Pipe of Type" -> channel creation
+    Receive,    // "Receive from pipe" -> recv from channel
+    Stop,       // "Stop handle" -> abort task
+    Try,        // "Try to send/receive" -> non-blocking variant
+    Into,       // "Send value into pipe" -> channel send
+    First,      // "Await the first of:" -> select statement
+    After,      // "After N seconds:" -> timeout branch
 
     // Block Scoping
     Colon,
@@ -256,6 +306,9 @@ pub enum TokenType {
 
     // Phase 33: String literals "hello world"
     StringLiteral(Symbol),
+
+    // Character literal: `x` (backtick syntax)
+    CharLiteral(Symbol),
 
     // Index Access (1-indexed)
     Item,

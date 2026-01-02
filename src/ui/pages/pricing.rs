@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::state::LicenseState;
 
 const PRICING_STYLE: &str = r#"
 * { box-sizing: border-box; }
@@ -592,6 +593,44 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+.active-license-banner {
+  position: relative;
+  background: linear-gradient(135deg, rgba(34,197,94,0.15) 0%, rgba(96,165,250,0.10) 100%);
+  border: 2px solid rgba(34,197,94,0.5);
+  border-radius: var(--radius-xl);
+  padding: var(--spacing-xxl);
+  margin-bottom: 40px;
+  width: 100%;
+  text-align: center;
+  backdrop-filter: blur(18px);
+  animation: fadeInUp 0.6s ease both;
+}
+
+.active-license-banner h2 {
+  color: var(--color-success);
+  font-size: var(--font-heading-lg);
+  margin-bottom: var(--spacing-md);
+  font-weight: 700;
+}
+
+.active-license-banner .plan-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, var(--color-success), #16a34a);
+  color: #060814;
+  font-size: var(--font-body-md);
+  font-weight: 700;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  border-radius: var(--radius-full);
+  margin-bottom: var(--spacing-lg);
+  text-transform: uppercase;
+}
+
+.active-license-banner p {
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xl);
+  line-height: 1.65;
+}
 "#;
 
 const STRIPE_FREE_LICENSE: &str = "https://buy.stripe.com/9B63cx77ZgB5cKu40Ue3e06";
@@ -605,6 +644,20 @@ const STRIPE_CUSTOMER_PORTAL: &str = "https://billing.stripe.com/p/login/8x200l3
 
 #[component]
 pub fn Pricing() -> Element {
+    let license_state = use_context::<LicenseState>();
+    let has_license = license_state.has_license();
+    let plan = license_state.plan.read().clone();
+
+    let plan_name = match plan {
+        crate::ui::state::LicensePlan::None => "None",
+        crate::ui::state::LicensePlan::Free => "Free",
+        crate::ui::state::LicensePlan::Supporter => "Supporter",
+        crate::ui::state::LicensePlan::Pro => "Pro",
+        crate::ui::state::LicensePlan::Premium => "Premium",
+        crate::ui::state::LicensePlan::Lifetime => "Lifetime",
+        crate::ui::state::LicensePlan::Enterprise => "Enterprise",
+    };
+
     rsx! {
         style { "{PRICING_STYLE}" }
 
@@ -616,6 +669,20 @@ pub fn Pricing() -> Element {
             MainNav { active: ActivePage::Pricing }
 
             div { class: "pricing-container",
+                if has_license {
+                    div { class: "active-license-banner",
+                        h2 { "Active License" }
+                        span { class: "plan-badge", "{plan_name}" }
+                        p { "Thank you for supporting LOGOS! Manage your subscription below." }
+                        a {
+                            class: "btn-primary",
+                            href: STRIPE_CUSTOMER_PORTAL,
+                            target: "_blank",
+                            "Manage Subscription"
+                        }
+                    }
+                }
+
                 div { class: "pricing-header",
                     h1 { "Commercial Licensing" }
                     p { "Business Source License — free for individuals and small teams" }
@@ -802,13 +869,15 @@ pub fn Pricing() -> Element {
                     }
                 }
 
-                div { class: "manage-section",
-                    p { "Already a subscriber? Manage your subscription, update payment methods, or view invoices." }
-                    a {
-                        class: "btn-secondary",
-                        href: STRIPE_CUSTOMER_PORTAL,
-                        target: "_blank",
-                        "Manage Subscription"
+                if !has_license {
+                    div { class: "manage-section",
+                        p { "Already purchased a license? Access your subscription to update payment methods, view invoices, or download receipts." }
+                        a {
+                            class: "btn-secondary",
+                            href: STRIPE_CUSTOMER_PORTAL,
+                            target: "_blank",
+                            "Manage Existing Subscription"
+                        }
                     }
                 }
 

@@ -1,6 +1,6 @@
 //! Embedded guide content for the Programmer's Guide page.
 //!
-//! Contains all 22 sections from PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
+//! Contains all 24 sections from PROGRAMMERS_LANGUAGE_STARTER.md as Rust constants.
 //! WASM cannot read files at runtime, so we embed the content at compile time.
 
 /// Mode for code examples - determines how "Run" executes them
@@ -35,7 +35,7 @@ pub struct Section {
 /// All guide sections organized by part
 pub const SECTIONS: &[Section] = &[
     // ============================================================
-    // Part I: Programming in LOGOS (Sections 1-14)
+    // Part I: Programming in LOGOS (Sections 1-17)
     // ============================================================
 
     Section {
@@ -155,7 +155,17 @@ Use `Set` to change an existing variable. The difference between `Let` and `Set`
 | `Int` | Whole numbers | `5`, `-10`, `0`, `1000000` |
 | `Bool` | True or false | `true`, `false` |
 | `Text` | Strings of characters | `"Hello"`, `"LOGOS"`, `""` |
-| `Float` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+| `Float` / `Real` | Decimal numbers | `3.14`, `-0.5`, `98.6` |
+| `Char` | Single character | see examples below |
+| `Byte` | 8-bit unsigned (0-255) | `42: Byte`, `255: Byte` |
+
+### Characters (Char)
+
+Characters represent single Unicode characters, wrapped in backticks. See the example below.
+
+### Bytes (Byte)
+
+Bytes are 8-bit unsigned integers (0-255), useful for binary data and low-level operations.
 
 ### Type Annotations
 
@@ -197,6 +207,30 @@ Let first be "Hello".
 Let second be "World".
 Let message be first + ", " + second + "!".
 Show message."#,
+            },
+            CodeExample {
+                id: "char-literals",
+                label: "Character Literals",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let letter be `a`.
+Let newline be `\n`.
+Let tab be `\t`.
+Let escaped be `\\`.
+Show letter.
+Show "Char type uses backticks"."#,
+            },
+            CodeExample {
+                id: "byte-type",
+                label: "Byte Type",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let max: Byte be 255.
+Let min: Byte be 0.
+Let mid: Byte be 128.
+Show max.
+Show min.
+Show mid."#,
             },
         ],
     },
@@ -435,7 +469,14 @@ Show factorial(5)."#,
         title: "Collections",
         part: "Part I: Programming in LOGOS",
         content: r#"
-Collections hold multiple values. The primary collection type in LOGOS is `Seq` (sequence), similar to lists or arrays in other languages.
+Collections hold multiple values. LOGOS provides four main collection types:
+
+| Collection | Description | Index Type |
+|------------|-------------|------------|
+| `Seq of T` | Ordered list | Int (1-based) |
+| `Map of K to V` | Key-value pairs | Any key type |
+| `Set of T` | Unique elements | N/A (membership) |
+| `Tuple` | Fixed-size, mixed types | Int (1-based) |
 
 ### Creating Lists
 
@@ -454,6 +495,69 @@ LOGOS uses **1-based indexing**. The first element is at position 1, not 0. Why?
 ### Slicing
 
 Extract a portion of a list with `through`. Slicing is **inclusive** on both ends.
+
+### Maps (Dictionaries)
+
+Maps store key-value pairs. Unlike lists which use integer indexing, maps use keys of any type.
+
+**Create a map:**
+`Let prices be a new Map of Text to Int.`
+
+**Access a value by key:**
+`Let cost be prices["iron"].`
+
+**Set a value by key:**
+`Set prices["iron"] to 100.`
+
+Maps are useful for lookups, caches, and associating data without needing a struct.
+
+### Bracket Syntax
+
+Both lists and maps support bracket indexing as an alternative to `item X of`:
+
+| English Style | Bracket Style |
+|---------------|---------------|
+| `item 1 of items` | `items[1]` |
+| `item "iron" of prices` | `prices["iron"]` |
+| `Set item "key" of map to val.` | `Set map["key"] to val.` |
+
+Both compile to the same code—use whichever reads better in context.
+
+### Sets
+
+Sets store unique elements with no duplicates. Unlike lists, sets have no order and no index.
+
+**Create a set:**
+`Let numbers be a new Set of Int.`
+
+**Add elements:**
+`Add 5 to numbers.`
+
+**Remove elements:**
+`Remove 5 from numbers.`
+
+**Check membership:**
+`If numbers contains 5:` or `If 5 in numbers:`
+
+**Set operations:**
+- `a union b` — elements in either set
+- `a intersection b` — elements in both sets
+
+### Tuples
+
+Tuples are fixed-size collections that can hold values of different types. Unlike lists, tuples can mix integers, text, and other types in a single collection.
+
+**Create a tuple:**
+`Let point be (10, 20).`
+`Let record be ("Alice", 25, true).`
+
+**Access elements (1-indexed):**
+`Let x be point[1].` or `Let x be item 1 of point.`
+
+**Get length:**
+`Let size be length of record.`
+
+Tuples are useful for returning multiple values from functions or grouping related but differently-typed data without defining a struct.
 "#,
         examples: &[
             CodeExample {
@@ -503,6 +607,151 @@ Repeat for n in numbers:
     Set total to total + n.
 
 Show "Total: " + total."#,
+            },
+            CodeExample {
+                id: "map-create",
+                label: "Creating Maps",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let prices be a new Map of Text to Int.
+Set prices["iron"] to 10.
+Set prices["copper"] to 25.
+Set prices["gold"] to 100.
+Show "Iron: " + prices["iron"].
+Show "Copper: " + prices["copper"].
+Show "Gold: " + prices["gold"]."#,
+            },
+            CodeExample {
+                id: "map-access",
+                label: "Map Access",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let inventory be a new Map of Text to Int.
+Set inventory["wood"] to 50.
+Set inventory["stone"] to 30.
+
+Let wood_count be inventory["wood"].
+Show "Wood: " + wood_count."#,
+            },
+            CodeExample {
+                id: "map-update",
+                label: "Map Update",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let scores be a new Map of Text to Int.
+Set scores["Alice"] to 100.
+Show "Initial: " + scores["Alice"].
+
+Set scores["Alice"] to 150.
+Show "Updated: " + scores["Alice"]."#,
+            },
+            CodeExample {
+                id: "bracket-syntax",
+                label: "Bracket Syntax",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let items be [10, 20, 30].
+Let prices be a new Map of Text to Int.
+
+Set prices["iron"] to 5.
+Set prices["gold"] to 100.
+
+Show items[1].
+Show prices["iron"].
+Set items[2] to 99.
+Show items[2]."#,
+            },
+            CodeExample {
+                id: "set-create",
+                label: "Creating Sets",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let numbers be a new Set of Int.
+Add 1 to numbers.
+Add 2 to numbers.
+Add 3 to numbers.
+Add 1 to numbers.
+Show numbers."#,
+            },
+            CodeExample {
+                id: "set-contains",
+                label: "Set Membership",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let primes be a new Set of Int.
+Add 2 to primes.
+Add 3 to primes.
+Add 5 to primes.
+Add 7 to primes.
+
+If primes contains 3:
+    Show "3 is prime".
+If primes contains 4:
+    Show "4 is prime".
+Otherwise:
+    Show "4 is not prime"."#,
+            },
+            CodeExample {
+                id: "set-remove",
+                label: "Adding and Removing",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let colors be a new Set of Text.
+Add "red" to colors.
+Add "green" to colors.
+Add "blue" to colors.
+Show colors.
+
+Remove "green" from colors.
+Show colors."#,
+            },
+            CodeExample {
+                id: "set-operations",
+                label: "Set Operations",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let a be a new Set of Int.
+Let b be a new Set of Int.
+
+Add 1 to a. Add 2 to a. Add 3 to a.
+Add 2 to b. Add 3 to b. Add 4 to b.
+
+Let both be a intersection b.
+Let either be a union b.
+Show "Intersection: " + both.
+Show "Union: " + either."#,
+            },
+            CodeExample {
+                id: "tuple-create",
+                label: "Creating Tuples",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let point be (10, 20).
+Let record be ("Alice", 25, true).
+Show point.
+Show record."#,
+            },
+            CodeExample {
+                id: "tuple-access",
+                label: "Accessing Tuple Elements",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let data be ("answer", 42).
+Let label be data[1].
+Let value be data[2].
+Show label.
+Show value."#,
+            },
+            CodeExample {
+                id: "tuple-mixed",
+                label: "Mixed-Type Tuples",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let person be ("Bob", 30, 5.9).
+Show item 1 of person.
+Show item 2 of person.
+Show item 3 of person.
+Show length of person."#,
             },
         ],
     },
@@ -667,6 +916,10 @@ LOGOS provides memory safety through an ownership system expressed in natural En
 - Copy first, then give
 - Show multiple times (all OK - just reading)
 - Sequential mutation
+
+### The `copy of` Expression
+
+Use `copy of` to create a deep clone of a value. This lets you keep using the original while giving away the copy.
 "#,
         examples: &[
             CodeExample {
@@ -680,6 +933,31 @@ LOGOS provides memory safety through an ownership system expressed in natural En
 Let profile be "User Profile Data".
 Show profile to display.
 Show profile."#,
+            },
+            CodeExample {
+                id: "ownership-give",
+                label: "Give (Move Ownership)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To consume (data: Text):
+    Show "Consumed: " + data.
+
+## Main
+Let message be "Important data".
+Give message to consume.
+Show "Message was transferred"."#,
+            },
+            CodeExample {
+                id: "ownership-copy",
+                label: "Copy Before Giving",
+                mode: ExampleMode::Imperative,
+                code: r#"## To process (data: Text):
+    Show "Processing: " + data.
+
+## Main
+Let original be "Keep this".
+Let duplicate be copy of original.
+Give duplicate to process.
+Show "Original still here: " + original."#,
             },
         ],
     },
@@ -706,12 +984,26 @@ For high-performance scenarios, LOGOS provides **Zones**—memory regions where 
 
 References to zone-allocated data cannot escape. To get data out of a zone, make an explicit copy.
 
+### Zone Configuration
+
+**Default size:** 4 KB (4096 bytes) when not specified.
+
+**Specifying size:** Use `of size` with units:
+
+| Unit | Example | Bytes |
+|------|---------|-------|
+| B | `of size 256 B` | 256 |
+| KB | `of size 64 KB` | 65,536 |
+| MB | `of size 2 MB` | 2,097,152 |
+| GB | `of size 1 GB` | 1,073,741,824 |
+
 ### Zone Types
 
-| Zone Type | Allocation | Access | Use Case |
-|-----------|------------|--------|----------|
-| Heap | O(1) bump | Read/Write | Temporary data |
-| Mapped | OS page fault | Read-only | Large file processing |
+| Zone Type | Syntax | Access | Use Case |
+|-----------|--------|--------|----------|
+| Heap | `Inside a zone called "X":` | Read/Write | Temporary data |
+| Heap (sized) | `Inside a zone called "X" of size 2 MB:` | Read/Write | Large temporary data |
+| Mapped | `Inside a zone called "X" mapped from "file.bin":` | Read-only | Large file processing |
 
 ### When to Use Zones
 
@@ -724,13 +1016,44 @@ Use zones when:
         examples: &[
             CodeExample {
                 id: "zone-basic",
-                label: "Basic Zone",
+                label: "Basic Zone (4KB default)",
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
 Inside a zone called "WorkSpace":
     Let temp_data be [1, 2, 3, 4, 5].
     Show temp_data.
 Show "Zone freed!"."#,
+            },
+            CodeExample {
+                id: "zone-sized-mb",
+                label: "Zone with Size (MB)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "LargeBuffer" of size 2 MB:
+    Let data be [1, 2, 3, 4, 5].
+    Show data."#,
+            },
+            CodeExample {
+                id: "zone-sized-kb",
+                label: "Zone with Size (KB)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Inside a zone called "SmallArena" of size 64 KB:
+    Let x be 42.
+    Let y be 100.
+    Show x + y."#,
+            },
+            CodeExample {
+                id: "zone-mapped",
+                label: "Memory-Mapped Zone (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To process_file (path: Text):
+    Inside a zone called "Data" mapped from path:
+        Show "Processing: " + path.
+
+## Main
+process_file("config.bin").
+process_file("assets.bin")."#,
             },
         ],
     },
@@ -743,46 +1066,757 @@ Show "Zone freed!"."#,
         content: r#"
 LOGOS provides safe concurrency through structured patterns. No data races, no deadlocks.
 
-### Two Kinds of Concurrent Work
+### Concurrent Patterns Overview
 
-| Pattern | Keyword | Use For | Compiles To |
-|---------|---------|---------|-------------|
-| **Async** | `Attempt all` | I/O-bound tasks (network, files) | tokio::join! |
-| **Parallel** | `Simultaneously` | CPU-bound tasks (computation) | rayon/threads |
+| Pattern | Syntax | Use For | Compiles To |
+|---------|--------|---------|-------------|
+| **Async Join** | `Attempt all of the following:` | Wait for all I/O tasks | tokio::join! |
+| **Parallel CPU** | `Simultaneously:` | CPU-bound computation | rayon::join / threads |
+| **Spawn Task** | `Launch a task to...` | Fire-and-forget work | tokio::spawn |
+| **Channels** | `Pipe of Type` | Message passing | tokio::mpsc |
+| **Select** | `Await the first of:` | Race operations | tokio::select! |
 
 ### Attempt All (Async I/O)
 
 Use `Attempt all of the following:` for I/O operations that wait on external resources. All operations run concurrently, and the program waits until all complete.
 
+Variables declared in concurrent blocks are captured and returned as a tuple.
+
 ### Simultaneously (Parallel CPU)
 
-Use `Simultaneously:` for CPU-intensive work. Both computations run in parallel on different CPU cores.
+Use `Simultaneously:` for CPU-intensive work. Computations run in parallel on different CPU cores.
 
-### Race: First to Finish
+- 2 tasks → uses `rayon::join` (work-stealing thread pool)
+- 3+ tasks → uses `std::thread::spawn` (dedicated threads)
 
-Use `Await the first success of:` when you want the fastest response. Both start, the first to succeed wins.
+### Tasks (Green Threads)
+
+Use `Launch a task to...` to spawn a green thread that runs concurrently. For fire-and-forget work, just launch:
+
+`Launch a task to process(data).`
+
+To control the task later (cancel, await), capture a handle:
+
+`Let worker be Launch a task to process(data).`
+
+Stop a running task with:
+
+`Stop worker.`
+
+### Channels (Pipes)
+
+Pipes are Go-style channels for message passing between tasks.
+
+**Create a channel:**
+`Let jobs be a new Pipe of Int.`
+
+**Send into a channel (blocking):**
+`Send value into jobs.`
+
+**Receive from a channel (blocking):**
+`Receive item from jobs.`
+
+**Non-blocking variants:**
+`Try to send value into jobs.`
+`Try to receive item from jobs.`
+
+### Select (Racing Operations)
+
+Use `Await the first of:` to race multiple operations. The first one to complete wins:
+
+```
+Await the first of:
+    Receive msg from inbox:
+        Show msg.
+    After 5 seconds:
+        Show "timeout".
+```
+
+**Branch types:**
+- `Receive var from pipe:` — wait for channel message
+- `After N seconds:` — timeout branch
 
 ### Ownership and Concurrency
 
 The ownership system prevents data races. Multiple reads are OK, but concurrent writes are prevented.
+
+**Note:** Tasks, Pipes, and Select require compilation—they don't run in the browser playground.
 "#,
         examples: &[
             CodeExample {
-                id: "concurrency-example",
-                label: "Concurrency Patterns",
+                id: "concurrent-async",
+                label: "Async Concurrent (Attempt All)",
                 mode: ExampleMode::Imperative,
                 code: r#"## Main
-Show "Concurrency in LOGOS uses:".
-Show "- Attempt all: for async I/O".
-Show "- Simultaneously: for parallel CPU".
-Show "- Await first success: for racing"."#,
+Attempt all of the following:
+    Let a be 10.
+    Let b be 20.
+Show "a = " + a.
+Show "b = " + b.
+Show "Sum: " + (a + b)."#,
+            },
+            CodeExample {
+                id: "parallel-cpu",
+                label: "Parallel CPU (Simultaneously)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Simultaneously:
+    Let x be 100.
+    Let y be 200.
+Show "x = " + x.
+Show "y = " + y.
+Show "Product: " + (x * y)."#,
+            },
+            CodeExample {
+                id: "parallel-three-tasks",
+                label: "Three Parallel Tasks",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Simultaneously:
+    Let a be 1.
+    Let b be 2.
+    Let c be 3.
+Show "Sum: " + (a + b + c)."#,
+            },
+            CodeExample {
+                id: "concurrent-in-function",
+                label: "Concurrency in Functions",
+                mode: ExampleMode::Imperative,
+                code: r#"## To compute_parallel -> Int:
+    Simultaneously:
+        Let x be 5.
+        Let y be 10.
+    Return x + y.
+
+## Main
+Let result be compute_parallel().
+Show "Result: " + result."#,
+            },
+            CodeExample {
+                id: "launch-task",
+                label: "Launch Task (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To worker (id: Int):
+    Show "Worker " + id + " started".
+
+## Main
+Launch a task to worker(1).
+Launch a task to worker(2).
+Show "Tasks launched"."#,
+            },
+            CodeExample {
+                id: "task-with-handle",
+                label: "Task with Handle (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## To long_running:
+    Show "Working...".
+
+## Main
+Let job be Launch a task to long_running.
+Show "Task spawned".
+Stop job.
+Show "Task cancelled"."#,
+            },
+            CodeExample {
+                id: "pipe-send-receive",
+                label: "Pipe Communication (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let messages be a new Pipe of Int.
+Send 42 into messages.
+Send 100 into messages.
+Receive x from messages.
+Show "Got: " + x."#,
+            },
+            CodeExample {
+                id: "select-timeout",
+                label: "Select with Timeout (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let inbox be a new Pipe of Text.
+
+Await the first of:
+    Receive msg from inbox:
+        Show "Message: " + msg.
+    After 2 seconds:
+        Show "No message received"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "crdt",
+        number: 13,
+        title: "Distributed Types (CRDTs)",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### What are CRDTs?
+
+CRDTs (Conflict-free Replicated Data Types) are data structures that can be replicated across multiple computers and merged without coordination. No matter what order updates arrive, the final state converges to the same result.
+
+### Why CRDTs Matter
+
+| Challenge | Traditional Approach | CRDT Approach |
+|-----------|---------------------|---------------|
+| Network partition | Data loss or conflicts | Automatic merge |
+| Concurrent edits | Last-write-wins (data loss) | Semantic merge |
+| Offline support | Sync conflicts | Seamless reconciliation |
+
+### Shared Structs
+
+Mark a struct as `Shared` to enable automatic merge support. The compiler generates a `merge` method that combines two instances.
+
+### Built-in CRDT Types
+
+| Type | Description | Operations |
+|------|-------------|------------|
+| `ConvergentCount` | Counter that only grows | `Increase` |
+| `Tally` | Counter that grows and shrinks | `Increase`, `Decrease` |
+| `LastWriteWins of T` | Register with timestamp-based conflict resolution | `Set` |
+| `Divergent T` | Register that preserves concurrent values | `Set`, `Resolve` |
+| `SharedSet of T` | Set with add/remove support | `Add`, `Remove`, `contains` |
+| `SharedSequence of T` | Ordered list (RGA algorithm) | `Append`, `length of` |
+| `CollaborativeSequence of T` | Text-optimized sequence (YATA) | `Append`, `length of` |
+| `SharedMap from K to V` | Key-value CRDT map | `[]` access and assignment |
+
+### ConvergentCount
+
+A grow-only counter (G-Counter). Multiple replicas can increment independently, and when merged, the total reflects all increments. Useful for view counts, likes, or any monotonically increasing metric.
+
+### Tally
+
+A bidirectional counter (PN-Counter) that supports both increment and decrement. Unlike ConvergentCount, values can go up and down—even negative. Useful for scores, balances, and temperatures.
+
+### LastWriteWins
+
+A register that resolves conflicts by timestamp. The most recent write wins. Works with any type: `Text`, `Int`, `Bool`, etc.
+
+### Divergent
+
+A multi-value register that preserves all concurrent writes instead of silently picking a winner. When replicas write different values concurrently, both are kept until you explicitly `Resolve` the conflict. Useful for collaborative editing where conflicts should be visible.
+
+### SharedSet
+
+An observed-remove set (OR-Set) that supports both adding and removing elements. By default uses **add-wins** semantics: if one replica adds while another removes, the element stays.
+
+**Configuring bias:**
+- `SharedSet (AddWins) of T` — concurrent add beats remove (default)
+- `SharedSet (RemoveWins) of T` — concurrent remove beats add
+
+### SharedSequence
+
+An ordered CRDT list using the RGA (Replicated Growable Array) algorithm. Elements maintain their order across replicas. Useful for ordered lists, chat history, and document lines.
+
+### CollaborativeSequence
+
+A text-optimized sequence using the YATA algorithm. Better conflict resolution for concurrent insertions at the same position. Ideal for collaborative text editing. Alternative syntax: `SharedSequence (YATA) of T`.
+
+### SharedMap
+
+A key-value CRDT map (OR-Map). Keys can be added and removed, and values are themselves CRDTs that merge recursively. Alternative syntax: `ORMap from K to V`.
+
+### Merge Operations
+
+Use `Merge source into target` to combine two CRDT instances. The target is updated in place with the merged state.
+
+### Persistence
+
+CRDTs can be persisted to disk using the `Persistent` type modifier and `Mount` statement. Data is stored in append-only journal files (`.lsf` format) with automatic compaction.
+
+**The Persistent Type:**
+
+`Persistent Counter` wraps a Shared struct with journaling. All mutations are durably recorded.
+
+**The Mount Statement:**
+
+`Mount [variable] at [path].`
+
+or
+
+`Let x be mounted at "path/to/data.lsf".`
+
+This loads existing state from the journal file (if present) or creates a new one. Changes are automatically persisted.
+
+### Network Synchronization
+
+CRDTs become powerful when synchronized across the network. Use `Sync` to subscribe a variable to a GossipSub topic.
+
+**The Sync Statement:**
+
+`Sync [variable] on [topic].`
+
+- `variable` — A mutable variable containing a Shared struct
+- `topic` — A string or variable naming the GossipSub topic
+
+**What Sync Does:**
+1. Subscribes to the topic for incoming messages
+2. Spawns a background task to merge incoming updates
+3. Broadcasts the full state after any mutation
+
+### Persistence + Network
+
+For the best of both worlds, combine `Persistent` types with `Sync`. The Distributed runtime ensures:
+- Local changes are journaled before broadcast
+- Remote updates are merged and persisted
+- Data survives restarts
+
+**Note:** Programs using `Sync` or `Mount` require compilation—they don't run in the browser playground.
+"#,
+        examples: &[
+            CodeExample {
+                id: "crdt-basic",
+                label: "Basic Shared Struct",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+Let c be a new Counter.
+Increase c's points by 10.
+Show c's points."#,
+            },
+            CodeExample {
+                id: "crdt-lww",
+                label: "Last-Write-Wins Register",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Profile is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a score, which is LastWriteWins of Int.
+
+## Main
+Let p be a new Profile.
+Set p's name to "Alice".
+Set p's score to 100.
+Show p's name.
+Show p's score."#,
+            },
+            CodeExample {
+                id: "crdt-merge",
+                label: "Merging Replicas",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Stats is Shared and has:
+    a views, which is ConvergentCount.
+
+## Main
+Let local be a new Stats.
+Increase local's views by 100.
+
+Let remote be a new Stats.
+Increase remote's views by 50.
+
+Merge remote into local.
+Show local's views."#,
+            },
+            CodeExample {
+                id: "crdt-sync-counter",
+                label: "Synced Counter (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A GameScore is Shared and has:
+    a points, which is ConvergentCount.
+
+## Main
+Let mutable score be a new GameScore.
+Sync score on "game-leaderboard".
+Increase score's points by 100.
+Show score's points."#,
+            },
+            CodeExample {
+                id: "crdt-sync-profile",
+                label: "Synced Profile (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Profile is Shared and has:
+    a name, which is LastWriteWins of Text.
+    a level, which is ConvergentCount.
+
+## Main
+Let mutable p be a new Profile.
+Sync p on "player-data".
+Increase p's level by 1.
+Show p's level."#,
+            },
+            CodeExample {
+                id: "crdt-persistent",
+                label: "Persistent Counter (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a value, which is ConvergentCount.
+
+## Main
+Let mutable c: Persistent Counter be mounted at "counter.lsf".
+Increase c's value by 1.
+Show c's value."#,
+            },
+            CodeExample {
+                id: "crdt-tally",
+                label: "Tally (Bidirectional Counter)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Score is Shared and has:
+    a points, which is a Tally.
+
+## Main
+Let mutable s be a new Score.
+Increase s's points by 100.
+Decrease s's points by 30.
+Show s's points."#,
+            },
+            CodeExample {
+                id: "crdt-divergent",
+                label: "Divergent (Multi-Value Register)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A WikiPage is Shared and has:
+    a title, which is Divergent Text.
+
+## Main
+Let mutable page be a new WikiPage.
+Set page's title to "Draft".
+Show page's title.
+Resolve page's title to "Final".
+Show page's title."#,
+            },
+            CodeExample {
+                id: "crdt-sharedset",
+                label: "SharedSet (Add/Remove Set)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Party is Shared and has:
+    a guests, which is a SharedSet of Text.
+
+## Main
+Let mutable p be a new Party.
+Add "Alice" to p's guests.
+Add "Bob" to p's guests.
+Remove "Alice" from p's guests.
+If p's guests contains "Bob":
+    Show "Bob is invited".
+Show length of p's guests."#,
+            },
+            CodeExample {
+                id: "crdt-sharedset-bias",
+                label: "SharedSet with Bias",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Moderation is Shared and has:
+    a tags, which is a SharedSet (AddWins) of Text.
+    a blocked, which is a SharedSet (RemoveWins) of Text.
+
+## Main
+Let mutable m be a new Moderation.
+Add "safe" to m's tags.
+Add "spammer" to m's blocked.
+Show m's tags.
+Show m's blocked."#,
+            },
+            CodeExample {
+                id: "crdt-sequence",
+                label: "SharedSequence (Ordered List)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Document is Shared and has:
+    a lines, which is a SharedSequence of Text.
+
+## Main
+Let mutable doc be a new Document.
+Append "Line 1" to doc's lines.
+Append "Line 2" to doc's lines.
+Append "Line 3" to doc's lines.
+Show length of doc's lines."#,
+            },
+            CodeExample {
+                id: "crdt-collaborative",
+                label: "CollaborativeSequence (Text)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Editor is Shared and has:
+    a text, which is a CollaborativeSequence of Text.
+
+## Main
+Let mutable e be a new Editor.
+Append "Hello" to e's text.
+Append " " to e's text.
+Append "World" to e's text.
+Show length of e's text."#,
+            },
+            CodeExample {
+                id: "crdt-sharedmap",
+                label: "SharedMap (Key-Value CRDT)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Inventory is Shared and has:
+    an items, which is a SharedMap from Text to Int.
+
+## Main
+Let mutable inv be a new Inventory.
+Set inv's items["wood"] to 50.
+Set inv's items["stone"] to 30.
+Show inv's items["wood"]."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "security",
+        number: 14,
+        title: "Policy-Based Security",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+### Security in Natural Language
+
+LOGOS lets you express security policies as natural English sentences. These compile into efficient runtime checks that can never be optimized away.
+
+### Policy Blocks
+
+Define security rules in `## Policy` blocks. Policies define **predicates** (conditions on a single entity) and **capabilities** (permissions involving multiple entities).
+
+### Predicates
+
+A predicate is a boolean condition on a subject:
+
+`A User is admin if the user's role equals "admin".`
+
+This generates a method `is_admin()` on the User type.
+
+### Capabilities
+
+A capability defines what a subject can do with an object:
+
+`A User can publish the Document if the user is admin.`
+
+This generates a method `can_publish(&Document)` on the User type.
+
+### Check Statements
+
+Use `Check` to enforce security at runtime. **Unlike `Assert`, Check statements are mandatory and can never be optimized away.**
+
+| Statement | Debug Build | Release Build |
+|-----------|-------------|---------------|
+| `Assert` | Runs | Can be optimized out |
+| `Check` | Runs | **Always runs** |
+
+### Policy Composition
+
+Policies can use `AND` and `OR` to combine conditions, and can reference other predicates.
+"#,
+        examples: &[
+            CodeExample {
+                id: "security-predicate",
+                label: "Simple Predicate",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A User has:
+    a role: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+
+## Main
+Let u be a new User with role "admin".
+Check that u is admin.
+Show "Access granted"."#,
+            },
+            CodeExample {
+                id: "security-capability",
+                label: "Capability with Object",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A User has:
+    a name: Text.
+    a role: Text.
+
+A Document has:
+    an owner: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+A User can edit the Document if:
+    The user is admin, OR
+    The user's name equals the document's owner.
+
+## Main
+Let alice be a new User with name "Alice" and role "editor".
+Let doc be a new Document with owner "Alice".
+Check that alice can edit doc.
+Show "Edit permitted"."#,
+            },
+        ],
+    },
+
+    Section {
+        id: "networking",
+        number: 15,
+        title: "P2P Networking",
+        part: "Part I: Programming in LOGOS",
+        content: r#"
+LOGOS includes built-in peer-to-peer networking primitives for building distributed applications.
+
+**Note:** Networking features require compilation—they don't run in the browser playground.
+
+### Core Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Address** | libp2p multiaddr format: `/ip4/127.0.0.1/tcp/8000` |
+| **Listen** | Bind to an address to accept connections |
+| **Connect** | Dial a peer at an address |
+| **PeerAgent** | A handle to a remote peer |
+| **Send** | Transmit a message to a peer |
+| **Sync** | Subscribe a CRDT to a GossipSub topic |
+
+### Portable Types
+
+Messages sent over the network must be **Portable**. Mark your struct with `is Portable` to enable network serialization.
+
+### Address Format
+
+LOGOS uses libp2p multiaddresses:
+
+| Address | Meaning |
+|---------|---------|
+| `/ip4/0.0.0.0/tcp/8000` | Listen on all interfaces, port 8000 |
+| `/ip4/127.0.0.1/tcp/8000` | Localhost only, port 8000 |
+| `/ip4/192.168.1.5/tcp/8000` | Specific IP address |
+| `/ip4/0.0.0.0/tcp/0` | Listen on any available port |
+
+### Automatic Peer Discovery (mDNS)
+
+When you `Listen`, LOGOS automatically enables **mDNS** (multicast DNS) for local network peer discovery. Peers on the same LAN will discover each other without manual configuration.
+
+- Works on WiFi networks, local development
+- No configuration required—just Listen
+- Peers are auto-connected when discovered
+
+### GossipSub (Pub/Sub)
+
+The `Sync` statement uses **GossipSub**, a pub/sub protocol for broadcasting messages to topic subscribers:
+
+- Topics are strings (e.g., `"game-scores"`, `"player-data"`)
+- When you mutate a synced variable, the full state broadcasts to all subscribers
+- Incoming messages are automatically merged in the background
+- Retry with exponential backoff: 1s, 2s, 4s, 8s, 16s
+
+### File Transfer
+
+For large file transfers, LOGOS provides **FileSipper**—a chunked transfer protocol:
+
+| Component | Description |
+|-----------|-------------|
+| **FileSipper** | Zero-copy file chunker (1 MB default chunks) |
+| **FileManifest** | Describes file: chunk count, SHA256 hashes |
+| **FileChunk** | Individual chunk with verification hash |
+
+This enables resumable transfers over unreliable networks.
+
+### Building a P2P Application
+
+1. Define Portable message types
+2. Listen on an address (server)
+3. Connect to peers (client)
+4. Create PeerAgent handles
+5. Send messages
+6. Use `Sync` for automatic CRDT replication
+"#,
+        examples: &[
+            CodeExample {
+                id: "network-listen",
+                label: "Server: Listen for Connections",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Listen on "/ip4/0.0.0.0/tcp/8000".
+Show "Server listening on port 8000"."#,
+            },
+            CodeExample {
+                id: "network-connect",
+                label: "Client: Connect to Peer",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let server_addr be "/ip4/127.0.0.1/tcp/8000".
+Connect to server_addr.
+Show "Connected to server"."#,
+            },
+            CodeExample {
+                id: "network-peer-agent",
+                label: "Creating a Remote Handle",
+                mode: ExampleMode::Imperative,
+                code: r#"## Main
+Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
+Show "Remote peer handle created"."#,
+            },
+            CodeExample {
+                id: "network-send-message",
+                label: "Sending a Message",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Greeting is Portable and has:
+    a message (Text).
+
+## Main
+Let remote be a PeerAgent at "/ip4/127.0.0.1/tcp/8000".
+Let msg be a new Greeting with message "Hello, peer!".
+Show "Sending: " + msg's message.
+Send msg to remote."#,
+            },
+            CodeExample {
+                id: "network-distributed",
+                label: "Persistent + Synced (Compiled Only)",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A Counter is Shared and has:
+    a value, which is ConvergentCount.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/0".
+Let mutable c: Persistent Counter be mounted at "counter.lsf".
+Sync c on "shared-counter".
+Increase c's value by 1.
+Show c's value."#,
+            },
+            CodeExample {
+                id: "network-mdns",
+                label: "Automatic Peer Discovery",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A GameState is Shared and has:
+    a score, which is ConvergentCount.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/0".
+Show "Listening... mDNS will auto-discover peers".
+
+Let mutable state be a new GameState.
+Sync state on "game-session".
+Show "Synced to game-session topic"."#,
+            },
+            CodeExample {
+                id: "network-file-transfer",
+                label: "File Transfer Pattern",
+                mode: ExampleMode::Imperative,
+                code: r#"## Definition
+A FileRequest is Portable and has:
+    a filename: Text.
+    a chunk_index: Int.
+
+A FileResponse is Portable and has:
+    a data: Text.
+    a is_last: Bool.
+
+## Main
+Listen on "/ip4/0.0.0.0/tcp/8000".
+Show "File server ready".
+Show "Supports resumable chunked transfers"."#,
             },
         ],
     },
 
     Section {
         id: "error-handling",
-        number: 13,
+        number: 16,
         title: "Error Handling",
         part: "Part I: Programming in LOGOS",
         content: r#"
@@ -803,24 +1837,53 @@ Functions that might fail return a `Result`. Use pattern matching to handle succ
 ### Error Propagation
 
 Errors propagate naturally through return values. Handle them where appropriate.
+
+### Defensive Programming
+
+Use assertions and guards to prevent errors before they happen.
 "#,
         examples: &[
             CodeExample {
-                id: "result-type",
-                label: "Using Result Type",
+                id: "defensive-divide",
+                label: "Safe Division with Guard",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "Error handling in LOGOS:".
-Show "- Functions return Result type".
-Show "- Pattern match with Inspect".
-Show "- Socratic messages explain errors"."#,
+                code: r#"## To safe_divide (a: Int) and (b: Int) -> Int:
+    If b equals 0:
+        Show "Error: Cannot divide by zero".
+        Return 0.
+    Return a / b.
+
+## Main
+Let result be safe_divide(10, 2).
+Show "10 / 2 = " + result.
+Let bad be safe_divide(5, 0).
+Show "Result after error: " + bad."#,
+            },
+            CodeExample {
+                id: "validation-example",
+                label: "Input Validation",
+                mode: ExampleMode::Imperative,
+                code: r#"## To validate_age (age: Int) -> Bool:
+    If age is less than 0:
+        Show "Error: Age cannot be negative".
+        Return false.
+    If age is greater than 150:
+        Show "Error: Age seems unrealistic".
+        Return false.
+    Return true.
+
+## Main
+Let valid be validate_age(25).
+Show "Age 25 valid: " + valid.
+Let invalid be validate_age(-5).
+Show "Age -5 valid: " + invalid."#,
             },
         ],
     },
 
     Section {
         id: "advanced-features",
-        number: 14,
+        number: 17,
         title: "Advanced Features",
         part: "Part I: Programming in LOGOS",
         content: r#"
@@ -867,12 +1930,12 @@ Show result."#,
     },
 
     // ============================================================
-    // Part II: Project Structure (Sections 15-17)
+    // Part II: Project Structure (Sections 18-20)
     // ============================================================
 
     Section {
         id: "modules",
-        number: 15,
+        number: 18,
         title: "Modules",
         part: "Part II: Project Structure",
         content: r#"
@@ -897,19 +1960,22 @@ By default, all definitions are public. Mark fields private with no `public` mod
         examples: &[
             CodeExample {
                 id: "module-import",
-                label: "Importing Modules",
+                label: "Importing Modules (Compiled Only)",
                 mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "Module syntax:".
-Show "Use Math.".
-Show "Let x be Math's square(5)."."#,
+                code: r#"## To square (n: Int) -> Int:
+    Return n * n.
+
+## Main
+Let x be 5.
+Let result be square(x).
+Show "5 squared = " + result."#,
             },
         ],
     },
 
     Section {
         id: "cli-largo",
-        number: 16,
+        number: 19,
         title: "The CLI: largo",
         part: "Part II: Project Structure",
         content: r#"
@@ -917,42 +1983,54 @@ LOGOS projects are built with `largo`, the LOGOS build tool.
 
 ### Creating a Project
 
-`largo new myproject` creates a new project with a `Largo.toml` manifest and `src/main.md`.
+| Command | Description |
+|---------|-------------|
+| `largo new <name>` | Create a new project in a new directory |
+| `largo init` | Initialize a project in the current directory |
+
+This creates a `Largo.toml` manifest and `src/main.lg` entry point.
 
 ### Build Commands
 
 | Command | Description |
 |---------|-------------|
-| `largo build` | Compile the project |
+| `largo build` | Compile the project to a native binary |
 | `largo build --release` | Compile with optimizations |
 | `largo run` | Build and run |
-| `largo check` | Type check without compiling |
-| `largo test` | Run tests |
-| `largo audit` | List Trust statements |
+| `largo check` | Type-check without compiling |
+| `largo verify` | Run Z3 static verification (Pro+ license required) |
+| `largo build --verify` | Build with verification |
+
+### Package Registry
+
+Publish and manage packages on the LOGOS registry:
+
+| Command | Description |
+|---------|-------------|
+| `largo login` | Authenticate with the registry |
+| `largo publish` | Publish your package |
+| `largo publish --dry-run` | Validate without publishing |
+| `largo logout` | Log out from the registry |
 
 ### Project Manifest
 
-The `Largo.toml` file defines package metadata and dependencies.
+The `Largo.toml` file defines package metadata and dependencies:
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+entry = "src/main.lg"
+
+[dependencies]
+```
 "#,
-        examples: &[
-            CodeExample {
-                id: "largo-commands",
-                label: "largo Commands",
-                mode: ExampleMode::Imperative,
-                code: r#"## Main
-Show "largo commands:".
-Show "- largo new <name>".
-Show "- largo build".
-Show "- largo run".
-Show "- largo check".
-Show "- largo test"."#,
-            },
-        ],
+        examples: &[],
     },
 
     Section {
         id: "stdlib",
-        number: 17,
+        number: 20,
         title: "Standard Library",
         part: "Part II: Project Structure",
         content: r#"
@@ -1000,12 +2078,12 @@ Show "max(10, 3) = " + format(max(10, 3))."#,
     },
 
     // ============================================================
-    // Part III: Logic Mode (Section 18)
+    // Part III: Logic Mode (Section 21)
     // ============================================================
 
     Section {
         id: "logic-mode",
-        number: 18,
+        number: 21,
         title: "Logic Mode",
         part: "Part III: Logic Mode",
         content: r#"
@@ -1078,12 +2156,12 @@ LOGOS can translate English sentences into First-Order Logic (FOL). This is usef
     },
 
     // ============================================================
-    // Part IV: Proofs and Verification (Sections 19-20)
+    // Part IV: Proofs and Verification (Sections 22-23)
     // ============================================================
 
     Section {
         id: "assertions-trust",
-        number: 19,
+        number: 22,
         title: "Assertions and Trust",
         part: "Part IV: Proofs and Verification",
         content: r#"
@@ -1140,7 +2218,7 @@ Show result."#,
 
     Section {
         id: "z3-verification",
-        number: 20,
+        number: 23,
         title: "Z3 Static Verification",
         part: "Part IV: Proofs and Verification",
         content: r#"
@@ -1195,12 +2273,12 @@ Show "Bounded: " + bounded."#,
     },
 
     // ============================================================
-    // Part V: Reference (Sections 21-22)
+    // Part V: Reference (Sections 24-25)
     // ============================================================
 
     Section {
         id: "complete-examples",
-        number: 21,
+        number: 24,
         title: "Complete Examples",
         part: "Part V: Reference",
         content: r#"
@@ -1271,7 +2349,7 @@ Show "Positives: " + positives."#,
 
     Section {
         id: "quick-reference",
-        number: 22,
+        number: 25,
         title: "Quick Reference",
         part: "Part V: Reference",
         content: r#"
@@ -1300,11 +2378,42 @@ Show "Positives: " + positives."#,
 - `A TypeName is either:` ... — Define enum
 - `Inspect x: When Variant:` ... — Pattern match
 
-**Collections:**
+**Primitive Types:**
+
+| Type | Description | Examples |
+|------|-------------|----------|
+| `Int` | Whole numbers | `5`, `-10`, `0` |
+| `Bool` | True or false | `true`, `false` |
+| `Text` | Strings | `"Hello"`, `""` |
+| `Float` / `Real` | Decimals | `3.14`, `-0.5` |
+| `Char` | Single character | backtick syntax |
+| `Byte` | 8-bit unsigned | `42: Byte`, `255: Byte` |
+
+**Lists (Seq):**
 - `[1, 2, 3]` — List literal
-- `item 1 of items` — Access (1-indexed)
+- `item 1 of items` or `items[1]` — Access (1-indexed)
 - `Push value to items.` — Add to end
 - `length of items` — Get length
+
+**Maps:**
+- `Map of K to V` — Map type (key-value pairs)
+- `a new Map of Text to Int` — Create empty map
+- `item "key" of map` or `map["key"]` — Get value by key
+- `Set item "key" of map to val.` or `Set map["key"] to val.` — Set value
+
+**Sets:**
+- `Set of T` — Set type (unique elements)
+- `a new Set of Int` — Create empty set
+- `Add x to set.` — Add element
+- `Remove x from set.` — Remove element
+- `set contains x` — Check membership
+- `a union b` — Elements in either set
+- `a intersection b` — Elements in both sets
+
+**Tuples:**
+- `(1, "two", 3.0)` — Tuple literal (mixed types allowed)
+- `t[1]` or `item 1 of t` — Access (1-indexed)
+- `length of t` — Get tuple size
 
 ### Ownership Verbs
 
@@ -1314,6 +2423,112 @@ Show "Positives: " + positives."#,
 | `Show x to f.` | Borrow (read) |
 | `Let f modify x.` | Mutable borrow |
 | `copy of x` | Clone |
+
+### Zones
+
+**Basic syntax:**
+- `Inside a zone called "Name":` — 4KB default zone
+- `Inside a zone called "Name" of size 2 MB:` — Sized heap zone
+- `Inside a zone called "Name" mapped from "file.bin":` — Memory-mapped file
+
+**Size units:** B, KB, MB, GB
+
+### Concurrency
+
+**Async I/O:**
+- `Attempt all of the following:` — Concurrent async tasks (tokio::join!)
+
+**Parallel CPU:**
+- `Simultaneously:` — Parallel computation (rayon/threads)
+
+**Tasks (Compiled Only):**
+- `Launch a task to f(args).` — Fire-and-forget spawn
+- `Let h be Launch a task to f(args).` — Spawn with handle
+- `Stop h.` — Abort a running task
+
+**Channels/Pipes (Compiled Only):**
+- `Let p be a new Pipe of Int.` — Create bounded channel
+- `Send x into p.` — Blocking send
+- `Receive x from p.` — Blocking receive
+- `Try to send/receive` — Non-blocking variants
+
+**Select (Compiled Only):**
+- `Await the first of:` — Race multiple operations
+- `Receive x from p:` — Channel receive branch
+- `After N seconds:` — Timeout branch
+
+### Distributed Types (CRDTs)
+
+**Shared Structs:**
+- `A Counter is Shared and has:` — CRDT-enabled struct
+
+**CRDT Field Types:**
+- `ConvergentCount` — Grow-only counter (`Increase`)
+- `Tally` — Bidirectional counter (`Increase`, `Decrease`)
+- `LastWriteWins of T` — Timestamp-based register (`Set`)
+- `Divergent T` — Multi-value register (`Set`, `Resolve`)
+- `SharedSet of T` — Add/remove set (`Add`, `Remove`, `contains`)
+- `SharedSet (AddWins) of T` — Set where add wins conflicts
+- `SharedSet (RemoveWins) of T` — Set where remove wins conflicts
+- `SharedSequence of T` — Ordered list RGA (`Append`)
+- `CollaborativeSequence of T` — Text-optimized YATA (`Append`)
+- `SharedSequence (YATA) of T` — Alternate YATA syntax
+- `SharedMap from K to V` — Key-value CRDT (`[]` access)
+- `ORMap from K to V` — Alternate map syntax
+
+**CRDT Operations:**
+- `Increase x's field by amount.` — Increment counter
+- `Decrease x's field by amount.` — Decrement Tally
+- `Set x's field to value.` — Set register value
+- `Resolve x's field to value.` — Resolve Divergent conflict
+- `Add value to x's field.` — Add to SharedSet
+- `Remove value from x's field.` — Remove from SharedSet
+- `Append value to x's field.` — Append to sequence
+- `Merge source into target.` — Combine two CRDT instances
+
+**Persistence (Compiled Only):**
+- `Persistent Counter` — Type with automatic journaling
+- `Let x be mounted at "data.lsf".` — Load/create persistent CRDT
+- `Mount x at "path".` — Mount statement for persistence
+
+**Network Sync (Compiled Only):**
+- `Sync mutable_var on "topic".` — Subscribe to GossipSub topic for auto-sync
+
+### P2P Networking
+
+**Server/Client:**
+- `Listen on "/ip4/0.0.0.0/tcp/8000".` — Bind to address
+- `Listen on "/ip4/0.0.0.0/tcp/0".` — Listen on any available port
+- `Connect to addr.` — Dial a peer
+- `Let remote be a PeerAgent at addr.` — Create remote handle
+- `Send msg to remote.` — Transmit message
+
+**Portable Types:**
+- `A Message is Portable and has:` — Network-serializable struct
+
+**Automatic Discovery:**
+- mDNS auto-discovers peers on local network when you Listen
+- Peers are automatically connected when discovered
+
+**GossipSub (via Sync):**
+- Topics broadcast state changes to all subscribers
+- Retry with exponential backoff (1s, 2s, 4s, 8s, 16s)
+
+**File Transfer:**
+- FileSipper for chunked transfers (1 MB chunks)
+- FileManifest with SHA256 hashes for verification
+- Enables resumable transfers
+
+### Security
+
+**Policy Blocks:**
+- `## Policy` — Define security rules
+- `A User is admin if...` — Define a predicate
+- `A User can edit the Doc if...` — Define a capability
+
+**Security Enforcement:**
+- `Check that user is admin.` — Mandatory runtime check (never optimized out)
+- `Assert that x > 0.` — Debug-only assertion (can be optimized out)
 
 ### Logic Mode Symbols
 

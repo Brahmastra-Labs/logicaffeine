@@ -16,6 +16,7 @@ fn refinement_type_variant_exists() {
             TypeExpr::Generic { .. } => {}
             TypeExpr::Function { .. } => {}
             TypeExpr::Refinement { base: _, var: _, predicate: _ } => {}
+            TypeExpr::Persistent { .. } => {}  // Phase 53
         }
     }
 }

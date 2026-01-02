@@ -659,7 +659,7 @@ pub fn Landing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            MainNav { active: ActivePage::Home }
+            MainNav { active: ActivePage::Other }
 
             main { class: "container",
                 section { class: "hero",
@@ -962,7 +962,6 @@ To run:
                         }
                         div { class: "hero-ctas",
                             Link { to: Route::Learn {}, class: "btn btn-primary", "Start Learning" }
-                            Link { to: Route::Home {}, class: "btn", "Launch App" }
                             Link { to: Route::Pricing {}, class: "btn btn-ghost", "View Licenses" }
                         }
                     }
@@ -994,8 +993,6 @@ To run:
                             Link { to: Route::Terms {}, "Terms of Use" }
                             span { "  •  " }
                             Link { to: Route::Pricing {}, "Pricing" }
-                            span { "  •  " }
-                            Link { to: Route::Home {}, "App" }
                             span { "  •  " }
                             Link { to: Route::Learn {}, "Learn" }
                         }

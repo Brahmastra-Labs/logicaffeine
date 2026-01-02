@@ -472,6 +472,65 @@ impl<'a> Lexer<'a> {
                     }
                     word_start = if j < chars.len() { j + 1 } else { j };
                 }
+                // Character literals with backticks: `x`
+                '`' => {
+                    // Push any pending word
+                    if !current_word.is_empty() {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+
+                    // Scan for character content and closing backtick
+                    let char_start = i;
+                    let mut j = char_idx + 1;
+                    let mut char_content = String::new();
+
+                    if j < chars.len() {
+                        if chars[j] == '\\' && j + 1 < chars.len() {
+                            // Escape sequence
+                            j += 1;
+                            let escaped_char = match chars[j] {
+                                'n' => '\n',
+                                't' => '\t',
+                                'r' => '\r',
+                                '\\' => '\\',
+                                '`' => '`',
+                                '0' => '\0',
+                                c => c,
+                            };
+                            char_content.push(escaped_char);
+                            j += 1;
+                        } else if chars[j] != '`' {
+                            // Regular character
+                            char_content.push(chars[j]);
+                            j += 1;
+                        }
+                    }
+
+                    // Expect closing backtick
+                    if j < chars.len() && chars[j] == '`' {
+                        j += 1; // skip closing backtick
+                    }
+
+                    // Create a special marker for char literals
+                    items.push(WordItem {
+                        word: format!("\x00CHAR:{}", char_content),
+                        trailing_punct: None,
+                        start: char_start,
+                        end: if j <= chars.len() { char_start + (j - char_idx) } else { char_start + 1 },
+                        punct_pos: None,
+                    });
+
+                    if j > char_idx + 1 {
+                        skip_count = j - char_idx - 1;
+                    }
+                    word_start = char_start + (j - char_idx);
+                }
                 // Phase 38: Handle -> as a single token for return type syntax
                 '-' if char_idx + 1 < chars.len() && chars[char_idx + 1] == '>' => {
                     // Push any pending word first
@@ -789,6 +848,16 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            // Check for character literal marker
+            if word.starts_with("\x00CHAR:") {
+                let content = &word[6..]; // Skip the marker prefix
+                let sym = self.interner.intern(content);
+                let span = Span::new(word_start, word_end);
+                tokens.push(Token::new(TokenType::CharLiteral(sym), sym, span));
+                self.pos += 1;
+                continue;
+            }
+
             let kind = self.classify_with_lookahead(&word);
             let lexeme = self.interner.intern(&word);
             let span = Span::new(word_start, word_end);
@@ -1053,12 +1122,20 @@ impl<'a> Lexer<'a> {
             // Numeric literal: starts with digit (may have underscore separators like 1_000)
             return true;
         }
-        // Symbolic numbers like aleph_0, omega_1: letters followed by underscore and digits only
-        // But NOT identifiers like n_left, my_var (which have letters after underscore)
+        // Symbolic numbers: only recognize known mathematical symbols
+        // (aleph, omega, beth) followed by underscore and digits
         if let Some(underscore_pos) = word.rfind('_') {
+            let before_underscore = &word[..underscore_pos];
             let after_underscore = &word[underscore_pos + 1..];
-            // If everything after the last underscore is digits, it's a symbolic number
-            if !after_underscore.is_empty() && after_underscore.chars().all(|c| c.is_ascii_digit()) {
+            // Must be a known mathematical symbol prefix AND digits after underscore
+            let is_math_symbol = matches!(
+                before_underscore.to_lowercase().as_str(),
+                "aleph" | "omega" | "beth"
+            );
+            if is_math_symbol
+                && !after_underscore.is_empty()
+                && after_underscore.chars().all(|c| c.is_ascii_digit())
+            {
                 return true;
             }
         }
@@ -1079,6 +1156,7 @@ impl<'a> Lexer<'a> {
                 "note" => BlockType::Note,
                 "to" => BlockType::Function,  // Phase 32: ## To blocks
                 "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
+                "policy" => BlockType::Policy,  // Phase 50: Security policy definitions
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 
@@ -1282,6 +1360,8 @@ impl<'a> Lexer<'a> {
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             // Phase 48: "at" for chunk access (must come before is_preposition check)
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Phase 54: "into" for pipe send (must come before is_preposition check)
+            "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             _ => {}
         }
 
@@ -1299,15 +1379,20 @@ impl<'a> Lexer<'a> {
                 return TokenType::Let;
             }
             "set" => {
-                // In Imperative mode, treat "set" as the keyword
-                // In Declarative mode, check if followed by identifier + "to" to disambiguate from noun "set"
-                if self.mode == LexerMode::Imperative {
+                // Check if "set" is used as a type (followed by "of") - "Set of Int"
+                // This takes priority over the assignment keyword
+                if self.peek_word(1).map_or(false, |w| w.to_lowercase() == "of") {
+                    // It's a type like "Set of Int" - don't return keyword, let it be a noun
+                } else if self.mode == LexerMode::Imperative {
+                    // In Imperative mode, treat "set" as the assignment keyword
                     return TokenType::Set;
-                }
-                // Phase 31: Also check positions 3, 4, 5 for "to" (handles field access like "set p's x to")
-                for offset in 2..=5 {
-                    if self.peek_word(offset).map_or(false, |w| w.to_lowercase() == "to") {
-                        return TokenType::Set;
+                } else {
+                    // Phase 31: In Declarative mode, check positions 2-5 for "to"
+                    // (handles field access like "set p's x to")
+                    for offset in 2..=5 {
+                        if self.peek_word(offset).map_or(false, |w| w.to_lowercase() == "to") {
+                            return TokenType::Set;
+                        }
                     }
                 }
             }
@@ -1319,11 +1404,32 @@ impl<'a> Lexer<'a> {
             "while" => return TokenType::While,
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
+            "check" => return TokenType::Check,  // Phase 50: Security check
+            // Phase 51: P2P Networking keywords (Imperative mode only)
+            "listen" if self.mode == LexerMode::Imperative => return TokenType::Listen,
+            "connect" if self.mode == LexerMode::Imperative => return TokenType::NetConnect,
+            "sleep" if self.mode == LexerMode::Imperative => return TokenType::Sleep,
+            // Phase 52: GossipSub keywords (Imperative mode only)
+            "sync" if self.mode == LexerMode::Imperative => return TokenType::Sync,
+            // Phase 53: Persistence keywords
+            "mount" if self.mode == LexerMode::Imperative => return TokenType::Mount,
+            "persistent" => return TokenType::Persistent,  // Works in type expressions
+            "combined" if self.mode == LexerMode::Imperative => return TokenType::Combined,
+            // Phase 54: Go-like Concurrency keywords (Imperative mode only)
+            // Note: "first" and "after" are NOT keywords - they're checked via lookahead in parser
+            // to avoid conflicting with their use as variable names
+            "launch" if self.mode == LexerMode::Imperative => return TokenType::Launch,
+            "task" if self.mode == LexerMode::Imperative => return TokenType::Task,
+            "pipe" if self.mode == LexerMode::Imperative => return TokenType::Pipe,
+            "receive" if self.mode == LexerMode::Imperative => return TokenType::Receive,
+            "stop" if self.mode == LexerMode::Imperative => return TokenType::Stop,
+            "try" if self.mode == LexerMode::Imperative => return TokenType::Try,
+            "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             "native" => return TokenType::Native,  // Phase 38: Native function modifier
             "from" => return TokenType::From,  // Phase 36: Module qualification
             "otherwise" => return TokenType::Otherwise,
-            // Phase 33: Sum type definition (after "is")
-            "either" => return TokenType::Either,
+            // Phase 33: Sum type definition (Declarative mode only - for enum "either...or...")
+            "either" if self.mode == LexerMode::Declarative => return TokenType::Either,
             // Phase 33: Pattern matching statement
             "inspect" if self.mode == LexerMode::Imperative => return TokenType::Inspect,
             // Phase 31: Constructor keyword (Imperative mode only)
@@ -1339,6 +1445,12 @@ impl<'a> Lexer<'a> {
             "through" if self.mode == LexerMode::Imperative => return TokenType::Through,
             "length" if self.mode == LexerMode::Imperative => return TokenType::Length,
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
+            // Set operation keywords (Imperative mode only)
+            "add" if self.mode == LexerMode::Imperative => return TokenType::Add,
+            "remove" if self.mode == LexerMode::Imperative => return TokenType::Remove,
+            "contains" if self.mode == LexerMode::Imperative => return TokenType::Contains,
+            "union" if self.mode == LexerMode::Imperative => return TokenType::Union,
+            "intersection" if self.mode == LexerMode::Imperative => return TokenType::Intersection,
             // Phase 8.5: Zone keywords (Imperative mode only)
             "inside" if self.mode == LexerMode::Imperative => return TokenType::Inside,
             "zone" if self.mode == LexerMode::Imperative => return TokenType::Zone,
@@ -1367,6 +1479,21 @@ impl<'a> Lexer<'a> {
             "shared" => return TokenType::Shared,  // Works in Definition blocks like Portable
             "merge" if self.mode == LexerMode::Imperative => return TokenType::Merge,
             "increase" if self.mode == LexerMode::Imperative => return TokenType::Increase,
+            // Phase 49b: Extended CRDT keywords (Wave 5)
+            "decrease" if self.mode == LexerMode::Imperative => return TokenType::Decrease,
+            "append" if self.mode == LexerMode::Imperative => return TokenType::Append,
+            "resolve" if self.mode == LexerMode::Imperative => return TokenType::Resolve,
+            "values" if self.mode == LexerMode::Imperative => return TokenType::Values,
+            // Type keywords (work in both modes like "Shared"):
+            "tally" => return TokenType::Tally,
+            "sharedset" => return TokenType::SharedSet,
+            "sharedsequence" => return TokenType::SharedSequence,
+            "collaborativesequence" => return TokenType::CollaborativeSequence,
+            "sharedmap" => return TokenType::SharedMap,
+            "divergent" => return TokenType::Divergent,
+            "removewins" => return TokenType::RemoveWins,
+            "addwins" => return TokenType::AddWins,
+            "yata" => return TokenType::YATA,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

@@ -168,7 +168,11 @@ impl<'a> VerificationPass<'a> {
             | Stmt::Concurrent { .. }
             | Stmt::Parallel { .. }
             | Stmt::ReadFrom { .. }
-            | Stmt::WriteFile { .. } => Ok(()),
+            | Stmt::WriteFile { .. }
+            // Phase 51: P2P Networking
+            | Stmt::Listen { .. }
+            | Stmt::ConnectTo { .. }
+            | Stmt::LetPeerAgent { .. } => Ok(()),
         }
     }
 

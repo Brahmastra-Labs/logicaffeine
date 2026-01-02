@@ -1,23 +1,27 @@
 name: Deploy Frontend
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'assets/**'
-      - 'Cargo.toml'
-      - 'Dioxus.toml'
+  workflow_run:
+    workflows: ["Tests"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy Dioxus App to Cloudflare Pages
+    # Only deploy if tests passed and this was a push (not PR)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -43,9 +47,13 @@ jobs:
       - name: Build Dioxus App
         run: dx build --release
 
+      - name: Install Wrangler
+        run: npm install -g wrangler
+
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy target/dx/logos/release/web/public --project-name=logicaffeine --commit-dirty=true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          echo "Deploying to Cloudflare Pages..."
+          wrangler pages deploy target/dx/logos/release/web/public --project-name=logicaffeine --branch=main --commit-dirty=true

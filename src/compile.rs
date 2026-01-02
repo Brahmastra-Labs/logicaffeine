@@ -21,7 +21,7 @@ const LOGOS_CORE_ENV: &str = include_str!("../logos_core/src/env.rs");
 // Phase 8.5: Zone-based memory management
 const LOGOS_CORE_MEMORY: &str = include_str!("../logos_core/src/memory.rs");
 
-use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker};
+use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
@@ -40,13 +40,15 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -92,7 +94,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     // Note: Static verification (Phase 42) is available when the `verification`
     // feature is enabled, but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -107,13 +109,15 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -161,7 +165,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -178,13 +182,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
     // Clone for codegen (parser takes ownership)
     let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
 
     let mut ctx = DiscourseContext::new();
     let expr_arena = Arena::new();
@@ -234,7 +240,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }
@@ -278,33 +284,81 @@ logos_core = {{ path = "./logos_core" }}
     Ok(())
 }
 
-/// Copy the embedded logos_core crate to the output directory.
+/// Copy the logos_core crate to the output directory.
+/// This recursively copies the entire crate including all modules.
 pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
-    let core_dir = output_dir.join("logos_core");
-    let src_dir = core_dir.join("src");
+    let dest_dir = output_dir.join("logos_core");
 
-    fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+    // Find the logos_core source directory relative to the CARGO_MANIFEST_DIR
+    // or use the embedded constants as fallback
+    let source_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(|d| Path::new(&d).join("logos_core"))
+        .ok()
+        .filter(|p| p.exists());
 
-    fs::write(core_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    // Phase 38: Write standard library modules
-    fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
-    // Phase 8.5: Zone-based memory management
-    fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
-        .map_err(|e| CompileError::Io(e.to_string()))?;
+    if let Some(src) = source_dir {
+        // Recursively copy the actual logos_core directory
+        copy_dir_recursive(&src, &dest_dir)?;
+    } else {
+        // Fallback to embedded files for distribution builds
+        let src_dir = dest_dir.join("src");
+        fs::create_dir_all(&src_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+
+        fs::write(dest_dir.join("Cargo.toml"), LOGOS_CORE_TOML)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("lib.rs"), LOGOS_CORE_LIB)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("types.rs"), LOGOS_CORE_TYPES)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("io.rs"), LOGOS_CORE_IO)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("file.rs"), LOGOS_CORE_FILE)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("time.rs"), LOGOS_CORE_TIME)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("random.rs"), LOGOS_CORE_RANDOM)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("env.rs"), LOGOS_CORE_ENV)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+        fs::write(src_dir.join("memory.rs"), LOGOS_CORE_MEMORY)
+            .map_err(|e| CompileError::Io(e.to_string()))?;
+    }
+
+    Ok(())
+}
+
+/// Recursively copy a directory.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
+    fs::create_dir_all(dst).map_err(|e| CompileError::Io(e.to_string()))?;
+
+    for entry in fs::read_dir(src).map_err(|e| CompileError::Io(e.to_string()))? {
+        let entry = entry.map_err(|e| CompileError::Io(e.to_string()))?;
+        let src_path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+
+        // Skip target directory and other build artifacts
+        if file_name == "target" || file_name == ".git" {
+            continue;
+        }
+
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if file_name == "Cargo.toml" {
+            // Special handling for Cargo.toml: remove [workspace] line
+            // which can interfere with nested crate dependencies
+            let content = fs::read_to_string(&src_path)
+                .map_err(|e| CompileError::Io(e.to_string()))?;
+            let filtered: String = content
+                .lines()
+                .filter(|line| !line.trim().starts_with("[workspace]"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            fs::write(&dst_path, filtered).map_err(|e| CompileError::Io(e.to_string()))?;
+        } else {
+            fs::copy(&src_path, &dst_path).map_err(|e| CompileError::Io(e.to_string()))?;
+        }
+    }
 
     Ok(())
 }
@@ -383,7 +437,17 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
     let codegen_registry = type_registry.clone();
 
-    // Tokenize the main file
+    // Phase 50: Also discover policies from the main file
+    // (discover_with_imports doesn't handle policies yet, so we do a separate pass)
+    let mut lexer = Lexer::new(&source, &mut interner);
+    let tokens = lexer.tokenize();
+    let policy_registry = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run_full().policies
+    };
+    let codegen_policies = policy_registry.clone();
+
+    // Re-tokenize for parsing (interner may have been modified)
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
@@ -413,7 +477,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     // Pass 2: Parse with type context (includes imported types)
     let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
-    let rust_code = codegen_program(&stmts, &codegen_registry, &interner);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
     Ok(rust_code)
 }

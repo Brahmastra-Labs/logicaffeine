@@ -45,6 +45,18 @@ impl Showable for bool {
     }
 }
 
+impl Showable for u8 {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl Showable for char {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
 impl Showable for String {
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)

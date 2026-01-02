@@ -292,7 +292,7 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::List(items) => {
+            Expr::List(items) | Expr::Tuple(items) => {
                 for item in items {
                     self.check_not_moved(item)?;
                 }
@@ -324,6 +324,14 @@ impl<'a> OwnershipChecker<'a> {
             Expr::ChunkAt { index, zone } => {
                 self.check_not_moved(index)?;
                 self.check_not_moved(zone)
+            }
+            Expr::Contains { collection, value } => {
+                self.check_not_moved(collection)?;
+                self.check_not_moved(value)
+            }
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.check_not_moved(left)?;
+                self.check_not_moved(right)
             }
             // Literals are always safe
             Expr::Literal(_) => Ok(()),

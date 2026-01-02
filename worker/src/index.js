@@ -43,33 +43,50 @@ async function handleValidate(request, env) {
       return jsonResponse({ valid: false, error: 'No license key provided' }, 400);
     }
 
-    if (!licenseKey.startsWith('sub_')) {
-      return jsonResponse({ valid: false, error: 'Invalid license key format' }, 400);
-    }
-
     const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
       apiVersion: '2023-10-16',
       httpClient: Stripe.createFetchHttpClient(),
     });
 
-    const subscription = await stripe.subscriptions.retrieve(licenseKey, {
-      expand: ['items.data.price.product'],
-    });
+    // Handle subscription licenses (sub_)
+    if (licenseKey.startsWith('sub_')) {
+      const subscription = await stripe.subscriptions.retrieve(licenseKey, {
+        expand: ['items.data.price.product'],
+      });
 
-    const isActive = subscription.status === 'active' || subscription.status === 'trialing';
-    const priceData = subscription.items.data[0]?.price;
-    const productData = priceData?.product;
+      const isActive = subscription.status === 'active' || subscription.status === 'trialing';
+      const priceData = subscription.items.data[0]?.price;
+      const productData = priceData?.product;
+      const plan = determinePlan(priceData, productData);
 
-    const plan = determinePlan(priceData, productData);
+      return jsonResponse({
+        valid: isActive,
+        status: subscription.status,
+        plan: plan,
+        customerId: subscription.customer,
+        currentPeriodEnd: subscription.current_period_end,
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+      });
+    }
 
-    return jsonResponse({
-      valid: isActive,
-      status: subscription.status,
-      plan: plan,
-      customerId: subscription.customer,
-      currentPeriodEnd: subscription.current_period_end,
-      cancelAtPeriodEnd: subscription.cancel_at_period_end,
-    });
+    // Handle one-time payment licenses (pi_)
+    if (licenseKey.startsWith('pi_')) {
+      const paymentIntent = await stripe.paymentIntents.retrieve(licenseKey, {
+        expand: ['latest_charge.balance_transaction', 'payment_method'],
+      });
+
+      const isValid = paymentIntent.status === 'succeeded';
+
+      // For one-time payments, we assume lifetime plan
+      return jsonResponse({
+        valid: isValid,
+        status: paymentIntent.status,
+        plan: 'lifetime',
+        customerId: paymentIntent.customer,
+      });
+    }
+
+    return jsonResponse({ valid: false, error: 'Invalid license key format' }, 400);
   } catch (error) {
     if (error.type === 'StripeInvalidRequestError') {
       return jsonResponse({ valid: false, error: 'License key not found' }, 404);
@@ -120,33 +137,59 @@ async function handleSession(request, env) {
       httpClient: Stripe.createFetchHttpClient(),
     });
 
-    const session = await stripe.checkout.sessions.retrieve(sessionId, {
-      expand: ['subscription', 'subscription.items.data.price.product'],
-    });
+    // Retrieve checkout session
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    if (!session.subscription) {
-      return jsonResponse({ error: 'No subscription found for this session' }, 404);
+    // Handle subscription mode (recurring payments)
+    if (session.subscription) {
+      const subscriptionId = typeof session.subscription === 'string'
+        ? session.subscription
+        : session.subscription.id;
+
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
+        expand: ['items.data.price.product'],
+      });
+
+      const priceData = subscription.items?.data[0]?.price;
+      const productData = priceData?.product;
+      const plan = determinePlan(priceData, productData);
+
+      return jsonResponse({
+        subscriptionId: subscription.id,
+        status: subscription.status,
+        plan: plan,
+        customerId: session.customer,
+        customerEmail: session.customer_details?.email,
+      });
     }
 
-    const subscription = session.subscription;
-    const priceData = subscription.items?.data[0]?.price;
-    const productData = priceData?.product;
-    const plan = determinePlan(priceData, productData);
+    // Handle payment mode (one-time payments like Lifetime)
+    if (session.payment_intent) {
+      const paymentIntentId = typeof session.payment_intent === 'string'
+        ? session.payment_intent
+        : session.payment_intent.id;
 
-    return jsonResponse({
-      subscriptionId: subscription.id,
-      status: subscription.status,
-      plan: plan,
-      customerId: session.customer,
-      customerEmail: session.customer_details?.email,
-    });
+      return jsonResponse({
+        subscriptionId: paymentIntentId,  // Use payment_intent ID as license key
+        status: session.payment_status,
+        plan: 'lifetime',
+        customerId: session.customer,
+        customerEmail: session.customer_details?.email,
+      });
+    }
+
+    return jsonResponse({ error: 'No payment found for this session' }, 404);
   } catch (error) {
+    console.error('Session lookup error:', error.message, error.code);
+
     if (error.type === 'StripeInvalidRequestError') {
-      return jsonResponse({ error: 'Session not found' }, 404);
+      return jsonResponse({
+        error: 'Session not found',
+        details: error.message
+      }, 404);
     }
 
-    console.error('Session lookup error:', error);
-    return jsonResponse({ error: 'Session lookup failed' }, 500);
+    return jsonResponse({ error: 'Session lookup failed', details: error.message }, 500);
   }
 }
 

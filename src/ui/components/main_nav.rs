@@ -9,6 +9,9 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 
+/// Embedded logo SVG
+const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
+
 /// Navigation item definition
 #[derive(Clone, PartialEq)]
 pub struct NavItem {
@@ -20,7 +23,6 @@ pub struct NavItem {
 #[derive(Clone, Copy, PartialEq, Default)]
 pub enum ActivePage {
     #[default]
-    Home,
     Guide,
     Learn,
     Studio,
@@ -35,8 +37,7 @@ impl ActivePage {
     /// Determine the active page from a Route
     pub fn from_route(route: &Route) -> Self {
         match route {
-            Route::Landing {} => ActivePage::Home,
-            Route::Home {} => ActivePage::Home,
+            Route::Landing {} => ActivePage::Other,
             Route::Guide {} => ActivePage::Guide,
             Route::Learn {} => ActivePage::Learn,
             Route::Studio {} => ActivePage::Studio,
@@ -81,15 +82,16 @@ const MAIN_NAV_STYLE: &str = r#"
 }
 
 .main-nav-logo {
-    width: 36px;
-    height: 36px;
+    width: 64px;
+    height: 64px;
     border-radius: var(--radius-lg);
-    background:
-        radial-gradient(circle at 30% 30%, rgba(96,165,250,0.85), transparent 55%),
-        radial-gradient(circle at 65% 60%, rgba(167,139,250,0.85), transparent 55%),
-        rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.10);
-    box-shadow: 0 14px 35px rgba(0,0,0,0.35);
+    overflow: hidden;
+}
+
+.main-nav-logo svg {
+    width: 100%;
+    height: 100%;
+    filter: invert(1);
 }
 
 .main-nav-brand-text {
@@ -242,12 +244,6 @@ pub fn MainNav(
     /// Whether to show the full nav links (default true)
     #[props(default = true)]
     show_nav_links: bool,
-    /// Primary CTA button text (default "Launch App")
-    #[props(default = "Launch App")]
-    primary_cta: &'static str,
-    /// Primary CTA route
-    #[props(default = Route::Home {})]
-    primary_cta_route: Route,
 ) -> Element {
     rsx! {
         style { "{MAIN_NAV_STYLE}" }
@@ -258,7 +254,10 @@ pub fn MainNav(
                 Link {
                     to: Route::Landing {},
                     class: "main-nav-brand",
-                    div { class: "main-nav-logo" }
+                    div {
+                        class: "main-nav-logo",
+                        dangerous_inner_html: "{LOGO_SVG}"
+                    }
                     div { class: "main-nav-brand-text",
                         span { class: "main-nav-brand-name", "LOGICAFFEINE" }
                         if let Some(sub) = subtitle {
@@ -328,12 +327,6 @@ pub fn MainNav(
                                 d: "M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
                             }
                         }
-                    }
-                    // Primary CTA
-                    Link {
-                        to: primary_cta_route,
-                        class: "main-nav-btn primary",
-                        "{primary_cta}"
                     }
                 }
             }

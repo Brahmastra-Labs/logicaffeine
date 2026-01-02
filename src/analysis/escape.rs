@@ -212,7 +212,7 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(expr, max_depth)?;
             }
 
-            Expr::List(items) => {
+            Expr::List(items) | Expr::Tuple(items) => {
                 for item in items {
                     self.check_no_escape(item, max_depth)?;
                 }
@@ -242,6 +242,16 @@ impl<'a> EscapeChecker<'a> {
             Expr::ChunkAt { index, zone } => {
                 self.check_no_escape(index, max_depth)?;
                 self.check_no_escape(zone, max_depth)?;
+            }
+
+            Expr::Contains { collection, value } => {
+                self.check_no_escape(collection, max_depth)?;
+                self.check_no_escape(value, max_depth)?;
+            }
+
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.check_no_escape(left, max_depth)?;
+                self.check_no_escape(right, max_depth)?;
             }
 
             // Literals are always safe

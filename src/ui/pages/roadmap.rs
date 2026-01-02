@@ -25,50 +25,80 @@ const MILESTONE_EXAMPLES: &[&[(&str, &str, &str, &str)]] = &[
             "Display hint to learner",
             "Display(hint, learner)"),
     ],
-    // Phase 3: Codegen Pipeline
+    // Phase 3: Imperative Language
     &[
-        ("Hello World", "To run:\n    Show \"Hello, World!\" to the console.",
-            "fn main() {\n    println!(\"Hello, World!\");\n}",
-            "fn main() -> Result<(), Error> {\n    println!(\"Hello, World!\");\n    Ok(())\n}"),
-        ("Binding", "Let result be the factorial of 10.",
-            "let result = factorial(10);",
-            "let result: u64 = factorial(10);"),
+        ("Function", "## To greet (name: Text) -> Text:\n    Return \"Hello, \" combined with name.",
+            "fn greet(name: &str) -> String { ... }",
+            "fn greet(name: &str) -> String {\n    format!(\"Hello, {}\", name)\n}"),
+        ("Struct", "A Point has:\n    an x which is Int\n    a y which is Int",
+            "struct Point { x: i64, y: i64 }",
+            "struct Point {\n    x: i64,\n    y: i64,\n}"),
+        ("I/O", "Read input from the console.\nShow \"Hello!\" to the console.",
+            "read_line(); println!(\"Hello!\");",
+            "io::stdin().read_line(&mut buf)?;\nprintln!(\"Hello!\");"),
     ],
     // Phase 4: Type System
     &[
-        ("Refinement", "Let age be an Integer where age > 0.",
-            "Age = Int where value > 0",
-            "type Age = { n: Int | n > 0 }"),
-        ("Dependent", "A Vector of n elements.",
-            "Vec<T, n: Nat>",
-            "struct Vec<T, const N: usize>"),
+        ("Refinement", "Let age be an Int where it > 0.",
+            "let age: PosInt = 25; // runtime check",
+            "let age = 25;\ndebug_assert!(age > 0);"),
+        ("Generic", "A Box has: a contents which is Generic.",
+            "struct Box<T> { contents: T }",
+            "struct Box<T> {\n    contents: T,\n}"),
+        ("Enum", "A Color is one of: Red, Green, Blue.",
+            "enum Color { Red, Green, Blue }",
+            "enum Color {\n    Red,\n    Green,\n    Blue,\n}"),
     ],
-    // Phase 5: Proof System
+    // Phase 5: Concurrency
     &[
-        ("Theorem", "The factorial terminates for all naturals.",
-            "For all n in Nat: terminates(factorial(n))",
-            "∀n:ℕ. terminates(factorial(n))"),
-        ("Proof", "By structural induction on n. Auto.",
-            "Proof: induction on n. QED",
-            "induction(n); auto. QED"),
-    ],
-    // Phase 6: Concurrency
-    &[
+        ("Channel", "Let pipe be a new Pipe of Int.\nSend 42 into pipe.",
+            "let (tx, rx) = channel(); tx.send(42);",
+            "let (tx, rx) = channel::<i64>();\ntx.send(42).await;"),
+        ("Agent", "Spawn a Worker called 'w1'.\nSend Ping to 'w1'.",
+            "spawn(Worker, \"w1\"); send(Ping, \"w1\");",
+            "let w1 = tokio::spawn(worker());\ntx.send(Ping).await;"),
         ("Parallel", "Attempt all of the following:\n    Process A.\n    Process B.",
-            "parallel {\n    process_a()\n    process_b()\n}",
-            "join!(process_a(), process_b())"),
-        ("Channel", "Send the message through the channel.",
-            "channel.send(message)",
-            "tx.send(message).await"),
+            "join!(process_a(), process_b())",
+            "tokio::join!(\n    process_a(),\n    process_b()\n);"),
     ],
-    // Phase 7: Standard Library
+    // Phase 6: Distributed Systems
     &[
-        ("I/O", "Read a line from the console.",
-            "read_line(console)",
-            "io::stdin().read_line(&mut buf)"),
-        ("FFI", "Call the external C function.",
-            "external from C",
-            "extern \"C\" { fn external(); }"),
+        ("CRDT", "Let counter be a new Shared GCounter.\nIncrease counter by 10.",
+            "let counter = GCounter::new();\ncounter.increment(10);",
+            "let counter = GCounter::new();\ncounter.increment_by(self_id, 10);"),
+        ("Persist", "Mount data at \"state.json\".",
+            "Persistent::mount(\"state.json\")",
+            "let data = Persistent::<T>::mount(\"state.json\").await?;"),
+        ("Sync", "Sync counter on 'metrics'.",
+            "gossip.sync(counter, \"metrics\")",
+            "gossip.subscribe(\"metrics\");\ngossip.publish(counter);"),
+    ],
+    // Phase 7: Security
+    &[
+        ("Policy", "## Policy\nA User can publish the Document if user's role equals \"editor\".",
+            "fn can_publish(user, doc) -> bool",
+            "impl User {\n    fn can_publish(&self, _: &Document) -> bool {\n        self.role == \"editor\"\n    }\n}"),
+        ("Check", "Check that user can publish the doc.",
+            "check!(user.can_publish(doc))",
+            "if !user.can_publish(&doc) {\n    panic!(\"unauthorized\");\n}"),
+    ],
+    // Phase 8: Proof Assistant
+    &[
+        ("Trust", "Trust that n > 0 because \"positive input\".",
+            "// @requires n > 0",
+            "debug_assert!(n > 0, \"positive input\");"),
+        ("Termination", "While n > 0 (decreasing n):\n    Set n to n minus 1.",
+            "while n > 0 { n -= 1; } // terminates",
+            "// Proven: metric 'n' decreases each iteration\nwhile n > 0 { n -= 1; }"),
+    ],
+    // Phase 9: Universal Compilation
+    &[
+        ("WASM", "Compile for the web.",
+            "largo build --target wasm",
+            "// Coming soon: direct LOGOS → WASM"),
+        ("IDE", "Open the Live Codex.",
+            "largo codex",
+            "// Coming soon: real-time proof visualization"),
     ],
 ];
 
@@ -189,10 +219,10 @@ const ROADMAP_STYLE: &str = r#"
     background: linear-gradient(
         180deg,
         #22c55e 0%,
-        #22c55e 28%,
-        #a78bfa 32%,
-        #a78bfa 56%,
-        rgba(255,255,255,0.15) 62%,
+        #22c55e 76%,
+        #a78bfa 80%,
+        #a78bfa 88%,
+        rgba(255,255,255,0.15) 92%,
         rgba(255,255,255,0.08) 100%
     );
     border-radius: 2px;
@@ -543,7 +573,7 @@ pub fn Roadmap() -> Element {
 
             section { class: "roadmap-hero",
                 h1 { "LOGOS Roadmap" }
-                p { "From English to executable logic. Track our journey from transpiler to full programming language." }
+                p { "From English sentences to distributed systems. A complete programming language with formal verification." }
             }
 
             div { class: "timeline",
@@ -556,7 +586,7 @@ pub fn Roadmap() -> Element {
                             span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "The foundation: parse English, produce First-Order Logic. 901 tests validate 32 linguistic phenomena."
+                            "The foundation: parse English, produce First-Order Logic. 53+ linguistic phenomena from garden paths to discourse."
                         }
                         div { class: "milestone-features",
                             span { class: "feature-tag done", "Lexer" }
@@ -593,118 +623,160 @@ pub fn Roadmap() -> Element {
                     }
                 }
 
-                // Phase 3: Codegen Pipeline - IN PROGRESS
+                // Phase 3: Imperative Language - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Codegen Pipeline" }
-                            span { class: "milestone-badge progress", "In Progress" }
+                            span { class: "milestone-title", "Imperative Language" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "From English to native binary. Generate Rust code, compile to executables, target WASM for the web."
+                            "A complete programming language. Functions, structs, enums, pattern matching, standard library, and I/O."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag done", "Rust Codegen" }
                             span { class: "feature-tag done", "Functions" }
                             span { class: "feature-tag done", "Structs" }
-                            span { class: "feature-tag done", "Guards" }
-                            span { class: "feature-tag done", "Iteration" }
-                            span { class: "feature-tag", "Native Compilation" }
-                            span { class: "feature-tag", "WASM Target" }
+                            span { class: "feature-tag done", "Enums" }
+                            span { class: "feature-tag done", "Pattern Matching" }
+                            span { class: "feature-tag done", "Stdlib" }
+                            span { class: "feature-tag done", "I/O" }
                         }
                         MilestoneExamples { index: 2 }
                     }
                 }
 
-                // Phase 4: Type System - IN PROGRESS
+                // Phase 4: Type System - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Type System" }
-                            span { class: "milestone-badge progress", "In Progress" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "Type annotations, inference, and constraints. Catch bugs at compile time with English type syntax."
+                            "Refinement types, generics, and type inference. Catch bugs at compile time with English type syntax."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag done", "Type Annotations" }
-                            span { class: "feature-tag done", "Return Inference" }
-                            span { class: "feature-tag done", "Primitives" }
-                            span { class: "feature-tag", "Dependent Types" }
-                            span { class: "feature-tag", "Refinements" }
+                            span { class: "feature-tag done", "Refinement Types" }
+                            span { class: "feature-tag done", "Generics" }
+                            span { class: "feature-tag done", "Type Inference" }
+                            span { class: "feature-tag done", "Sum Types" }
+                            span { class: "feature-tag done", "Constraints" }
                         }
                         MilestoneExamples { index: 3 }
                     }
                 }
 
-                // Phase 5: Proof System - PLANNED
+                // Phase 5: Concurrency - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot planned" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Proof System" }
-                            span { class: "milestone-badge planned", "Planned" }
+                            span { class: "milestone-title", "Concurrency & Actors" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "Curry-Howard in English. Write proofs as prose. The compiler verifies your reasoning."
+                            "Go-like concurrency with channels, agents, and structured parallelism. Select with timeout, async/await."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag", "Proof Obligations" }
-                            span { class: "feature-tag", "Auto Tactic" }
-                            span { class: "feature-tag", "Induction" }
-                            span { class: "feature-tag", "Totality Checking" }
+                            span { class: "feature-tag done", "Channels" }
+                            span { class: "feature-tag done", "Agents" }
+                            span { class: "feature-tag done", "Tasks" }
+                            span { class: "feature-tag done", "Parallel" }
+                            span { class: "feature-tag done", "Select" }
                         }
                         MilestoneExamples { index: 4 }
                     }
                 }
 
-                // Phase 6: Concurrency - PLANNED
+                // Phase 6: Distributed Systems - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot planned" }
+                    div { class: "milestone-dot done", "✓" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Concurrency Model" }
-                            span { class: "milestone-badge planned", "Planned" }
+                            span { class: "milestone-title", "Distributed Systems" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
-                            "Structured concurrency with proof obligations. Channels, pipelines, and distributed agents — all verified."
+                            "CRDTs, P2P networking, and persistent storage. Build local-first apps with automatic conflict resolution."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag", "Structured Concurrency" }
-                            span { class: "feature-tag", "Channels" }
-                            span { class: "feature-tag", "Agent Model" }
-                            span { class: "feature-tag", "CSP Processes" }
+                            span { class: "feature-tag done", "CRDTs" }
+                            span { class: "feature-tag done", "P2P" }
+                            span { class: "feature-tag done", "Persistence" }
+                            span { class: "feature-tag done", "GossipSub" }
+                            span { class: "feature-tag done", "Distributed<T>" }
                         }
                         MilestoneExamples { index: 5 }
                     }
                 }
 
-                // Phase 7: Standard Library - PLANNED
+                // Phase 7: Security & Policies - DONE
+                div { class: "milestone",
+                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-content",
+                        div { class: "milestone-header",
+                            span { class: "milestone-title", "Security & Policies" }
+                            span { class: "milestone-badge done", "Complete" }
+                        }
+                        p { class: "milestone-desc",
+                            "Capability-based security with policy blocks. Define who can do what in plain English."
+                        }
+                        div { class: "milestone-features",
+                            span { class: "feature-tag done", "Policy Blocks" }
+                            span { class: "feature-tag done", "Capabilities" }
+                            span { class: "feature-tag done", "Check Guards" }
+                            span { class: "feature-tag done", "Predicates" }
+                        }
+                        MilestoneExamples { index: 6 }
+                    }
+                }
+
+                // Phase 8: Proof Assistant - IN PROGRESS
+                div { class: "milestone",
+                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-content",
+                        div { class: "milestone-header",
+                            span { class: "milestone-title", "Proof Assistant" }
+                            span { class: "milestone-badge progress", "In Progress" }
+                        }
+                        p { class: "milestone-desc",
+                            "Curry-Howard in English. Trust statements, termination proofs, and optional Z3 verification."
+                        }
+                        div { class: "milestone-features",
+                            span { class: "feature-tag done", "Trust Statements" }
+                            span { class: "feature-tag done", "Termination Proofs" }
+                            span { class: "feature-tag done", "Z3 Integration" }
+                            span { class: "feature-tag", "Auto Tactic" }
+                            span { class: "feature-tag", "Induction" }
+                        }
+                        MilestoneExamples { index: 7 }
+                    }
+                }
+
+                // Phase 9: Universal Compilation - PLANNED
                 div { class: "milestone",
                     div { class: "milestone-dot planned" }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
-                            span { class: "milestone-title", "Standard Library & Beyond" }
+                            span { class: "milestone-title", "Universal Compilation" }
                             span { class: "milestone-badge planned", "Planned" }
                         }
                         p { class: "milestone-desc",
-                            "A complete standard library. FFI for Rust and C. The Live Codex IDE for real-time proof visualization."
+                            "Compile to WASM for the web. The Live Codex IDE for real-time proof visualization."
                         }
                         div { class: "milestone-features",
-                            span { class: "feature-tag", "Core Types" }
-                            span { class: "feature-tag", "I/O Operations" }
-                            span { class: "feature-tag", "FFI" }
+                            span { class: "feature-tag", "WASM Target" }
                             span { class: "feature-tag", "Live Codex IDE" }
                         }
-                        MilestoneExamples { index: 6 }
+                        MilestoneExamples { index: 8 }
                     }
                 }
             }
 
             footer { class: "roadmap-footer",
-                span { "© 2025 Brahmastra Labs LLC  •  Written in Rust 🦀" }
+                span { "© 2026 Brahmastra Labs LLC  •  Written in Rust 🦀" }
                 span { " • " }
                 a {
                     href: "https://github.com/Brahmastra-Labs/logicaffeine",

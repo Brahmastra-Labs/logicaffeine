@@ -1,6 +1,7 @@
 use crate::token::{Token, TokenType, BlockType};
 use crate::intern::{Interner, Symbol};
 use super::registry::{TypeRegistry, TypeDef, FieldDef, FieldType, VariantDef};
+use super::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
 use super::dependencies::scan_dependencies;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -8,12 +9,20 @@ use std::path::Path;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::project::Loader;
 
+/// Result of running the discovery pass
+pub struct DiscoveryResult {
+    pub types: TypeRegistry,
+    pub policies: PolicyRegistry,
+}
+
 /// Discovery pass that scans tokens before main parsing to build a TypeRegistry.
 ///
 /// This pass looks for type definitions in `## Definition` blocks:
 /// - "A Stack is a generic collection." → Generic type
 /// - "A User is a structure." → Struct type
 /// - "A Shape is an enum." → Enum type
+///
+/// Phase 50: Also scans `## Policy` blocks for security predicates and capabilities.
 pub struct DiscoveryPass<'a> {
     tokens: &'a [Token],
     pos: usize,
@@ -26,25 +35,39 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     /// Run discovery pass, returning populated TypeRegistry
+    /// (Backward compatible - returns only TypeRegistry)
     pub fn run(&mut self) -> TypeRegistry {
-        let mut registry = TypeRegistry::with_primitives(self.interner);
+        self.run_full().types
+    }
+
+    /// Phase 50: Run discovery pass, returning both TypeRegistry and PolicyRegistry
+    pub fn run_full(&mut self) -> DiscoveryResult {
+        let mut type_registry = TypeRegistry::with_primitives(self.interner);
+        let mut policy_registry = PolicyRegistry::new();
 
         while self.pos < self.tokens.len() {
             // Look for Definition blocks
             if self.check_block_header(BlockType::Definition) {
                 self.advance(); // consume ## Definition
-                self.scan_definition_block(&mut registry);
+                self.scan_definition_block(&mut type_registry);
             } else if self.check_block_header(BlockType::TypeDef) {
                 // Inline type definition: ## A Point has: or ## A Color is one of:
                 // The article is part of the block header, so don't skip it
                 self.advance(); // consume ## A/An
-                self.parse_type_definition_inline(&mut registry);
+                self.parse_type_definition_inline(&mut type_registry);
+            } else if self.check_block_header(BlockType::Policy) {
+                // Phase 50: Security policy definitions
+                self.advance(); // consume ## Policy
+                self.scan_policy_block(&mut policy_registry);
             } else {
                 self.advance();
             }
         }
 
-        registry
+        DiscoveryResult {
+            types: type_registry,
+            policies: policy_registry,
+        }
     }
 
     fn check_block_header(&self, expected: BlockType) -> bool {
@@ -68,6 +91,320 @@ impl<'a> DiscoveryPass<'a> {
             } else {
                 self.advance();
             }
+        }
+    }
+
+    /// Phase 50: Scan policy block for predicate and capability definitions
+    /// Patterns:
+    /// - "A User is admin if the user's role equals \"admin\"."
+    /// - "A User can publish the Document if the user is admin OR the user equals the document's owner."
+    fn scan_policy_block(&mut self, registry: &mut PolicyRegistry) {
+        while self.pos < self.tokens.len() {
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+
+            // Skip newlines and indentation
+            if self.check_newline() || self.check_indent() || self.check_dedent() {
+                self.advance();
+                continue;
+            }
+
+            // Look for "A [Type] is [predicate] if..." or "A [Type] can [action] ..."
+            if self.check_article() {
+                self.try_parse_policy_definition(registry);
+            } else {
+                self.advance();
+            }
+        }
+    }
+
+    /// Phase 50: Parse a policy definition
+    fn try_parse_policy_definition(&mut self, registry: &mut PolicyRegistry) {
+        self.advance(); // consume article
+
+        // Get subject type name (e.g., "User")
+        let subject_type = match self.consume_noun_or_proper() {
+            Some(sym) => sym,
+            None => return,
+        };
+
+        // Determine if predicate ("is admin") or capability ("can publish")
+        if self.check_copula() {
+            // "A User is admin if..."
+            self.advance(); // consume "is"
+
+            // Get predicate name (e.g., "admin")
+            let predicate_name = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return,
+            };
+
+            // Expect "if"
+            if !self.check_word("if") {
+                self.skip_to_period();
+                return;
+            }
+            self.advance(); // consume "if"
+
+            // Handle multi-line condition (colon followed by indented lines)
+            if self.check_colon() {
+                self.advance();
+            }
+            if self.check_newline() {
+                self.advance();
+            }
+            if self.check_indent() {
+                self.advance();
+            }
+
+            // Parse condition
+            let condition = self.parse_policy_condition(subject_type, None);
+
+            registry.register_predicate(PredicateDef {
+                subject_type,
+                predicate_name,
+                condition,
+            });
+
+            self.skip_to_period();
+        } else if self.check_word("can") {
+            // "A User can publish the Document if..."
+            self.advance(); // consume "can"
+
+            // Get action name (e.g., "publish")
+            let action = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => {
+                    // Try verb token
+                    if let Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) = self.peek() {
+                        let sym = *lemma;
+                        self.advance();
+                        sym
+                    } else {
+                        return;
+                    }
+                }
+            };
+
+            // Skip "the" article if present
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Get object type (e.g., "Document")
+            let object_type = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return,
+            };
+
+            // Expect "if"
+            if !self.check_word("if") {
+                self.skip_to_period();
+                return;
+            }
+            self.advance(); // consume "if"
+
+            // Parse condition (may include colon for multi-line)
+            if self.check_colon() {
+                self.advance();
+            }
+            if self.check_newline() {
+                self.advance();
+            }
+            if self.check_indent() {
+                self.advance();
+            }
+
+            let condition = self.parse_policy_condition(subject_type, Some(object_type));
+
+            registry.register_capability(CapabilityDef {
+                subject_type,
+                action,
+                object_type,
+                condition,
+            });
+
+            // Skip to end of definition (may span multiple lines)
+            self.skip_policy_definition();
+        } else {
+            self.skip_to_period();
+        }
+    }
+
+    /// Phase 50: Parse a policy condition
+    /// Handles: field comparisons, predicate references, and OR/AND combinators
+    fn parse_policy_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+        let first = self.parse_atomic_condition(subject_type, object_type);
+
+        // Check for OR/AND combinators
+        loop {
+            // Skip newlines between conditions
+            while self.check_newline() {
+                self.advance();
+            }
+
+            // Handle ", AND" or ", OR" patterns
+            if self.check_comma() {
+                self.advance(); // consume comma
+                // Skip whitespace after comma
+                while self.check_newline() {
+                    self.advance();
+                }
+            }
+
+            if self.check_word("AND") {
+                self.advance();
+                // Skip newlines after AND
+                while self.check_newline() {
+                    self.advance();
+                }
+                let right = self.parse_atomic_condition(subject_type, object_type);
+                return PolicyCondition::And(Box::new(first), Box::new(right));
+            } else if self.check_word("OR") {
+                self.advance();
+                // Skip newlines after OR
+                while self.check_newline() {
+                    self.advance();
+                }
+                let right = self.parse_atomic_condition(subject_type, object_type);
+                return PolicyCondition::Or(Box::new(first), Box::new(right));
+            } else {
+                break;
+            }
+        }
+
+        first
+    }
+
+    /// Phase 50: Parse an atomic condition
+    fn parse_atomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+        // Skip "The" article if present
+        if self.check_article() {
+            self.advance();
+        }
+
+        // Get the subject reference (e.g., "user" or "user's role")
+        let subject_ref = match self.consume_noun_or_proper() {
+            Some(sym) => sym,
+            None => return PolicyCondition::FieldEquals {
+                field: self.interner.intern("unknown"),
+                value: self.interner.intern("unknown"),
+                is_string_literal: false,
+            },
+        };
+
+        // Check if it's a field access ("'s role") or a predicate ("is admin")
+        if self.check_possessive() {
+            self.advance(); // consume "'s"
+
+            // Get field name
+            let field = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                },
+            };
+
+            // Expect "equals"
+            if self.check_word("equals") {
+                self.advance();
+
+                // Get value (string literal or identifier)
+                let (value, is_string_literal) = self.consume_value();
+
+                return PolicyCondition::FieldEquals { field, value, is_string_literal };
+            }
+        } else if self.check_copula() {
+            // "user is admin"
+            self.advance(); // consume "is"
+
+            // Get predicate name
+            let predicate = match self.consume_noun_or_proper() {
+                Some(sym) => sym,
+                None => return PolicyCondition::FieldEquals {
+                    field: self.interner.intern("unknown"),
+                    value: self.interner.intern("unknown"),
+                    is_string_literal: false,
+                },
+            };
+
+            return PolicyCondition::Predicate {
+                subject: subject_ref,
+                predicate,
+            };
+        } else if self.check_word("equals") {
+            // "user equals the document's owner"
+            self.advance(); // consume "equals"
+
+            // Skip "the" if present
+            if self.check_article() {
+                self.advance();
+            }
+
+            // Check for object field reference: "document's owner"
+            if let Some(obj_ref) = self.consume_noun_or_proper() {
+                if self.check_possessive() {
+                    self.advance(); // consume "'s"
+                    if let Some(field) = self.consume_noun_or_proper() {
+                        return PolicyCondition::ObjectFieldEquals {
+                            subject: subject_ref,
+                            object: obj_ref,
+                            field,
+                        };
+                    }
+                }
+            }
+        }
+
+        // Fallback: unknown condition
+        PolicyCondition::FieldEquals {
+            field: self.interner.intern("unknown"),
+            value: self.interner.intern("unknown"),
+            is_string_literal: false,
+        }
+    }
+
+    /// Consume a value (string literal or identifier), returning the symbol and whether it was a string literal
+    fn consume_value(&mut self) -> (Symbol, bool) {
+        if let Some(Token { kind: TokenType::StringLiteral(sym), .. }) = self.peek() {
+            let s = *sym;
+            self.advance();
+            (s, true)
+        } else if let Some(sym) = self.consume_noun_or_proper() {
+            (sym, false)
+        } else {
+            (self.interner.intern("unknown"), false)
+        }
+    }
+
+    /// Check for possessive marker ('s)
+    fn check_possessive(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::Possessive, .. }))
+    }
+
+    /// Skip to end of a multi-line policy definition
+    fn skip_policy_definition(&mut self) {
+        let mut depth = 0;
+        while self.pos < self.tokens.len() {
+            if self.check_indent() {
+                depth += 1;
+            } else if self.check_dedent() {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+            }
+            if self.check_period() && depth == 0 {
+                self.advance();
+                break;
+            }
+            if matches!(self.peek(), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                break;
+            }
+            self.advance();
         }
     }
 
@@ -397,61 +734,66 @@ impl<'a> DiscoveryPass<'a> {
                 continue;
             }
 
-            // Parse field: "a [public] name, which is Type." or "an x: Int."
-            if self.check_article() {
+            // Parse field: "a [public] name, which is Type." or "name: Type." (no article)
+            // Check for article (optional for concise syntax)
+            let has_article = self.check_article();
+            if has_article {
                 self.advance(); // consume "a"/"an"
+            }
 
-                // Check for "public" modifier
-                let has_public_keyword = if self.check_word("public") {
-                    self.advance();
-                    true
-                } else {
-                    false
-                };
-                // Visibility determined later based on syntax used
-                let mut is_public = has_public_keyword;
+            // Check for "public" modifier
+            let has_public_keyword = if self.check_word("public") {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            // Visibility determined later based on syntax used
+            let mut is_public = has_public_keyword;
 
-                // Get field name
-                if let Some(field_name) = self.consume_noun_or_proper() {
-                    // Support both syntaxes:
-                    // 1. "name: Type." (concise) - public by default (no visibility syntax)
-                    // 2. "name, which is Type." (natural) - private unless "public" keyword
-                    let ty = if self.check_colon() {
-                        // Concise syntax: "x: Int" - public by default
-                        is_public = true;
-                        self.advance(); // consume ":"
-                        self.consume_field_type_with_params(type_params)
-                    } else if self.check_comma() {
-                        // Natural syntax: uses has_public_keyword for visibility
-                        self.advance(); // consume ","
-                        // Consume "which"
-                        if self.check_word("which") {
-                            self.advance();
-                        }
-                        // Consume "is"
-                        if self.check_copula() {
-                            self.advance();
-                        }
-                        self.consume_field_type_with_params(type_params)
-                    } else {
-                        // Fallback: unknown type
-                        FieldType::Primitive(self.interner.intern("Unknown"))
-                    };
-
-                    fields.push(FieldDef {
-                        name: field_name,
-                        ty,
-                        is_public,
-                    });
-
-                    // Consume period
-                    if self.check_period() {
+            // Get field name - try to parse if we had article OR if next token looks like identifier
+            if let Some(field_name) = self.consume_noun_or_proper() {
+                // Support both syntaxes:
+                // 1. "name: Type." (concise) - public by default
+                // 2. "name, which is Type." (natural) - public by default
+                let ty = if self.check_colon() {
+                    // Concise syntax: "x: Int" - public by default
+                    is_public = true;
+                    self.advance(); // consume ":"
+                    self.consume_field_type_with_params(type_params)
+                } else if self.check_comma() {
+                    // Natural syntax: "name, which is Type" - also public by default
+                    is_public = true;
+                    self.advance(); // consume ","
+                    // Consume "which"
+                    if self.check_word("which") {
                         self.advance();
                     }
+                    // Consume "is"
+                    if self.check_copula() {
+                        self.advance();
+                    }
+                    self.consume_field_type_with_params(type_params)
+                } else if !has_article {
+                    // No colon and no article - this wasn't a field, skip
+                    continue;
                 } else {
-                    self.advance(); // skip malformed token
+                    // Fallback: unknown type
+                    FieldType::Primitive(self.interner.intern("Unknown"))
+                };
+
+                fields.push(FieldDef {
+                    name: field_name,
+                    ty,
+                    is_public,
+                });
+
+                // Consume period
+                if self.check_period() {
+                    self.advance();
                 }
-            } else {
+            } else if !has_article {
+                // Didn't have article and couldn't get field name - skip this token
                 self.advance();
             }
         }
@@ -466,19 +808,89 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Parse a field type reference
     fn consume_field_type(&mut self) -> FieldType {
+        // Skip article if present (e.g., "a Tally" -> "Tally")
+        if self.check_article() {
+            self.advance();
+        }
+
         if let Some(name) = self.consume_noun_or_proper() {
+            let name_str = self.interner.resolve(name);
+
+            // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
+            let modified_name = if name_str == "SharedSet" || name_str == "ORSet" {
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_removewins() {
+                        self.advance(); // consume "RemoveWins"
+                        Some("SharedSet_RemoveWins")
+                    } else if self.check_addwins() {
+                        self.advance(); // consume "AddWins"
+                        Some("SharedSet_AddWins")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else if name_str == "SharedSequence" {
+                // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_yata() {
+                        self.advance(); // consume "YATA"
+                        Some("SharedSequence_YATA")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use modified name if we found a modifier, otherwise use original
+            let final_name = modified_name.unwrap_or(name);
+            let final_name_str = self.interner.resolve(final_name);
+
+            // Phase 49c: Handle "SharedMap from K to V" / "ORMap from K to V" syntax
+            if (final_name_str == "SharedMap" || final_name_str == "ORMap") && self.check_from() {
+                self.advance(); // consume "from"
+                let key_type = self.consume_field_type();
+                // Expect "to" (can be TokenType::To or preposition)
+                if self.check_to() {
+                    self.advance(); // consume "to"
+                }
+                let value_type = self.consume_field_type();
+                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+            }
+
             // Check for generic: "List of Int", "Seq of Text"
             if self.check_preposition("of") {
                 self.advance();
                 let param = self.consume_field_type();
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
+            }
+
+            // Phase 49b: "Divergent T" syntax (no "of" required)
+            if final_name_str == "Divergent" {
+                // Next token should be the inner type
+                let param = self.consume_field_type();
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Check if primitive
-            let name_str = self.interner.resolve(name);
-            match name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
-                _ => FieldType::Named(name),
+            match final_name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                _ => FieldType::Named(final_name),
             }
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))
@@ -509,7 +921,15 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     fn check_copula(&self) -> bool {
-        matches!(self.peek(), Some(Token { kind: TokenType::Is | TokenType::Are, .. }))
+        match self.peek() {
+            Some(Token { kind: TokenType::Is | TokenType::Are, .. }) => true,
+            // Also match "is" when tokenized as a verb (common in declarative mode)
+            Some(Token { kind: TokenType::Verb { lemma, .. }, .. }) => {
+                let word = self.interner.resolve(*lemma).to_lowercase();
+                word == "is" || word == "are"
+            }
+            _ => false,
+        }
     }
 
     fn check_preposition(&self, word: &str) -> bool {
@@ -546,17 +966,39 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
-            // Phase 49: Accept Verb tokens that look like type names (uppercase, e.g., "Setting")
-            // These are -ing words that get classified as verbs but could be type names
+            // Phase 49/50: Accept Verb tokens as identifiers
+            // - Uppercase verbs like "Setting" are type names
+            // - Lowercase verbs like "trusted", "privileged" are predicate names
+            // Use lexeme to preserve the original word (not lemma which strips suffixes)
             TokenType::Verb { .. } => {
-                let lexeme_str = self.interner.resolve(t.lexeme);
-                if lexeme_str.chars().next().map_or(false, |c| c.is_uppercase()) {
-                    let sym = t.lexeme;
-                    self.advance();
-                    Some(sym)
-                } else {
-                    None
-                }
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            // Phase 49b: Accept CRDT type tokens as type names
+            TokenType::Tally => {
+                self.advance();
+                Some(self.interner.intern("Tally"))
+            }
+            TokenType::SharedSet => {
+                self.advance();
+                Some(self.interner.intern("SharedSet"))
+            }
+            TokenType::SharedSequence => {
+                self.advance();
+                Some(self.interner.intern("SharedSequence"))
+            }
+            TokenType::CollaborativeSequence => {
+                self.advance();
+                Some(self.interner.intern("CollaborativeSequence"))
+            }
+            TokenType::SharedMap => {
+                self.advance();
+                Some(self.interner.intern("SharedMap"))
+            }
+            TokenType::Divergent => {
+                self.advance();
+                Some(self.interner.intern("Divergent"))
             }
             _ => None
         }
@@ -617,6 +1059,43 @@ impl<'a> DiscoveryPass<'a> {
         matches!(self.peek(), Some(Token { kind: TokenType::RParen, .. }))
     }
 
+    /// Phase 49c: Check for AddWins token
+    fn check_addwins(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::AddWins, .. }))
+    }
+
+    /// Phase 49c: Check for RemoveWins token
+    fn check_removewins(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::RemoveWins, .. }))
+    }
+
+    /// Phase 49c: Check for YATA token
+    fn check_yata(&self) -> bool {
+        matches!(self.peek(), Some(Token { kind: TokenType::YATA, .. }))
+    }
+
+    /// Phase 49c: Check for "to" (either TokenType::To or preposition "to")
+    fn check_to(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::To, .. }) => true,
+            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
+                self.interner.resolve(*sym) == "to"
+            }
+            _ => false,
+        }
+    }
+
+    /// Phase 49c: Check for "from" (either TokenType::From or preposition "from")
+    fn check_from(&self) -> bool {
+        match self.peek() {
+            Some(Token { kind: TokenType::From, .. }) => true,
+            Some(Token { kind: TokenType::Preposition(sym), .. }) => {
+                self.interner.resolve(*sym) == "from"
+            }
+            _ => false,
+        }
+    }
+
     /// Phase 47: Check for Portable token
     fn check_portable(&self) -> bool {
         matches!(self.peek(), Some(Token { kind: TokenType::Portable, .. }))
@@ -675,6 +1154,8 @@ impl<'a> DiscoveryPass<'a> {
                     return FieldType::TypeParam(param_sym);
                 }
             }
+            // Article didn't match a type param, skip it (e.g., "a Tally" -> "Tally")
+            self.advance();
         }
 
         if let Some(name) = self.consume_noun_or_proper() {
@@ -683,18 +1164,83 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::TypeParam(name);
             }
 
+            let name_str = self.interner.resolve(name);
+
+            // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
+            let modified_name = if name_str == "SharedSet" || name_str == "ORSet" {
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_removewins() {
+                        self.advance(); // consume "RemoveWins"
+                        Some("SharedSet_RemoveWins")
+                    } else if self.check_addwins() {
+                        self.advance(); // consume "AddWins"
+                        Some("SharedSet_AddWins")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else if name_str == "SharedSequence" {
+                // Phase 49c: Check for algorithm modifier on SharedSequence: "SharedSequence (YATA) of T"
+                if self.check_lparen() {
+                    self.advance(); // consume "("
+                    let modifier = if self.check_yata() {
+                        self.advance(); // consume "YATA"
+                        Some("SharedSequence_YATA")
+                    } else {
+                        None
+                    };
+                    if self.check_rparen() {
+                        self.advance(); // consume ")"
+                    }
+                    modifier.map(|m| self.interner.intern(m))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Use modified name if we found a modifier, otherwise use original
+            let final_name = modified_name.unwrap_or(name);
+            let final_name_str = self.interner.resolve(final_name);
+
+            // Phase 49c: Handle "SharedMap from K to V" / "ORMap from K to V" syntax
+            if (final_name_str == "SharedMap" || final_name_str == "ORMap") && self.check_from() {
+                self.advance(); // consume "from"
+                let key_type = self.consume_field_type_with_params(type_params);
+                // Expect "to" (can be TokenType::To or preposition)
+                if self.check_to() {
+                    self.advance(); // consume "to"
+                }
+                let value_type = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
+            }
+
             // Check for generic: "List of Int", "Seq of Text", "List of T"
             if self.check_preposition("of") {
                 self.advance();
                 let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: name, params: vec![param] };
+                return FieldType::Generic { base: final_name, params: vec![param] };
+            }
+
+            // Phase 49b: "Divergent T" syntax (no "of" required)
+            if final_name_str == "Divergent" {
+                // Next token should be the inner type
+                let param = self.consume_field_type_with_params(type_params);
+                return FieldType::Generic { base: final_name, params: vec![param] };
             }
 
             // Check if primitive
-            let name_str = self.interner.resolve(name);
-            match name_str {
-                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(name),
-                _ => FieldType::Named(name),
+            match final_name_str {
+                "Int" | "Nat" | "Text" | "Bool" | "Real" | "Unit" => FieldType::Primitive(final_name),
+                _ => FieldType::Named(final_name),
             }
         } else {
             FieldType::Primitive(self.interner.intern("Unknown"))

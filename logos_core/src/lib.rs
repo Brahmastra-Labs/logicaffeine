@@ -2,48 +2,40 @@
 
 pub mod io;
 pub mod types;
-pub mod file;
-pub mod time;
-pub mod random;
-pub mod env;
-pub mod memory;
-// Phase 48: Network primitives
-pub mod network;
-// Phase 49: CRDT primitives
+// Phase 53: Virtual File System (cross-platform)
+pub mod fs;
+// Phase 49: CRDT primitives (cross-platform)
 pub mod crdt;
+// Phase 55: Persistent storage (cross-platform, uses async-lock)
+pub mod storage;
+// Phase 56: Distributed<T> - unified persistence + network (cross-platform)
+pub mod distributed;
+// Phase 57: Polymorphic indexing (Vec + HashMap)
+pub mod indexing;
+
+// Native-only modules
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod time;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod random;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod env;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod memory;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod network;
+// Phase 54: Go-like concurrency primitives (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub mod concurrency;
+
+// Phase 51: Re-export tokio for async main support (native only)
+#[cfg(not(target_arch = "wasm32"))]
+pub use tokio;
 
 pub fn panic_with(reason: &str) -> ! {
     panic!("{}", reason);
-}
-
-/// Phase 43D: 1-based indexing with clear error messages
-///
-/// LOGOS uses 1-based indexing to match natural language ("the first item").
-/// This function converts 1-based indices to 0-based and provides helpful
-/// error messages for out-of-bounds access.
-#[inline]
-pub fn logos_index<T: Copy>(slice: &[T], index: i64) -> T {
-    if index < 1 {
-        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
-    }
-    let idx = (index - 1) as usize;
-    if idx >= slice.len() {
-        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
-    }
-    slice[idx]
-}
-
-/// Phase 43D: 1-based mutable indexing with clear error messages
-#[inline]
-pub fn logos_index_mut<T>(slice: &mut [T], index: i64) -> &mut T {
-    if index < 1 {
-        panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum index is 1)", index);
-    }
-    let idx = (index - 1) as usize;
-    if idx >= slice.len() {
-        panic!("Index {} is out of bounds for seq of length {}", index, slice.len());
-    }
-    &mut slice[idx]
 }
 
 pub mod fmt {
@@ -54,22 +46,36 @@ pub mod fmt {
 
 pub mod prelude {
     pub use crate::io::{show, read_line, println, eprintln, print, Showable};
-    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Seq};
+    pub use crate::types::{Nat, Int, Real, Text, Bool, Unit, Char, Byte, Seq, Map, Set, LogosContains, Value, Tuple};
     pub use crate::panic_with;
     pub use crate::fmt::format;
-    pub use crate::file::{read, write};
-    pub use crate::time::{now, sleep};
-    pub use crate::random::{randomInt, randomFloat};
-    pub use crate::env::{get, args};
-    // Phase 43D: Collection indexing helpers
-    pub use crate::logos_index;
-    pub use crate::logos_index_mut;
-    // Phase 8.5: Zone-based memory management
-    pub use crate::memory::Zone;
-    // Phase 48: Sipping protocol
-    pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 57: Polymorphic indexing traits
+    pub use crate::indexing::{LogosIndex, LogosIndexMut};
     // Phase 49: CRDT primitives
     pub use crate::crdt::{GCounter, LWWRegister, Merge};
+    // Phase 56: Distributed<T>
+    pub use crate::distributed::Distributed;
+
+    // Native-only prelude exports
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::file::{read, write};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::time::{now, sleep};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::random::{randomInt, randomFloat};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::env::{get, args};
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::memory::Zone;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::network::{FileSipper, FileManifest, FileChunk};
+    // Phase 54: Go-like concurrency primitives
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::concurrency::{
+        spawn, TaskHandle,
+        Pipe, PipeSender, PipeReceiver,
+        check_preemption, reset_preemption_timer,
+    };
 }
 
 #[cfg(test)]

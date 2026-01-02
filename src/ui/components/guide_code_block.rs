@@ -115,7 +115,7 @@ const CODE_BLOCK_STYLE: &str = r#"
 
 .guide-code-textarea {
     width: 100%;
-    min-height: 120px;
+    min-height: 80px;
     padding: 16px;
     background: transparent;
     border: none;
@@ -157,8 +157,6 @@ const CODE_BLOCK_STYLE: &str = r#"
     line-height: 1.6;
     white-space: pre-wrap;
     word-break: break-word;
-    max-height: 300px;
-    overflow-y: auto;
 }
 
 .guide-code-output-content.success {
@@ -247,18 +245,22 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
                 }
             }
             ExampleMode::Imperative => {
-                // Use the real LOGOS parser + tree-walking interpreter
-                let result = interpret_for_ui(&current_code);
-                if let Some(err) = result.error {
-                    output.set(err);
-                    output_type.set("error".to_string());
-                } else if result.lines.is_empty() {
-                    output.set("(no output)".to_string());
-                    output_type.set("info".to_string());
-                } else {
-                    output.set(result.lines.join("\n"));
-                    output_type.set("success".to_string());
-                }
+                // Phase 55: interpret_for_ui is now async for VFS support
+                spawn(async move {
+                    let result = interpret_for_ui(&current_code).await;
+                    if let Some(err) = result.error {
+                        output.set(err);
+                        output_type.set("error".to_string());
+                    } else if result.lines.is_empty() {
+                        output.set("(no output)".to_string());
+                        output_type.set("info".to_string());
+                    } else {
+                        output.set(result.lines.join("\n"));
+                        output_type.set("success".to_string());
+                    }
+                    is_running.set(false);
+                });
+                return;
             }
         }
 
@@ -311,6 +313,10 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
         ExampleMode::Imperative => "Run",
     };
 
+    // Calculate rows based on code line count for textarea auto-sizing
+    let line_count = code.read().lines().count();
+    let rows = (line_count + 2).max(4) as i64; // minimum 4 rows, +2 for editing room
+
     rsx! {
         style { "{CODE_BLOCK_STYLE}" }
 
@@ -358,6 +364,7 @@ pub fn GuideCodeBlock(props: GuideCodeBlockProps) -> Element {
             div { class: "guide-code-editor",
                 textarea {
                     class: "guide-code-textarea",
+                    rows: rows,
                     value: "{code}",
                     oninput: move |evt| code.set(evt.value()),
                     spellcheck: "false",
