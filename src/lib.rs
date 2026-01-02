@@ -554,6 +554,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         }
     });
 
+    // Detect modal polysemy (may, can, could)
+    // These modals have multiple valid readings that require parse forest forking
+    let has_may = tokens.iter().any(|t| matches!(t.kind, token::TokenType::May));
+    let has_can = tokens.iter().any(|t| matches!(t.kind, token::TokenType::Can));
+    let has_could = tokens.iter().any(|t| matches!(t.kind, token::TokenType::Could));
+
     let mut results: Vec<String> = Vec::new();
 
     // Reading 1: Default mode (verb priority for Ambiguous tokens)
@@ -738,8 +744,74 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 7: Epistemic modal preference (May=Possibility, Could=Possibility)
+    // Produces wide scope readings for polysemous modals
+    if has_may || has_could {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        parser.set_modal_preference(parser::ModalPreference::Epistemic);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 8: Deontic modal preference (Can=Permission)
+    // Produces deontic permission reading for "can"
+    if has_can {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_modal_preference(parser::ModalPreference::Deontic);
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);

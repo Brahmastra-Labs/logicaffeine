@@ -332,3 +332,168 @@ fn unaccusative_melt_intransitive() {
         result
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// MODAL POLYSEMY TESTS (Parse Forest Forking)
+// ═══════════════════════════════════════════════════════════════════
+//
+// Polysemous modals produce multiple valid readings:
+//   may: Permission (Deontic, Root) vs Possibility (Alethic, Epistemic)
+//   can: Ability (Alethic, Root) vs Permission (Deontic, Root)
+//   could: Past Ability (Alethic, Root) vs Conditional Possibility (Alethic, Epistemic)
+//
+// ═══════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────
+// MAY: Permission vs Possibility
+// ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn may_polysemy_permission_vs_possibility() {
+    // "Students may leave" should produce both readings:
+    // 1. Permission (Root): ∀x(Student(x) → P_{0.5}(Leave(x)))
+    // 2. Possibility (Epistemic): ◇∀x(Student(x) → Leave(x))
+    let results = logos::compile_forest("Students may leave.");
+
+    eprintln!("May polysemy readings ({}):", results.len());
+    for (i, r) in results.iter().enumerate() {
+        eprintln!("  {}: {}", i + 1, r);
+    }
+
+    assert!(results.len() >= 2,
+        "Should have at least 2 readings. Got: {:?}", results);
+
+    // Permission reading: deontic P inside quantifier (narrow scope)
+    let has_permission = results.iter().any(|r| r.contains("P_") && !r.starts_with("◇"));
+    // Possibility reading: alethic ◇ outside quantifier (wide scope)
+    let has_possibility = results.iter().any(|r| r.starts_with("◇"));
+
+    assert!(has_permission, "Should have permission reading (P_). Got: {:?}", results);
+    assert!(has_possibility, "Should have possibility reading (◇). Got: {:?}", results);
+}
+
+#[test]
+fn may_permission_narrow_scope() {
+    // Permission reading: "Students are allowed to leave"
+    // ∀x(Student(x) → P_{0.5}(Leave(x)))
+    let output = logos::compile("Students may leave.").unwrap();
+    eprintln!("May permission: {}", output);
+
+    // Default should be permission (Root/Narrow)
+    assert!(output.contains("P_"),
+        "Default 'may' should be permission (P_). Got: {}", output);
+
+    // Quantifier before modal (narrow scope)
+    if let (Some(q_pos), Some(p_pos)) = (output.find('∀'), output.find("P_")) {
+        assert!(q_pos < p_pos,
+            "Permission 'may' should have narrow scope. Got: {}", output);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CAN: Ability vs Permission
+// ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn can_polysemy_ability_vs_permission() {
+    // "Students can leave" should produce both readings:
+    // 1. Ability (Alethic): ∀x(Student(x) → ◇_{0.5}(Leave(x)))
+    // 2. Permission (Deontic): ∀x(Student(x) → P_{0.5}(Leave(x)))
+    let results = logos::compile_forest("Students can leave.");
+
+    eprintln!("Can polysemy readings ({}):", results.len());
+    for (i, r) in results.iter().enumerate() {
+        eprintln!("  {}: {}", i + 1, r);
+    }
+
+    assert!(results.len() >= 2,
+        "Should have at least 2 readings. Got: {:?}", results);
+
+    // Ability reading: alethic ◇
+    let has_ability = results.iter().any(|r| r.contains("◇"));
+    // Permission reading: deontic P
+    let has_permission = results.iter().any(|r| r.contains("P_"));
+
+    assert!(has_ability, "Should have ability reading (◇). Got: {:?}", results);
+    assert!(has_permission, "Should have permission reading (P_). Got: {:?}", results);
+}
+
+#[test]
+fn can_ability_narrow_scope() {
+    // Default "can" = ability (Alethic, Root/Narrow)
+    // Use quantified subject to test scope
+    let output = logos::compile("Some birds can fly.").unwrap();
+    eprintln!("Can ability: {}", output);
+
+    // Should use ◇ (alethic possibility)
+    assert!(output.contains("◇"),
+        "Default 'can' should be ability (◇). Got: {}", output);
+
+    // Quantifier before modal (narrow scope)
+    let q_pos = output.find('∃').expect("Should have ∃ quantifier");
+    let m_pos = output.find('◇').expect("Should have ◇ modal");
+    assert!(q_pos < m_pos, "Ability 'can' should have narrow scope. Got: {}", output);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// COULD: Past Ability vs Conditional Possibility
+// ─────────────────────────────────────────────────────────────────
+// Note: "could" polysemy differs from "may"/"can" because both readings
+// use Alethic domain with force 0.5. The ONLY difference is SCOPE:
+//   - Default (Root): narrow scope - quantifier BEFORE modal
+//   - Epistemic: wide scope - modal BEFORE quantifier
+// This means we MUST use quantified subjects to observe the difference.
+
+#[test]
+fn could_polysemy_narrow_vs_wide_scope() {
+    // "Some students could pass" should produce both readings:
+    // 1. Past Ability (Root/Narrow): ∃x(Student(x) ∧ ◇Pass(x))
+    // 2. Conditional Possibility (Epistemic/Wide): ◇∃x(Student(x) ∧ Pass(x))
+    let results = logos::compile_forest("Some students could pass.");
+
+    eprintln!("Could polysemy readings ({}):", results.len());
+    for (i, r) in results.iter().enumerate() {
+        eprintln!("  {}: {}", i + 1, r);
+    }
+
+    assert!(results.len() >= 2,
+        "Should have at least 2 readings. Got: {:?}", results);
+
+    // Narrow scope: quantifier (∃) comes before modal (◇)
+    let has_narrow = results.iter().any(|r| {
+        if let (Some(q), Some(m)) = (r.find('∃'), r.find('◇')) {
+            q < m
+        } else {
+            false
+        }
+    });
+
+    // Wide scope: modal (◇) comes before quantifier (∃)
+    let has_wide = results.iter().any(|r| {
+        if let (Some(q), Some(m)) = (r.find('∃'), r.find('◇')) {
+            m < q
+        } else {
+            false
+        }
+    });
+
+    assert!(has_narrow, "Should have narrow scope reading (∃...◇). Got: {:?}", results);
+    assert!(has_wide, "Should have wide scope reading (◇...∃). Got: {:?}", results);
+}
+
+#[test]
+fn could_default_narrow_scope() {
+    // Default "could" = past ability (Alethic, Root/Narrow)
+    // Use quantified subject to test scope
+    let output = logos::compile("Some students could pass.").unwrap();
+    eprintln!("Could past ability: {}", output);
+
+    // Should have ◇ (alethic possibility)
+    assert!(output.contains("◇"),
+        "Default 'could' should use ◇. Got: {}", output);
+
+    // Quantifier before modal (narrow scope)
+    let q_pos = output.find('∃').expect("Should have ∃ quantifier");
+    let m_pos = output.find('◇').expect("Should have ◇ modal");
+    assert!(q_pos < m_pos, "Default 'could' should have narrow scope. Got: {}", output);
+}

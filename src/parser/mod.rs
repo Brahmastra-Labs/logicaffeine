@@ -59,6 +59,24 @@ pub enum NegativeScopeMode {
     Wide,
 }
 
+/// Controls interpretation of polysemous modals (may, can, could).
+/// Used by compile_forest to generate multiple semantic readings.
+///
+/// Semantic Matrix:
+///   may:   Default=Permission (Deontic, Root)    Epistemic=Possibility (Alethic, Epistemic)
+///   can:   Default=Ability (Alethic, Root)       Deontic=Permission (Deontic, Root)
+///   could: Default=PastAbility (Alethic, Root)   Epistemic=Possibility (Alethic, Epistemic)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModalPreference {
+    /// Default readings: may=Permission, can=Ability, could=PastAbility
+    #[default]
+    Default,
+    /// Epistemic readings: may=Possibility (wide scope), could=Possibility (wide scope)
+    Epistemic,
+    /// Deontic readings: can=Permission (narrow scope, deontic domain)
+    Deontic,
+}
+
 #[derive(Clone)]
 struct ParserCheckpoint {
     pos: usize,
@@ -134,6 +152,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) event_reading_mode: bool,
     pub(super) drs: Drs,
     pub(super) negative_scope_mode: NegativeScopeMode,
+    pub(super) modal_preference: ModalPreference,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -165,6 +184,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             event_reading_mode: false,
             drs: Drs::new(),
             negative_scope_mode: NegativeScopeMode::default(),
+            modal_preference: ModalPreference::default(),
         }
     }
 
@@ -182,6 +202,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
         self.negative_scope_mode = mode;
+    }
+
+    pub fn set_modal_preference(&mut self, pref: ModalPreference) {
+        self.modal_preference = pref;
     }
 
     pub fn with_context(
@@ -213,6 +237,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             event_reading_mode: false,
             drs: Drs::new(),
             negative_scope_mode: NegativeScopeMode::default(),
+            modal_preference: ModalPreference::default(),
         }
     }
 
@@ -249,6 +274,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             event_reading_mode: false,
             drs: Drs::new(),
             negative_scope_mode: NegativeScopeMode::default(),
+            modal_preference: ModalPreference::default(),
         }
     }
 

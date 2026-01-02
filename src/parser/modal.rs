@@ -219,6 +219,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
     fn token_to_vector(&self, token: &TokenType) -> ModalVector {
         use crate::ast::ModalFlavor;
+        use super::ModalPreference;
 
         match token {
             // Root modals → Narrow Scope (De Re)
@@ -233,16 +234,55 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 force: 0.0,
                 flavor: ModalFlavor::Root,
             },
-            TokenType::Can => ModalVector {
-                domain: ModalDomain::Alethic,
-                force: 0.5,
-                flavor: ModalFlavor::Root,
+
+            // Polysemous modal: CAN
+            // Default: Ability (Alethic, Root/Narrow)
+            // Deontic: Permission (Deontic, Root/Narrow)
+            TokenType::Can => {
+                match self.modal_preference {
+                    ModalPreference::Deontic => {
+                        // Permission: "You can go" (Deontic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Deontic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                    _ => {
+                        // Ability: "Birds can fly" (Alethic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                }
             },
-            TokenType::Could => ModalVector {
-                domain: ModalDomain::Alethic,
-                force: 0.5,
-                flavor: ModalFlavor::Root,
+
+            // Polysemous modal: COULD
+            // Default: Past Ability (Alethic, Root/Narrow)
+            // Epistemic: Conditional Possibility (Alethic, Epistemic/Wide)
+            TokenType::Could => {
+                match self.modal_preference {
+                    ModalPreference::Epistemic => {
+                        // Conditional Possibility: "It could rain" (Alethic, Wide Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Epistemic,
+                        }
+                    }
+                    _ => {
+                        // Past Ability: "She could swim" (Alethic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                }
             },
+
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
@@ -266,10 +306,29 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 force: 0.3,
                 flavor: ModalFlavor::Epistemic,
             },
-            TokenType::May => ModalVector {
-                domain: ModalDomain::Deontic,
-                force: 0.5,
-                flavor: ModalFlavor::Epistemic,
+
+            // Polysemous modal: MAY
+            // Default: Permission (Deontic, Root/Narrow)
+            // Epistemic: Possibility (Alethic, Epistemic/Wide)
+            TokenType::May => {
+                match self.modal_preference {
+                    ModalPreference::Epistemic => {
+                        // Possibility: "It may rain" (Alethic, Wide Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Epistemic,
+                        }
+                    }
+                    _ => {
+                        // Permission: "Students may leave" (Deontic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Deontic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                }
             },
 
             _ => panic!("Unknown modal token: {:?}", token),
