@@ -743,24 +743,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     pub fn parse(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
-        let first = self.parse_sentence()?;
+        let mut result = self.parse_sentence()?;
 
-        // Only continue to second sentence if there was a period separator
-        // AND there are more tokens after the period
-        if self.check(&TokenType::Period) {
-            self.advance();
-
+        // Loop: handle ANY number of additional sentences (unlimited)
+        // Handle all sentence terminators: . ? !
+        while self.check(&TokenType::Period) || self.check(&TokenType::Exclamation) {
+            self.advance(); // consume terminator
             if !self.is_at_end() {
-                let second = self.parse_sentence()?;
-                return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: first,
+                let next = self.parse_sentence()?;
+                result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: result,
                     op: TokenType::And,
-                    right: second,
-                }));
+                    right: next,
+                });
             }
         }
 
-        Ok(first)
+        Ok(result)
     }
 
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
@@ -4629,6 +4628,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Cannot
                 | TokenType::Could
                 | TokenType::Would
+                | TokenType::Might
         )
     }
 

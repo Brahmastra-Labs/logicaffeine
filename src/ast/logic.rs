@@ -196,10 +196,21 @@ pub enum ModalDomain {
     Deontic,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalFlavor {
+    /// Root modals (ability, obligation): can, must, should, shall, could, would
+    /// These get NARROW scope (de re) - modal attaches to the predicate inside quantifier
+    Root,
+    /// Epistemic modals (possibility, deduction): might, may
+    /// These get WIDE scope (de dicto) - modal wraps the entire quantifier
+    Epistemic,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ModalVector {
     pub domain: ModalDomain,
     pub force: f32,
+    pub flavor: ModalFlavor,
 }
 
 // ═══════════════════════════════════════════════════════════════════

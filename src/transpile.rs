@@ -245,6 +245,12 @@ impl<'a> LogicExpr<'a> {
 
             LogicExpr::Quantifier { kind, variable, body, .. } => {
                 let var_str = interner.resolve(*variable);
+
+                // In SimpleFOL mode, skip event quantifiers (variables named "e" or starting with "e" followed by digits)
+                if fmt.use_simple_events() && (var_str == "e" || var_str.starts_with("e") && var_str[1..].chars().all(|c| c.is_ascii_digit())) {
+                    return body.write_logic(w, registry, interner, fmt);
+                }
+
                 let mut body_buf = String::new();
                 body.write_logic(&mut body_buf, registry, interner, fmt)?;
                 write!(w, "{}", fmt.quantifier(kind, var_str, &body_buf))
@@ -368,7 +374,8 @@ impl<'a> LogicExpr<'a> {
                     write!(w, "(")?;
                     let mut first = true;
                     for (role, term) in data.roles.iter() {
-                        if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme) {
+                        // Include core thematic roles in SimpleFOL output
+                        if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme | ThematicRole::Goal | ThematicRole::Location) {
                             if !first {
                                 write!(w, ", ")?;
                             }

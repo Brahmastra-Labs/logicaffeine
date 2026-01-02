@@ -237,6 +237,7 @@ pub fn compile_with_context_options(
     // Pass 2: Parse with type context
     let mut parser = Parser::with_types(tokens, ctx, &mut interner, ast_ctx, type_registry);
     let ast = parser.parse()?;
+    let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
     Ok(ast.transpile(&mut registry, &interner, options.format))
 }
@@ -288,6 +289,7 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
         let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
         parser.set_discourse_event_var(event_var_symbol);
         let ast = parser.parse()?;
+        let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
         results.push(ast.transpile(&mut registry, &interner, options.format));
     }
 
@@ -367,6 +369,7 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
             &intensional_role_arena,
         );
         for reading in intensional_readings {
+            let reading = semantics::apply_axioms(reading, &intensional_arena, &intensional_term_arena, &mut interner);
             let mut registry = SymbolRegistry::new();
             results.push(reading.transpile(&mut registry, &interner, options.format));
         }
@@ -414,6 +417,7 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
     let mut discourse = DiscourseContext::new();
     let mut parser = Parser::with_types(tokens.clone(), &mut discourse, &mut interner, ctx, type_registry.clone());
     let ast = parser.parse()?;
+    let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
     let reading1 = ast.transpile(&mut registry, &interner, options.format);
 
@@ -447,6 +451,7 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
         let mut parser2 = Parser::with_types(tokens, &mut discourse2, &mut interner, ctx2, type_registry);
         parser2.set_pp_attachment_mode(true);
         let ast2 = parser2.parse()?;
+        let ast2 = semantics::apply_axioms(ast2, ctx2.exprs, ctx2.terms, &mut interner);
         let mut registry2 = SymbolRegistry::new();
         let reading2 = ast2.transpile(&mut registry2, &interner, options.format);
 
@@ -563,6 +568,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_noun_priority_mode(false);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             results.push(ast.transpile(&mut registry, &interner, options.format));
         }
@@ -591,6 +597,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_noun_priority_mode(true);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -622,6 +629,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_pp_attachment_mode(true);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -655,6 +663,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         if let Ok(ast) = parser.parse() {
             // Transform cardinal quantifiers to group quantifiers for collective reading
             if let Ok(transformed) = parser.transform_cardinal_to_group(ast) {
+                let transformed = semantics::apply_axioms(transformed, ast_ctx.exprs, ast_ctx.terms, &mut interner);
                 let mut registry = SymbolRegistry::new();
                 let reading = transformed.transpile(&mut registry, &interner, options.format);
                 if !results.contains(&reading) {
@@ -687,6 +696,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         parser.set_event_reading_mode(true);
 
         if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -915,6 +925,7 @@ fn term_to_ast_node(term: &Term, interner: &Interner) -> AstNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResult {
     pub logic: Option<String>,
+    pub simple_logic: Option<String>,
     pub ast: Option<AstNode>,
     pub readings: Vec<String>,
     pub tokens: Vec<TokenInfo>,
@@ -960,12 +971,17 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
 
     match parser.parse() {
         Ok(ast) => {
+            // Apply semantic normalization (canonical forms: lack -> ¬Have, etc.)
+            let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
+            let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
             let ast_node = expr_to_ast_node(ast, &interner);
             let mut registry = SymbolRegistry::new();
             let logic = ast.transpile(&mut registry, &interner, OutputFormat::Unicode);
+            let simple_logic = ast.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
             CompileResult {
                 logic: Some(logic),
+                simple_logic: Some(simple_logic),
                 ast: Some(ast_node),
                 readings,
                 tokens,
@@ -976,6 +992,7 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let advice = socratic_explanation(&e, &interner);
             CompileResult {
                 logic: None,
+                simple_logic: None,
                 ast: None,
                 readings: Vec::new(),
                 tokens,

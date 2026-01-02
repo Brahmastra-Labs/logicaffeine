@@ -162,7 +162,8 @@ fn test_deep_right_branching() {
     match result {
         Ok(output) => {
             let has_see = output.contains("See") || output.contains("S(");
-            let has_own = output.contains("Own") || output.contains("O(");
+            // "own" is a synonym of "have" so it gets normalized to canonical form
+            let has_own = output.contains("Own") || output.contains("O(") || output.contains("Have");
             let has_chase = output.contains("Chase") || output.contains("C(");
             let has_eat = output.contains("Eat") || output.contains("E(");
             assert!(
@@ -246,7 +247,8 @@ fn test_negative_quantifier_donkey() {
         Ok(output) => {
             let has_universal = output.contains("∀");
             let has_negation = output.contains("¬");
-            let has_own = output.contains("Own") || output.contains("O(");
+            // "own" is a synonym of "have" so it gets normalized to canonical form
+            let has_own = output.contains("Own") || output.contains("O(") || output.contains("Have");
             let has_beat = output.contains("Beat") || output.contains("B(");
             assert!(
                 has_universal || has_negation,
@@ -255,7 +257,7 @@ fn test_negative_quantifier_donkey() {
             );
             assert!(
                 has_own && has_beat,
-                "Donkey sentence should contain Own and Beat: got '{}'",
+                "Donkey sentence should contain Own/Have and Beat: got '{}'",
                 output
             );
         }
@@ -272,7 +274,8 @@ fn test_conditional_donkey_sentence() {
         Ok(output) => {
             let has_conditional = output.contains("→");
             let has_universal = output.contains("∀");
-            let has_own = output.contains("Own") || output.contains("O(");
+            // "own" is a synonym of "have" so it gets normalized to canonical form
+            let has_own = output.contains("Own") || output.contains("O(") || output.contains("Have");
             let has_beat = output.contains("Beat") || output.contains("B(");
             assert!(
                 has_conditional || has_universal,

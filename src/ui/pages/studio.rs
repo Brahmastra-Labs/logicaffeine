@@ -165,12 +165,13 @@ pub fn Studio() -> Element {
     let mut input = use_signal(String::new);
     let mut result = use_signal(|| CompileResult {
         logic: None,
+        simple_logic: None,
         ast: None,
         readings: Vec::new(),
         tokens: Vec::new(),
         error: None,
     });
-    let mut format = use_signal(|| OutputFormat::Unicode);
+    let mut format = use_signal(|| OutputFormat::SimpleFOL);
 
     let mut left_width = use_signal(|| 35.0f64);
     let mut right_width = use_signal(|| 25.0f64);
@@ -184,6 +185,7 @@ pub fn Studio() -> Element {
         } else {
             result.set(CompileResult {
                 logic: None,
+                simple_logic: None,
                 ast: None,
                 readings: Vec::new(),
                 tokens: Vec::new(),
@@ -276,9 +278,14 @@ pub fn Studio() -> Element {
                         span { "Logic Output" }
                         div { class: "format-toggle",
                             button {
+                                class: if current_format == OutputFormat::SimpleFOL { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| format.set(OutputFormat::SimpleFOL),
+                                "Simple"
+                            }
+                            button {
                                 class: if current_format == OutputFormat::Unicode { "format-btn active" } else { "format-btn" },
                                 onclick: move |_| format.set(OutputFormat::Unicode),
-                                "\u{2200}x"
+                                "Full"
                             }
                             button {
                                 class: if current_format == OutputFormat::LaTeX { "format-btn active" } else { "format-btn" },
@@ -290,6 +297,7 @@ pub fn Studio() -> Element {
                     div { class: "panel-content",
                         LogicOutput {
                             logic: current_result.logic.clone(),
+                            simple_logic: current_result.simple_logic.clone(),
                             readings: current_result.readings.clone(),
                             error: current_result.error.clone(),
                             format: current_format,

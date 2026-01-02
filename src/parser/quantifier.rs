@@ -78,68 +78,27 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let subject_pred = self.parse_restriction(var_name)?;
 
         if self.check_modal() {
+            use crate::ast::ModalFlavor;
+
             self.advance();
             let vector = self.token_to_vector(&self.previous().kind.clone());
             let verb = self.consume_content_word()?;
 
-            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: verb,
-                args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
-            });
-
-            let body = match quantifier_token {
-                TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::If,
-                    right: verb_pred,
-                }),
-                TokenType::Any => {
-                    if self.is_negative_context() {
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::And,
-                            right: verb_pred,
-                        })
-                    } else {
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::If,
-                            right: verb_pred,
-                        })
-                    }
-                }
-                TokenType::Some
-                | TokenType::Most
-                | TokenType::Few
-                | TokenType::Many
-                | TokenType::Cardinal(_)
-                | TokenType::AtLeast(_)
-                | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::And,
-                    right: verb_pred,
-                }),
-                TokenType::No => {
-                    let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                        op: TokenType::Not,
-                        operand: verb_pred,
-                    });
-                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::If,
-                        right: neg,
-                    })
-                }
-                _ => {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnknownQuantifier {
-                            found: quantifier_token.clone(),
-                        },
-                        span: self.current_span(),
-                    })
-                }
+            // Parse object if present (e.g., "can enter the room" -> room is object)
+            let verb_args = if self.check_content_word() || self.check_article() {
+                let obj_np = self.parse_noun_phrase(false)?;
+                let obj_term = self.noun_phrase_to_term(&obj_np);
+                self.ctx.terms.alloc_slice([Term::Variable(var_name), obj_term])
+            } else {
+                self.ctx.terms.alloc_slice([Term::Variable(var_name)])
             };
 
+            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: verb,
+                args: verb_args,
+            });
+
+            // Determine quantifier kind first (shared by both branches)
             let kind = match quantifier_token {
                 TokenType::All | TokenType::No => QuantifierKind::Universal,
                 TokenType::Any => {
@@ -166,17 +125,150 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 }
             };
 
-            let quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                kind,
-                variable: var_name,
-                body,
-                island_id: self.current_island,
-            });
+            // Branch on modal flavor for scope handling
+            if vector.flavor == ModalFlavor::Root {
+                // === NARROW SCOPE (De Re) ===
+                // Root modals (can, must, should) attach to the predicate inside the quantifier
+                // "Some birds can fly" → ∃x(Bird(x) ∧ ◇Fly(x))
 
-            return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
-                vector,
-                operand: quantified,
-            }));
+                // Wrap the verb predicate in the modal
+                let modal_verb = self.ctx.exprs.alloc(LogicExpr::Modal {
+                    vector,
+                    operand: verb_pred,
+                });
+
+                let body = match quantifier_token {
+                    TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::If,
+                        right: modal_verb,
+                    }),
+                    TokenType::Any => {
+                        if self.is_negative_context() {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::And,
+                                right: modal_verb,
+                            })
+                        } else {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::If,
+                                right: modal_verb,
+                            })
+                        }
+                    }
+                    TokenType::Some
+                    | TokenType::Most
+                    | TokenType::Few
+                    | TokenType::Many
+                    | TokenType::Cardinal(_)
+                    | TokenType::AtLeast(_)
+                    | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::And,
+                        right: modal_verb,
+                    }),
+                    TokenType::No => {
+                        let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: modal_verb,
+                        });
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: subject_pred,
+                            op: TokenType::If,
+                            right: neg,
+                        })
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnknownQuantifier {
+                                found: quantifier_token.clone(),
+                            },
+                            span: self.current_span(),
+                        })
+                    }
+                };
+
+                // Return quantifier directly (modal is inside)
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind,
+                    variable: var_name,
+                    body,
+                    island_id: self.current_island,
+                }));
+
+            } else {
+                // === WIDE SCOPE (De Dicto) ===
+                // Epistemic modals (might, may) wrap the entire quantifier
+                // "Some unicorns might exist" → ◇∃x(Unicorn(x) ∧ Exist(x))
+
+                let body = match quantifier_token {
+                    TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::If,
+                        right: verb_pred,
+                    }),
+                    TokenType::Any => {
+                        if self.is_negative_context() {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::And,
+                                right: verb_pred,
+                            })
+                        } else {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::If,
+                                right: verb_pred,
+                            })
+                        }
+                    }
+                    TokenType::Some
+                    | TokenType::Most
+                    | TokenType::Few
+                    | TokenType::Many
+                    | TokenType::Cardinal(_)
+                    | TokenType::AtLeast(_)
+                    | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::And,
+                        right: verb_pred,
+                    }),
+                    TokenType::No => {
+                        let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: verb_pred,
+                        });
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: subject_pred,
+                            op: TokenType::If,
+                            right: neg,
+                        })
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnknownQuantifier {
+                                found: quantifier_token.clone(),
+                            },
+                            span: self.current_span(),
+                        })
+                    }
+                };
+
+                let quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind,
+                    variable: var_name,
+                    body,
+                    island_id: self.current_island,
+                });
+
+                // Wrap the entire quantifier in the modal
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
+                    vector,
+                    operand: quantified,
+                }));
+            }
         }
 
         if self.check_auxiliary() {
@@ -625,17 +717,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             });
 
             for (_noun, donkey_var, used) in self.donkey_bindings.iter().rev() {
-                let kind = if *used {
-                    QuantifierKind::Universal
+                if *used {
+                    // Donkey anaphora: wrap with ∀ at outer scope
+                    result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                        kind: QuantifierKind::Universal,
+                        variable: *donkey_var,
+                        body: result,
+                        island_id: self.current_island,
+                    });
                 } else {
-                    QuantifierKind::Existential
-                };
-                result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                    kind,
-                    variable: *donkey_var,
-                    body: result,
-                    island_id: self.current_island,
-                });
+                    // Non-donkey: wrap with ∃ INSIDE the restriction
+                    result = self.wrap_donkey_in_restriction(result, *donkey_var);
+                }
             }
             self.donkey_bindings.clear();
 
@@ -752,17 +845,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         });
 
         for (_noun, donkey_var, used) in self.donkey_bindings.iter().rev() {
-            let donkey_kind = if *used {
-                QuantifierKind::Universal
+            if *used {
+                // Donkey anaphora: wrap with ∀ at outer scope
+                result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: QuantifierKind::Universal,
+                    variable: *donkey_var,
+                    body: result,
+                    island_id: self.current_island,
+                });
             } else {
-                QuantifierKind::Existential
-            };
-            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                kind: donkey_kind,
-                variable: *donkey_var,
-                body: result,
-                island_id: self.current_island,
-            });
+                // Non-donkey: wrap with ∃ INSIDE the restriction
+                result = self.wrap_donkey_in_restriction(result, *donkey_var);
+            }
         }
         self.donkey_bindings.clear();
 
@@ -1732,5 +1826,138 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
             _ => Ok(expr),
         }
+    }
+}
+
+// Helper methods for donkey binding scope handling
+impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// Check if an expression mentions a specific variable
+    fn expr_mentions_var(&self, expr: &LogicExpr<'a>, var: Symbol) -> bool {
+        match expr {
+            LogicExpr::Predicate { args, .. } => {
+                args.iter().any(|term| self.term_mentions_var(term, var))
+            }
+            LogicExpr::BinaryOp { left, right, .. } => {
+                self.expr_mentions_var(left, var) || self.expr_mentions_var(right, var)
+            }
+            LogicExpr::UnaryOp { operand, .. } => self.expr_mentions_var(operand, var),
+            LogicExpr::Quantifier { body, .. } => self.expr_mentions_var(body, var),
+            LogicExpr::NeoEvent(data) => {
+                data.roles.iter().any(|(_, term)| self.term_mentions_var(term, var))
+            }
+            LogicExpr::Temporal { body, .. } => self.expr_mentions_var(body, var),
+            LogicExpr::Aspectual { body, .. } => self.expr_mentions_var(body, var),
+            LogicExpr::Event { predicate, .. } => self.expr_mentions_var(predicate, var),
+            LogicExpr::Modal { operand, .. } => self.expr_mentions_var(operand, var),
+            LogicExpr::Scopal { body, .. } => self.expr_mentions_var(body, var),
+            _ => false,
+        }
+    }
+
+    fn term_mentions_var(&self, term: &Term<'a>, var: Symbol) -> bool {
+        match term {
+            Term::Variable(v) => *v == var,
+            Term::Function(_, args) => args.iter().any(|t| self.term_mentions_var(t, var)),
+            _ => false,
+        }
+    }
+
+    /// Collect all conjuncts from a conjunction tree
+    fn collect_conjuncts(&self, expr: &'a LogicExpr<'a>) -> Vec<&'a LogicExpr<'a>> {
+        match expr {
+            LogicExpr::BinaryOp { left, op: TokenType::And, right } => {
+                let mut result = self.collect_conjuncts(left);
+                result.extend(self.collect_conjuncts(right));
+                result
+            }
+            _ => vec![expr],
+        }
+    }
+
+    /// Wrap unused donkey bindings inside the restriction of an implication
+    /// Transform: ∀x((P(x) ∧ Q(y)) → R(x)) with unused y
+    /// Into:      ∀x((P(x) ∧ ∃y(Q(y))) → R(x))
+    fn wrap_donkey_in_restriction(
+        &self,
+        body: &'a LogicExpr<'a>,
+        donkey_var: Symbol,
+    ) -> &'a LogicExpr<'a> {
+        // Handle Quantifier wrapping first
+        if let LogicExpr::Quantifier { kind, variable, body: inner_body, island_id } = body {
+            let transformed = self.wrap_donkey_in_restriction(inner_body, donkey_var);
+            return self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: kind.clone(),
+                variable: *variable,
+                body: transformed,
+                island_id: *island_id,
+            });
+        }
+
+        // Must be an implication
+        let (restriction, consequent) = match body {
+            LogicExpr::BinaryOp { left, op: TokenType::If, right } => (*left, *right),
+            _ => return body, // Not an implication, return unchanged
+        };
+
+        // Collect all conjuncts in the restriction
+        let conjuncts = self.collect_conjuncts(restriction);
+
+        // Partition into those mentioning the donkey var and those not
+        let (with_var, without_var): (Vec<_>, Vec<_>) = conjuncts
+            .into_iter()
+            .partition(|c| self.expr_mentions_var(c, donkey_var));
+
+        if with_var.is_empty() {
+            // Variable not found in restriction, return unchanged
+            return body;
+        }
+
+        // Combine the "with var" conjuncts
+        let with_var_combined = self.combine_conjuncts(&with_var);
+
+        // Wrap with existential
+        let existential = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable: donkey_var,
+            body: with_var_combined,
+            island_id: self.current_island,
+        });
+
+        // Combine with "without var" conjuncts
+        let new_restriction = if without_var.is_empty() {
+            existential
+        } else {
+            let without_combined = self.combine_conjuncts(&without_var);
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: without_combined,
+                op: TokenType::And,
+                right: existential,
+            })
+        };
+
+        // Rebuild the implication
+        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: new_restriction,
+            op: TokenType::If,
+            right: consequent,
+        })
+    }
+
+    fn combine_conjuncts(&self, conjuncts: &[&'a LogicExpr<'a>]) -> &'a LogicExpr<'a> {
+        if conjuncts.is_empty() {
+            panic!("Cannot combine empty conjuncts");
+        }
+        if conjuncts.len() == 1 {
+            return conjuncts[0];
+        }
+        let mut result = conjuncts[0];
+        for c in &conjuncts[1..] {
+            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: result,
+                op: TokenType::And,
+                right: *c,
+            });
+        }
+        result
     }
 }

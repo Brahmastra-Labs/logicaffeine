@@ -430,7 +430,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
 
             // Parse verb phrase with subject
-            let verb_phrase = self.parse_predicate_with_subject(subject)?;
+            // Use variable term for indefinite subjects, constant for definites/proper names
+            let verb_phrase = if subject_type_pred.is_some() {
+                self.parse_predicate_with_subject_as_var(subject)?
+            } else {
+                self.parse_predicate_with_subject(subject)?
+            };
 
             // Combine with type predicate if indefinite subject
             return Ok(if let Some(type_pred) = subject_type_pred {

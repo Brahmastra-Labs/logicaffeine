@@ -487,6 +487,7 @@ mod tests {
             vector: crate::ast::ModalVector {
                 domain: crate::ast::ModalDomain::Alethic,
                 force: 1.0,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: expr_arena.alloc(LogicExpr::Atom(p)),
         };

@@ -218,39 +218,60 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn token_to_vector(&self, token: &TokenType) -> ModalVector {
+        use crate::ast::ModalFlavor;
+
         match token {
+            // Root modals → Narrow Scope (De Re)
+            // These attach the modal to the predicate inside the quantifier
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Cannot => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.0,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Shall => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.9,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
+                flavor: ModalFlavor::Root,
+            },
+
+            // Epistemic modals → Wide Scope (De Dicto)
+            // These wrap the entire quantifier in the modal
+            TokenType::Might => ModalVector {
+                domain: ModalDomain::Alethic,
+                force: 0.3,
+                flavor: ModalFlavor::Epistemic,
             },
             TokenType::May => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.5,
+                flavor: ModalFlavor::Epistemic,
             },
+
             _ => panic!("Unknown modal token: {:?}", token),
         }
     }

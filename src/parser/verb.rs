@@ -19,6 +19,8 @@ use crate::ast::Stmt;
 pub trait LogicVerbParsing<'a, 'ctx, 'int> {
     fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol)
         -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_predicate_with_subject_as_var(&mut self, subject_symbol: Symbol)
+        -> ParseResult<&'a LogicExpr<'a>>;
     /// Try to parse a plural subject construction like "John and Mary verb".
     /// Returns Ok(Some(expr)) if successful, Ok(None) if not a plural subject (backtrack),
     /// or Err if there's a semantic error (e.g., "respectively" with mismatched lengths).
@@ -53,12 +55,17 @@ pub trait ImperativeVerbParsing<'a, 'ctx, 'int> {
         -> ParseResult<Stmt<'a>>;
 }
 
-impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
-    fn parse_predicate_with_subject(
+impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    fn parse_predicate_impl(
         &mut self,
         subject_symbol: Symbol,
+        as_variable: bool,
     ) -> ParseResult<&'a LogicExpr<'a>> {
-        let subject_term = Term::Constant(subject_symbol);
+        let subject_term = if as_variable {
+            Term::Variable(subject_symbol)
+        } else {
+            Term::Constant(subject_symbol)
+        };
 
         // Weather verb + expletive "it" detection: "it rains" → ∃e(Rain(e))
         let subject_str = self.interner.resolve(subject_symbol).to_lowercase();
@@ -1110,6 +1117,16 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
         } else {
             Ok(self.ctx.exprs.alloc(LogicExpr::Atom(subject_symbol)))
         }
+    }
+}
+
+impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
+    fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+        self.parse_predicate_impl(subject_symbol, false)
+    }
+
+    fn parse_predicate_with_subject_as_var(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+        self.parse_predicate_impl(subject_symbol, true)
     }
 
     fn try_parse_plural_subject(

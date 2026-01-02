@@ -666,6 +666,7 @@ mod expr_view_tests {
 
     #[test]
     fn resolve_expr_modal() {
+        use crate::ast::ModalFlavor;
         let mut interner = Interner::new();
         let expr_arena: Arena<LogicExpr> = Arena::new();
         let rain = interner.intern("Rain");
@@ -673,6 +674,7 @@ mod expr_view_tests {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: ModalFlavor::Root,
             },
             operand: expr_arena.alloc(LogicExpr::Atom(rain)),
         };
@@ -683,6 +685,7 @@ mod expr_view_tests {
                 vector: ModalVector {
                     domain: ModalDomain::Alethic,
                     force: 1.0,
+                    flavor: ModalFlavor::Root,
                 },
                 operand: Box::new(ExprView::Atom("Rain")),
             }
@@ -691,17 +694,21 @@ mod expr_view_tests {
 
     #[test]
     fn modal_vector_equality_is_bit_exact() {
+        use crate::ast::ModalFlavor;
         let v1 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.5,
+            flavor: ModalFlavor::Root,
         };
         let v2 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.5,
+            flavor: ModalFlavor::Root,
         };
         let v3 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.51,
+            flavor: ModalFlavor::Root,
         };
 
         assert_eq!(v1, v2);

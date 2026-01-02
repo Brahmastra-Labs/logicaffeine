@@ -2232,14 +2232,14 @@ Tests for lexer improvements and edge cases.
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2451 lines
-Parser (ast/, parser/):               14566 lines
-Transpilation:                        1347 lines
+Lexer (token.rs, lexer.rs):           2458 lines
+Parser (ast/, parser/):               14862 lines
+Transpilation:                        1357 lines
 Code Generation:                      2904 lines
-Semantics (lambda, context, view):    2882 lines
+Semantics (lambda, context, view):    2889 lines
 Type Analysis (analysis/):            2834 lines
-Support Infrastructure:               4334 lines
-Desktop UI:                              17920 lines
+Support Infrastructure:               4343 lines
+Desktop UI:                              17930 lines
 CRDT (logos_core/src/crdt/):          1854 lines
 Network (logos_core/src/network/):    1596 lines
 VFS (logos_core/src/fs/):             511 lines
@@ -2248,15 +2248,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        58630
-Test lines:          26455
-Total Rust lines: 85085
+Source lines:        59014
+Test lines:          26657
+Total Rust lines: 85671
 ```
 
 ### File Counts
 ```
 Source files: 121
-Test files:   142
+Test files:   143
 ```
 ## Lexicon Data
 
@@ -2312,6 +2312,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     "cannot": "Cannot",
     "would": "Would",
     "could": "Could",
+    "might": "Might",
     "had": "Had",
     "than": "Than",
     "itself": "Reflexive",
@@ -2389,7 +2390,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
   },
   "verbs": [
     { "lemma": "Be", "class": "State", "forms": { "past": "was", "participle": "been", "gerund": "being" } },
-    { "lemma": "Have", "class": "State", "forms": { "present3s": "has", "past": "had", "participle": "had", "gerund": "having" } },
+    { "lemma": "Have", "class": "State", "forms": { "present3s": "has", "past": "had", "participle": "had", "gerund": "having" }, "synonyms": ["possess", "own", "hold"], "antonyms": ["lack", "miss"] },
     { "lemma": "Run", "class": "Activity", "forms": { "past": "ran", "gerund": "running" } },
     { "lemma": "See", "class": "State", "forms": { "past": "saw", "participle": "seen", "gerund": "seeing" } },
     { "lemma": "Give", "class": "Achievement", "forms": { "past": "gave", "participle": "given", "gerund": "giving" }, "features": ["Ditransitive"] },
@@ -3189,6 +3190,7 @@ pub enum TokenType {
     Cannot,
     Would,
     Could,
+    Might,
     Had,
 
     // Imperative Statement Keywords
@@ -3468,6 +3470,9 @@ impl TokenType {
         TokenType::Can,
         TokenType::May,
         TokenType::Cannot,
+        TokenType::Would,
+        TokenType::Could,
+        TokenType::Might,
     ];
 }
 
@@ -3511,13 +3516,16 @@ mod tests {
 
     #[test]
     fn modals_contains_all_modal_tokens() {
-        assert_eq!(TokenType::MODALS.len(), 6);
+        assert_eq!(TokenType::MODALS.len(), 9);
         assert!(TokenType::MODALS.contains(&TokenType::Must));
         assert!(TokenType::MODALS.contains(&TokenType::Shall));
         assert!(TokenType::MODALS.contains(&TokenType::Should));
         assert!(TokenType::MODALS.contains(&TokenType::Can));
         assert!(TokenType::MODALS.contains(&TokenType::May));
         assert!(TokenType::MODALS.contains(&TokenType::Cannot));
+        assert!(TokenType::MODALS.contains(&TokenType::Would));
+        assert!(TokenType::MODALS.contains(&TokenType::Could));
+        assert!(TokenType::MODALS.contains(&TokenType::Might));
     }
 }
 
@@ -5786,10 +5794,21 @@ pub enum ModalDomain {
     Deontic,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModalFlavor {
+    /// Root modals (ability, obligation): can, must, should, shall, could, would
+    /// These get NARROW scope (de re) - modal attaches to the predicate inside quantifier
+    Root,
+    /// Epistemic modals (possibility, deduction): might, may
+    /// These get WIDE scope (de dicto) - modal wraps the entire quantifier
+    Epistemic,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ModalVector {
     pub domain: ModalDomain,
     pub force: f32,
+    pub flavor: ModalFlavor,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -7427,24 +7446,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     pub fn parse(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
-        let first = self.parse_sentence()?;
+        let mut result = self.parse_sentence()?;
 
-        // Only continue to second sentence if there was a period separator
-        // AND there are more tokens after the period
-        if self.check(&TokenType::Period) {
-            self.advance();
-
+        // Loop: handle ANY number of additional sentences (unlimited)
+        // Handle all sentence terminators: . ? !
+        while self.check(&TokenType::Period) || self.check(&TokenType::Exclamation) {
+            self.advance(); // consume terminator
             if !self.is_at_end() {
-                let second = self.parse_sentence()?;
-                return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: first,
+                let next = self.parse_sentence()?;
+                result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                    left: result,
                     op: TokenType::And,
-                    right: second,
-                }));
+                    right: next,
+                });
             }
         }
 
-        Ok(first)
+        Ok(result)
     }
 
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
@@ -11313,6 +11331,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 | TokenType::Cannot
                 | TokenType::Could
                 | TokenType::Would
+                | TokenType::Might
         )
     }
 
@@ -14820,7 +14839,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
 
             // Parse verb phrase with subject
-            let verb_phrase = self.parse_predicate_with_subject(subject)?;
+            // Use variable term for indefinite subjects, constant for definites/proper names
+            let verb_phrase = if subject_type_pred.is_some() {
+                self.parse_predicate_with_subject_as_var(subject)?
+            } else {
+                self.parse_predicate_with_subject(subject)?
+            };
 
             // Combine with type predicate if indefinite subject
             return Ok(if let Some(type_pred) = subject_type_pred {
@@ -15464,68 +15488,27 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let subject_pred = self.parse_restriction(var_name)?;
 
         if self.check_modal() {
+            use crate::ast::ModalFlavor;
+
             self.advance();
             let vector = self.token_to_vector(&self.previous().kind.clone());
             let verb = self.consume_content_word()?;
 
-            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: verb,
-                args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
-            });
-
-            let body = match quantifier_token {
-                TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::If,
-                    right: verb_pred,
-                }),
-                TokenType::Any => {
-                    if self.is_negative_context() {
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::And,
-                            right: verb_pred,
-                        })
-                    } else {
-                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                            left: subject_pred,
-                            op: TokenType::If,
-                            right: verb_pred,
-                        })
-                    }
-                }
-                TokenType::Some
-                | TokenType::Most
-                | TokenType::Few
-                | TokenType::Many
-                | TokenType::Cardinal(_)
-                | TokenType::AtLeast(_)
-                | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                    left: subject_pred,
-                    op: TokenType::And,
-                    right: verb_pred,
-                }),
-                TokenType::No => {
-                    let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
-                        op: TokenType::Not,
-                        operand: verb_pred,
-                    });
-                    self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                        left: subject_pred,
-                        op: TokenType::If,
-                        right: neg,
-                    })
-                }
-                _ => {
-                    return Err(ParseError {
-                        kind: ParseErrorKind::UnknownQuantifier {
-                            found: quantifier_token.clone(),
-                        },
-                        span: self.current_span(),
-                    })
-                }
+            // Parse object if present (e.g., "can enter the room" -> room is object)
+            let verb_args = if self.check_content_word() || self.check_article() {
+                let obj_np = self.parse_noun_phrase(false)?;
+                let obj_term = self.noun_phrase_to_term(&obj_np);
+                self.ctx.terms.alloc_slice([Term::Variable(var_name), obj_term])
+            } else {
+                self.ctx.terms.alloc_slice([Term::Variable(var_name)])
             };
 
+            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: verb,
+                args: verb_args,
+            });
+
+            // Determine quantifier kind first (shared by both branches)
             let kind = match quantifier_token {
                 TokenType::All | TokenType::No => QuantifierKind::Universal,
                 TokenType::Any => {
@@ -15552,17 +15535,150 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 }
             };
 
-            let quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                kind,
-                variable: var_name,
-                body,
-                island_id: self.current_island,
-            });
+            // Branch on modal flavor for scope handling
+            if vector.flavor == ModalFlavor::Root {
+                // === NARROW SCOPE (De Re) ===
+                // Root modals (can, must, should) attach to the predicate inside the quantifier
+                // "Some birds can fly" → ∃x(Bird(x) ∧ ◇Fly(x))
 
-            return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
-                vector,
-                operand: quantified,
-            }));
+                // Wrap the verb predicate in the modal
+                let modal_verb = self.ctx.exprs.alloc(LogicExpr::Modal {
+                    vector,
+                    operand: verb_pred,
+                });
+
+                let body = match quantifier_token {
+                    TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::If,
+                        right: modal_verb,
+                    }),
+                    TokenType::Any => {
+                        if self.is_negative_context() {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::And,
+                                right: modal_verb,
+                            })
+                        } else {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::If,
+                                right: modal_verb,
+                            })
+                        }
+                    }
+                    TokenType::Some
+                    | TokenType::Most
+                    | TokenType::Few
+                    | TokenType::Many
+                    | TokenType::Cardinal(_)
+                    | TokenType::AtLeast(_)
+                    | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::And,
+                        right: modal_verb,
+                    }),
+                    TokenType::No => {
+                        let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: modal_verb,
+                        });
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: subject_pred,
+                            op: TokenType::If,
+                            right: neg,
+                        })
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnknownQuantifier {
+                                found: quantifier_token.clone(),
+                            },
+                            span: self.current_span(),
+                        })
+                    }
+                };
+
+                // Return quantifier directly (modal is inside)
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind,
+                    variable: var_name,
+                    body,
+                    island_id: self.current_island,
+                }));
+
+            } else {
+                // === WIDE SCOPE (De Dicto) ===
+                // Epistemic modals (might, may) wrap the entire quantifier
+                // "Some unicorns might exist" → ◇∃x(Unicorn(x) ∧ Exist(x))
+
+                let body = match quantifier_token {
+                    TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::If,
+                        right: verb_pred,
+                    }),
+                    TokenType::Any => {
+                        if self.is_negative_context() {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::And,
+                                right: verb_pred,
+                            })
+                        } else {
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: subject_pred,
+                                op: TokenType::If,
+                                right: verb_pred,
+                            })
+                        }
+                    }
+                    TokenType::Some
+                    | TokenType::Most
+                    | TokenType::Few
+                    | TokenType::Many
+                    | TokenType::Cardinal(_)
+                    | TokenType::AtLeast(_)
+                    | TokenType::AtMost(_) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: subject_pred,
+                        op: TokenType::And,
+                        right: verb_pred,
+                    }),
+                    TokenType::No => {
+                        let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: verb_pred,
+                        });
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: subject_pred,
+                            op: TokenType::If,
+                            right: neg,
+                        })
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnknownQuantifier {
+                                found: quantifier_token.clone(),
+                            },
+                            span: self.current_span(),
+                        })
+                    }
+                };
+
+                let quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind,
+                    variable: var_name,
+                    body,
+                    island_id: self.current_island,
+                });
+
+                // Wrap the entire quantifier in the modal
+                return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
+                    vector,
+                    operand: quantified,
+                }));
+            }
         }
 
         if self.check_auxiliary() {
@@ -16011,17 +16127,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             });
 
             for (_noun, donkey_var, used) in self.donkey_bindings.iter().rev() {
-                let kind = if *used {
-                    QuantifierKind::Universal
+                if *used {
+                    // Donkey anaphora: wrap with ∀ at outer scope
+                    result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                        kind: QuantifierKind::Universal,
+                        variable: *donkey_var,
+                        body: result,
+                        island_id: self.current_island,
+                    });
                 } else {
-                    QuantifierKind::Existential
-                };
-                result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                    kind,
-                    variable: *donkey_var,
-                    body: result,
-                    island_id: self.current_island,
-                });
+                    // Non-donkey: wrap with ∃ INSIDE the restriction
+                    result = self.wrap_donkey_in_restriction(result, *donkey_var);
+                }
             }
             self.donkey_bindings.clear();
 
@@ -16138,17 +16255,18 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         });
 
         for (_noun, donkey_var, used) in self.donkey_bindings.iter().rev() {
-            let donkey_kind = if *used {
-                QuantifierKind::Universal
+            if *used {
+                // Donkey anaphora: wrap with ∀ at outer scope
+                result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: QuantifierKind::Universal,
+                    variable: *donkey_var,
+                    body: result,
+                    island_id: self.current_island,
+                });
             } else {
-                QuantifierKind::Existential
-            };
-            result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
-                kind: donkey_kind,
-                variable: *donkey_var,
-                body: result,
-                island_id: self.current_island,
-            });
+                // Non-donkey: wrap with ∃ INSIDE the restriction
+                result = self.wrap_donkey_in_restriction(result, *donkey_var);
+            }
         }
         self.donkey_bindings.clear();
 
@@ -17121,6 +17239,139 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     }
 }
 
+// Helper methods for donkey binding scope handling
+impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// Check if an expression mentions a specific variable
+    fn expr_mentions_var(&self, expr: &LogicExpr<'a>, var: Symbol) -> bool {
+        match expr {
+            LogicExpr::Predicate { args, .. } => {
+                args.iter().any(|term| self.term_mentions_var(term, var))
+            }
+            LogicExpr::BinaryOp { left, right, .. } => {
+                self.expr_mentions_var(left, var) || self.expr_mentions_var(right, var)
+            }
+            LogicExpr::UnaryOp { operand, .. } => self.expr_mentions_var(operand, var),
+            LogicExpr::Quantifier { body, .. } => self.expr_mentions_var(body, var),
+            LogicExpr::NeoEvent(data) => {
+                data.roles.iter().any(|(_, term)| self.term_mentions_var(term, var))
+            }
+            LogicExpr::Temporal { body, .. } => self.expr_mentions_var(body, var),
+            LogicExpr::Aspectual { body, .. } => self.expr_mentions_var(body, var),
+            LogicExpr::Event { predicate, .. } => self.expr_mentions_var(predicate, var),
+            LogicExpr::Modal { operand, .. } => self.expr_mentions_var(operand, var),
+            LogicExpr::Scopal { body, .. } => self.expr_mentions_var(body, var),
+            _ => false,
+        }
+    }
+
+    fn term_mentions_var(&self, term: &Term<'a>, var: Symbol) -> bool {
+        match term {
+            Term::Variable(v) => *v == var,
+            Term::Function(_, args) => args.iter().any(|t| self.term_mentions_var(t, var)),
+            _ => false,
+        }
+    }
+
+    /// Collect all conjuncts from a conjunction tree
+    fn collect_conjuncts(&self, expr: &'a LogicExpr<'a>) -> Vec<&'a LogicExpr<'a>> {
+        match expr {
+            LogicExpr::BinaryOp { left, op: TokenType::And, right } => {
+                let mut result = self.collect_conjuncts(left);
+                result.extend(self.collect_conjuncts(right));
+                result
+            }
+            _ => vec![expr],
+        }
+    }
+
+    /// Wrap unused donkey bindings inside the restriction of an implication
+    /// Transform: ∀x((P(x) ∧ Q(y)) → R(x)) with unused y
+    /// Into:      ∀x((P(x) ∧ ∃y(Q(y))) → R(x))
+    fn wrap_donkey_in_restriction(
+        &self,
+        body: &'a LogicExpr<'a>,
+        donkey_var: Symbol,
+    ) -> &'a LogicExpr<'a> {
+        // Handle Quantifier wrapping first
+        if let LogicExpr::Quantifier { kind, variable, body: inner_body, island_id } = body {
+            let transformed = self.wrap_donkey_in_restriction(inner_body, donkey_var);
+            return self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                kind: kind.clone(),
+                variable: *variable,
+                body: transformed,
+                island_id: *island_id,
+            });
+        }
+
+        // Must be an implication
+        let (restriction, consequent) = match body {
+            LogicExpr::BinaryOp { left, op: TokenType::If, right } => (*left, *right),
+            _ => return body, // Not an implication, return unchanged
+        };
+
+        // Collect all conjuncts in the restriction
+        let conjuncts = self.collect_conjuncts(restriction);
+
+        // Partition into those mentioning the donkey var and those not
+        let (with_var, without_var): (Vec<_>, Vec<_>) = conjuncts
+            .into_iter()
+            .partition(|c| self.expr_mentions_var(c, donkey_var));
+
+        if with_var.is_empty() {
+            // Variable not found in restriction, return unchanged
+            return body;
+        }
+
+        // Combine the "with var" conjuncts
+        let with_var_combined = self.combine_conjuncts(&with_var);
+
+        // Wrap with existential
+        let existential = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable: donkey_var,
+            body: with_var_combined,
+            island_id: self.current_island,
+        });
+
+        // Combine with "without var" conjuncts
+        let new_restriction = if without_var.is_empty() {
+            existential
+        } else {
+            let without_combined = self.combine_conjuncts(&without_var);
+            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: without_combined,
+                op: TokenType::And,
+                right: existential,
+            })
+        };
+
+        // Rebuild the implication
+        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left: new_restriction,
+            op: TokenType::If,
+            right: consequent,
+        })
+    }
+
+    fn combine_conjuncts(&self, conjuncts: &[&'a LogicExpr<'a>]) -> &'a LogicExpr<'a> {
+        if conjuncts.is_empty() {
+            panic!("Cannot combine empty conjuncts");
+        }
+        if conjuncts.len() == 1 {
+            return conjuncts[0];
+        }
+        let mut result = conjuncts[0];
+        for c in &conjuncts[1..] {
+            result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                left: result,
+                op: TokenType::And,
+                right: *c,
+            });
+        }
+        result
+    }
+}
+
 ```
 
 ---
@@ -17152,6 +17403,8 @@ use crate::ast::Stmt;
 
 pub trait LogicVerbParsing<'a, 'ctx, 'int> {
     fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol)
+        -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_predicate_with_subject_as_var(&mut self, subject_symbol: Symbol)
         -> ParseResult<&'a LogicExpr<'a>>;
     /// Try to parse a plural subject construction like "John and Mary verb".
     /// Returns Ok(Some(expr)) if successful, Ok(None) if not a plural subject (backtrack),
@@ -17187,12 +17440,17 @@ pub trait ImperativeVerbParsing<'a, 'ctx, 'int> {
         -> ParseResult<Stmt<'a>>;
 }
 
-impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
-    fn parse_predicate_with_subject(
+impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    fn parse_predicate_impl(
         &mut self,
         subject_symbol: Symbol,
+        as_variable: bool,
     ) -> ParseResult<&'a LogicExpr<'a>> {
-        let subject_term = Term::Constant(subject_symbol);
+        let subject_term = if as_variable {
+            Term::Variable(subject_symbol)
+        } else {
+            Term::Constant(subject_symbol)
+        };
 
         // Weather verb + expletive "it" detection: "it rains" → ∃e(Rain(e))
         let subject_str = self.interner.resolve(subject_symbol).to_lowercase();
@@ -18244,6 +18502,16 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
         } else {
             Ok(self.ctx.exprs.alloc(LogicExpr::Atom(subject_symbol)))
         }
+    }
+}
+
+impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
+    fn parse_predicate_with_subject(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+        self.parse_predicate_impl(subject_symbol, false)
+    }
+
+    fn parse_predicate_with_subject_as_var(&mut self, subject_symbol: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
+        self.parse_predicate_impl(subject_symbol, true)
     }
 
     fn try_parse_plural_subject(
@@ -19348,34 +19616,49 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
     }
 
     fn aux_token_to_modal_vector(&self, token: &TokenType) -> ModalVector {
+        use crate::ast::ModalFlavor;
         match token {
+            // Root modals (narrow scope)
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.4,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.6,
-            },
-            TokenType::May => ModalVector {
-                domain: ModalDomain::Deontic,
-                force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
+                flavor: ModalFlavor::Root,
+            },
+            // Epistemic modals (wide scope)
+            TokenType::May => ModalVector {
+                domain: ModalDomain::Deontic,
+                force: 0.5,
+                flavor: ModalFlavor::Epistemic,
+            },
+            TokenType::Might => ModalVector {
+                domain: ModalDomain::Alethic,
+                force: 0.3,
+                flavor: ModalFlavor::Epistemic,
             },
             _ => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
         }
     }
@@ -19612,39 +19895,60 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     }
 
     fn token_to_vector(&self, token: &TokenType) -> ModalVector {
+        use crate::ast::ModalFlavor;
+
         match token {
+            // Root modals → Narrow Scope (De Re)
+            // These attach the modal to the predicate inside the quantifier
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Cannot => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.0,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Shall => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.9,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
+                flavor: ModalFlavor::Root,
+            },
+
+            // Epistemic modals → Wide Scope (De Dicto)
+            // These wrap the entire quantifier in the modal
+            TokenType::Might => ModalVector {
+                domain: ModalDomain::Alethic,
+                force: 0.3,
+                flavor: ModalFlavor::Epistemic,
             },
             TokenType::May => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.5,
+                flavor: ModalFlavor::Epistemic,
             },
+
             _ => panic!("Unknown modal token: {:?}", token),
         }
     }
@@ -20546,6 +20850,12 @@ impl<'a> LogicExpr<'a> {
 
             LogicExpr::Quantifier { kind, variable, body, .. } => {
                 let var_str = interner.resolve(*variable);
+
+                // In SimpleFOL mode, skip event quantifiers (variables named "e" or starting with "e" followed by digits)
+                if fmt.use_simple_events() && (var_str == "e" || var_str.starts_with("e") && var_str[1..].chars().all(|c| c.is_ascii_digit())) {
+                    return body.write_logic(w, registry, interner, fmt);
+                }
+
                 let mut body_buf = String::new();
                 body.write_logic(&mut body_buf, registry, interner, fmt)?;
                 write!(w, "{}", fmt.quantifier(kind, var_str, &body_buf))
@@ -20669,7 +20979,8 @@ impl<'a> LogicExpr<'a> {
                     write!(w, "(")?;
                     let mut first = true;
                     for (role, term) in data.roles.iter() {
-                        if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme) {
+                        // Include core thematic roles in SimpleFOL output
+                        if matches!(role, ThematicRole::Agent | ThematicRole::Patient | ThematicRole::Theme | ThematicRole::Goal | ThematicRole::Location) {
                             if !first {
                                 write!(w, ", ")?;
                             }
@@ -21159,6 +21470,9 @@ impl LogicFormatter for UnicodeFormatter {
     fn categorical_no(&self) -> &'static str { "∀¬" }
     fn categorical_some(&self) -> &'static str { "∃" }
     fn categorical_not(&self) -> &'static str { "¬" }
+
+    // Use full predicate names (e.g., "Wet" not "W")
+    fn use_full_names(&self) -> bool { true }
 }
 
 pub struct LatexFormatter;
@@ -24963,6 +25277,7 @@ mod expr_view_tests {
 
     #[test]
     fn resolve_expr_modal() {
+        use crate::ast::ModalFlavor;
         let mut interner = Interner::new();
         let expr_arena: Arena<LogicExpr> = Arena::new();
         let rain = interner.intern("Rain");
@@ -24970,6 +25285,7 @@ mod expr_view_tests {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: ModalFlavor::Root,
             },
             operand: expr_arena.alloc(LogicExpr::Atom(rain)),
         };
@@ -24980,6 +25296,7 @@ mod expr_view_tests {
                 vector: ModalVector {
                     domain: ModalDomain::Alethic,
                     force: 1.0,
+                    flavor: ModalFlavor::Root,
                 },
                 operand: Box::new(ExprView::Atom("Rain")),
             }
@@ -24988,17 +25305,21 @@ mod expr_view_tests {
 
     #[test]
     fn modal_vector_equality_is_bit_exact() {
+        use crate::ast::ModalFlavor;
         let v1 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.5,
+            flavor: ModalFlavor::Root,
         };
         let v2 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.5,
+            flavor: ModalFlavor::Root,
         };
         let v3 = ModalVector {
             domain: ModalDomain::Alethic,
             force: 0.51,
+            flavor: ModalFlavor::Root,
         };
 
         assert_eq!(v1, v2);
@@ -25097,6 +25418,7 @@ AST transformation for meaning postulates. Handles noun entailments (bachelor→
 use crate::arena::Arena;
 use crate::ast::{LogicExpr, NeoEventData, Term, ThematicRole};
 use crate::intern::{Interner, Symbol};
+use crate::lexicon::{lookup_canonical, Polarity};
 use crate::token::TokenType;
 
 use super::{is_privative_adjective, lookup_noun_entailments, lookup_noun_hypernyms, lookup_verb_entailment};
@@ -25203,6 +25525,25 @@ fn expand_predicate<'a>(
 ) -> &'a LogicExpr<'a> {
     let name_str = interner.resolve(name).to_string();
     let lower_name = name_str.to_lowercase();
+
+    // Check for canonical mapping (synonyms/antonyms)
+    // E.g., Lack(x,y) -> ¬Have(x,y), Possess(x,y) -> Have(x,y)
+    if let Some(mapping) = lookup_canonical(&lower_name) {
+        let canonical_sym = interner.intern(mapping.lemma);
+        let canonical_pred = expr_arena.alloc(LogicExpr::Predicate {
+            name: canonical_sym,
+            args,
+        });
+
+        // Wrap antonyms in negation
+        return match mapping.polarity {
+            Polarity::Positive => canonical_pred,
+            Polarity::Negative => expr_arena.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: canonical_pred,
+            }),
+        };
+    }
 
     // Check for compound predicates (e.g., Fake-Gun from non-intersective adjectives)
     if let Some(hyphen_pos) = name_str.find('-') {
@@ -25338,8 +25679,33 @@ fn expand_neo_event<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     let verb_str = interner.resolve(data.verb);
+    let lower_verb = verb_str.to_lowercase();
 
-    if let Some((base_verb, manner_preds)) = lookup_verb_entailment(&verb_str.to_lowercase()) {
+    // Check for canonical mapping (synonyms/antonyms)
+    // E.g., Lack(x,y) -> ¬Have(x,y)
+    if let Some(mapping) = lookup_canonical(&lower_verb) {
+        let canonical_sym = interner.intern(mapping.lemma);
+
+        // Create NeoEvent with canonical verb
+        let canonical_event = expr_arena.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+            event_var: data.event_var,
+            verb: canonical_sym,
+            roles: data.roles,
+            modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
+        })));
+
+        // Wrap antonyms in negation
+        return match mapping.polarity {
+            Polarity::Positive => canonical_event,
+            Polarity::Negative => expr_arena.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: canonical_event,
+            }),
+        };
+    }
+
+    if let Some((base_verb, manner_preds)) = lookup_verb_entailment(&lower_verb) {
         // Murder(e) => Murder(e) ∧ Kill(e) ∧ Intentional(Agent)
         let base_verb_sym = interner.intern(base_verb);
 
@@ -33914,6 +34280,7 @@ fn term_to_ast_node(term: &Term, interner: &Interner) -> AstNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompileResult {
     pub logic: Option<String>,
+    pub simple_logic: Option<String>,
     pub ast: Option<AstNode>,
     pub readings: Vec<String>,
     pub tokens: Vec<TokenInfo>,
@@ -33962,9 +34329,11 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let ast_node = expr_to_ast_node(ast, &interner);
             let mut registry = SymbolRegistry::new();
             let logic = ast.transpile(&mut registry, &interner, OutputFormat::Unicode);
+            let simple_logic = ast.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
             CompileResult {
                 logic: Some(logic),
+                simple_logic: Some(simple_logic),
                 ast: Some(ast_node),
                 readings,
                 tokens,
@@ -33975,6 +34344,7 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let advice = socratic_explanation(&e, &interner);
             CompileResult {
                 logic: None,
+                simple_logic: None,
                 ast: None,
                 readings: Vec::new(),
                 tokens,
@@ -34299,11 +34669,11 @@ mod tests {
     #[test]
     fn same_word_gets_same_symbol() {
         let output = compile("All cats are cats.").unwrap();
-        // FOL output: ∀x((C(x) → C(x))) - same symbol C for same word
-        let c_count = output.matches("C(").count();
+        // FOL output: ∀x((Cats(x) → Cats(x))) - same word appears twice
+        let cats_count = output.matches("Cats(").count();
         assert!(
-            c_count >= 2,
-            "same word should get same symbol (C appears twice): got '{}'",
+            cats_count >= 2,
+            "same word should get same symbol (Cats appears twice): got '{}'",
             output
         );
     }
@@ -34433,7 +34803,7 @@ mod tests {
     fn identity_same_constant() {
         let result = compile("Socrates is identical to Socrates.").unwrap();
         assert!(
-            result.contains("S = S"),
+            result.contains("Socrates = Socrates"),
             "Same constant should appear twice: got '{}'",
             result
         );
@@ -34503,7 +34873,7 @@ mod tests {
     fn relative_clause_with_preposition() {
         let result = compile("All dogs that ran to the house are tired.").unwrap();
         assert!(
-            result.contains("R(x, H)"),
+            result.contains("Run(x, House)"),
             "Relative clause should support prepositions: got '{}'",
             result
         );
@@ -34513,7 +34883,7 @@ mod tests {
     fn relative_clause_with_reflexive_preposition() {
         let result = compile("All men that speak to themselves are wise.").unwrap();
         assert!(
-            result.contains("S(x, x)"),
+            result.contains("Speak(x, x)"),
             "Relative clause reflexive should bind to variable: got '{}'",
             result
         );
@@ -34526,10 +34896,10 @@ mod tests {
     #[test]
     fn adjectives_as_separate_predicates() {
         let result = compile("All happy dogs are friendly.").unwrap();
-        // Subject should be: Happy(x) ∧ Dog(x) → Friendly(x)
+        // Subject should be: Happy(x) ∧ Dogs(x) → Friendly(x)
         // Check that adjective creates separate predicate in conjunction
         assert!(
-            result.contains("H(x)") && result.contains("∧") && result.contains("D(x)"),
+            result.contains("Happy(x)") && result.contains("∧") && result.contains("Dogs(x)"),
             "Adjectives should create separate predicates: got '{}'",
             result
         );
@@ -34538,9 +34908,9 @@ mod tests {
     #[test]
     fn relative_clause_basic() {
         let result = compile("All dogs that bark are loud.").unwrap();
-        // Subject should be: Dog(x) ∧ Bark(x) → Loud(x)
+        // Subject should be: Dogs(x) ∧ Bark(x) → Loud(x)
         assert!(
-            result.contains("D(x)") && result.contains("∧") && result.contains("B(x)"),
+            result.contains("Dogs(x)") && result.contains("∧") && result.contains("Bark(x)"),
             "Relative clause should create conjunction: got '{}'",
             result
         );
@@ -34549,9 +34919,9 @@ mod tests {
     #[test]
     fn relative_clause_with_object() {
         let result = compile("All cats that chase mice are hunters.").unwrap();
-        // Subject should be: Cat(x) ∧ Chase(x, M) → Hunter(x)
+        // Subject should be: Cats(x) ∧ Chase(x, Mice) → Hunters(x)
         assert!(
-            result.contains("∧") && (result.contains("(x, M)") || result.contains("(x,M)")),
+            result.contains("∧") && (result.contains("(x, Mice)") || result.contains("(x,Mice)")),
             "Relative clause should include predicate with object: got '{}'",
             result
         );
@@ -34661,10 +35031,9 @@ mod tests {
         // "The cat that the dog chased ran."
         // The cat is the OBJECT of "chased" (gap), not the subject
         let result = compile("The cat that the dog chased ran.").unwrap();
-        // C2 is Chase (C is Cat), D is Dog
-        // Structure: ∃x(Cat(x) ∧ Chase(D, x) ∧ Ran(x))
+        // Structure: ∃x(Cat(x) ∧ Chase(Dog, x) ∧ Ran(x))
         assert!(
-            result.contains("Theme(e, x)") && result.contains("C(x)"),
+            result.contains("Theme(e, x)") && result.contains("Cat(x)"),
             "Object-gap relative: dog chases cat, cat ran: got '{}'",
             result
         );
@@ -34675,10 +35044,9 @@ mod tests {
         // "The man who loves Mary left."
         // "who" = subject of "loves"
         let result = compile("The man who loves Mary left.").unwrap();
-        // L is Love, M is Man, M2 is Mary
         // Structure: ∃x(Man(x) ∧ Love(x, Mary) ∧ Left(x))
         assert!(
-            result.contains("(x, M") && result.contains("M(x)"),
+            result.contains("(x, Mary)") && result.contains("Man(x)"),
             "Who-clause should bind subject: got '{}'",
             result
         );
@@ -34689,9 +35057,12 @@ mod tests {
         // "The man who Mary loves left."
         // "who" = object of "loves"
         let result = compile("The man who Mary loves left.").unwrap();
-        // Structure: ∃x(Man(x) ∧ Love(Mary, x) ∧ Left(x))
+        // Structure: ∃x(Man(x) ∧ Love(e) ∧ Agent(e, M) ∧ Theme(e, x) ∧ Left(x))
+        // Uses neo-event semantics with Agent/Theme roles
         assert!(
-            result.contains("(M") && result.contains(", x)") && result.contains("M(x)"),
+            (result.contains("Agent(e, M") || result.contains("(Mary"))
+                && result.contains("Theme(e, x)")
+                && result.contains("Man(x)"),
             "Who as object: Mary loves the man: got '{}'",
             result
         );
@@ -34728,8 +35099,8 @@ mod tests {
     fn quantifier_most() {
         let result = compile("Most dogs bark.").unwrap();
         assert!(
-            result.contains("MOST") && result.contains("D(x)") && result.contains("B(x)"),
-            "Most should produce MOST x(D(x), B(x)): got '{}'",
+            result.contains("MOST") && result.contains("Dogs(x)") && result.contains("Bark(x)"),
+            "Most should produce MOST x(Dogs(x), Bark(x)): got '{}'",
             result
         );
     }
@@ -34738,8 +35109,8 @@ mod tests {
     fn quantifier_few() {
         let result = compile("Few cats swim.").unwrap();
         assert!(
-            result.contains("FEW") && result.contains("C(x)") && result.contains("S(x)"),
-            "Few should produce FEW x(C(x), S(x)): got '{}'",
+            result.contains("FEW") && result.contains("Cats(x)") && result.contains("Swim(x)"),
+            "Few should produce FEW x(Cats(x), Swim(x)): got '{}'",
             result
         );
     }
@@ -34782,8 +35153,8 @@ mod tests {
     fn wh_question_who_subject() {
         let result = compile("Who loves Mary?").unwrap();
         assert!(
-            result.contains("λx") && result.contains("L(x, M)"),
-            "Who-subject should produce λx.L(x, M): got '{}'",
+            result.contains("λx") && result.contains("Love(x, Mary)"),
+            "Who-subject should produce λx.Love(x, Mary): got '{}'",
             result
         );
     }
@@ -34792,8 +35163,8 @@ mod tests {
     fn wh_question_what_object() {
         let result = compile("What does John love?").unwrap();
         assert!(
-            result.contains("λx") && result.contains("L(J, x)"),
-            "What-object should produce λx.L(J, x): got '{}'",
+            result.contains("λx") && result.contains("Love(John, x)"),
+            "What-object should produce λx.Love(John, x): got '{}'",
             result
         );
     }
@@ -34816,8 +35187,8 @@ mod tests {
     fn passive_with_agent() {
         let result = compile("Mary was loved by John.").unwrap();
         assert!(
-            result.contains("L(J, M)"),
-            "Passive 'Mary was loved by John' should produce L(J, M): got '{}'",
+            result.contains("Love(John, Mary)"),
+            "Passive 'Mary was loved by John' should produce Love(John, Mary): got '{}'",
             result
         );
     }
@@ -34826,8 +35197,8 @@ mod tests {
     fn passive_without_agent() {
         let result = compile("The book was read.").unwrap();
         assert!(
-            result.contains("∃") && result.contains("R("),
-            "Agentless passive should produce ∃x.R(x, B): got '{}'",
+            result.contains("∃") && result.contains("Read("),
+            "Agentless passive should produce ∃x.Read(x, Book): got '{}'",
             result
         );
     }
@@ -36209,7 +36580,7 @@ mod tests {
         let mut interner = Interner::new();
         let p = interner.intern("P");
         let operand = ctx.alloc_expr(LogicExpr::Atom(p));
-        let vector = ModalVector { domain: ModalDomain::Alethic, force: 1.0 };
+        let vector = ModalVector { domain: ModalDomain::Alethic, force: 1.0, flavor: crate::ast::ModalFlavor::Root };
         let result = ctx.modal(vector, operand);
 
         assert!(matches!(result, LogicExpr::Modal { .. }));
@@ -38772,6 +39143,7 @@ mod tests {
             vector: crate::ast::ModalVector {
                 domain: crate::ast::ModalDomain::Alethic,
                 force: 1.0,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: expr_arena.alloc(LogicExpr::Atom(p)),
         };
@@ -39325,6 +39697,7 @@ pub mod dsl {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: b(body),
         }
@@ -39335,6 +39708,7 @@ pub mod dsl {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.0,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: b(body),
         }
@@ -39345,6 +39719,7 @@ pub mod dsl {
             vector: ModalVector {
                 domain: ModalDomain::Deontic,
                 force,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: b(body),
         }
@@ -39352,7 +39727,7 @@ pub mod dsl {
 
     pub fn modal(domain: ModalDomain, force: f32, body: ExprView<'static>) -> ExprView<'static> {
         ExprView::Modal {
-            vector: ModalVector { domain, force },
+            vector: ModalVector { domain, force, flavor: crate::ast::ModalFlavor::Root },
             operand: b(body),
         }
     }
@@ -52202,6 +52577,7 @@ pub fn Studio() -> Element {
     let mut input = use_signal(String::new);
     let mut result = use_signal(|| CompileResult {
         logic: None,
+        simple_logic: None,
         ast: None,
         readings: Vec::new(),
         tokens: Vec::new(),
@@ -52221,6 +52597,7 @@ pub fn Studio() -> Element {
         } else {
             result.set(CompileResult {
                 logic: None,
+                simple_logic: None,
                 ast: None,
                 readings: Vec::new(),
                 tokens: Vec::new(),
@@ -52318,6 +52695,11 @@ pub fn Studio() -> Element {
                                 "\u{2200}x"
                             }
                             button {
+                                class: if current_format == OutputFormat::SimpleFOL { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| format.set(OutputFormat::SimpleFOL),
+                                "Simple"
+                            }
+                            button {
                                 class: if current_format == OutputFormat::LaTeX { "format-btn active" } else { "format-btn" },
                                 onclick: move |_| format.set(OutputFormat::LaTeX),
                                 "LaTeX"
@@ -52327,6 +52709,7 @@ pub fn Studio() -> Element {
                     div { class: "panel-content",
                         LogicOutput {
                             logic: current_result.logic.clone(),
+                            simple_logic: current_result.simple_logic.clone(),
                             readings: current_result.readings.clone(),
                             error: current_result.error.clone(),
                             format: current_format,
@@ -56121,12 +56504,14 @@ const OUTPUT_STYLE: &str = r#"
 pub enum OutputFormat {
     #[default]
     Unicode,
+    SimpleFOL,
     LaTeX,
 }
 
 #[component]
 pub fn LogicOutput(
     logic: Option<String>,
+    simple_logic: Option<String>,
     readings: Vec<String>,
     error: Option<String>,
     format: OutputFormat,
@@ -56141,10 +56526,10 @@ pub fn LogicOutput(
         logic.clone()
     };
 
-    let formatted_output = match (&display_logic, format) {
-        (Some(logic), OutputFormat::LaTeX) => convert_to_latex(logic),
-        (Some(logic), OutputFormat::Unicode) => logic.clone(),
-        (None, _) => String::new(),
+    let formatted_output = match format {
+        OutputFormat::SimpleFOL => simple_logic.clone().unwrap_or_default(),
+        OutputFormat::LaTeX => display_logic.as_ref().map(|l| convert_to_latex(l)).unwrap_or_default(),
+        OutputFormat::Unicode => display_logic.clone().unwrap_or_default(),
     };
 
     rsx! {
@@ -78598,6 +78983,10 @@ struct VerbDefinition {
     regular: bool,
     #[serde(default)]
     features: Vec<String>,
+    #[serde(default)]
+    synonyms: Vec<String>,
+    #[serde(default)]
+    antonyms: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -78888,6 +79277,9 @@ fn main() {
     let axiom_path = Path::new(&out_dir).join("axiom_data.rs");
     let mut axiom_file = fs::File::create(&axiom_path).unwrap();
     generate_axiom_data(&mut axiom_file, &data.axioms);
+
+    // Generate canonical mapping lookup for synonyms/antonyms
+    generate_canonical_mapping(&mut file, &data.verbs);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -79175,6 +79567,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "Cannot" => "crate::token::TokenType::Cannot",
             "Would" => "crate::token::TokenType::Would",
             "Could" => "crate::token::TokenType::Could",
+            "Might" => "crate::token::TokenType::Might",
             "Had" => "crate::token::TokenType::Had",
             "Than" => "crate::token::TokenType::Than",
             "Reflexive" => "crate::token::TokenType::Reflexive",
@@ -79995,6 +80388,64 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
     writeln!(file, "}}").unwrap();
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Canonical Mapping Generation (Synonyms/Antonyms)
+// ═══════════════════════════════════════════════════════════════════
+
+fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
+    // Generate Polarity enum
+    writeln!(file, "/// Polarity for canonical mapping (positive = synonym, negative = antonym).").unwrap();
+    writeln!(file, "#[derive(Debug, Clone, Copy, PartialEq, Eq)]").unwrap();
+    writeln!(file, "pub enum Polarity {{").unwrap();
+    writeln!(file, "    Positive,").unwrap();
+    writeln!(file, "    Negative,").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate CanonicalMapping struct
+    writeln!(file, "/// Maps a word to its canonical form with polarity.").unwrap();
+    writeln!(file, "#[derive(Debug, Clone, Copy)]").unwrap();
+    writeln!(file, "pub struct CanonicalMapping {{").unwrap();
+    writeln!(file, "    pub lemma: &'static str,").unwrap();
+    writeln!(file, "    pub polarity: Polarity,").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate lookup_canonical function
+    writeln!(file, "/// Look up canonical form for a word (synonym/antonym normalization).").unwrap();
+    writeln!(file, "/// Returns the canonical lemma and polarity (Negative for antonyms).").unwrap();
+    writeln!(file, "pub fn lookup_canonical(word: &str) -> Option<CanonicalMapping> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for verb in verbs {
+        let lemma = &verb.lemma;
+
+        // Map synonyms -> Positive polarity
+        for syn in &verb.synonyms {
+            writeln!(
+                file,
+                "        \"{}\" => Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Positive }}),",
+                syn.to_lowercase(),
+                lemma
+            ).unwrap();
+        }
+
+        // Map antonyms -> Negative polarity
+        for ant in &verb.antonyms {
+            writeln!(
+                file,
+                "        \"{}\" => Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Negative }}),",
+                ant.to_lowercase(),
+                lemma
+            ).unwrap();
+        }
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+}
+
 ```
 
 ---
@@ -80004,10 +80455,10 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
 
 ## Metadata
 
-- **Generated:** Fri Jan  2 11:37:24 CST 2026
+- **Generated:** Fri Jan  2 14:20:39 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 5e6d70f
+- **Git Commit:** 3933518
 - **Documentation Size:** 3.0M
 
 ---

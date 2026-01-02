@@ -62,6 +62,10 @@ struct VerbDefinition {
     regular: bool,
     #[serde(default)]
     features: Vec<String>,
+    #[serde(default)]
+    synonyms: Vec<String>,
+    #[serde(default)]
+    antonyms: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -352,6 +356,9 @@ fn main() {
     let axiom_path = Path::new(&out_dir).join("axiom_data.rs");
     let mut axiom_file = fs::File::create(&axiom_path).unwrap();
     generate_axiom_data(&mut axiom_file, &data.axioms);
+
+    // Generate canonical mapping lookup for synonyms/antonyms
+    generate_canonical_mapping(&mut file, &data.verbs);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -639,6 +646,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "Cannot" => "crate::token::TokenType::Cannot",
             "Would" => "crate::token::TokenType::Would",
             "Could" => "crate::token::TokenType::Could",
+            "Might" => "crate::token::TokenType::Might",
             "Had" => "crate::token::TokenType::Had",
             "Than" => "crate::token::TokenType::Than",
             "Reflexive" => "crate::token::TokenType::Reflexive",
@@ -1454,6 +1462,64 @@ fn generate_axiom_data(file: &mut fs::File, axioms: &Option<AxiomData>) {
             writeln!(file, "        \"{}\" => Some((\"{}\", &[{}])),", verb, entails, manner_str.join(", ")).unwrap();
         }
     }
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Canonical Mapping Generation (Synonyms/Antonyms)
+// ═══════════════════════════════════════════════════════════════════
+
+fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
+    // Generate Polarity enum
+    writeln!(file, "/// Polarity for canonical mapping (positive = synonym, negative = antonym).").unwrap();
+    writeln!(file, "#[derive(Debug, Clone, Copy, PartialEq, Eq)]").unwrap();
+    writeln!(file, "pub enum Polarity {{").unwrap();
+    writeln!(file, "    Positive,").unwrap();
+    writeln!(file, "    Negative,").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate CanonicalMapping struct
+    writeln!(file, "/// Maps a word to its canonical form with polarity.").unwrap();
+    writeln!(file, "#[derive(Debug, Clone, Copy)]").unwrap();
+    writeln!(file, "pub struct CanonicalMapping {{").unwrap();
+    writeln!(file, "    pub lemma: &'static str,").unwrap();
+    writeln!(file, "    pub polarity: Polarity,").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate lookup_canonical function
+    writeln!(file, "/// Look up canonical form for a word (synonym/antonym normalization).").unwrap();
+    writeln!(file, "/// Returns the canonical lemma and polarity (Negative for antonyms).").unwrap();
+    writeln!(file, "pub fn lookup_canonical(word: &str) -> Option<CanonicalMapping> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for verb in verbs {
+        let lemma = &verb.lemma;
+
+        // Map synonyms -> Positive polarity
+        for syn in &verb.synonyms {
+            writeln!(
+                file,
+                "        \"{}\" => Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Positive }}),",
+                syn.to_lowercase(),
+                lemma
+            ).unwrap();
+        }
+
+        // Map antonyms -> Negative polarity
+        for ant in &verb.antonyms {
+            writeln!(
+                file,
+                "        \"{}\" => Some(CanonicalMapping {{ lemma: \"{}\", polarity: Polarity::Negative }}),",
+                ant.to_lowercase(),
+                lemma
+            ).unwrap();
+        }
+    }
+
     writeln!(file, "        _ => None,").unwrap();
     writeln!(file, "    }}").unwrap();
     writeln!(file, "}}").unwrap();

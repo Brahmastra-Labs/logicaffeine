@@ -225,6 +225,7 @@ pub mod dsl {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: b(body),
         }
@@ -235,6 +236,7 @@ pub mod dsl {
             vector: ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.0,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: b(body),
         }
@@ -245,6 +247,7 @@ pub mod dsl {
             vector: ModalVector {
                 domain: ModalDomain::Deontic,
                 force,
+                flavor: crate::ast::ModalFlavor::Root,
             },
             operand: b(body),
         }
@@ -252,7 +255,7 @@ pub mod dsl {
 
     pub fn modal(domain: ModalDomain, force: f32, body: ExprView<'static>) -> ExprView<'static> {
         ExprView::Modal {
-            vector: ModalVector { domain, force },
+            vector: ModalVector { domain, force, flavor: crate::ast::ModalFlavor::Root },
             operand: b(body),
         }
     }

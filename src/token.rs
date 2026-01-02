@@ -97,6 +97,7 @@ pub enum TokenType {
     Cannot,
     Would,
     Could,
+    Might,
     Had,
 
     // Imperative Statement Keywords
@@ -376,6 +377,9 @@ impl TokenType {
         TokenType::Can,
         TokenType::May,
         TokenType::Cannot,
+        TokenType::Would,
+        TokenType::Could,
+        TokenType::Might,
     ];
 }
 
@@ -419,12 +423,15 @@ mod tests {
 
     #[test]
     fn modals_contains_all_modal_tokens() {
-        assert_eq!(TokenType::MODALS.len(), 6);
+        assert_eq!(TokenType::MODALS.len(), 9);
         assert!(TokenType::MODALS.contains(&TokenType::Must));
         assert!(TokenType::MODALS.contains(&TokenType::Shall));
         assert!(TokenType::MODALS.contains(&TokenType::Should));
         assert!(TokenType::MODALS.contains(&TokenType::Can));
         assert!(TokenType::MODALS.contains(&TokenType::May));
         assert!(TokenType::MODALS.contains(&TokenType::Cannot));
+        assert!(TokenType::MODALS.contains(&TokenType::Would));
+        assert!(TokenType::MODALS.contains(&TokenType::Could));
+        assert!(TokenType::MODALS.contains(&TokenType::Might));
     }
 }

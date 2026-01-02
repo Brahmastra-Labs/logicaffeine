@@ -205,34 +205,49 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
     }
 
     fn aux_token_to_modal_vector(&self, token: &TokenType) -> ModalVector {
+        use crate::ast::ModalFlavor;
         match token {
+            // Root modals (narrow scope)
             TokenType::Can => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Could => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.4,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.6,
-            },
-            TokenType::May => ModalVector {
-                domain: ModalDomain::Deontic,
-                force: 0.5,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Must => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 1.0,
+                flavor: ModalFlavor::Root,
             },
             TokenType::Should => ModalVector {
                 domain: ModalDomain::Deontic,
                 force: 0.6,
+                flavor: ModalFlavor::Root,
+            },
+            // Epistemic modals (wide scope)
+            TokenType::May => ModalVector {
+                domain: ModalDomain::Deontic,
+                force: 0.5,
+                flavor: ModalFlavor::Epistemic,
+            },
+            TokenType::Might => ModalVector {
+                domain: ModalDomain::Alethic,
+                force: 0.3,
+                flavor: ModalFlavor::Epistemic,
             },
             _ => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
+                flavor: ModalFlavor::Root,
             },
         }
     }

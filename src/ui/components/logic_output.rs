@@ -81,12 +81,14 @@ const OUTPUT_STYLE: &str = r#"
 pub enum OutputFormat {
     #[default]
     Unicode,
+    SimpleFOL,
     LaTeX,
 }
 
 #[component]
 pub fn LogicOutput(
     logic: Option<String>,
+    simple_logic: Option<String>,
     readings: Vec<String>,
     error: Option<String>,
     format: OutputFormat,
@@ -101,10 +103,10 @@ pub fn LogicOutput(
         logic.clone()
     };
 
-    let formatted_output = match (&display_logic, format) {
-        (Some(logic), OutputFormat::LaTeX) => convert_to_latex(logic),
-        (Some(logic), OutputFormat::Unicode) => logic.clone(),
-        (None, _) => String::new(),
+    let formatted_output = match format {
+        OutputFormat::SimpleFOL => simple_logic.clone().unwrap_or_default(),
+        OutputFormat::LaTeX => display_logic.as_ref().map(|l| convert_to_latex(l)).unwrap_or_default(),
+        OutputFormat::Unicode => display_logic.clone().unwrap_or_default(),
     };
 
     rsx! {

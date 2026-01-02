@@ -36,6 +36,7 @@
     "cannot": "Cannot",
     "would": "Would",
     "could": "Could",
+    "might": "Might",
     "had": "Had",
     "than": "Than",
     "itself": "Reflexive",
@@ -113,7 +114,7 @@
   },
   "verbs": [
     { "lemma": "Be", "class": "State", "forms": { "past": "was", "participle": "been", "gerund": "being" } },
-    { "lemma": "Have", "class": "State", "forms": { "present3s": "has", "past": "had", "participle": "had", "gerund": "having" } },
+    { "lemma": "Have", "class": "State", "forms": { "present3s": "has", "past": "had", "participle": "had", "gerund": "having" }, "synonyms": ["possess", "own", "hold"], "antonyms": ["lack", "miss"] },
     { "lemma": "Run", "class": "Activity", "forms": { "past": "ran", "gerund": "running" } },
     { "lemma": "See", "class": "State", "forms": { "past": "saw", "participle": "seen", "gerund": "seeing" } },
     { "lemma": "Give", "class": "Achievement", "forms": { "past": "gave", "participle": "given", "gerund": "giving" }, "features": ["Ditransitive"] },

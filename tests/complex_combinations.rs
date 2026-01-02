@@ -168,9 +168,10 @@ fn donkey_sentence_with_ditransitive() {
         "Should contain universal quantifier (∀): got '{}'",
         output
     );
+    // "own" is a synonym of "have" so it gets normalized to the canonical form
     assert!(
-        output.contains("O(") || output.contains("Own"),
-        "Should contain Own (possibly as O): got '{}'",
+        output.contains("O(") || output.contains("Own") || output.contains("Have"),
+        "Should contain Own or Have (canonical form): got '{}'",
         output
     );
     assert!(

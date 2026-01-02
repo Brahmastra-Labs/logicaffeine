@@ -1,6 +1,7 @@
 use crate::arena::Arena;
 use crate::ast::{LogicExpr, NeoEventData, Term, ThematicRole};
 use crate::intern::{Interner, Symbol};
+use crate::lexicon::{lookup_canonical, Polarity};
 use crate::token::TokenType;
 
 use super::{is_privative_adjective, lookup_noun_entailments, lookup_noun_hypernyms, lookup_verb_entailment};
@@ -107,6 +108,25 @@ fn expand_predicate<'a>(
 ) -> &'a LogicExpr<'a> {
     let name_str = interner.resolve(name).to_string();
     let lower_name = name_str.to_lowercase();
+
+    // Check for canonical mapping (synonyms/antonyms)
+    // E.g., Lack(x,y) -> ¬Have(x,y), Possess(x,y) -> Have(x,y)
+    if let Some(mapping) = lookup_canonical(&lower_name) {
+        let canonical_sym = interner.intern(mapping.lemma);
+        let canonical_pred = expr_arena.alloc(LogicExpr::Predicate {
+            name: canonical_sym,
+            args,
+        });
+
+        // Wrap antonyms in negation
+        return match mapping.polarity {
+            Polarity::Positive => canonical_pred,
+            Polarity::Negative => expr_arena.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: canonical_pred,
+            }),
+        };
+    }
 
     // Check for compound predicates (e.g., Fake-Gun from non-intersective adjectives)
     if let Some(hyphen_pos) = name_str.find('-') {
@@ -242,8 +262,33 @@ fn expand_neo_event<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     let verb_str = interner.resolve(data.verb);
+    let lower_verb = verb_str.to_lowercase();
 
-    if let Some((base_verb, manner_preds)) = lookup_verb_entailment(&verb_str.to_lowercase()) {
+    // Check for canonical mapping (synonyms/antonyms)
+    // E.g., Lack(x,y) -> ¬Have(x,y)
+    if let Some(mapping) = lookup_canonical(&lower_verb) {
+        let canonical_sym = interner.intern(mapping.lemma);
+
+        // Create NeoEvent with canonical verb
+        let canonical_event = expr_arena.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+            event_var: data.event_var,
+            verb: canonical_sym,
+            roles: data.roles,
+            modifiers: data.modifiers,
+            suppress_existential: data.suppress_existential,
+        })));
+
+        // Wrap antonyms in negation
+        return match mapping.polarity {
+            Polarity::Positive => canonical_event,
+            Polarity::Negative => expr_arena.alloc(LogicExpr::UnaryOp {
+                op: TokenType::Not,
+                operand: canonical_event,
+            }),
+        };
+    }
+
+    if let Some((base_verb, manner_preds)) = lookup_verb_entailment(&lower_verb) {
         // Murder(e) => Murder(e) ∧ Kill(e) ∧ Intentional(Agent)
         let base_verb_sym = interner.intern(base_verb);
 
