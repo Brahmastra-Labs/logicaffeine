@@ -1721,6 +1721,13 @@ impl<'a> Lexer<'a> {
         lexicon::is_object_control_verb(&lemma.to_lowercase())
     }
 
+    pub fn is_weather_verb(lemma: &str) -> bool {
+        matches!(
+            lemma.to_lowercase().as_str(),
+            "rain" | "snow" | "hail" | "thunder" | "pour"
+        )
+    }
+
     fn try_parse_superlative(&self, word: &str) -> Option<String> {
         if !word.ends_with("est") || word.len() < 5 {
             return None;

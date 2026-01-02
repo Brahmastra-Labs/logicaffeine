@@ -61,6 +61,7 @@ pub enum TokenType {
     No,
     Some,
     Any,
+    Both, // Correlative conjunction marker: "both X and Y"
     Most,
     Few,
     Many,

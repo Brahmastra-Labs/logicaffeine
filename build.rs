@@ -610,6 +610,7 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
             "No" => "crate::token::TokenType::No",
             "Some" => "crate::token::TokenType::Some",
             "Any" => "crate::token::TokenType::Any",
+            "Both" => "crate::token::TokenType::Both",
             "Most" => "crate::token::TokenType::Most",
             "Few" => "crate::token::TokenType::Few",
             "Many" => "crate::token::TokenType::Many",

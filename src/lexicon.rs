@@ -20,6 +20,7 @@ pub enum Feature {
     Performative, // "I promise"
     Collective,  // "The group gathered"
     Mixed,       // "Lift" - can be collective or distributive
+    Weather,     // "Rain", "Snow" - weather verbs with expletive "it"
 
     // Noun Features
     Count,
@@ -56,6 +57,7 @@ impl Feature {
             "Factive" => Some(Feature::Factive),
             "Performative" => Some(Feature::Performative),
             "Collective" => Some(Feature::Collective),
+            "Weather" => Some(Feature::Weather),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),

@@ -60,6 +60,39 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
     ) -> ParseResult<&'a LogicExpr<'a>> {
         let subject_term = Term::Constant(subject_symbol);
 
+        // Weather verb + expletive "it" detection: "it rains" → ∃e(Rain(e))
+        let subject_str = self.interner.resolve(subject_symbol).to_lowercase();
+        if subject_str == "it" && self.check_verb() {
+            if let TokenType::Verb { lemma, time, .. } = &self.peek().kind {
+                let lemma_str = self.interner.resolve(*lemma);
+                if Lexer::is_weather_verb(lemma_str) {
+                    let verb = *lemma;
+                    let verb_time = *time;
+                    self.advance(); // consume the weather verb
+
+                    let event_var = self.get_event_var();
+                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
+                        modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    })));
+
+                    return Ok(match verb_time {
+                        Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Past,
+                            body: neo_event,
+                        }),
+                        Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                            operator: TemporalOperator::Future,
+                            body: neo_event,
+                        }),
+                        _ => neo_event,
+                    });
+                }
+            }
+        }
+
         if self.check(&TokenType::Never) {
             self.advance();
             let verb = self.consume_verb();
@@ -454,7 +487,10 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             }
 
             let predicate = self.consume_content_word()?;
-            return Ok(self.ctx.exprs.alloc(LogicExpr::Atom(predicate)));
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+                name: predicate,
+                args: self.ctx.terms.alloc_slice([subject_term]),
+            }));
         }
 
         if self.check_verb() {

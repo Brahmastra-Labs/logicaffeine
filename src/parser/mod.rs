@@ -4710,6 +4710,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let token_text = self.interner.resolve(token.lexeme);
 
+            // Weather verb + expletive "it" detection: "it rains" → ∃e(Rain(e))
+            // Must check BEFORE pronoun resolution since "it" resolves to "?"
+            if token_text.eq_ignore_ascii_case("it") && self.check_verb() {
+                if let TokenType::Verb { lemma, time, .. } = &self.peek().kind {
+                    let lemma_str = self.interner.resolve(*lemma);
+                    if Lexer::is_weather_verb(lemma_str) {
+                        let verb = *lemma;
+                        let verb_time = *time;
+                        self.advance(); // consume the weather verb
+
+                        let event_var = self.get_event_var();
+                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                            event_var,
+                            verb,
+                            roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
+                            modifiers: self.ctx.syms.alloc_slice(vec![]),
+                        })));
+
+                        return Ok(match verb_time {
+                            Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                operator: TemporalOperator::Past,
+                                body: neo_event,
+                            }),
+                            Time::Future => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                operator: TemporalOperator::Future,
+                                body: neo_event,
+                            }),
+                            _ => neo_event,
+                        });
+                    }
+                }
+            }
+
             // Handle deictic pronouns that don't need discourse resolution
             let resolved = if token_text.eq_ignore_ascii_case("i") {
                 self.interner.intern("Speaker")
@@ -4760,6 +4793,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Continue parsing verb phrase with resolved subject
             return self.parse_predicate_with_subject(resolved);
         }
+
+        // Consume "both" correlative marker if present: "both X and Y"
+        // The existing try_parse_plural_subject will handle the "X and Y" pattern
+        let _had_both = self.match_token(&[TokenType::Both]);
 
         let subject = self.parse_noun_phrase(true)?;
 
