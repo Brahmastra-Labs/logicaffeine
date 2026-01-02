@@ -1000,6 +1000,13 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(self.interner.intern("Divergent"))
             }
+            // Phase 49: Accept Ambiguous tokens (e.g., "name" could be verb or noun)
+            // Use lexeme to get the original word
+            TokenType::Ambiguous { .. } => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
             _ => None
         }
     }
