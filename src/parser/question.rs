@@ -44,6 +44,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
                 wh_variable: var_name,
@@ -63,6 +64,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
                 wh_variable: var_name,
@@ -78,6 +80,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), var_term]),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
                 wh_variable: var_name,
@@ -160,6 +163,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_symbol)]),
+                    world: None,
                 });
                 let with_aspect = if verb_aspect == Aspect::Progressive {
                     self.ctx.exprs.alloc(LogicExpr::Aspectual {
@@ -182,6 +186,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: adj,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_symbol)]),
+                    world: None,
                 })
             } else {
                 self.ctx.exprs.alloc(LogicExpr::Atom(subject_symbol))

@@ -90,6 +90,8 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
     - [Phase 52: The Sync](#phase-52-the-sync)
     - [Phase 54: Go-like Concurrency](#phase-54-go-like-concurrency)
+    - [Phase Kripke: Modal Semantics](#phase-kripke-modal-semantics-with-possible-worlds)
+    - [Phase Privation Modal: Scope Matrix](#phase-privation-modal-modal--negation-scope-matrix)
     - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
@@ -157,7 +159,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 1. **Lexer** (`lexer.rs`, `token.rs`): Tokenizes English input using dictionary-based classification
 2. **Parser** (`parser/`, `ast.rs`): Builds Arena-based AST via recursive descent; returns **parse forest** for ambiguous inputs
 3. **Semantics** (`lambda.rs`, `context.rs`): Lambda calculus for compositional meaning
-4. **Transpiler** (`transpile.rs`, `formatter.rs`): Generates Unicode or LaTeX logical notation
+4. **Transpiler** (`transpile.rs`, `formatter.rs`): Generates Unicode, LaTeX, SimpleFOL, or Kripke logical notation
 
 **Key Design Decisions:**
 - **Arena allocation** (`bumpalo`) for zero-copy AST nodes with `Copy` semantics
@@ -224,6 +226,8 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
 - **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
 - **Go-like Concurrency** - Pipe<T> bounded channels (PipeSender/PipeReceiver split), TaskHandle<T> with abort/is_finished, spawn() for green threads, Select statement (tokio::select!), check_preemption() for cooperative yields
+- **Kripke Semantics (Deep Mode)** - Modal lowering pass transforms surface modal operators (□, ◇) into explicit possible world quantification; OutputFormat::Kripke produces `∃w1(Accessible_Alethic(w0, w1) ∧ P(x, w1))` for alethic possibility; compile_kripke() and compile_forest_with_options() with Kripke format; accessibility predicates distinguish alethic/deontic/epistemic modalities
+- **Privation × Modal Matrix** - Privative verbs (lacks, missing) with polysemous modals (can/may) generate 4 readings: 2 modal types (Alethic ◇/Deontic P) × 2 scope types (Partial ∃y(K(y)∧¬H) / Total ¬∃y(K(y)∧H)); NegativeScopeMode controls negation placement; ModalPreference forces modal flavor; simple_readings deduplicates since SimpleFOL strips modals
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -471,6 +475,21 @@ Sentences with multiple valid parses return all readings via `compile_ambiguous(
 | Possibility | ◇ | "can", "possibly", "might" |
 | Obligation | O | "ought", "should" |
 | Permission | P | "may" (deontic) |
+
+**Output Formats:**
+| Format | Example ("John can fly") | Notes |
+|--------|--------------------------|-------|
+| Simple | `Fly(John)` | Modals stripped, simple predicates |
+| Full | `◇_{0.5} ∃e(Fly(e) ∧ Agent(e, John))` | Modal + event semantics |
+| LaTeX | `\Diamond_{0.5} \exists e(Fly(e) \land Agent(e, John))` | Typesetting format |
+| Deep (Kripke) | `∃w1(Accessible_Alethic(w0, w1) ∧ ∃e(Fly(e, w1) ∧ Agent(e, John, w1)))` | Explicit world quantification |
+
+**Kripke Accessibility Relations:**
+| Modal Type | Accessibility Predicate | Example Verb |
+|------------|------------------------|--------------|
+| Alethic | Accessible_Alethic(w0, w1) | can, must |
+| Deontic | Accessible_Deontic(w0, w1) | should, may (permission) |
+| Epistemic | Accessible_Epistemic(w0, w1) | might, could (uncertainty) |
 
 ### Temporal Operators
 
@@ -812,6 +831,22 @@ LOGICAFFEINE supports the following linguistic constructs:
 **Input:** "Some cat loves every dog"
 **Output:** `\exists x(Cat(x) \land \forall y(Dog(y) \rightarrow Loves(x,y)))`
 
+### Kripke/Deep Output
+
+Deep mode applies Kripke lowering to transform surface modal operators into explicit possible world quantification with accessibility predicates.
+
+**Input:** "John can fly" (Alethic possibility)
+**Output:** `∃w1(Accessible_Alethic(w0, w1) ∧ ∃e(Fly(e, w1) ∧ Agent(e, John, w1)))`
+
+**Input:** "John should study" (Deontic obligation)
+**Output:** `∀w1(Accessible_Deontic(w0, w1) → ∃e(Study(e, w1) ∧ Agent(e, John, w1)))`
+
+**Input:** "John must run" (Alethic necessity)
+**Output:** `∀w1(Accessible_Alethic(w0, w1) → ∃e(Run(e, w1) ∧ Agent(e, John, w1)))`
+
+**Input:** "All dogs sleep" (Non-modal at actual world)
+**Output:** `∀x(Dog(x, w0) → ∃e(Sleep(e, w0) ∧ Agent(e, x, w0)))`
+
 ### Ditransitive Output
 
 **Input:** "John gave Mary a book"
@@ -1120,6 +1155,12 @@ LOGICAFFEINE supports the following linguistic constructs:
 | **Zero-Derivation** | Conversion of a word from one category to another without morphological change: "table" (noun) → "table" (verb) |
 | **VP Ellipsis** | Omission of a verb phrase that is recoverable from context: "John runs. Mary does too." = Mary runs |
 | **Sluicing** | Ellipsis of a wh-clause recoverable from context: "Someone left. I know who." = I know who left |
+| **Privative Verb** | Verb expressing absence or lack: "lacks", "missing", "without" → canonical negation of base verb |
+| **NegativeScopeMode** | Parser mode controlling negation placement: Narrow (∃y(K(y) ∧ ¬H(x,y))) vs Wide (¬∃y(K(y) ∧ H(x,y))) |
+| **ModalPreference** | Parser mode for polysemous modals: Default, Epistemic, Deontic, Alethic |
+| **Partial Scope** | Privation reading where entity lacks SOME instance: ∃y(Key(y) ∧ ¬Have(x,y)) |
+| **Total Scope** | Privation reading where entity has NO instances: ¬∃y(Key(y) ∧ Have(x,y)) |
+| **Polysemous Modal** | Modal verb with multiple interpretations: "can" → Alethic (ability) or Deontic (permission) |
 
 ### Implementation Terms
 
@@ -1226,6 +1267,11 @@ LOGICAFFEINE supports the following linguistic constructs:
 | **disambiguation_not_verbs** | Lexicon list of words that should NOT be classified as verbs despite having verb forms (ring, bus). Returns Noun if also in nouns list. |
 | **Polysemy Resolution** | Handling words with multiple parts of speech. Verb-first + parser safety net enables "I love you" and "Love is real" from same token type. |
 | **compile_forest()** | Phase 12 API returning Vec<String> of all valid parse readings for ambiguous sentences. |
+| **compile_forest_with_options()** | Extended API accepting CompileOptions for format control; generates readings in SimpleFOL, Unicode, or Kripke format. |
+| **CompileResult** | Struct returned by compile_for_ui() with readings (Unicode), simple_readings (deduplicated SimpleFOL), kripke_readings (Kripke). |
+| **simple_readings** | Deduplicated SimpleFOL readings in CompileResult; collapses modal variants since SimpleFOL strips modals. |
+| **set_negative_scope_mode()** | Parser method to configure privation scope: Narrow (¬ inside ∃) or Wide (¬ outside ∃). |
+| **set_modal_preference()** | Parser method to force modal interpretation: Default, Epistemic, Deontic, or Alethic. |
 | **MAX_FOREST_READINGS** | Constant (12) limiting parse forest size to prevent exponential blowup. |
 | **noun_priority_mode** | Parser flag that prefers noun interpretation for Ambiguous tokens; used for lexical ambiguity forking. |
 | **TokenType::Ambiguous** | Token variant with primary interpretation and alternatives Vec for polysemous words (duck, bear, love). |
@@ -1978,6 +2024,26 @@ Green threads and channel primitives. 'Launch a task to fn' generates tokio::spa
 
 ---
 
+#### Phase Kripke: Modal Semantics with Possible Worlds
+
+**File:** `tests/phase_kripke.rs`
+
+Kripke semantics lowering pass transforms surface modal operators (□, ◇) into explicit possible world quantification. OutputFormat::Kripke produces formulas with world arguments on predicates and accessibility relations. compile_kripke() API for direct Kripke output. Distinguishes alethic (can/must), deontic (should/may), and epistemic (might/could) accessibility predicates. Non-modal sentences get actual world w0 argument.
+
+**Example:** 'John can fly' → ∃w1(Accessible_Alethic(w0, w1) ∧ Fly(e, w1) ∧ Agent(e, John, w1))
+
+---
+
+#### Phase Privation Modal: Modal × Negation Scope Matrix
+
+**File:** `tests/phase_privation_modal.rs`
+
+Tests 4-way ambiguity when privative verbs (lacks, missing) combine with polysemous modals (can/may). Matrix: 2 modal types (Alethic ◇ = physical possibility, Deontic P = permission) × 2 scope types (Partial = ∃y(Key(y) ∧ ¬Have(x,y)), Total = ¬∃y(Key(y) ∧ Have(x,y))). NegativeScopeMode::Wide defers negation for total privation. ModalPreference::Deontic forces permission reading. compile_forest() generates all 4 interpretations. SimpleFOL deduplicates to 2 (Partial vs Total) since modals strip.
+
+**Example:** 'No user who lacks a key can enter' → 4 readings: Alethic+Partial, Alethic+Total, Deontic+Partial, Deontic+Total
+
+---
+
 #### E2E: Collections
 
 **File:** `tests/e2e_collections.rs`
@@ -2233,13 +2299,13 @@ Tests for lexer improvements and edge cases.
 ### By Compiler Stage
 ```
 Lexer (token.rs, lexer.rs):           2458 lines
-Parser (ast/, parser/):               15122 lines
-Transpilation:                        1385 lines
+Parser (ast/, parser/):               15462 lines
+Transpilation:                        1469 lines
 Code Generation:                      2904 lines
-Semantics (lambda, context, view):    2889 lines
+Semantics (lambda, context, view):    2931 lines
 Type Analysis (analysis/):            2834 lines
-Support Infrastructure:               4411 lines
-Desktop UI:                              17930 lines
+Support Infrastructure:               4621 lines
+Desktop UI:                              17956 lines
 CRDT (logos_core/src/crdt/):          1854 lines
 Network (logos_core/src/network/):    1596 lines
 VFS (logos_core/src/fs/):             511 lines
@@ -2248,15 +2314,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        59370
-Test lines:          26823
-Total Rust lines: 86193
+Source lines:        60430
+Test lines:          27346
+Total Rust lines: 87776
 ```
 
 ### File Counts
 ```
-Source files: 121
-Test files:   143
+Source files: 122
+Test files:   145
 ```
 ## Lexicon Data
 
@@ -5769,6 +5835,8 @@ pub struct NeoEventData<'a> {
     pub modifiers: &'a [Symbol],
     /// When true, suppress local ∃e quantification (DRT: event var will be bound by outer ∀)
     pub suppress_existential: bool,
+    /// World argument for Kripke semantics. None = implicit actual world (w₀).
+    pub world: Option<Symbol>,
 }
 
 impl<'a> NounPhrase<'a> {
@@ -5827,6 +5895,8 @@ pub enum LogicExpr<'a> {
     Predicate {
         name: Symbol,
         args: &'a [Term<'a>],
+        /// World argument for Kripke semantics. None = implicit actual world (w₀).
+        world: Option<Symbol>,
     },
 
     Identity {
@@ -6769,6 +6839,24 @@ pub enum NegativeScopeMode {
     Wide,
 }
 
+/// Controls interpretation of polysemous modals (may, can, could).
+/// Used by compile_forest to generate multiple semantic readings.
+///
+/// Semantic Matrix:
+///   may:   Default=Permission (Deontic, Root)    Epistemic=Possibility (Alethic, Epistemic)
+///   can:   Default=Ability (Alethic, Root)       Deontic=Permission (Deontic, Root)
+///   could: Default=PastAbility (Alethic, Root)   Epistemic=Possibility (Alethic, Epistemic)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ModalPreference {
+    /// Default readings: may=Permission, can=Ability, could=PastAbility
+    #[default]
+    Default,
+    /// Epistemic readings: may=Possibility (wide scope), could=Possibility (wide scope)
+    Epistemic,
+    /// Deontic readings: can=Permission (narrow scope, deontic domain)
+    Deontic,
+}
+
 #[derive(Clone)]
 struct ParserCheckpoint {
     pos: usize,
@@ -6844,6 +6932,7 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) event_reading_mode: bool,
     pub(super) drs: Drs,
     pub(super) negative_scope_mode: NegativeScopeMode,
+    pub(super) modal_preference: ModalPreference,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
@@ -6875,6 +6964,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             event_reading_mode: false,
             drs: Drs::new(),
             negative_scope_mode: NegativeScopeMode::default(),
+            modal_preference: ModalPreference::default(),
         }
     }
 
@@ -6892,6 +6982,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
         self.negative_scope_mode = mode;
+    }
+
+    pub fn set_modal_preference(&mut self, pref: ModalPreference) {
+        self.modal_preference = pref;
     }
 
     pub fn with_context(
@@ -6923,6 +7017,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             event_reading_mode: false,
             drs: Drs::new(),
             negative_scope_mode: NegativeScopeMode::default(),
+            modal_preference: ModalPreference::default(),
         }
     }
 
@@ -6959,6 +7054,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             event_reading_mode: false,
             drs: Drs::new(),
             negative_scope_mode: NegativeScopeMode::default(),
+            modal_preference: ModalPreference::default(),
         }
     }
 
@@ -7234,7 +7330,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let right_term = self.expr_to_term(right)?;
 
                 let args = self.ctx.terms.alloc_slice([left_term, right_term]);
-                Some(self.ctx.exprs.alloc(LogicExpr::Predicate { name: pred_sym, args }))
+                Some(self.ctx.exprs.alloc(LogicExpr::Predicate { name: pred_sym, args, world: None }))
             }
             _ => None,
         }
@@ -7307,6 +7403,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([var_term]),
+                world: None,
             });
             return Ok(body);
         }
@@ -7322,6 +7419,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         Term::Constant(subject.noun),
                         var_term,
                     ]),
+                    world: None,
                 });
                 return Ok(body);
             }
@@ -11467,6 +11565,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
                             suppress_existential,
+                            world: None,
                         })));
 
                         return Ok(match verb_time {
@@ -11508,6 +11607,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let content = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: infinitive_verb,
                                 args: self.ctx.terms.alloc_slice([Term::Constant(resolved)]),
+                                world: None,
                             });
 
                             return Ok(self.ctx.exprs.alloc(LogicExpr::SpeechAct {
@@ -11595,6 +11695,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                     Term::Constant(resolved),
                                     Term::Constant(subject.noun),
                                 ]),
+                                world: None,
                             });
                             p.wrap_with_definiteness_full(&subject, predicate)
                         } else {
@@ -11628,6 +11729,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 Term::Constant(real_subject.noun),
                                 Term::Constant(subject.noun),
                             ]),
+                            world: None,
                         });
                         p.wrap_with_definiteness_full(&subject, predicate)
                     } else {
@@ -11682,11 +11784,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
                     suppress_existential,
+                    world: None,
                 })));
 
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
 
                 let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -11715,6 +11819,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
 
                 let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -11729,6 +11834,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let type_pred_y = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: subject.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(y_var)]),
+                        world: None,
                     });
                     let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
                         left: self.ctx.terms.alloc(Term::Variable(y_var)),
@@ -11783,6 +11889,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
 
                 let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -11838,6 +11945,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             Term::Constant(subject.noun),
                             *measure,
                         ]),
+                        world: None,
                     });
                     return self.wrap_with_definiteness_full(&subject, result);
                 }
@@ -11919,6 +12027,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: verb_sym,
                                 args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                world: None,
                             });
 
                             let agent_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -11927,11 +12036,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                     Term::Variable(event_var),
                                     Term::Constant(subject.noun),
                                 ]),
+                                world: None,
                             });
 
                             let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: adj_sym,
                                 args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                world: None,
                             });
 
                             // Conjoin: Verb(e) ∧ Agent(e, x)
@@ -11983,6 +12094,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj_sym,
                         args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                        world: None,
                     });
                     predicates.push(adj_pred);
                 }
@@ -11991,6 +12103,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let noun_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate_noun,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                    world: None,
                 });
                 predicates.push(noun_pred);
 
@@ -12061,6 +12174,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
                         args: self.ctx.terms.alloc_slice(args),
+                        world: None,
                     });
 
                     let with_time = if copula_time == Time::Past {
@@ -12085,11 +12199,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             Term::Variable(var_name),
                             Term::Constant(subject.noun),
                         ]),
+                        world: None,
                     });
 
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: subject.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     });
 
                     let temporal = self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -12114,6 +12230,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                    world: None,
                 });
 
                 let with_aspect = if verb_aspect == Aspect::Progressive {
@@ -12151,11 +12268,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: pred_word,
                     args: self.ctx.terms.alloc_slice([var_term]),
+                    world: None,
                 });
 
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
 
                 let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -12212,6 +12331,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: predicate_name,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                world: None,
             });
             return self.wrap_with_definiteness(subject.definiteness, subject.noun, predicate);
         }
@@ -12253,11 +12373,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: restriction_sym,
                             args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
                             args: self.ctx.terms.alloc_slice([subject_term.clone(), Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -12302,11 +12424,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: object_np.noun,
                             args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
                             args: self.ctx.terms.alloc_slice([subject_term.clone(), Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let (kind, body) = match quantifier_token {
@@ -12414,6 +12538,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
                         suppress_existential,
+                        world: None,
                     })));
 
                     self.negative_depth -= 1;
@@ -12460,6 +12585,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: subject.noun,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                world: None,
             });
 
             let mut args = vec![Term::Variable(var_name)];
@@ -12471,6 +12597,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             });
 
             let effective_time = self.pending_time.take().unwrap_or(verb_time);
@@ -12560,6 +12687,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 roles: self.ctx.roles.alloc_slice(roles),
                                 modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
                                 suppress_existential,
+                                world: None,
                             })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -12582,6 +12710,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 ]),
                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
                                 suppress_existential: suppress_existential2,
+                                world: None,
                             })));
 
                             let result = if is_negated {
@@ -12605,6 +12734,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: subject.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     });
                     let exists = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: QuantifierKind::Existential,
@@ -12635,6 +12765,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
                     suppress_existential,
+                    world: None,
                 })));
 
                 if is_negated {
@@ -12678,6 +12809,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let pp_pred = p.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep,
                             args: p.ctx.terms.alloc_slice([Term::Variable(p.interner.intern("x")), Term::Constant(pp_obj.noun)]),
+                            world: None,
                         });
                         pp_mods.push(pp_pred);
                     }
@@ -12700,18 +12832,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let type_pred = p.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: p.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 // Modifier verb predicate (reduced relative)
                 let mod_pred = p.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: modifier_verb,
                     args: p.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 // Main verb predicate
                 let main_pred = p.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: main_verb,
                     args: p.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 // Combine type + modifier
@@ -12803,6 +12938,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([subject_term]),
+                world: None,
             });
             let result = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                 op: TokenType::Not,
@@ -12837,6 +12973,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
 
                 let effective_time = self.pending_time.take().unwrap_or(verb_time);
@@ -12856,6 +12993,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: subject.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
 
                 let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -12932,6 +13070,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
                             suppress_existential,
+                            world: None,
                         })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -12955,6 +13094,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             ]),
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
                             suppress_existential: suppress_existential2,
+                            world: None,
                         })));
 
                         return self.wrap_with_definiteness_full(&subject, know_event);
@@ -12984,6 +13124,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                     suppress_existential,
+                    world: None,
                 })));
 
                 return self.wrap_with_definiteness_full(&subject, know_event);
@@ -13108,6 +13249,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(modifiers),
                             suppress_existential,
+                            world: None,
                         })));
 
                         return self.wrap_with_definiteness_full(&subject, neo_event);
@@ -13117,6 +13259,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                        world: None,
                     });
 
                     let obj_restriction = if self.check(&TokenType::That) || self.check(&TokenType::Who) {
@@ -13165,6 +13308,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
                         suppress_existential,
+                        world: None,
                     })));
 
                     let obj_kind = match obj_q {
@@ -13255,11 +13399,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
                         suppress_existential,
+                        world: None,
                     })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: prep_name,
                         args: self.ctx.terms.alloc_slice([Term::Variable(event_var), pp_obj_term]),
+                        world: None,
                     });
 
                     let with_pp = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -13296,6 +13442,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
                     suppress_existential,
+                    world: None,
                 })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
@@ -13447,6 +13594,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep_name,
                             args: self.ctx.terms.alloc_slice([obj.clone(), pp_obj_term]),
+                            world: None,
                         });
                         pp_predicates.push(pp_pred);
                     } else {
@@ -13458,6 +13606,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: prep_name,
                         args: self.ctx.terms.alloc_slice([Term::Variable(event_sym), pp_obj_term]),
+                        world: None,
                     });
                     pp_predicates.push(pp_pred);
                 }
@@ -13536,6 +13685,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(modifiers),
                 suppress_existential,
+                world: None,
             })));
 
             // Combine with PP predicates if any
@@ -13820,6 +13970,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let subject_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: restriction_sym,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+            world: None,
         });
 
         self.negative_depth += 1;
@@ -13840,11 +13991,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: obj_restriction_sym,
                 args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                world: None,
             });
 
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var_name), Term::Variable(obj_var)]),
+                world: None,
             });
 
             let verb_and_obj = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -13884,6 +14037,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+            world: None,
         });
 
         self.negative_depth -= 1;
@@ -13921,6 +14075,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+            world: None,
         });
 
         if is_never {
@@ -14514,6 +14669,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     let action = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
                         args: self.ctx.terms.alloc_slice([Term::Variable(addressee)]),
+                        world: None,
                     });
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Imperative { action }));
                 }
@@ -14690,6 +14846,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     roles: self.ctx.roles.alloc_slice(vec![]),
                                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                                     suppress_existential,
+                                    world: None,
                                 })));
 
                                 // Handle coordinated weather verbs: "rains and thunders" or "rains or thunders"
@@ -14711,6 +14868,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                                 roles: self.ctx.roles.alloc_slice(vec![]),
                                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
                                                 suppress_existential,
+                                                world: None,
                                             })));
 
                                             let op = if is_disjunction { TokenType::Or } else { TokenType::And };
@@ -14768,6 +14926,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                        world: None,
                     });
 
                     (var, Some(type_pred))
@@ -14833,6 +14992,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         subject_term,
                         Term::Constant(predicate),
                     ]),
+                    world: None,
                 });
                 // Combine with type predicate if indefinite subject
                 return Ok(if let Some(type_pred) = subject_type_pred {
@@ -14852,6 +15012,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([subject_term]),
+                    world: None,
                 });
 
                 // Handle "because" causal clause in antecedent
@@ -14967,6 +15128,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                         name: adj_lemma,
                                         args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                        world: None,
                                     });
 
                                     // Handle coordinated adjectives: "wet and cold"
@@ -14985,6 +15147,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                                     let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                                         name: adj2_lemma,
                                                         args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                                        world: None,
                                                     });
                                                     result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                                         left: result,
@@ -15029,6 +15192,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+                    world: None,
                 }));
             }
 
@@ -15081,6 +15245,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 ]),
                 modifiers: self.ctx.syms.alloc_slice(vec![adv_sym]),
                 suppress_existential,
+                world: None,
             }))));
         }
 
@@ -15102,6 +15267,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(vec![]),
                 suppress_existential,
+                world: None,
             }))))
     }
 
@@ -15286,12 +15452,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                     suppress_existential,
+                    world: None,
                 })));
 
                 if let Some((nested_var, nested_clause)) = nested_relative {
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: rel_subject.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(nested_var)]),
+                        world: None,
                     });
 
                     let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -15417,6 +15585,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             roles: self.ctx.roles.alloc_slice(roles),
             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
             suppress_existential,
+            world: None,
         })));
 
         // Apply modal if auxiliary is modal
@@ -15461,12 +15630,12 @@ use super::clause::ClauseParsing;
 use super::modal::ModalParsing;
 use super::noun::NounParsing;
 use super::{NegativeScopeMode, ParseResult, Parser};
-use crate::ast::{LogicExpr, NounPhrase, QuantifierKind, Term};
+use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
 use crate::context::Number;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
-use crate::lexicon::{get_canonical_verb, is_subsective, Definiteness, Time};
+use crate::lexicon::{get_canonical_verb, is_subsective, lookup_verb_db, Definiteness, Feature, Time};
 use crate::token::{PresupKind, TokenType};
 
 pub trait QuantifierParsing<'a, 'ctx, 'int> {
@@ -15527,6 +15696,13 @@ pub trait QuantifierParsing<'a, 'ctx, 'int> {
     ) -> ParseResult<&'a LogicExpr<'a>>;
     fn find_main_verb_name(&self, expr: &LogicExpr<'a>) -> Option<Symbol>;
     fn transform_cardinal_to_group(&mut self, expr: &'a LogicExpr<'a>) -> ParseResult<&'a LogicExpr<'a>>;
+    fn build_verb_neo_event(
+        &mut self,
+        verb: Symbol,
+        subject_var: Symbol,
+        object: Option<Term<'a>>,
+        modifiers: Vec<Symbol>,
+    ) -> &'a LogicExpr<'a>;
 }
 
 impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
@@ -15544,18 +15720,14 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let verb = self.consume_content_word()?;
 
             // Parse object if present (e.g., "can enter the room" -> room is object)
-            let verb_args = if self.check_content_word() || self.check_article() {
+            let obj_term = if self.check_content_word() || self.check_article() {
                 let obj_np = self.parse_noun_phrase(false)?;
-                let obj_term = self.noun_phrase_to_term(&obj_np);
-                self.ctx.terms.alloc_slice([Term::Variable(var_name), obj_term])
+                Some(self.noun_phrase_to_term(&obj_np))
             } else {
-                self.ctx.terms.alloc_slice([Term::Variable(var_name)])
+                None
             };
 
-            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: verb,
-                args: verb_args,
-            });
+            let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, vec![]);
 
             // Determine quantifier kind first (shared by both branches)
             let kind = match quantifier_token {
@@ -15782,10 +15954,15 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
             if self.check_verb() {
                 let verb = self.consume_verb();
-                let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                    name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
-                });
+
+                // Convert aux_time to modifier
+                let modifiers = match aux_time {
+                    Time::Past => vec![self.interner.intern("Past")],
+                    Time::Future => vec![self.interner.intern("Future")],
+                    _ => vec![],
+                };
+
+                let verb_pred = self.build_verb_neo_event(verb, var_name, None, modifiers);
 
                 let maybe_negated = if is_negated {
                     self.negative_depth -= 1;
@@ -15844,10 +16021,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
             let complement = if self.check_verb() {
                 let verb = self.consume_verb();
-                self.ctx.exprs.alloc(LogicExpr::Predicate {
-                    name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
-                })
+                self.build_verb_neo_event(verb, var_name, None, vec![])
             } else {
                 let unknown = self.interner.intern("?");
                 self.ctx.exprs.alloc(LogicExpr::Atom(unknown))
@@ -15927,15 +16101,15 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: restriction_sym,
                     args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                    world: None,
                 });
 
-                let verb_with_obj = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                    name: verb,
-                    args: self.ctx.terms.alloc_slice([
-                        Term::Variable(var_name),
-                        Term::Variable(obj_var),
-                    ]),
-                });
+                let verb_with_obj = self.build_verb_neo_event(
+                    verb,
+                    var_name,
+                    Some(Term::Variable(obj_var)),
+                    vec![],
+                );
 
                 let npi_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: obj_restriction,
@@ -16009,15 +16183,15 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                        world: None,
                     });
 
-                    let verb_with_obj = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: verb,
-                        args: self.ctx.terms.alloc_slice([
-                            Term::Variable(var_name),
-                            Term::Variable(obj_var),
-                        ]),
-                    });
+                    let verb_with_obj = self.build_verb_neo_event(
+                        verb,
+                        var_name,
+                        Some(Term::Variable(obj_var)),
+                        vec![],
+                    );
 
                     let obj_kind = match obj_q {
                         TokenType::All => QuantifierKind::Universal,
@@ -16120,10 +16294,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 args.push(Term::Constant(object.noun));
             }
 
-            let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                name: verb,
-                args: self.ctx.terms.alloc_slice(args),
-            });
+            // Extract object term from args if present (args[0] is subject, args[1] is object)
+            let obj_term = if args.len() > 1 {
+                Some(args.remove(1))
+            } else {
+                None
+            };
+            let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, vec![]);
 
             let body = match quantifier_token {
                 TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -16238,6 +16415,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let predicate_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: predicate_np.noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+            world: None,
         });
 
         let final_predicate = if negative {
@@ -16285,6 +16463,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let neg_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate_np.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
                 let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                     op: TokenType::Not,
@@ -16385,6 +16564,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     }));
                 }
             } else {
@@ -16396,6 +16576,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+            world: None,
         }));
 
         while self.check(&TokenType::That) || self.check(&TokenType::Who) {
@@ -16432,6 +16613,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let embedded = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     });
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal {
                         operator: verb,
@@ -16442,6 +16624,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let embedded = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: inf_verb,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal {
                     operator: verb,
@@ -16454,6 +16637,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let embedded = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     });
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal {
                         operator: verb,
@@ -16480,7 +16664,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 if needs_wide_scope {
                     // === WIDE SCOPE MODE ===
-                    // Build ¬∃y(Key(y) ∧ Have(x,y)) directly instead of leaking binding
+                    // Build ¬∃y(Key(y) ∧ ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y))) directly
                     //
                     // We capture the binding HERE and return the complete structure.
                     // DO NOT push to donkey_bindings - that would leak y to outer scope.
@@ -16489,22 +16673,26 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let restriction_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(donkey_var)]),
+                        world: None,
                     });
 
-                    // Build: Have(x, y)  (using canonical_verb determined earlier)
-                    let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: canonical_verb,
-                        args: self.ctx.terms.alloc_slice([var_term, Term::Variable(donkey_var)]),
-                    });
+                    // Build: ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y)) using Neo-Davidsonian semantics
+                    // IMPORTANT: Use build_verb_neo_event() for consistent Full-tier formatting
+                    let verb_pred = self.build_verb_neo_event(
+                        canonical_verb,
+                        var_name,
+                        Some(Term::Variable(donkey_var)),
+                        vec![],
+                    );
 
-                    // Build: Key(y) ∧ Have(x,y)
+                    // Build: Key(y) ∧ ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y))
                     let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: restriction_pred,
                         op: TokenType::And,
                         right: verb_pred,
                     });
 
-                    // Build: ∃y(Key(y) ∧ Have(x,y))
+                    // Build: ∃y(Key(y) ∧ ∃e(Have(e) ∧ ...))
                     let existential = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: QuantifierKind::Existential,
                         variable: donkey_var,
@@ -16512,7 +16700,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         island_id: self.current_island,
                     });
 
-                    // Build: ¬∃y(Key(y) ∧ Have(x,y))
+                    // Build: ¬∃y(Key(y) ∧ ∃e(Have(e) ∧ ...))
                     let negated_existential = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
                         operand: existential,
@@ -16529,6 +16717,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(donkey_var)]),
+                    world: None,
                 }));
 
                 args.push(Term::Variable(donkey_var));
@@ -16543,6 +16732,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(nested_var)]),
+                        world: None,
                     }));
                     extra_conditions.push(nested_rel);
                     args.push(Term::Variable(nested_var));
@@ -16567,6 +16757,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(nested_var)]),
+                        world: None,
                     }));
                     extra_conditions.push(nested_rel);
                     args.push(Term::Variable(nested_var));
@@ -16577,10 +16768,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
 
         // Use the canonical verb determined at top of function
-        let base_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-            name: canonical_verb,
-            args: self.ctx.terms.alloc_slice(args),
-        });
+        // Extract object term from args if present (args[0] is subject, args[1] is object)
+        let obj_term = if args.len() > 1 {
+            Some(args.remove(1))
+        } else {
+            None
+        };
+        let base_pred = self.build_verb_neo_event(canonical_verb, var_name, obj_term, vec![]);
 
         // Wrap in negation only for NARROW scope mode (de re reading)
         // Wide scope mode: negation handled via donkey binding flag in wrap_donkey_in_restriction
@@ -16694,6 +16888,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 for adj in adjectives {
@@ -16705,11 +16900,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                 Term::Variable(var),
                                 Term::Intension(noun),
                             ]),
+                            world: None,
                         })
                     } else {
                         self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: *adj,
                             args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                            world: None,
                         })
                     };
                     restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -16775,6 +16972,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
+                        world: None,
                     });
 
                     for adj in adjectives {
@@ -16786,11 +16984,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                     Term::Variable(x),
                                     Term::Intension(noun),
                                 ]),
+                                world: None,
                             })
                         } else {
                             self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: *adj,
                                 args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
+                                world: None,
                             })
                         };
                         restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -16828,6 +17028,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                         Term::Variable(x),
                                         Term::Constant(whole_sym),
                                     ]),
+                                    world: None,
                                 });
                                 restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                     left: restriction,
@@ -16841,6 +17042,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let mut y_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                        world: None,
                     });
                     for adj in adjectives {
                         let adj_str = self.interner.resolve(*adj).to_lowercase();
@@ -16851,11 +17053,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                     Term::Variable(y),
                                     Term::Intension(noun),
                                 ]),
+                                world: None,
                             })
                         } else {
                             self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: *adj,
                                 args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                                world: None,
                             })
                         };
                         y_restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -16917,6 +17121,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 let deictic_name = if matches!(definiteness, Some(Definiteness::Proximal)) {
@@ -16927,6 +17132,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let deictic_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: deictic_name,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
                 restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: restriction,
@@ -16943,11 +17149,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                 Term::Variable(var),
                                 Term::Intension(noun),
                             ]),
+                            world: None,
                         })
                     } else {
                         self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: *adj,
                             args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                            world: None,
                         })
                     };
                     restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -16995,6 +17203,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
                 let substituted = self.substitute_constant_with_var(predicate, noun, var)?;
                 let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -17016,6 +17225,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
+                    world: None,
                 });
 
                 let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
@@ -17025,6 +17235,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let inner_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                    world: None,
                 });
                 let uniqueness_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: inner_pred,
@@ -17064,6 +17275,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 let deictic_name = if matches!(definiteness, Some(Definiteness::Proximal)) {
@@ -17074,6 +17286,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let deictic_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: deictic_name,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
                 restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: restriction,
@@ -17101,7 +17314,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     fn substitute_pp_placeholder(&mut self, pp: &'a LogicExpr<'a>, var: Symbol) -> &'a LogicExpr<'a> {
         let placeholder = self.interner.intern("_PP_SELF_");
         match pp {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let new_args: Vec<Term<'a>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -17112,6 +17325,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: *name,
                     args: self.ctx.terms.alloc_slice(new_args),
+                    world: None,
                 })
             }
             _ => pp,
@@ -17125,7 +17339,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         var_name: Symbol,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         match expr {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let new_args: Vec<Term<'a>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -17151,6 +17365,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: *name,
                     args: self.ctx.terms.alloc_slice(new_args),
+                    world: None,
                 }))
             }
             LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -17200,7 +17415,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         sigma_term: Term<'a>,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         match expr {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let new_args: Vec<Term<'a>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -17226,6 +17441,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: *name,
                     args: self.ctx.terms.alloc_slice(new_args),
+                    world: None,
                 }))
             }
             LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -17296,6 +17512,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     roles: self.ctx.roles.alloc_slice(new_roles),
                     modifiers: data.modifiers,
                     suppress_existential: data.suppress_existential,
+                    world: None,
                 }))))
             }
             LogicExpr::Distributive { predicate } => Ok(self.ctx.exprs.alloc(LogicExpr::Distributive {
@@ -17391,6 +17608,47 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
             _ => Ok(expr),
         }
+    }
+
+    fn build_verb_neo_event(
+        &mut self,
+        verb: Symbol,
+        subject_var: Symbol,
+        object: Option<Term<'a>>,
+        modifiers: Vec<Symbol>,
+    ) -> &'a LogicExpr<'a> {
+        let event_var = self.get_event_var();
+
+        // Check if verb is unaccusative (intransitive subject is Theme, not Agent)
+        let verb_str = self.interner.resolve(verb).to_lowercase();
+        let is_unaccusative = lookup_verb_db(&verb_str)
+            .map(|meta| meta.features.contains(&Feature::Unaccusative))
+            .unwrap_or(false);
+
+        // Determine subject role: unaccusative verbs without object use Theme
+        let has_object = object.is_some();
+        let subject_role = if is_unaccusative && !has_object {
+            ThematicRole::Theme
+        } else {
+            ThematicRole::Agent
+        };
+
+        // Build roles vector
+        let mut roles = vec![(subject_role, Term::Variable(subject_var))];
+        if let Some(obj_term) = object {
+            roles.push((ThematicRole::Theme, obj_term));
+        }
+
+        // Create NeoEventData with suppress_existential: false
+        // Each quantified individual gets their own event (distributive reading)
+        self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+            event_var,
+            verb,
+            roles: self.ctx.roles.alloc_slice(roles),
+            modifiers: self.ctx.syms.alloc_slice(modifiers),
+            suppress_existential: false,
+            world: None,
+        })))
     }
 }
 
@@ -17723,6 +17981,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(vec![]), // No thematic roles
                         modifiers: self.ctx.syms.alloc_slice(vec![]),
                         suppress_existential,
+                        world: None,
                     })));
 
                     return Ok(match verb_time {
@@ -17757,6 +18016,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: adj_sym,
                             args: self.ctx.terms.alloc_slice([]),
+                            world: None,
                         }));
                     }
                 }
@@ -17771,6 +18031,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([subject_term]),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                 op: TokenType::Not,
@@ -17857,6 +18118,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 roles: self.ctx.roles.alloc_slice(roles),
                                 modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
                                 suppress_existential,
+                                world: None,
                             })));
 
                             let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -17873,6 +18135,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 ]),
                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
                                 suppress_existential,
+                                world: None,
                             })));
 
                             let result = if is_negated {
@@ -17901,6 +18164,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
                     suppress_existential,
+                    world: None,
                 })));
 
                 if is_negated {
@@ -17935,6 +18199,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: object_np.noun,
                             args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -17943,6 +18208,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 .ctx
                                 .terms
                                 .alloc_slice([subject_term, Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let (kind, body) = match quantifier_token {
@@ -18034,11 +18300,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: restriction_sym,
                             args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
                             args: self.ctx.terms.alloc_slice([subject_term, Term::Variable(obj_var)]),
+                            world: None,
                         });
 
                         let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -18099,6 +18367,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
                         suppress_existential,
+                        world: None,
                     })));
 
                     self.negative_depth -= 1;
@@ -18138,6 +18407,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([subject_term]),
+                    world: None,
                 });
 
                 let with_aspect = if verb_aspect == Aspect::Progressive {
@@ -18169,6 +18439,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: predicate,
                 args: self.ctx.terms.alloc_slice([subject_term]),
+                world: None,
             }));
         }
 
@@ -18215,6 +18486,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             roles: self.ctx.roles.alloc_slice(roles),
                             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
                             suppress_existential,
+                            world: None,
                         })));
 
                         let question = self.ctx.exprs.alloc(LogicExpr::Question {
@@ -18231,6 +18503,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             ]),
                             modifiers: self.ctx.syms.alloc_slice(vec![]),
                             suppress_existential,
+                            world: None,
                         })));
 
                         return Ok(know_event);
@@ -18254,6 +18527,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     ]),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                     suppress_existential,
+                    world: None,
                 })));
 
                 return Ok(know_event);
@@ -18325,6 +18599,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                        world: None,
                     });
 
                     let event_var = self.get_event_var();
@@ -18348,6 +18623,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
                         suppress_existential,
+                        world: None,
                     })));
 
                     let obj_kind = match obj_q {
@@ -18432,11 +18708,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         roles: self.ctx.roles.alloc_slice(roles),
                         modifiers: self.ctx.syms.alloc_slice(modifiers),
                         suppress_existential,
+                        world: None,
                     })));
 
                     let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: prep_name,
                         args: self.ctx.terms.alloc_slice([Term::Variable(event_var), pp_obj_term]),
+                        world: None,
                     });
 
                     let with_pp = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -18469,6 +18747,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(modifiers),
                     suppress_existential,
+                    world: None,
                 })));
 
                 let focused_ref = self.ctx.terms.alloc(focused_term);
@@ -18497,6 +18776,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
                         args: self.ctx.terms.alloc_slice([subject_term, embedded_term]),
+                        world: None,
                     });
 
                     let effective_time = self.pending_time.take().unwrap_or(verb_time);
@@ -18640,6 +18920,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let pp_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: prep_name,
                             args: self.ctx.terms.alloc_slice([obj, pp_obj_term]),
+                            world: None,
                         });
                         pp_predicates.push(pp_pred);
                     } else {
@@ -18653,6 +18934,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             .ctx
                             .terms
                             .alloc_slice([Term::Variable(event_sym), pp_obj_term]),
+                        world: None,
                     });
                     pp_predicates.push(pp_pred);
                 }
@@ -18719,6 +19001,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 roles: self.ctx.roles.alloc_slice(roles.clone()),
                 modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
                 suppress_existential,
+                world: None,
             })));
 
             // Capture template for ellipsis reconstruction
@@ -18849,6 +19132,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 let pred_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate,
                     args: self.ctx.terms.alloc_slice([Term::Constant(*subj)]),
+                    world: None,
                 });
                 conjuncts.push(pred_expr);
             }
@@ -18905,6 +19189,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     Term::Constant(subjects[0]),
                     Term::Constant(subjects[1]),
                 ]),
+                world: None,
             });
             let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
@@ -18912,6 +19197,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     Term::Constant(subjects[1]),
                     Term::Constant(subjects[0]),
                 ]),
+                world: None,
             });
             let expr = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left: pred1,
@@ -18991,6 +19277,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                     suppress_existential,
+                    world: None,
                 })));
                 conjuncts.push(neo_event);
             }
@@ -19046,6 +19333,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
         let expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([Term::Group(group_members_slice)]),
+            world: None,
         });
 
         match verb_time {
@@ -19082,6 +19370,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
         let expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([subj_group, obj_group]),
+            world: None,
         });
 
         match verb_time {
@@ -19111,6 +19400,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_sym)]),
+                    world: None,
                 }));
             }
             self.advance();
@@ -19119,6 +19409,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_sym)]),
+                    world: None,
                 }));
             }
 
@@ -19138,6 +19429,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: inf_verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_sym)]),
+                    world: None,
                 })
             };
 
@@ -19192,6 +19484,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     ]),
                     None => self.ctx.terms.alloc_slice([Term::Constant(subject_sym)]),
                 },
+                world: None,
             }));
         }
         self.advance();
@@ -19200,6 +19493,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject_sym)]),
+                world: None,
             }));
         }
 
@@ -19214,6 +19508,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     .ctx
                     .terms
                     .alloc_slice([Term::Constant(pro_controller_sym)]),
+                world: None,
             });
             self.ctx.voice(crate::ast::VoiceOperator::Passive, passive_pred)
         } else if self.is_control_verb(inf_verb) {
@@ -19233,6 +19528,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                     .ctx
                     .terms
                     .alloc_slice([Term::Constant(pro_controller_sym)]),
+                world: None,
             })
         };
 
@@ -19362,7 +19658,7 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             TokenType::Verb { .. } | // Main verb
                             TokenType::Auxiliary(_) | // will, did
                             TokenType::Must | TokenType::Can | TokenType::Should | TokenType::May | // Modals
-                            TokenType::Could | TokenType::Would | TokenType::Shall |
+                            TokenType::Could | TokenType::Would | TokenType::Shall | TokenType::Might |
                             TokenType::Identity | TokenType::Equals // "a = b"
                         )
                     } else {
@@ -19487,6 +19783,7 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             Term::Variable(placeholder_var),
                             Term::Constant(pp_object.noun),
                         ]),
+                        world: None,
                     });
                     pps.push(pp_pred);
                 }
@@ -19722,6 +20019,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
                 wh_variable: var_name,
@@ -19741,6 +20039,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
                 wh_variable: var_name,
@@ -19756,6 +20055,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun), var_term]),
+                world: None,
             });
             return Ok(self.ctx.exprs.alloc(LogicExpr::Question {
                 wh_variable: var_name,
@@ -19838,6 +20138,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_symbol)]),
+                    world: None,
                 });
                 let with_aspect = if verb_aspect == Aspect::Progressive {
                     self.ctx.exprs.alloc(LogicExpr::Aspectual {
@@ -19860,6 +20161,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: adj,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_symbol)]),
+                    world: None,
                 })
             } else {
                 self.ctx.exprs.alloc(LogicExpr::Atom(subject_symbol))
@@ -19945,7 +20247,7 @@ Extension trait for modal expressions: necessity/possibility (must/can/might/wou
 use super::clause::ClauseParsing;
 use super::noun::NounParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
+use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
 use crate::context::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
@@ -19990,7 +20292,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Would) || self.check(&TokenType::Could)
             || self.check(&TokenType::Must) || self.check(&TokenType::Can)
             || self.check(&TokenType::Should) || self.check(&TokenType::May)
-            || self.check(&TokenType::Cannot) {
+            || self.check(&TokenType::Cannot) || self.check(&TokenType::Might) {
             let modal_token = self.peek().kind.clone();
             self.advance();
             has_modal = true;
@@ -20000,6 +20302,34 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Not) {
             self.advance();
             has_negation = true;
+        }
+
+        // Check for "be able to" periphrastic modal (= can)
+        // This creates a nested modal: "might be able to fly" → ◇◇Fly(x)
+        let mut nested_modal_vector = None;
+        if self.check_content_word() {
+            let word = self.interner.resolve(self.peek().lexeme).to_lowercase();
+            if word == "be" {
+                // Look ahead for "able to"
+                if let Some(next1) = self.tokens.get(self.current + 1) {
+                    let next1_word = self.interner.resolve(next1.lexeme).to_lowercase();
+                    if next1_word == "able" {
+                        if let Some(next2) = self.tokens.get(self.current + 2) {
+                            if matches!(next2.kind, TokenType::To) {
+                                // Consume "be able to" - it's a modal meaning "can" (ability)
+                                self.advance(); // consume "be"
+                                self.advance(); // consume "able"
+                                self.advance(); // consume "to"
+                                nested_modal_vector = Some(ModalVector {
+                                    domain: ModalDomain::Alethic,
+                                    force: 0.5, // ability = possibility
+                                    flavor: ModalFlavor::Root, // "be able to" = Root modal (ability)
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if self.check_content_word() {
@@ -20103,6 +20433,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             roles: self.ctx.roles.alloc_slice(roles.clone()),
             modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
             suppress_existential,
+            world: None,
         })));
 
         // Capture template for ellipsis reconstruction
@@ -20152,6 +20483,12 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             });
         }
 
+        // Apply nested modal first (from "be able to" = ability)
+        if let Some(vector) = nested_modal_vector {
+            result = self.ctx.modal(vector, result);
+        }
+
+        // Then apply outer modal (e.g., "might")
         if has_modal {
             if let Some(vector) = modal_vector {
                 result = self.ctx.modal(vector, result);
@@ -20163,6 +20500,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
     fn token_to_vector(&self, token: &TokenType) -> ModalVector {
         use crate::ast::ModalFlavor;
+        use super::ModalPreference;
 
         match token {
             // Root modals → Narrow Scope (De Re)
@@ -20177,16 +20515,55 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 force: 0.0,
                 flavor: ModalFlavor::Root,
             },
-            TokenType::Can => ModalVector {
-                domain: ModalDomain::Alethic,
-                force: 0.5,
-                flavor: ModalFlavor::Root,
+
+            // Polysemous modal: CAN
+            // Default: Ability (Alethic, Root/Narrow)
+            // Deontic: Permission (Deontic, Root/Narrow)
+            TokenType::Can => {
+                match self.modal_preference {
+                    ModalPreference::Deontic => {
+                        // Permission: "You can go" (Deontic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Deontic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                    _ => {
+                        // Ability: "Birds can fly" (Alethic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                }
             },
-            TokenType::Could => ModalVector {
-                domain: ModalDomain::Alethic,
-                force: 0.5,
-                flavor: ModalFlavor::Root,
+
+            // Polysemous modal: COULD
+            // Default: Past Ability (Alethic, Root/Narrow)
+            // Epistemic: Conditional Possibility (Alethic, Epistemic/Wide)
+            TokenType::Could => {
+                match self.modal_preference {
+                    ModalPreference::Epistemic => {
+                        // Conditional Possibility: "It could rain" (Alethic, Wide Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Epistemic,
+                        }
+                    }
+                    _ => {
+                        // Past Ability: "She could swim" (Alethic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                }
             },
+
             TokenType::Would => ModalVector {
                 domain: ModalDomain::Alethic,
                 force: 0.5,
@@ -20210,10 +20587,29 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 force: 0.3,
                 flavor: ModalFlavor::Epistemic,
             },
-            TokenType::May => ModalVector {
-                domain: ModalDomain::Deontic,
-                force: 0.5,
-                flavor: ModalFlavor::Epistemic,
+
+            // Polysemous modal: MAY
+            // Default: Permission (Deontic, Root/Narrow)
+            // Epistemic: Possibility (Alethic, Epistemic/Wide)
+            TokenType::May => {
+                match self.modal_preference {
+                    ModalPreference::Epistemic => {
+                        // Possibility: "It may rain" (Alethic, Wide Scope)
+                        ModalVector {
+                            domain: ModalDomain::Alethic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Epistemic,
+                        }
+                    }
+                    _ => {
+                        // Permission: "Students may leave" (Deontic, Narrow Scope)
+                        ModalVector {
+                            domain: ModalDomain::Deontic,
+                            force: 0.5,
+                            flavor: ModalFlavor::Root,
+                        }
+                    }
+                }
             },
 
             _ => panic!("Unknown modal token: {:?}", token),
@@ -20316,6 +20712,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let noun_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: np.noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+            world: None,
         });
 
         let measure_sym = self.interner.intern("Measure");
@@ -20329,6 +20726,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 .ctx
                 .terms
                 .alloc_slice([Term::Variable(var), Term::Constant(kind_sym)]),
+            world: None,
         });
 
         let (pred_expr, verb_time) = if self.check(&TokenType::Is) {
@@ -20372,6 +20770,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: adj,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                world: None,
             });
             (adj_pred, copula_time)
         } else {
@@ -20379,6 +20778,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                world: None,
             });
             (verb_pred, verb_time)
         };
@@ -20426,6 +20826,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
+                world: None,
             })
         } else {
             self.ctx.exprs.alloc(LogicExpr::Atom(unknown))
@@ -20459,6 +20860,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let regret = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: regret_sym,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
+                    world: None,
                 });
                 let past = self.ctx.exprs.alloc(LogicExpr::Temporal {
                     operator: TemporalOperator::Past,
@@ -20476,6 +20878,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let main = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb_name,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
+                    world: None,
                 });
                 (main, complement)
             }
@@ -20511,6 +20914,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Term::Constant(subject.noun),
                         object_term.clone(),
                     ]),
+                    world: None,
                 });
 
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Focus {
@@ -20530,6 +20934,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             }))
         } else {
             Ok(self.ctx.exprs.alloc(LogicExpr::Atom(subject.noun)))
@@ -20560,6 +20965,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+            world: None,
         });
 
         let with_time = match verb_time {
@@ -20874,7 +21280,7 @@ use std::fmt::Write;
 
 use crate::ast::{LogicExpr, NounPhrase, Term};
 use crate::ast::logic::NumberKind;
-use crate::formatter::{LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
+use crate::formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
 use crate::intern::Interner;
 use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
@@ -21077,12 +21483,22 @@ impl<'a> LogicExpr<'a> {
         fmt: &F,
     ) -> std::fmt::Result {
         match self {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, world } => {
                 let pred_name = if fmt.use_full_names() {
                     registry.get_symbol_full(*name, interner)
                 } else {
                     registry.get_symbol(*name, interner)
                 };
+
+                // If formatter wants world arguments and we have one, append it
+                if fmt.include_world_arguments() {
+                    if let Some(w_sym) = world {
+                        // Build extended args with world variable appended
+                        let mut extended: Vec<Term> = args.to_vec();
+                        extended.push(Term::Variable(*w_sym));
+                        return fmt.write_predicate(w, &pred_name, &extended, registry, interner);
+                    }
+                }
                 fmt.write_predicate(w, &pred_name, args, registry, interner)
             }
 
@@ -21283,8 +21699,16 @@ impl<'a> LogicExpr<'a> {
                 } else {
                     let e = interner.resolve(data.event_var);
                     let mut body = String::new();
+
+                    // Get world argument suffix if Kripke format
+                    let world_suffix = if fmt.include_world_arguments() {
+                        data.world.map(|w| format!(", {}", interner.resolve(w))).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+
                     write_capitalized(&mut body, interner.resolve(data.verb))?;
-                    write!(body, "({})", e)?;
+                    write!(body, "({}{})", e, world_suffix)?;
                     for (role, term) in data.roles.iter() {
                         let role_str = match role {
                             ThematicRole::Agent => "Agent",
@@ -21304,12 +21728,12 @@ impl<'a> LogicExpr<'a> {
                         } else {
                             term.write_to(&mut body, registry, interner)?;
                         }
-                        write!(body, ")")?;
+                        write!(body, "{})", world_suffix)?;
                     }
                     for mod_sym in data.modifiers.iter() {
                         write!(body, " {} ", fmt.and())?;
                         write_capitalized(&mut body, interner.resolve(*mod_sym))?;
-                        write!(body, "({})", e)?;
+                        write!(body, "({}{})", e, world_suffix)?;
                     }
                     if data.suppress_existential {
                         // Event var will be bound by outer ∀ from DRS (generic conditionals)
@@ -21477,6 +21901,7 @@ impl<'a> LogicExpr<'a> {
             OutputFormat::Unicode => self.transpile_with(registry, interner, &UnicodeFormatter),
             OutputFormat::LaTeX => self.transpile_with(registry, interner, &LatexFormatter),
             OutputFormat::SimpleFOL => self.transpile_with(registry, interner, &SimpleFOLFormatter),
+            OutputFormat::Kripke => self.transpile_with(registry, interner, &KripkeFormatter),
         }
     }
 
@@ -21674,6 +22099,11 @@ pub trait LogicFormatter {
 
     // Whether to preserve original case (for code generation)
     fn preserve_case(&self) -> bool {
+        false
+    }
+
+    // Whether to include world arguments in predicates (for Kripke semantics)
+    fn include_world_arguments(&self) -> bool {
         false
     }
 
@@ -21889,6 +22319,66 @@ impl LogicFormatter for SimpleFOLFormatter {
     fn use_full_names(&self) -> bool {
         true
     }
+}
+
+/// Formatter for Kripke lowered output with explicit world arguments.
+/// Modals are already lowered to quantifiers; this formatter just renders
+/// the result with world arguments appended to predicates.
+pub struct KripkeFormatter;
+
+impl LogicFormatter for KripkeFormatter {
+    fn universal(&self) -> String { "ForAll ".to_string() }
+    fn existential(&self) -> String { "Exists ".to_string() }
+    fn cardinal(&self, n: u32) -> String { format!("Exists={} ", n) }
+    fn at_least(&self, n: u32) -> String { format!("Exists>={} ", n) }
+    fn at_most(&self, n: u32) -> String { format!("Exists<={} ", n) }
+
+    fn and(&self) -> &'static str { " And " }
+    fn or(&self) -> &'static str { " Or " }
+    fn implies(&self) -> &'static str { " Implies " }
+    fn iff(&self) -> &'static str { " Iff " }
+    fn not(&self) -> &'static str { "Not " }
+
+    fn necessity(&self) -> &'static str { "Box" }
+    fn possibility(&self) -> &'static str { "Diamond" }
+
+    fn past(&self) -> &'static str { "Past" }
+    fn future(&self) -> &'static str { "Future" }
+
+    fn progressive(&self) -> &'static str { "Prog" }
+    fn perfect(&self) -> &'static str { "Perf" }
+    fn habitual(&self) -> &'static str { "HAB" }
+    fn iterative(&self) -> &'static str { "ITER" }
+    fn passive(&self) -> &'static str { "Pass" }
+
+    fn lambda(&self, var: &str, body: &str) -> String {
+        format!("Lambda {}.{}", var, body)
+    }
+
+    fn counterfactual(&self, antecedent: &str, consequent: &str) -> String {
+        format!("({} Counterfactual {})", antecedent, consequent)
+    }
+
+    fn superlative(&self, comp: &str, domain: &str, subject: &str) -> String {
+        format!(
+            "ForAll x(({}(x) And x != {}) Implies {}({}, x))",
+            domain, subject, comp, subject
+        )
+    }
+
+    fn categorical_all(&self) -> &'static str { "ForAll" }
+    fn categorical_no(&self) -> &'static str { "ForAll Not" }
+    fn categorical_some(&self) -> &'static str { "Exists" }
+    fn categorical_not(&self) -> &'static str { "Not" }
+
+    fn modal(&self, _domain: ModalDomain, _force: f32, body: &str) -> String {
+        // Modals already lowered to quantifiers - just pass through
+        body.to_string()
+    }
+
+    fn use_full_names(&self) -> bool { true }
+
+    fn include_world_arguments(&self) -> bool { true }
 }
 
 /// Formatter that produces Rust boolean expressions for runtime assertions.
@@ -22359,7 +22849,7 @@ pub fn substitute_respecting_opacity<'a>(
             })
         }
 
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<Term<'a>> = args
                 .iter()
                 .map(|arg| substitute_term_for_opacity(arg, var, replacement, term_arena))
@@ -22367,6 +22857,7 @@ pub fn substitute_respecting_opacity<'a>(
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice(new_args),
+                world: None,
             })
         }
 
@@ -22452,13 +22943,14 @@ pub fn to_event_semantics<'a>(
     term_arena: &'a Arena<Term<'a>>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let e_sym = interner.intern("e");
             let _event_var = term_arena.alloc(Term::Variable(e_sym));
 
             let event_pred = expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice([Term::Variable(e_sym)]),
+                world: None,
             });
 
             let mut body = event_pred;
@@ -22468,6 +22960,7 @@ pub fn to_event_semantics<'a>(
                 let agent_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Agent"),
                     args: agent_args,
+                    world: None,
                 });
                 body = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: body,
@@ -22481,6 +22974,7 @@ pub fn to_event_semantics<'a>(
                 let theme_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Theme"),
                     args: theme_args,
+                    world: None,
                 });
                 body = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: body,
@@ -22494,6 +22988,7 @@ pub fn to_event_semantics<'a>(
                 let goal_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Goal"),
                     args: goal_args,
+                    world: None,
                 });
                 body = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: body,
@@ -22528,6 +23023,7 @@ pub fn apply_adverb<'a>(
             let adverb_pred = expr_arena.alloc(LogicExpr::Predicate {
                 name: interner.intern(&capitalized),
                 args: term_arena.alloc_slice([Term::Variable(*variable)]),
+                world: None,
             });
 
             let new_body = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -22895,6 +23391,7 @@ pub fn lift_quantifier<'a>(
     let restrictor_pred = expr_arena.alloc(LogicExpr::Predicate {
         name: restrictor,
         args: term_arena.alloc_slice([Term::Variable(x_sym)]),
+        world: None,
     });
 
     let q_of_x = expr_arena.alloc(LogicExpr::App {
@@ -22958,7 +23455,7 @@ fn substitute<'a>(
     term_arena: &'a Arena<Term<'a>>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<Term<'a>> = args
                 .iter()
                 .map(|arg| substitute_term(arg, var, replacement, term_arena))
@@ -22966,6 +23463,7 @@ fn substitute<'a>(
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice(new_args),
+                world: None,
             })
         }
 
@@ -23057,7 +23555,7 @@ fn find_opaque_verb_context<'a>(
     match expr {
         LogicExpr::Quantifier { kind: QuantifierKind::Existential, variable, body, .. } => {
             if let LogicExpr::BinaryOp { left, op: TokenType::And, right } = body {
-                if let LogicExpr::Predicate { name: restrictor, args } = left {
+                if let LogicExpr::Predicate { name: restrictor, args, .. } = left {
                     if args.len() == 1 {
                         if let Term::Variable(v) = &args[0] {
                             if *v == *variable {
@@ -23104,7 +23602,7 @@ fn find_opaque_verb_in_scope<'a>(
             }
             None
         }
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             if is_opaque_verb(*name, interner) && args.len() >= 2 {
                 if let Term::Variable(v) = &args[1] {
                     if *v == theme_var {
@@ -23183,9 +23681,10 @@ fn replace_theme_with_intension<'a>(
                 roles: role_arena.alloc_slice(new_roles),
                 modifiers: data.modifiers,
                 suppress_existential: false,
+                world: None,
             })))
         }
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<_> = args.iter().map(|arg| {
                 if let Term::Variable(v) = arg {
                     if *v == ctx.quantifier_var {
@@ -23198,6 +23697,7 @@ fn replace_theme_with_intension<'a>(
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice(new_args),
+                world: None,
             })
         }
         _ => expr,
@@ -23247,6 +23747,7 @@ fn build_de_re_from_de_dicto<'a>(
                         let noun_pred = expr_arena.alloc(LogicExpr::Predicate {
                             name: *noun,
                             args: term_arena.alloc_slice([Term::Variable(var)]),
+                            world: None,
                         });
 
                         // Build new roles with variable instead of intension
@@ -23264,6 +23765,7 @@ fn build_de_re_from_de_dicto<'a>(
                             roles: role_arena.alloc_slice(new_roles),
                             modifiers: data.modifiers,
                             suppress_existential: false,
+                            world: None,
                         })));
 
                         // Build: ∃x(Noun(x) ∧ Event)
@@ -23308,6 +23810,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: sleep,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
 
@@ -23328,6 +23831,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: sleep,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
 
@@ -23491,6 +23995,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: run,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
         let arg = expr_arena.alloc(LogicExpr::Atom(john));
@@ -23565,6 +24070,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
         let arg = expr_arena.alloc(LogicExpr::Atom(john));
@@ -23590,10 +24096,12 @@ mod tests {
         let left = expr_arena.alloc(LogicExpr::Predicate {
             name: dog,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let right = expr_arena.alloc(LogicExpr::Predicate {
             name: bark,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let body = expr_arena.alloc(LogicExpr::BinaryOp {
             left,
@@ -23623,6 +24131,7 @@ mod tests {
         let expr = expr_arena.alloc(LogicExpr::Predicate {
             name: run,
             args: term_arena.alloc_slice([Term::Constant(john)]),
+            world: None,
         });
 
         let scopings = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
@@ -23669,6 +24178,7 @@ mod tests {
         let content = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
 
         let intensional = make_intensional(believes, content, &expr_arena);
@@ -23693,6 +24203,7 @@ mod tests {
         let content = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
 
         let intensional = expr_arena.alloc(LogicExpr::Intensional {
@@ -23724,6 +24235,7 @@ mod tests {
         let inner = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
         let expr = expr_arena.alloc(LogicExpr::Intensional {
             operator: believes,
@@ -23756,6 +24268,7 @@ mod tests {
         let expr = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
 
         let replacement = expr_arena.alloc(LogicExpr::Atom(superman));
@@ -23796,14 +24309,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -23851,18 +24367,22 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let book_z = expr_arena.alloc(LogicExpr::Predicate {
             name: book,
             args: term_arena.alloc_slice([Term::Variable(z)]),
+            world: None,
         });
         let gives_xyz = expr_arena.alloc(LogicExpr::Predicate {
             name: gives,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y), Term::Variable(z)]),
+            world: None,
         });
 
         let inner_z = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -23922,14 +24442,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -23979,14 +24502,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -24036,14 +24562,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -24098,6 +24627,7 @@ mod tests {
                 Term::Variable(z),
                 Term::Variable(w),
             ]),
+            world: None,
         });
 
         let true_sym = interner.intern("T");
@@ -25164,7 +25694,7 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
 
     fn resolve(&self, interner: &'a Interner) -> ExprView<'a> {
         match self {
-            LogicExpr::Predicate { name, args } => ExprView::Predicate {
+            LogicExpr::Predicate { name, args, .. } => ExprView::Predicate {
                 name: interner.resolve(*name),
                 args: args.iter().map(|a| a.resolve(interner)).collect(),
             },
@@ -25437,6 +25967,7 @@ mod expr_view_tests {
         let expr = LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         };
 
         assert_eq!(
@@ -25479,6 +26010,7 @@ mod expr_view_tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let expr = LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,
@@ -25694,8 +26226,10 @@ Entry point for semantic axiom layer. Includes generated axiom_data and exports 
 
 ```rust
 mod axioms;
+mod kripke;
 
 pub use axioms::apply_axioms;
+pub use kripke::apply_kripke_lowering;
 
 include!(concat!(env!("OUT_DIR"), "/axiom_data.rs"));
 
@@ -25734,7 +26268,7 @@ fn transform_expr<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             expand_predicate(*name, args, expr_arena, term_arena, interner)
         }
 
@@ -25828,6 +26362,7 @@ fn expand_predicate<'a>(
         let canonical_pred = expr_arena.alloc(LogicExpr::Predicate {
             name: canonical_sym,
             args,
+            world: None,
         });
 
         // Wrap antonyms in negation
@@ -25863,7 +26398,7 @@ fn expand_predicate<'a>(
     }
 
     // No expansion needed - return original
-    expr_arena.alloc(LogicExpr::Predicate { name, args })
+    expr_arena.alloc(LogicExpr::Predicate { name, args, world: None })
 }
 
 fn expand_privative<'a>(
@@ -25881,6 +26416,7 @@ fn expand_privative<'a>(
     let noun_pred = expr_arena.alloc(LogicExpr::Predicate {
         name: noun_sym,
         args,
+        world: None,
     });
 
     // ¬Gun(x)
@@ -25901,6 +26437,7 @@ fn expand_privative<'a>(
     let resembles_pred = expr_arena.alloc(LogicExpr::Predicate {
         name: resembles_sym,
         args: resembles_args,
+        world: None,
     });
 
     // ¬Gun(x) ∧ Resembles(x, ^Gun)
@@ -25920,7 +26457,7 @@ fn expand_noun_entailments<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     // Bachelor(x) => Bachelor(x) ∧ Unmarried(x) ∧ Male(x)
-    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args });
+    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args, world: None });
 
     let mut result: &LogicExpr = base_pred;
     for entailment in entailments {
@@ -25928,6 +26465,7 @@ fn expand_noun_entailments<'a>(
         let ent_pred = expr_arena.alloc(LogicExpr::Predicate {
             name: ent_sym,
             args,
+            world: None,
         });
         result = expr_arena.alloc(LogicExpr::BinaryOp {
             left: result,
@@ -25948,7 +26486,7 @@ fn expand_hypernyms<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     // Dog(x) => Dog(x) ∧ Animal(x)
-    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args });
+    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args, world: None });
 
     let mut result: &LogicExpr = base_pred;
     for hypernym in hypernyms {
@@ -25956,6 +26494,7 @@ fn expand_hypernyms<'a>(
         let hyp_pred = expr_arena.alloc(LogicExpr::Predicate {
             name: hyp_sym,
             args,
+            world: None,
         });
         result = expr_arena.alloc(LogicExpr::BinaryOp {
             left: result,
@@ -25988,6 +26527,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })));
 
         // Wrap antonyms in negation
@@ -26011,6 +26551,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })));
 
         // Create entailed verb NeoEvent (e.g., Kill)
@@ -26020,6 +26561,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })));
 
         // Conjoin original with entailed
@@ -26043,6 +26585,7 @@ fn expand_neo_event<'a>(
                 let manner_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: manner_sym,
                     args: manner_args,
+                    world: None,
                 });
                 result = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: result,
@@ -26061,6 +26604,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })))
     }
 }
@@ -26089,6 +26633,364 @@ fn clone_term<'a>(term: &Term<'a>, arena: &'a Arena<Term<'a>>) -> Term<'a> {
             unit: *unit,
             dimension: *dimension,
         },
+    }
+}
+
+```
+
+---
+
+### Kripke Modal Lowering
+
+**File:** `src/semantics/kripke.rs`
+
+Transforms surface modal operators (□, ◇) into explicit possible world quantification. apply_kripke_lowering() rewrites Modal nodes into Quantifier nodes with accessibility predicates. Predicates gain world arguments (P(x) → P(x, w)). Distinguishes Accessible_Alethic, Accessible_Deontic, and Accessible_Epistemic based on modal domain. Non-modal formulas receive actual world w0 argument. Integrates with OutputFormat::Kripke for Deep mode in UI.
+
+```rust
+//! Kripke Semantics Lowering Pass
+//!
+//! Transforms modal operators into explicit possible world semantics:
+//! - Diamond P (force <= 0.5) → Exists w'(Accessible(w, w') And P(w'))
+//! - Box P (force > 0.5) → ForAll w'(Accessible(w, w') Implies P(w'))
+
+use crate::arena::Arena;
+use crate::ast::{LogicExpr, ModalDomain, ModalVector, NeoEventData, QuantifierKind, Term};
+use crate::intern::{Interner, Symbol};
+use crate::token::TokenType;
+
+/// Context for tracking world variables during Kripke lowering
+pub struct KripkeContext {
+    world_counter: u32,
+    current_world: Symbol,
+}
+
+impl KripkeContext {
+    pub fn new(interner: &mut Interner) -> Self {
+        Self {
+            world_counter: 0,
+            current_world: interner.intern("w0"),
+        }
+    }
+
+    pub fn fresh_world(&mut self, interner: &mut Interner) -> Symbol {
+        self.world_counter += 1;
+        interner.intern(&format!("w{}", self.world_counter))
+    }
+}
+
+/// Apply Kripke lowering to transform modal operators into explicit world quantification.
+///
+/// This transforms surface modal operators (`◇`, `□`) into explicit First-Order Logic
+/// with possible world semantics, enabling Z3 verification.
+///
+/// ## Example
+/// Surface: `◇Fly(x)` (John can fly)
+/// Deep: `∃w'(Accessible(w₀, w') ∧ Fly(x, w'))` (There exists an accessible world where John flies)
+pub fn apply_kripke_lowering<'a>(
+    expr: &'a LogicExpr<'a>,
+    expr_arena: &'a Arena<LogicExpr<'a>>,
+    term_arena: &'a Arena<Term<'a>>,
+    interner: &mut Interner,
+) -> &'a LogicExpr<'a> {
+    let mut ctx = KripkeContext::new(interner);
+    lower_expr(expr, &mut ctx, expr_arena, term_arena, interner)
+}
+
+fn lower_expr<'a>(
+    expr: &'a LogicExpr<'a>,
+    ctx: &mut KripkeContext,
+    expr_arena: &'a Arena<LogicExpr<'a>>,
+    term_arena: &'a Arena<Term<'a>>,
+    interner: &mut Interner,
+) -> &'a LogicExpr<'a> {
+    match expr {
+        LogicExpr::Modal { vector, operand } => {
+            lower_modal(vector, operand, ctx, expr_arena, term_arena, interner)
+        }
+
+        LogicExpr::Predicate { name, args, world } => {
+            if world.is_none() {
+                // Add current world to predicate
+                expr_arena.alloc(LogicExpr::Predicate {
+                    name: *name,
+                    args: *args,
+                    world: Some(ctx.current_world),
+                })
+            } else {
+                expr
+            }
+        }
+
+        LogicExpr::Quantifier { kind, variable, body, island_id } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Quantifier {
+                kind: *kind,
+                variable: *variable,
+                body: new_body,
+                island_id: *island_id,
+            })
+        }
+
+        LogicExpr::BinaryOp { left, op, right } => {
+            let new_left = lower_expr(left, ctx, expr_arena, term_arena, interner);
+            let new_right = lower_expr(right, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::BinaryOp {
+                left: new_left,
+                op: op.clone(),
+                right: new_right,
+            })
+        }
+
+        LogicExpr::UnaryOp { op, operand } => {
+            let new_operand = lower_expr(operand, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::UnaryOp {
+                op: op.clone(),
+                operand: new_operand,
+            })
+        }
+
+        LogicExpr::NeoEvent(data) => {
+            // Set the world on the event to the current world
+            if data.world.is_none() {
+                expr_arena.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var: data.event_var,
+                    verb: data.verb,
+                    roles: data.roles,
+                    modifiers: data.modifiers,
+                    suppress_existential: data.suppress_existential,
+                    world: Some(ctx.current_world),
+                })))
+            } else {
+                expr
+            }
+        }
+
+        LogicExpr::Temporal { operator, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Temporal {
+                operator: *operator,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::Aspectual { operator, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Aspectual {
+                operator: *operator,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::Voice { operator, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Voice {
+                operator: *operator,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::Lambda { variable, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Lambda {
+                variable: *variable,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::App { function, argument } => {
+            let new_function = lower_expr(function, ctx, expr_arena, term_arena, interner);
+            let new_argument = lower_expr(argument, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::App {
+                function: new_function,
+                argument: new_argument,
+            })
+        }
+
+        LogicExpr::Intensional { operator, content } => {
+            let new_content = lower_expr(content, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Intensional {
+                operator: *operator,
+                content: new_content,
+            })
+        }
+
+        LogicExpr::Control { verb, subject, object, infinitive } => {
+            let new_infinitive = lower_expr(infinitive, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Control {
+                verb: *verb,
+                subject: *subject,
+                object: *object,
+                infinitive: new_infinitive,
+            })
+        }
+
+        LogicExpr::Scopal { operator, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Scopal {
+                operator: *operator,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::Question { wh_variable, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Question {
+                wh_variable: *wh_variable,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::YesNoQuestion { body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::YesNoQuestion { body: new_body })
+        }
+
+        LogicExpr::Focus { kind, focused, scope } => {
+            let new_scope = lower_expr(scope, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Focus {
+                kind: *kind,
+                focused: *focused,
+                scope: new_scope,
+            })
+        }
+
+        LogicExpr::Distributive { predicate } => {
+            let new_predicate = lower_expr(predicate, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Distributive {
+                predicate: new_predicate,
+            })
+        }
+
+        LogicExpr::Counterfactual { antecedent, consequent } => {
+            let new_antecedent = lower_expr(antecedent, ctx, expr_arena, term_arena, interner);
+            let new_consequent = lower_expr(consequent, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Counterfactual {
+                antecedent: new_antecedent,
+                consequent: new_consequent,
+            })
+        }
+
+        LogicExpr::Event { predicate, adverbs } => {
+            let new_predicate = lower_expr(predicate, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Event {
+                predicate: new_predicate,
+                adverbs: *adverbs,
+            })
+        }
+
+        LogicExpr::Imperative { action } => {
+            let new_action = lower_expr(action, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Imperative { action: new_action })
+        }
+
+        LogicExpr::Causal { effect, cause } => {
+            let new_effect = lower_expr(effect, ctx, expr_arena, term_arena, interner);
+            let new_cause = lower_expr(cause, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Causal {
+                effect: new_effect,
+                cause: new_cause,
+            })
+        }
+
+        LogicExpr::Presupposition { assertion, presupposition } => {
+            let new_assertion = lower_expr(assertion, ctx, expr_arena, term_arena, interner);
+            let new_presupposition = lower_expr(presupposition, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::Presupposition {
+                assertion: new_assertion,
+                presupposition: new_presupposition,
+            })
+        }
+
+        LogicExpr::TemporalAnchor { anchor, body } => {
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::TemporalAnchor {
+                anchor: *anchor,
+                body: new_body,
+            })
+        }
+
+        LogicExpr::GroupQuantifier { group_var, count, member_var, restriction, body } => {
+            let new_restriction = lower_expr(restriction, ctx, expr_arena, term_arena, interner);
+            let new_body = lower_expr(body, ctx, expr_arena, term_arena, interner);
+            expr_arena.alloc(LogicExpr::GroupQuantifier {
+                group_var: *group_var,
+                count: *count,
+                member_var: *member_var,
+                restriction: new_restriction,
+                body: new_body,
+            })
+        }
+
+        // Leaf nodes that don't need transformation
+        LogicExpr::Identity { .. }
+        | LogicExpr::Metaphor { .. }
+        | LogicExpr::Categorical(_)
+        | LogicExpr::Relation(_)
+        | LogicExpr::Atom(_)
+        | LogicExpr::Superlative { .. }
+        | LogicExpr::Comparative { .. }
+        | LogicExpr::SpeechAct { .. } => expr,
+    }
+}
+
+fn lower_modal<'a>(
+    vector: &ModalVector,
+    operand: &'a LogicExpr<'a>,
+    ctx: &mut KripkeContext,
+    expr_arena: &'a Arena<LogicExpr<'a>>,
+    term_arena: &'a Arena<Term<'a>>,
+    interner: &mut Interner,
+) -> &'a LogicExpr<'a> {
+    let source_world = ctx.current_world;
+    let target_world = ctx.fresh_world(interner);
+
+    // Lower operand with new current world
+    let old_world = ctx.current_world;
+    ctx.current_world = target_world;
+    let lowered_operand = lower_expr(operand, ctx, expr_arena, term_arena, interner);
+    ctx.current_world = old_world;
+
+    // Create accessibility predicate based on modal domain
+    let access_name = match vector.domain {
+        ModalDomain::Alethic => interner.intern("Accessible_Alethic"),
+        ModalDomain::Deontic => interner.intern("Accessible_Deontic"),
+    };
+
+    let accessibility = expr_arena.alloc(LogicExpr::Predicate {
+        name: access_name,
+        args: term_arena.alloc_slice([
+            Term::Variable(source_world),
+            Term::Variable(target_world),
+        ]),
+        world: None, // Accessibility predicate is a meta-level relation
+    });
+
+    if vector.force > 0.5 {
+        // Necessity (Box): ForAll w'(Accessible(w, w') -> P(w'))
+        let implication = expr_arena.alloc(LogicExpr::BinaryOp {
+            left: accessibility,
+            op: TokenType::If,
+            right: lowered_operand,
+        });
+        expr_arena.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Universal,
+            variable: target_world,
+            body: implication,
+            island_id: 0,
+        })
+    } else {
+        // Possibility (Diamond): Exists w'(Accessible(w, w') ∧ P(w'))
+        let conjunction = expr_arena.alloc(LogicExpr::BinaryOp {
+            left: accessibility,
+            op: TokenType::And,
+            right: lowered_operand,
+        });
+        expr_arena.alloc(LogicExpr::Quantifier {
+            kind: QuantifierKind::Existential,
+            variable: target_world,
+            body: conjunction,
+            island_id: 0,
+        })
     }
 }
 
@@ -33735,7 +34637,7 @@ pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
 pub use context::{DiscourseContext, OwnershipState, TimeConstraint, TimeRelation};
 pub use error::{ParseError, ParseErrorKind, socratic_explanation};
 pub use debug::{DebugWorld, DisplayWith, WithInterner};
-pub use formatter::{LatexFormatter, LogicFormatter, UnicodeFormatter};
+pub use formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, UnicodeFormatter};
 pub use intern::{Interner, Symbol, SymbolEq};
 pub use lexer::Lexer;
 pub use parser::{Parser, ParserMode, NegativeScopeMode};
@@ -33757,6 +34659,9 @@ pub enum OutputFormat {
     Unicode,
     LaTeX,
     SimpleFOL,
+    /// Kripke semantics output: modals lowered to explicit world quantification.
+    /// Produces: `Exists w1(Accessible_Alethic(w0, w1) And Fly(John, w1))`
+    Kripke,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -33801,6 +34706,18 @@ pub fn compile_simple(input: &str) -> Result<String, ParseError> {
     })
 }
 
+/// Compile with Kripke semantics lowering.
+/// Modal operators are transformed into explicit possible world quantification.
+///
+/// ## Example
+/// Input: `"John can fly."`
+/// Output: `Exists w1(Accessible_Alethic(w0, w1) And Exists e(Fly(e, w1) And Agent(e, John, w1)))`
+pub fn compile_kripke(input: &str) -> Result<String, ParseError> {
+    compile_with_options(input, CompileOptions {
+        format: OutputFormat::Kripke,
+    })
+}
+
 pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<String, ParseError> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -33837,6 +34754,14 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
+
+    // Apply Kripke lowering for Kripke format (before pragmatics to preserve modal structure)
+    let ast = if options.format == OutputFormat::Kripke {
+        semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner)
+    } else {
+        ast
+    };
+
     let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
     let mut registry = SymbolRegistry::new();
     let main_output = ast.transpile(&mut registry, &interner, options.format);
@@ -34214,6 +35139,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         }
     });
 
+    // Detect modal polysemy (may, can, could)
+    // These modals have multiple valid readings that require parse forest forking
+    let has_may = tokens.iter().any(|t| matches!(t.kind, token::TokenType::May));
+    let has_can = tokens.iter().any(|t| matches!(t.kind, token::TokenType::Can));
+    let has_could = tokens.iter().any(|t| matches!(t.kind, token::TokenType::Could));
+
     let mut results: Vec<String> = Vec::new();
 
     // Reading 1: Default mode (verb priority for Ambiguous tokens)
@@ -34241,6 +35172,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             results.push(ast.transpile(&mut registry, &interner, options.format));
         }
@@ -34270,6 +35207,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -34302,6 +35245,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -34369,6 +35318,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -34398,11 +35353,137 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 7: Epistemic modal preference (May=Possibility, Could=Possibility)
+    // Produces wide scope readings for polysemous modals
+    if has_may || has_could {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        parser.set_modal_preference(parser::ModalPreference::Epistemic);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 8: Deontic modal preference (Can=Permission)
+    // Produces deontic permission reading for "can"
+    if has_can {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        parser.set_modal_preference(parser::ModalPreference::Deontic);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 9: Wide scope negation + Deontic modal preference
+    // Combines: "lacks" = "has NO keys" (total privation) with "can" = Permission (deontic)
+    // Produces: "It is FORBIDDEN for a user who has NO keys to enter"
+    // Logic: ∀x(User(x) → (¬∃y(Key(y) ∧ Have(x,y)) → ¬P Enter(x)))
+    if has_negative_verb && has_can {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
+        parser.set_modal_preference(parser::ModalPreference::Deontic);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -34461,7 +35542,8 @@ fn categorize_token(kind: &TokenType, _interner: &Interner) -> TokenCategory {
         TokenType::Preposition(_) => TokenCategory::Preposition,
         TokenType::Pronoun { .. } => TokenCategory::Pronoun,
         TokenType::Must | TokenType::Can | TokenType::Should | TokenType::Shall
-        | TokenType::Would | TokenType::Could | TokenType::May | TokenType::Cannot => TokenCategory::Modal,
+        | TokenType::Would | TokenType::Could | TokenType::May | TokenType::Cannot
+        | TokenType::Might => TokenCategory::Modal,
         TokenType::Period | TokenType::Comma => TokenCategory::Punctuation,
         TokenType::ProperName(_) => TokenCategory::Proper,
         _ => TokenCategory::Other,
@@ -34508,7 +35590,7 @@ impl AstNode {
 
 pub fn expr_to_ast_node(expr: &LogicExpr, interner: &Interner) -> AstNode {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let name_str = interner.resolve(*name);
             let arg_nodes: Vec<AstNode> = args.iter()
                 .map(|t| term_to_ast_node(t, interner))
@@ -34632,8 +35714,11 @@ fn term_to_ast_node(term: &Term, interner: &Interner) -> AstNode {
 pub struct CompileResult {
     pub logic: Option<String>,
     pub simple_logic: Option<String>,
+    pub kripke_logic: Option<String>,  // Deep/Kripke semantics output
     pub ast: Option<AstNode>,
-    pub readings: Vec<String>,
+    pub readings: Vec<String>,           // Unicode readings (Full tier)
+    pub simple_readings: Vec<String>,    // SimpleFOL readings (modals stripped, deduplicated)
+    pub kripke_readings: Vec<String>,    // Deep/Kripke readings for ambiguous sentences
     pub tokens: Vec<TokenInfo>,
     pub error: Option<String>,
 }
@@ -34641,6 +35726,14 @@ pub struct CompileResult {
 pub fn compile_for_ui(input: &str) -> CompileResult {
     let tokens = tokenize_for_ui(input);
     let readings = compile_forest(input);
+    // Generate Simple readings (modals stripped) - deduplicated since modal variants collapse
+    let simple_readings: Vec<String> = {
+        let raw = compile_forest_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL });
+        let mut seen = std::collections::HashSet::new();
+        raw.into_iter().filter(|r| seen.insert(r.clone())).collect()
+    };
+    // Generate Kripke readings with explicit world quantification
+    let kripke_readings = compile_forest_with_options(input, CompileOptions { format: OutputFormat::Kripke });
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -34685,11 +35778,18 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let logic = ast.transpile(&mut registry, &interner, OutputFormat::Unicode);
             let simple_logic = ast.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
+            // Apply Kripke lowering to transform Modal nodes → Quantifier nodes + world args
+            let kripke_ast = semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner);
+            let kripke_logic = kripke_ast.transpile(&mut registry, &interner, OutputFormat::Kripke);
+
             CompileResult {
                 logic: Some(logic),
                 simple_logic: Some(simple_logic),
+                kripke_logic: Some(kripke_logic),
                 ast: Some(ast_node),
                 readings,
+                simple_readings,
+                kripke_readings,
                 tokens,
                 error: None,
             }
@@ -34699,8 +35799,11 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             CompileResult {
                 logic: None,
                 simple_logic: None,
+                kripke_logic: None,
                 ast: None,
                 readings: Vec::new(),
+                simple_readings: Vec::new(),
+                kripke_readings: Vec::new(),
                 tokens,
                 error: Some(advice),
             }
@@ -34859,6 +35962,7 @@ mod tests {
         let expr = LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         };
         assert!(matches!(expr, LogicExpr::Predicate { .. }));
     }
@@ -34877,6 +35981,7 @@ mod tests {
                 Term::Constant(john),
                 Term::Constant(mary),
             ]),
+            world: None,
         };
         if let LogicExpr::Predicate { args, .. } = expr {
             assert_eq!(args.len(), 2);
@@ -34908,6 +36013,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let expr = LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,
@@ -35226,8 +36332,9 @@ mod tests {
     #[test]
     fn relative_clause_with_preposition() {
         let result = compile("All dogs that ran to the house are tired.").unwrap();
+        // NeoEvent format: ∃e(Run(e) ∧ Agent(e, x) ∧ Theme(e, House))
         assert!(
-            result.contains("Run(x, House)"),
+            result.contains("Run(e)") && result.contains("Agent(e, x)"),
             "Relative clause should support prepositions: got '{}'",
             result
         );
@@ -35236,8 +36343,9 @@ mod tests {
     #[test]
     fn relative_clause_with_reflexive_preposition() {
         let result = compile("All men that speak to themselves are wise.").unwrap();
+        // NeoEvent format: ∃e(Speak(e) ∧ Agent(e, x) ∧ Theme(e, x))
         assert!(
-            result.contains("Speak(x, x)"),
+            result.contains("Speak(e)") && result.contains("Agent(e, x)") && result.contains("Theme(e, x)"),
             "Relative clause reflexive should bind to variable: got '{}'",
             result
         );
@@ -35262,9 +36370,9 @@ mod tests {
     #[test]
     fn relative_clause_basic() {
         let result = compile("All dogs that bark are loud.").unwrap();
-        // Subject should be: Dogs(x) ∧ Bark(x) → Loud(x)
+        // NeoEvent format: Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x)) → Loud(x)
         assert!(
-            result.contains("Dogs(x)") && result.contains("∧") && result.contains("Bark(x)"),
+            result.contains("Dogs(x)") && result.contains("Bark(e)") && result.contains("Agent(e, x)"),
             "Relative clause should create conjunction: got '{}'",
             result
         );
@@ -35273,9 +36381,9 @@ mod tests {
     #[test]
     fn relative_clause_with_object() {
         let result = compile("All cats that chase mice are hunters.").unwrap();
-        // Subject should be: Cats(x) ∧ Chase(x, Mice) → Hunters(x)
+        // NeoEvent format: Cats(x) ∧ ∃e(Chase(e) ∧ Agent(e, x) ∧ Theme(e, Mice)) → Hunters(x)
         assert!(
-            result.contains("∧") && (result.contains("(x, Mice)") || result.contains("(x,Mice)")),
+            result.contains("Chase(e)") && result.contains("Agent(e, x)") && result.contains("Theme(e, Mice)"),
             "Relative clause should include predicate with object: got '{}'",
             result
         );
@@ -35398,9 +36506,9 @@ mod tests {
         // "The man who loves Mary left."
         // "who" = subject of "loves"
         let result = compile("The man who loves Mary left.").unwrap();
-        // Structure: ∃x(Man(x) ∧ Love(x, Mary) ∧ Left(x))
+        // NeoEvent format: ∃x(Man(x) ∧ ∃e(Love(e) ∧ Agent(e, x) ∧ Theme(e, Mary)) ∧ ∃e(Leave(e) ∧ Agent(e, x)))
         assert!(
-            result.contains("(x, Mary)") && result.contains("Man(x)"),
+            result.contains("Love(e)") && result.contains("Agent(e, x)") && result.contains("Man(x)"),
             "Who-clause should bind subject: got '{}'",
             result
         );
@@ -35452,9 +36560,10 @@ mod tests {
     #[test]
     fn quantifier_most() {
         let result = compile("Most dogs bark.").unwrap();
+        // NeoEvent format: MOST x(Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x)))
         assert!(
-            result.contains("MOST") && result.contains("Dogs(x)") && result.contains("Bark(x)"),
-            "Most should produce MOST x(Dogs(x), Bark(x)): got '{}'",
+            result.contains("MOST") && result.contains("Dogs(x)") && result.contains("Bark(e)") && result.contains("Agent(e, x)"),
+            "Most should produce MOST x(Dogs(x), Bark(e) ∧ Agent(e, x)): got '{}'",
             result
         );
     }
@@ -35462,9 +36571,10 @@ mod tests {
     #[test]
     fn quantifier_few() {
         let result = compile("Few cats swim.").unwrap();
+        // NeoEvent format: FEW x(Cats(x) ∧ ∃e(Swim(e) ∧ Agent(e, x)))
         assert!(
-            result.contains("FEW") && result.contains("Cats(x)") && result.contains("Swim(x)"),
-            "Few should produce FEW x(Cats(x), Swim(x)): got '{}'",
+            result.contains("FEW") && result.contains("Cats(x)") && result.contains("Swim(e)") && result.contains("Agent(e, x)"),
+            "Few should produce FEW x(Cats(x), Swim(e) ∧ Agent(e, x)): got '{}'",
             result
         );
     }
@@ -36779,7 +37889,7 @@ impl<'a> AstContext<'a> {
     }
 
     pub fn predicate(&self, name: Symbol, args: &'a [Term<'a>]) -> &'a LogicExpr<'a> {
-        self.exprs.alloc(LogicExpr::Predicate { name, args })
+        self.exprs.alloc(LogicExpr::Predicate { name, args, world: None })
     }
 
     #[inline(always)]
@@ -38456,7 +39566,7 @@ impl<'a> VerificationPass<'a> {
                 VerifyExpr::var(name)
             }
 
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let pred_name = self.interner.resolve(*name);
                 let verify_args: Vec<VerifyExpr> = args
                     .iter()
@@ -39136,7 +40246,7 @@ impl<'a> DisplayWith for NounPhrase<'a> {
 impl<'a> DisplayWith for LogicExpr<'a> {
     fn fmt_with(&self, interner: &Interner, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 write!(f, "{}(", interner.resolve(*name))?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -39417,6 +40527,7 @@ mod tests {
         let expr = LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         };
         assert_eq!(expr.with(&interner).to_string(), "Mortal(x)");
     }
@@ -39431,6 +40542,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let expr = LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,
@@ -39779,7 +40891,7 @@ mod tests {
 
         let expr_arena: Arena<LogicExpr> = Arena::new();
         let pred = interner.intern("P");
-        let expr = expr_arena.alloc(LogicExpr::Predicate { name: pred, args: terms });
+        let expr = expr_arena.alloc(LogicExpr::Predicate { name: pred, args: terms, world: None });
 
         let mut collector = VariableCollector { variables: vec![] };
         collector.visit_expr(expr);
@@ -52941,8 +54053,11 @@ pub fn Studio() -> Element {
     let mut result = use_signal(|| CompileResult {
         logic: None,
         simple_logic: None,
+        kripke_logic: None,
         ast: None,
         readings: Vec::new(),
+        simple_readings: Vec::new(),
+        kripke_readings: Vec::new(),
         tokens: Vec::new(),
         error: None,
     });
@@ -52961,8 +54076,11 @@ pub fn Studio() -> Element {
             result.set(CompileResult {
                 logic: None,
                 simple_logic: None,
+                kripke_logic: None,
                 ast: None,
                 readings: Vec::new(),
+                simple_readings: Vec::new(),
+                kripke_readings: Vec::new(),
                 tokens: Vec::new(),
                 error: None,
             });
@@ -53067,13 +54185,21 @@ pub fn Studio() -> Element {
                                 onclick: move |_| format.set(OutputFormat::LaTeX),
                                 "LaTeX"
                             }
+                            button {
+                                class: if current_format == OutputFormat::Kripke { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| format.set(OutputFormat::Kripke),
+                                "Deep"
+                            }
                         }
                     }
                     div { class: "panel-content",
                         LogicOutput {
                             logic: current_result.logic.clone(),
                             simple_logic: current_result.simple_logic.clone(),
+                            kripke_logic: current_result.kripke_logic.clone(),
                             readings: current_result.readings.clone(),
+                            simple_readings: current_result.simple_readings.clone(),
+                            kripke_readings: current_result.kripke_readings.clone(),
                             error: current_result.error.clone(),
                             format: current_format,
                         }
@@ -56869,30 +57995,42 @@ pub enum OutputFormat {
     Unicode,
     SimpleFOL,
     LaTeX,
+    Kripke,  // Deep/Kripke semantics
 }
 
 #[component]
 pub fn LogicOutput(
     logic: Option<String>,
     simple_logic: Option<String>,
+    kripke_logic: Option<String>,  // Deep/Kripke semantics output (single)
     readings: Vec<String>,
+    simple_readings: Vec<String>,   // SimpleFOL readings (deduplicated)
+    kripke_readings: Vec<String>,   // Deep/Kripke readings for ambiguous sentences
     error: Option<String>,
     format: OutputFormat,
 ) -> Element {
     let mut current_reading = use_signal(|| 0usize);
 
-    let total_readings = readings.len().max(1);
-    let display_logic = if !readings.is_empty() {
-        let idx = (*current_reading.read()).min(readings.len().saturating_sub(1));
-        Some(readings.get(idx).cloned().unwrap_or_default())
+    // Use format-appropriate readings
+    let active_readings = match format {
+        OutputFormat::Kripke => &kripke_readings,
+        OutputFormat::SimpleFOL => &simple_readings,
+        _ => &readings,
+    };
+
+    let total_readings = active_readings.len().max(1);
+    let display_logic = if !active_readings.is_empty() {
+        let idx = (*current_reading.read()).min(active_readings.len().saturating_sub(1));
+        Some(active_readings.get(idx).cloned().unwrap_or_default())
+    } else if format == OutputFormat::Kripke {
+        kripke_logic.clone()
     } else {
         logic.clone()
     };
 
     let formatted_output = match format {
-        OutputFormat::SimpleFOL => simple_logic.clone().unwrap_or_default(),
         OutputFormat::LaTeX => display_logic.as_ref().map(|l| convert_to_latex(l)).unwrap_or_default(),
-        OutputFormat::Unicode => display_logic.clone().unwrap_or_default(),
+        _ => display_logic.clone().unwrap_or_default(),
     };
 
     rsx! {
@@ -78837,7 +79975,7 @@ impl<'a> VerificationPass<'a> {
                 VerifyExpr::var(name)
             }
 
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let pred_name = self.interner.resolve(*name);
                 let verify_args: Vec<VerifyExpr> = args
                     .iter()
@@ -80818,10 +81956,10 @@ fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
 
 ## Metadata
 
-- **Generated:** Fri Jan  2 16:33:31 CST 2026
+- **Generated:** Fri Jan  2 22:57:07 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** 13c987f
+- **Git Commit:** d07dbbd
 - **Documentation Size:** 3.0M
 
 ---

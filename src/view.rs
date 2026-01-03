@@ -258,7 +258,7 @@ impl<'a, 'b> Resolve<'a> for LogicExpr<'b> {
 
     fn resolve(&self, interner: &'a Interner) -> ExprView<'a> {
         match self {
-            LogicExpr::Predicate { name, args } => ExprView::Predicate {
+            LogicExpr::Predicate { name, args, .. } => ExprView::Predicate {
                 name: interner.resolve(*name),
                 args: args.iter().map(|a| a.resolve(interner)).collect(),
             },
@@ -531,6 +531,7 @@ mod expr_view_tests {
         let expr = LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         };
 
         assert_eq!(
@@ -573,6 +574,7 @@ mod expr_view_tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let expr = LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,

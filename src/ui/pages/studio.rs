@@ -166,8 +166,11 @@ pub fn Studio() -> Element {
     let mut result = use_signal(|| CompileResult {
         logic: None,
         simple_logic: None,
+        kripke_logic: None,
         ast: None,
         readings: Vec::new(),
+        simple_readings: Vec::new(),
+        kripke_readings: Vec::new(),
         tokens: Vec::new(),
         error: None,
     });
@@ -186,8 +189,11 @@ pub fn Studio() -> Element {
             result.set(CompileResult {
                 logic: None,
                 simple_logic: None,
+                kripke_logic: None,
                 ast: None,
                 readings: Vec::new(),
+                simple_readings: Vec::new(),
+                kripke_readings: Vec::new(),
                 tokens: Vec::new(),
                 error: None,
             });
@@ -292,13 +298,21 @@ pub fn Studio() -> Element {
                                 onclick: move |_| format.set(OutputFormat::LaTeX),
                                 "LaTeX"
                             }
+                            button {
+                                class: if current_format == OutputFormat::Kripke { "format-btn active" } else { "format-btn" },
+                                onclick: move |_| format.set(OutputFormat::Kripke),
+                                "Deep"
+                            }
                         }
                     }
                     div { class: "panel-content",
                         LogicOutput {
                             logic: current_result.logic.clone(),
                             simple_logic: current_result.simple_logic.clone(),
+                            kripke_logic: current_result.kripke_logic.clone(),
                             readings: current_result.readings.clone(),
+                            simple_readings: current_result.simple_readings.clone(),
+                            kripke_readings: current_result.kripke_readings.clone(),
                             error: current_result.error.clone(),
                             format: current_format,
                         }

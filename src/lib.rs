@@ -75,7 +75,7 @@ pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
 pub use context::{DiscourseContext, OwnershipState, TimeConstraint, TimeRelation};
 pub use error::{ParseError, ParseErrorKind, socratic_explanation};
 pub use debug::{DebugWorld, DisplayWith, WithInterner};
-pub use formatter::{LatexFormatter, LogicFormatter, UnicodeFormatter};
+pub use formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, UnicodeFormatter};
 pub use intern::{Interner, Symbol, SymbolEq};
 pub use lexer::Lexer;
 pub use parser::{Parser, ParserMode, NegativeScopeMode};
@@ -97,6 +97,9 @@ pub enum OutputFormat {
     Unicode,
     LaTeX,
     SimpleFOL,
+    /// Kripke semantics output: modals lowered to explicit world quantification.
+    /// Produces: `Exists w1(Accessible_Alethic(w0, w1) And Fly(John, w1))`
+    Kripke,
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -141,6 +144,18 @@ pub fn compile_simple(input: &str) -> Result<String, ParseError> {
     })
 }
 
+/// Compile with Kripke semantics lowering.
+/// Modal operators are transformed into explicit possible world quantification.
+///
+/// ## Example
+/// Input: `"John can fly."`
+/// Output: `Exists w1(Accessible_Alethic(w0, w1) And Exists e(Fly(e, w1) And Agent(e, John, w1)))`
+pub fn compile_kripke(input: &str) -> Result<String, ParseError> {
+    compile_with_options(input, CompileOptions {
+        format: OutputFormat::Kripke,
+    })
+}
+
 pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<String, ParseError> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -177,6 +192,14 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
+
+    // Apply Kripke lowering for Kripke format (before pragmatics to preserve modal structure)
+    let ast = if options.format == OutputFormat::Kripke {
+        semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner)
+    } else {
+        ast
+    };
+
     let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
     let mut registry = SymbolRegistry::new();
     let main_output = ast.transpile(&mut registry, &interner, options.format);
@@ -587,6 +610,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             results.push(ast.transpile(&mut registry, &interner, options.format));
         }
@@ -616,6 +645,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -648,6 +683,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -715,6 +756,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -749,6 +796,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -782,6 +835,12 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -810,11 +869,59 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
         parser.set_modal_preference(parser::ModalPreference::Deontic);
 
         if let Ok(ast) = parser.parse() {
             let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
+            let mut registry = SymbolRegistry::new();
+            let reading = ast.transpile(&mut registry, &interner, options.format);
+            if !results.contains(&reading) {
+                results.push(reading);
+            }
+        }
+    }
+
+    // Reading 9: Wide scope negation + Deontic modal preference
+    // Combines: "lacks" = "has NO keys" (total privation) with "can" = Permission (deontic)
+    // Produces: "It is FORBIDDEN for a user who has NO keys to enter"
+    // Logic: ∀x(User(x) → (¬∃y(Key(y) ∧ Have(x,y)) → ¬P Enter(x)))
+    if has_negative_verb && has_can {
+        let expr_arena = Arena::new();
+        let term_arena = Arena::new();
+        let np_arena = Arena::new();
+        let sym_arena = Arena::new();
+        let role_arena = Arena::new();
+        let pp_arena = Arena::new();
+
+        let ast_ctx = AstContext::new(
+            &expr_arena,
+            &term_arena,
+            &np_arena,
+            &sym_arena,
+            &role_arena,
+            &pp_arena,
+        );
+
+        let mut discourse_ctx = context::DiscourseContext::new();
+        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
+        parser.set_modal_preference(parser::ModalPreference::Deontic);
+
+        if let Ok(ast) = parser.parse() {
+            let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+            // Apply Kripke lowering for Kripke format
+            let ast = if options.format == OutputFormat::Kripke {
+                semantics::apply_kripke_lowering(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner)
+            } else {
+                ast
+            };
             let mut registry = SymbolRegistry::new();
             let reading = ast.transpile(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
@@ -873,7 +980,8 @@ fn categorize_token(kind: &TokenType, _interner: &Interner) -> TokenCategory {
         TokenType::Preposition(_) => TokenCategory::Preposition,
         TokenType::Pronoun { .. } => TokenCategory::Pronoun,
         TokenType::Must | TokenType::Can | TokenType::Should | TokenType::Shall
-        | TokenType::Would | TokenType::Could | TokenType::May | TokenType::Cannot => TokenCategory::Modal,
+        | TokenType::Would | TokenType::Could | TokenType::May | TokenType::Cannot
+        | TokenType::Might => TokenCategory::Modal,
         TokenType::Period | TokenType::Comma => TokenCategory::Punctuation,
         TokenType::ProperName(_) => TokenCategory::Proper,
         _ => TokenCategory::Other,
@@ -920,7 +1028,7 @@ impl AstNode {
 
 pub fn expr_to_ast_node(expr: &LogicExpr, interner: &Interner) -> AstNode {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let name_str = interner.resolve(*name);
             let arg_nodes: Vec<AstNode> = args.iter()
                 .map(|t| term_to_ast_node(t, interner))
@@ -1044,8 +1152,11 @@ fn term_to_ast_node(term: &Term, interner: &Interner) -> AstNode {
 pub struct CompileResult {
     pub logic: Option<String>,
     pub simple_logic: Option<String>,
+    pub kripke_logic: Option<String>,  // Deep/Kripke semantics output
     pub ast: Option<AstNode>,
-    pub readings: Vec<String>,
+    pub readings: Vec<String>,           // Unicode readings (Full tier)
+    pub simple_readings: Vec<String>,    // SimpleFOL readings (modals stripped, deduplicated)
+    pub kripke_readings: Vec<String>,    // Deep/Kripke readings for ambiguous sentences
     pub tokens: Vec<TokenInfo>,
     pub error: Option<String>,
 }
@@ -1053,6 +1164,14 @@ pub struct CompileResult {
 pub fn compile_for_ui(input: &str) -> CompileResult {
     let tokens = tokenize_for_ui(input);
     let readings = compile_forest(input);
+    // Generate Simple readings (modals stripped) - deduplicated since modal variants collapse
+    let simple_readings: Vec<String> = {
+        let raw = compile_forest_with_options(input, CompileOptions { format: OutputFormat::SimpleFOL });
+        let mut seen = std::collections::HashSet::new();
+        raw.into_iter().filter(|r| seen.insert(r.clone())).collect()
+    };
+    // Generate Kripke readings with explicit world quantification
+    let kripke_readings = compile_forest_with_options(input, CompileOptions { format: OutputFormat::Kripke });
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -1097,11 +1216,18 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let logic = ast.transpile(&mut registry, &interner, OutputFormat::Unicode);
             let simple_logic = ast.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
 
+            // Apply Kripke lowering to transform Modal nodes → Quantifier nodes + world args
+            let kripke_ast = semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner);
+            let kripke_logic = kripke_ast.transpile(&mut registry, &interner, OutputFormat::Kripke);
+
             CompileResult {
                 logic: Some(logic),
                 simple_logic: Some(simple_logic),
+                kripke_logic: Some(kripke_logic),
                 ast: Some(ast_node),
                 readings,
+                simple_readings,
+                kripke_readings,
                 tokens,
                 error: None,
             }
@@ -1111,8 +1237,11 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             CompileResult {
                 logic: None,
                 simple_logic: None,
+                kripke_logic: None,
                 ast: None,
                 readings: Vec::new(),
+                simple_readings: Vec::new(),
+                kripke_readings: Vec::new(),
                 tokens,
                 error: Some(advice),
             }
@@ -1271,6 +1400,7 @@ mod tests {
         let expr = LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         };
         assert!(matches!(expr, LogicExpr::Predicate { .. }));
     }
@@ -1289,6 +1419,7 @@ mod tests {
                 Term::Constant(john),
                 Term::Constant(mary),
             ]),
+            world: None,
         };
         if let LogicExpr::Predicate { args, .. } = expr {
             assert_eq!(args.len(), 2);
@@ -1320,6 +1451,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let expr = LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,

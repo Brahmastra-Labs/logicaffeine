@@ -41,7 +41,7 @@ fn codegen_predicate_greater() {
         Term::Variable(x),
         Term::Value { kind: NumberKind::Integer(0), unit: None, dimension: None },
     ]);
-    let expr = LogicExpr::Predicate { name: greater, args };
+    let expr = LogicExpr::Predicate { name: greater, args, world: None };
     let result = codegen_assertion(&expr, &interner);
     assert_eq!(result, "(x > 0)");
 }
@@ -56,7 +56,7 @@ fn codegen_predicate_less() {
         Term::Variable(x),
         Term::Value { kind: NumberKind::Integer(10), unit: None, dimension: None },
     ]);
-    let expr = LogicExpr::Predicate { name: less, args };
+    let expr = LogicExpr::Predicate { name: less, args, world: None };
     let result = codegen_assertion(&expr, &interner);
     assert_eq!(result, "(x < 10)");
 }

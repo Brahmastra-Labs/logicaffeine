@@ -125,7 +125,7 @@ impl<'a> AstContext<'a> {
     }
 
     pub fn predicate(&self, name: Symbol, args: &'a [Term<'a>]) -> &'a LogicExpr<'a> {
-        self.exprs.alloc(LogicExpr::Predicate { name, args })
+        self.exprs.alloc(LogicExpr::Predicate { name, args, world: None })
     }
 
     #[inline(always)]

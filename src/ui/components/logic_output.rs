@@ -83,30 +83,42 @@ pub enum OutputFormat {
     Unicode,
     SimpleFOL,
     LaTeX,
+    Kripke,  // Deep/Kripke semantics
 }
 
 #[component]
 pub fn LogicOutput(
     logic: Option<String>,
     simple_logic: Option<String>,
+    kripke_logic: Option<String>,  // Deep/Kripke semantics output (single)
     readings: Vec<String>,
+    simple_readings: Vec<String>,   // SimpleFOL readings (deduplicated)
+    kripke_readings: Vec<String>,   // Deep/Kripke readings for ambiguous sentences
     error: Option<String>,
     format: OutputFormat,
 ) -> Element {
     let mut current_reading = use_signal(|| 0usize);
 
-    let total_readings = readings.len().max(1);
-    let display_logic = if !readings.is_empty() {
-        let idx = (*current_reading.read()).min(readings.len().saturating_sub(1));
-        Some(readings.get(idx).cloned().unwrap_or_default())
+    // Use format-appropriate readings
+    let active_readings = match format {
+        OutputFormat::Kripke => &kripke_readings,
+        OutputFormat::SimpleFOL => &simple_readings,
+        _ => &readings,
+    };
+
+    let total_readings = active_readings.len().max(1);
+    let display_logic = if !active_readings.is_empty() {
+        let idx = (*current_reading.read()).min(active_readings.len().saturating_sub(1));
+        Some(active_readings.get(idx).cloned().unwrap_or_default())
+    } else if format == OutputFormat::Kripke {
+        kripke_logic.clone()
     } else {
         logic.clone()
     };
 
     let formatted_output = match format {
-        OutputFormat::SimpleFOL => simple_logic.clone().unwrap_or_default(),
         OutputFormat::LaTeX => display_logic.as_ref().map(|l| convert_to_latex(l)).unwrap_or_default(),
-        OutputFormat::Unicode => display_logic.clone().unwrap_or_default(),
+        _ => display_logic.clone().unwrap_or_default(),
     };
 
     rsx! {

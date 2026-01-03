@@ -164,6 +164,8 @@ pub struct NeoEventData<'a> {
     pub modifiers: &'a [Symbol],
     /// When true, suppress local ∃e quantification (DRT: event var will be bound by outer ∀)
     pub suppress_existential: bool,
+    /// World argument for Kripke semantics. None = implicit actual world (w₀).
+    pub world: Option<Symbol>,
 }
 
 impl<'a> NounPhrase<'a> {
@@ -222,6 +224,8 @@ pub enum LogicExpr<'a> {
     Predicate {
         name: Symbol,
         args: &'a [Term<'a>],
+        /// World argument for Kripke semantics. None = implicit actual world (w₀).
+        world: Option<Symbol>,
     },
 
     Identity {

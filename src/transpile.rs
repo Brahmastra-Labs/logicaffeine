@@ -2,7 +2,7 @@ use std::fmt::Write;
 
 use crate::ast::{LogicExpr, NounPhrase, Term};
 use crate::ast::logic::NumberKind;
-use crate::formatter::{LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
+use crate::formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
 use crate::intern::Interner;
 use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
@@ -205,12 +205,22 @@ impl<'a> LogicExpr<'a> {
         fmt: &F,
     ) -> std::fmt::Result {
         match self {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, world } => {
                 let pred_name = if fmt.use_full_names() {
                     registry.get_symbol_full(*name, interner)
                 } else {
                     registry.get_symbol(*name, interner)
                 };
+
+                // If formatter wants world arguments and we have one, append it
+                if fmt.include_world_arguments() {
+                    if let Some(w_sym) = world {
+                        // Build extended args with world variable appended
+                        let mut extended: Vec<Term> = args.to_vec();
+                        extended.push(Term::Variable(*w_sym));
+                        return fmt.write_predicate(w, &pred_name, &extended, registry, interner);
+                    }
+                }
                 fmt.write_predicate(w, &pred_name, args, registry, interner)
             }
 
@@ -411,8 +421,16 @@ impl<'a> LogicExpr<'a> {
                 } else {
                     let e = interner.resolve(data.event_var);
                     let mut body = String::new();
+
+                    // Get world argument suffix if Kripke format
+                    let world_suffix = if fmt.include_world_arguments() {
+                        data.world.map(|w| format!(", {}", interner.resolve(w))).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+
                     write_capitalized(&mut body, interner.resolve(data.verb))?;
-                    write!(body, "({})", e)?;
+                    write!(body, "({}{})", e, world_suffix)?;
                     for (role, term) in data.roles.iter() {
                         let role_str = match role {
                             ThematicRole::Agent => "Agent",
@@ -432,12 +450,12 @@ impl<'a> LogicExpr<'a> {
                         } else {
                             term.write_to(&mut body, registry, interner)?;
                         }
-                        write!(body, ")")?;
+                        write!(body, "{})", world_suffix)?;
                     }
                     for mod_sym in data.modifiers.iter() {
                         write!(body, " {} ", fmt.and())?;
                         write_capitalized(&mut body, interner.resolve(*mod_sym))?;
-                        write!(body, "({})", e)?;
+                        write!(body, "({}{})", e, world_suffix)?;
                     }
                     if data.suppress_existential {
                         // Event var will be bound by outer ∀ from DRS (generic conditionals)
@@ -605,6 +623,7 @@ impl<'a> LogicExpr<'a> {
             OutputFormat::Unicode => self.transpile_with(registry, interner, &UnicodeFormatter),
             OutputFormat::LaTeX => self.transpile_with(registry, interner, &LatexFormatter),
             OutputFormat::SimpleFOL => self.transpile_with(registry, interner, &SimpleFOLFormatter),
+            OutputFormat::Kripke => self.transpile_with(registry, interner, &KripkeFormatter),
         }
     }
 

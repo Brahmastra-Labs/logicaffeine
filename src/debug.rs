@@ -117,7 +117,7 @@ impl<'a> DisplayWith for NounPhrase<'a> {
 impl<'a> DisplayWith for LogicExpr<'a> {
     fn fmt_with(&self, interner: &Interner, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 write!(f, "{}(", interner.resolve(*name))?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -398,6 +398,7 @@ mod tests {
         let expr = LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         };
         assert_eq!(expr.with(&interner).to_string(), "Mortal(x)");
     }
@@ -412,6 +413,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: mortal,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let expr = LogicExpr::Quantifier {
             kind: QuantifierKind::Universal,

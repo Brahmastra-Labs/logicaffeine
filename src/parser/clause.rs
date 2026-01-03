@@ -56,6 +56,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     let action = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
                         args: self.ctx.terms.alloc_slice([Term::Variable(addressee)]),
+                        world: None,
                     });
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Imperative { action }));
                 }
@@ -232,6 +233,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     roles: self.ctx.roles.alloc_slice(vec![]),
                                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                                     suppress_existential,
+                                    world: None,
                                 })));
 
                                 // Handle coordinated weather verbs: "rains and thunders" or "rains or thunders"
@@ -253,6 +255,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                                 roles: self.ctx.roles.alloc_slice(vec![]),
                                                 modifiers: self.ctx.syms.alloc_slice(vec![]),
                                                 suppress_existential,
+                                                world: None,
                                             })));
 
                                             let op = if is_disjunction { TokenType::Or } else { TokenType::And };
@@ -310,6 +313,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                        world: None,
                     });
 
                     (var, Some(type_pred))
@@ -375,6 +379,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         subject_term,
                         Term::Constant(predicate),
                     ]),
+                    world: None,
                 });
                 // Combine with type predicate if indefinite subject
                 return Ok(if let Some(type_pred) = subject_type_pred {
@@ -394,6 +399,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let main_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([subject_term]),
+                    world: None,
                 });
 
                 // Handle "because" causal clause in antecedent
@@ -509,6 +515,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                     let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                         name: adj_lemma,
                                         args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                        world: None,
                                     });
 
                                     // Handle coordinated adjectives: "wet and cold"
@@ -527,6 +534,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                                     let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                                         name: adj2_lemma,
                                                         args: self.ctx.terms.alloc_slice([Term::Variable(event_var)]),
+                                                        world: None,
                                                     });
                                                     result = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                                         left: result,
@@ -571,6 +579,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject)]),
+                    world: None,
                 }));
             }
 
@@ -623,6 +632,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 ]),
                 modifiers: self.ctx.syms.alloc_slice(vec![adv_sym]),
                 suppress_existential,
+                world: None,
             }))));
         }
 
@@ -644,6 +654,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 roles: self.ctx.roles.alloc_slice(roles),
                 modifiers: self.ctx.syms.alloc_slice(vec![]),
                 suppress_existential,
+                world: None,
             }))))
     }
 
@@ -828,12 +839,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     roles: self.ctx.roles.alloc_slice(roles),
                     modifiers: self.ctx.syms.alloc_slice(vec![]),
                     suppress_existential,
+                    world: None,
                 })));
 
                 if let Some((nested_var, nested_clause)) = nested_relative {
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: rel_subject.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(nested_var)]),
+                        world: None,
                     });
 
                     let inner = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -959,6 +972,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             roles: self.ctx.roles.alloc_slice(roles),
             modifiers: self.ctx.syms.alloc_slice(template.modifiers.clone()),
             suppress_existential,
+            world: None,
         })));
 
         // Apply modal if auxiliary is modal

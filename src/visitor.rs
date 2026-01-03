@@ -246,7 +246,7 @@ mod tests {
 
         let expr_arena: Arena<LogicExpr> = Arena::new();
         let pred = interner.intern("P");
-        let expr = expr_arena.alloc(LogicExpr::Predicate { name: pred, args: terms });
+        let expr = expr_arena.alloc(LogicExpr::Predicate { name: pred, args: terms, world: None });
 
         let mut collector = VariableCollector { variables: vec![] };
         collector.visit_expr(expr);

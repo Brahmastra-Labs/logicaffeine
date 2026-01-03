@@ -82,6 +82,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let noun_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: np.noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+            world: None,
         });
 
         let measure_sym = self.interner.intern("Measure");
@@ -95,6 +96,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 .ctx
                 .terms
                 .alloc_slice([Term::Variable(var), Term::Constant(kind_sym)]),
+            world: None,
         });
 
         let (pred_expr, verb_time) = if self.check(&TokenType::Is) {
@@ -138,6 +140,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let adj_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: adj,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                world: None,
             });
             (adj_pred, copula_time)
         } else {
@@ -145,6 +148,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                world: None,
             });
             (verb_pred, verb_time)
         };
@@ -192,6 +196,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
+                world: None,
             })
         } else {
             self.ctx.exprs.alloc(LogicExpr::Atom(unknown))
@@ -225,6 +230,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let regret = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: regret_sym,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
+                    world: None,
                 });
                 let past = self.ctx.exprs.alloc(LogicExpr::Temporal {
                     operator: TemporalOperator::Past,
@@ -242,6 +248,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let main = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb_name,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_noun)]),
+                    world: None,
                 });
                 (main, complement)
             }
@@ -277,6 +284,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         Term::Constant(subject.noun),
                         object_term.clone(),
                     ]),
+                    world: None,
                 });
 
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Focus {
@@ -296,6 +304,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice(args),
+                world: None,
             }))
         } else {
             Ok(self.ctx.exprs.alloc(LogicExpr::Atom(subject.noun)))
@@ -326,6 +335,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+            world: None,
         });
 
         let with_time = match verb_time {

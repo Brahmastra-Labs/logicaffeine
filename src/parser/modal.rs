@@ -1,7 +1,7 @@
 use super::clause::ClauseParsing;
 use super::noun::NounParsing;
 use super::{ParseResult, Parser};
-use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
+use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
 use crate::context::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
@@ -46,7 +46,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Would) || self.check(&TokenType::Could)
             || self.check(&TokenType::Must) || self.check(&TokenType::Can)
             || self.check(&TokenType::Should) || self.check(&TokenType::May)
-            || self.check(&TokenType::Cannot) {
+            || self.check(&TokenType::Cannot) || self.check(&TokenType::Might) {
             let modal_token = self.peek().kind.clone();
             self.advance();
             has_modal = true;
@@ -56,6 +56,34 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Not) {
             self.advance();
             has_negation = true;
+        }
+
+        // Check for "be able to" periphrastic modal (= can)
+        // This creates a nested modal: "might be able to fly" → ◇◇Fly(x)
+        let mut nested_modal_vector = None;
+        if self.check_content_word() {
+            let word = self.interner.resolve(self.peek().lexeme).to_lowercase();
+            if word == "be" {
+                // Look ahead for "able to"
+                if let Some(next1) = self.tokens.get(self.current + 1) {
+                    let next1_word = self.interner.resolve(next1.lexeme).to_lowercase();
+                    if next1_word == "able" {
+                        if let Some(next2) = self.tokens.get(self.current + 2) {
+                            if matches!(next2.kind, TokenType::To) {
+                                // Consume "be able to" - it's a modal meaning "can" (ability)
+                                self.advance(); // consume "be"
+                                self.advance(); // consume "able"
+                                self.advance(); // consume "to"
+                                nested_modal_vector = Some(ModalVector {
+                                    domain: ModalDomain::Alethic,
+                                    force: 0.5, // ability = possibility
+                                    flavor: ModalFlavor::Root, // "be able to" = Root modal (ability)
+                                });
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if self.check_content_word() {
@@ -159,6 +187,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             roles: self.ctx.roles.alloc_slice(roles.clone()),
             modifiers: self.ctx.syms.alloc_slice(modifiers.clone()),
             suppress_existential,
+            world: None,
         })));
 
         // Capture template for ellipsis reconstruction
@@ -208,6 +237,12 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             });
         }
 
+        // Apply nested modal first (from "be able to" = ability)
+        if let Some(vector) = nested_modal_vector {
+            result = self.ctx.modal(vector, result);
+        }
+
+        // Then apply outer modal (e.g., "might")
         if has_modal {
             if let Some(vector) = modal_vector {
                 result = self.ctx.modal(vector, result);

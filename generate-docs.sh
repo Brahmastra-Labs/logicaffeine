@@ -103,6 +103,8 @@ We honor LogiCola's legacy while charting a new course—extending beyond tutori
     - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
     - [Phase 52: The Sync](#phase-52-the-sync)
     - [Phase 54: Go-like Concurrency](#phase-54-go-like-concurrency)
+    - [Phase Kripke: Modal Semantics](#phase-kripke-modal-semantics-with-possible-worlds)
+    - [Phase Privation Modal: Scope Matrix](#phase-privation-modal-modal--negation-scope-matrix)
     - [End-to-End Tests](#end-to-end-tests)
 5. [Statistics](#statistics)
 
@@ -170,7 +172,7 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 1. **Lexer** (`lexer.rs`, `token.rs`): Tokenizes English input using dictionary-based classification
 2. **Parser** (`parser/`, `ast.rs`): Builds Arena-based AST via recursive descent; returns **parse forest** for ambiguous inputs
 3. **Semantics** (`lambda.rs`, `context.rs`): Lambda calculus for compositional meaning
-4. **Transpiler** (`transpile.rs`, `formatter.rs`): Generates Unicode or LaTeX logical notation
+4. **Transpiler** (`transpile.rs`, `formatter.rs`): Generates Unicode, LaTeX, SimpleFOL, or Kripke logical notation
 
 **Key Design Decisions:**
 - **Arena allocation** (`bumpalo`) for zero-copy AST nodes with `Copy` semantics
@@ -237,6 +239,8 @@ LOGICAFFEINE implements a compiler pipeline for natural language to formal logic
 - **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
 - **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
 - **Go-like Concurrency** - Pipe<T> bounded channels (PipeSender/PipeReceiver split), TaskHandle<T> with abort/is_finished, spawn() for green threads, Select statement (tokio::select!), check_preemption() for cooperative yields
+- **Kripke Semantics (Deep Mode)** - Modal lowering pass transforms surface modal operators (□, ◇) into explicit possible world quantification; OutputFormat::Kripke produces `∃w1(Accessible_Alethic(w0, w1) ∧ P(x, w1))` for alethic possibility; compile_kripke() and compile_forest_with_options() with Kripke format; accessibility predicates distinguish alethic/deontic/epistemic modalities
+- **Privation × Modal Matrix** - Privative verbs (lacks, missing) with polysemous modals (can/may) generate 4 readings: 2 modal types (Alethic ◇/Deontic P) × 2 scope types (Partial ∃y(K(y)∧¬H) / Total ¬∃y(K(y)∧H)); NegativeScopeMode controls negation placement; ModalPreference forces modal flavor; simple_readings deduplicates since SimpleFOL strips modals
 
 **Quantifier Kinds:**
 | Kind | Symbol | Example | Meaning |
@@ -565,6 +569,21 @@ Sentences with multiple valid parses return all readings via `compile_ambiguous(
 | Possibility | ◇ | "can", "possibly", "might" |
 | Obligation | O | "ought", "should" |
 | Permission | P | "may" (deontic) |
+
+**Output Formats:**
+| Format | Example ("John can fly") | Notes |
+|--------|--------------------------|-------|
+| Simple | `Fly(John)` | Modals stripped, simple predicates |
+| Full | `◇_{0.5} ∃e(Fly(e) ∧ Agent(e, John))` | Modal + event semantics |
+| LaTeX | `\Diamond_{0.5} \exists e(Fly(e) \land Agent(e, John))` | Typesetting format |
+| Deep (Kripke) | `∃w1(Accessible_Alethic(w0, w1) ∧ ∃e(Fly(e, w1) ∧ Agent(e, John, w1)))` | Explicit world quantification |
+
+**Kripke Accessibility Relations:**
+| Modal Type | Accessibility Predicate | Example Verb |
+|------------|------------------------|--------------|
+| Alethic | Accessible_Alethic(w0, w1) | can, must |
+| Deontic | Accessible_Deontic(w0, w1) | should, may (permission) |
+| Epistemic | Accessible_Epistemic(w0, w1) | might, could (uncertainty) |
 
 ### Temporal Operators
 
@@ -906,6 +925,22 @@ LOGICAFFEINE supports the following linguistic constructs:
 **Input:** "Some cat loves every dog"
 **Output:** `\exists x(Cat(x) \land \forall y(Dog(y) \rightarrow Loves(x,y)))`
 
+### Kripke/Deep Output
+
+Deep mode applies Kripke lowering to transform surface modal operators into explicit possible world quantification with accessibility predicates.
+
+**Input:** "John can fly" (Alethic possibility)
+**Output:** `∃w1(Accessible_Alethic(w0, w1) ∧ ∃e(Fly(e, w1) ∧ Agent(e, John, w1)))`
+
+**Input:** "John should study" (Deontic obligation)
+**Output:** `∀w1(Accessible_Deontic(w0, w1) → ∃e(Study(e, w1) ∧ Agent(e, John, w1)))`
+
+**Input:** "John must run" (Alethic necessity)
+**Output:** `∀w1(Accessible_Alethic(w0, w1) → ∃e(Run(e, w1) ∧ Agent(e, John, w1)))`
+
+**Input:** "All dogs sleep" (Non-modal at actual world)
+**Output:** `∀x(Dog(x, w0) → ∃e(Sleep(e, w0) ∧ Agent(e, x, w0)))`
+
 ### Ditransitive Output
 
 **Input:** "John gave Mary a book"
@@ -1214,6 +1249,12 @@ LOGICAFFEINE supports the following linguistic constructs:
 | **Zero-Derivation** | Conversion of a word from one category to another without morphological change: "table" (noun) → "table" (verb) |
 | **VP Ellipsis** | Omission of a verb phrase that is recoverable from context: "John runs. Mary does too." = Mary runs |
 | **Sluicing** | Ellipsis of a wh-clause recoverable from context: "Someone left. I know who." = I know who left |
+| **Privative Verb** | Verb expressing absence or lack: "lacks", "missing", "without" → canonical negation of base verb |
+| **NegativeScopeMode** | Parser mode controlling negation placement: Narrow (∃y(K(y) ∧ ¬H(x,y))) vs Wide (¬∃y(K(y) ∧ H(x,y))) |
+| **ModalPreference** | Parser mode for polysemous modals: Default, Epistemic, Deontic, Alethic |
+| **Partial Scope** | Privation reading where entity lacks SOME instance: ∃y(Key(y) ∧ ¬Have(x,y)) |
+| **Total Scope** | Privation reading where entity has NO instances: ¬∃y(Key(y) ∧ Have(x,y)) |
+| **Polysemous Modal** | Modal verb with multiple interpretations: "can" → Alethic (ability) or Deontic (permission) |
 
 ### Implementation Terms
 
@@ -1320,6 +1361,11 @@ LOGICAFFEINE supports the following linguistic constructs:
 | **disambiguation_not_verbs** | Lexicon list of words that should NOT be classified as verbs despite having verb forms (ring, bus). Returns Noun if also in nouns list. |
 | **Polysemy Resolution** | Handling words with multiple parts of speech. Verb-first + parser safety net enables "I love you" and "Love is real" from same token type. |
 | **compile_forest()** | Phase 12 API returning Vec<String> of all valid parse readings for ambiguous sentences. |
+| **compile_forest_with_options()** | Extended API accepting CompileOptions for format control; generates readings in SimpleFOL, Unicode, or Kripke format. |
+| **CompileResult** | Struct returned by compile_for_ui() with readings (Unicode), simple_readings (deduplicated SimpleFOL), kripke_readings (Kripke). |
+| **simple_readings** | Deduplicated SimpleFOL readings in CompileResult; collapses modal variants since SimpleFOL strips modals. |
+| **set_negative_scope_mode()** | Parser method to configure privation scope: Narrow (¬ inside ∃) or Wide (¬ outside ∃). |
+| **set_modal_preference()** | Parser method to force modal interpretation: Default, Epistemic, Deontic, or Alethic. |
 | **MAX_FOREST_READINGS** | Constant (12) limiting parse forest size to prevent exponential blowup. |
 | **noun_priority_mode** | Parser flag that prefers noun interpretation for Ambiguous tokens; used for lexical ambiguity forking. |
 | **TokenType::Ambiguous** | Token variant with primary interpretation and alternatives Vec for polysemous words (duck, bear, love). |
@@ -1753,6 +1799,18 @@ add_test_description "tests/phase54_concurrency.rs" \
     "Phase 54: Go-like Concurrency" \
     "Green threads and channel primitives. 'Launch a task to fn' generates tokio::spawn. 'Let ch be a Pipe of T' creates mpsc::channel. 'Send x into ch' for tx.send(). 'Receive x from ch' for rx.recv(). 'Await the first of:' generates tokio::select!. 'Stop handle' for handle.abort(). Non-blocking Try variants." \
     "Launch a task to worker. Let ch be a Pipe of Int. Send 42 into ch."
+
+# Phase Kripke: Modal Semantics with Possible Worlds
+add_test_description "tests/phase_kripke.rs" \
+    "Phase Kripke: Modal Semantics with Possible Worlds" \
+    "Kripke semantics lowering pass transforms surface modal operators (□, ◇) into explicit possible world quantification. OutputFormat::Kripke produces formulas with world arguments on predicates and accessibility relations. compile_kripke() API for direct Kripke output. Distinguishes alethic (can/must), deontic (should/may), and epistemic (might/could) accessibility predicates. Non-modal sentences get actual world w0 argument." \
+    "'John can fly' → ∃w1(Accessible_Alethic(w0, w1) ∧ Fly(e, w1) ∧ Agent(e, John, w1))"
+
+# Phase Privation Modal: Modal × Negation Interpretation Matrix
+add_test_description "tests/phase_privation_modal.rs" \
+    "Phase Privation Modal: Modal × Negation Scope Matrix" \
+    "Tests 4-way ambiguity when privative verbs (lacks, missing) combine with polysemous modals (can/may). Matrix: 2 modal types (Alethic ◇ = physical possibility, Deontic P = permission) × 2 scope types (Partial = ∃y(Key(y) ∧ ¬Have(x,y)), Total = ¬∃y(Key(y) ∧ Have(x,y))). NegativeScopeMode::Wide defers negation for total privation. ModalPreference::Deontic forces permission reading. compile_forest() generates all 4 interpretations. SimpleFOL deduplicates to 2 (Partial vs Total) since modals strip." \
+    "'No user who lacks a key can enter' → 4 readings: Alethic+Partial, Alethic+Total, Deontic+Partial, Deontic+Total"
 
 # End-to-End Tests
 add_test_description "tests/e2e_collections.rs" \
@@ -2198,6 +2256,10 @@ add_file "src/semantics/mod.rs" \
 add_file "src/semantics/axioms.rs" \
     "Axiom Expansion" \
     "AST transformation for meaning postulates. Handles noun entailments (bachelor→unmarried), hypernyms (dog→animal), privative adjectives (fake→¬N∧Resembles), and verb entailments (murder→kill)."
+
+add_file "src/semantics/kripke.rs" \
+    "Kripke Modal Lowering" \
+    "Transforms surface modal operators (□, ◇) into explicit possible world quantification. apply_kripke_lowering() rewrites Modal nodes into Quantifier nodes with accessibility predicates. Predicates gain world arguments (P(x) → P(x, w)). Distinguishes Accessible_Alethic, Accessible_Deontic, and Accessible_Epistemic based on modal domain. Non-modal formulas receive actual world w0 argument. Integrates with OutputFormat::Kripke for Deep mode in UI."
 
 # ==============================================================================
 # TYPE ANALYSIS (TWO-PASS COMPILATION)

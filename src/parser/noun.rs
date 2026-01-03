@@ -85,7 +85,7 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             TokenType::Verb { .. } | // Main verb
                             TokenType::Auxiliary(_) | // will, did
                             TokenType::Must | TokenType::Can | TokenType::Should | TokenType::May | // Modals
-                            TokenType::Could | TokenType::Would | TokenType::Shall |
+                            TokenType::Could | TokenType::Would | TokenType::Shall | TokenType::Might |
                             TokenType::Identity | TokenType::Equals // "a = b"
                         )
                     } else {
@@ -210,6 +210,7 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                             Term::Variable(placeholder_var),
                             Term::Constant(pp_object.noun),
                         ]),
+                        world: None,
                     });
                     pps.push(pp_pred);
                 }

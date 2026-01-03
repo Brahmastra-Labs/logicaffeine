@@ -167,6 +167,11 @@ pub trait LogicFormatter {
         false
     }
 
+    // Whether to include world arguments in predicates (for Kripke semantics)
+    fn include_world_arguments(&self) -> bool {
+        false
+    }
+
     /// Hook for customizing how comparatives are rendered.
     /// Default implementation uses standard logic notation: tallER(subj, obj) or tallER(subj, obj, diff)
     fn write_comparative<W: Write>(
@@ -379,6 +384,66 @@ impl LogicFormatter for SimpleFOLFormatter {
     fn use_full_names(&self) -> bool {
         true
     }
+}
+
+/// Formatter for Kripke lowered output with explicit world arguments.
+/// Modals are already lowered to quantifiers; this formatter just renders
+/// the result with world arguments appended to predicates.
+pub struct KripkeFormatter;
+
+impl LogicFormatter for KripkeFormatter {
+    fn universal(&self) -> String { "ForAll ".to_string() }
+    fn existential(&self) -> String { "Exists ".to_string() }
+    fn cardinal(&self, n: u32) -> String { format!("Exists={} ", n) }
+    fn at_least(&self, n: u32) -> String { format!("Exists>={} ", n) }
+    fn at_most(&self, n: u32) -> String { format!("Exists<={} ", n) }
+
+    fn and(&self) -> &'static str { " And " }
+    fn or(&self) -> &'static str { " Or " }
+    fn implies(&self) -> &'static str { " Implies " }
+    fn iff(&self) -> &'static str { " Iff " }
+    fn not(&self) -> &'static str { "Not " }
+
+    fn necessity(&self) -> &'static str { "Box" }
+    fn possibility(&self) -> &'static str { "Diamond" }
+
+    fn past(&self) -> &'static str { "Past" }
+    fn future(&self) -> &'static str { "Future" }
+
+    fn progressive(&self) -> &'static str { "Prog" }
+    fn perfect(&self) -> &'static str { "Perf" }
+    fn habitual(&self) -> &'static str { "HAB" }
+    fn iterative(&self) -> &'static str { "ITER" }
+    fn passive(&self) -> &'static str { "Pass" }
+
+    fn lambda(&self, var: &str, body: &str) -> String {
+        format!("Lambda {}.{}", var, body)
+    }
+
+    fn counterfactual(&self, antecedent: &str, consequent: &str) -> String {
+        format!("({} Counterfactual {})", antecedent, consequent)
+    }
+
+    fn superlative(&self, comp: &str, domain: &str, subject: &str) -> String {
+        format!(
+            "ForAll x(({}(x) And x != {}) Implies {}({}, x))",
+            domain, subject, comp, subject
+        )
+    }
+
+    fn categorical_all(&self) -> &'static str { "ForAll" }
+    fn categorical_no(&self) -> &'static str { "ForAll Not" }
+    fn categorical_some(&self) -> &'static str { "Exists" }
+    fn categorical_not(&self) -> &'static str { "Not" }
+
+    fn modal(&self, _domain: ModalDomain, _force: f32, body: &str) -> String {
+        // Modals already lowered to quantifiers - just pass through
+        body.to_string()
+    }
+
+    fn use_full_names(&self) -> bool { true }
+
+    fn include_world_arguments(&self) -> bool { true }
 }
 
 /// Formatter that produces Rust boolean expressions for runtime assertions.

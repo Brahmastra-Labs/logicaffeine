@@ -443,7 +443,7 @@ impl<'a> VerificationPass<'a> {
                 VerifyExpr::var(name)
             }
 
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let pred_name = self.interner.resolve(*name);
                 let verify_args: Vec<VerifyExpr> = args
                     .iter()

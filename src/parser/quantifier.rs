@@ -473,6 +473,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: restriction_sym,
                     args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                    world: None,
                 });
 
                 let verb_with_obj = self.build_verb_neo_event(
@@ -554,6 +555,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                        world: None,
                     });
 
                     let verb_with_obj = self.build_verb_neo_event(
@@ -785,6 +787,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         let predicate_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: predicate_np.noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+            world: None,
         });
 
         let final_predicate = if negative {
@@ -832,6 +835,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let neg_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: predicate_np.noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
                 let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                     op: TokenType::Not,
@@ -932,6 +936,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     }));
                 }
             } else {
@@ -943,6 +948,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: noun,
             args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+            world: None,
         }));
 
         while self.check(&TokenType::That) || self.check(&TokenType::Who) {
@@ -979,6 +985,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let embedded = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     });
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal {
                         operator: verb,
@@ -989,6 +996,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let embedded = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: inf_verb,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                    world: None,
                 });
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal {
                     operator: verb,
@@ -1001,6 +1009,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let embedded = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: adj,
                         args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
+                        world: None,
                     });
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal {
                         operator: verb,
@@ -1027,7 +1036,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 if needs_wide_scope {
                     // === WIDE SCOPE MODE ===
-                    // Build ¬∃y(Key(y) ∧ Have(x,y)) directly instead of leaking binding
+                    // Build ¬∃y(Key(y) ∧ ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y))) directly
                     //
                     // We capture the binding HERE and return the complete structure.
                     // DO NOT push to donkey_bindings - that would leak y to outer scope.
@@ -1036,22 +1045,26 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let restriction_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(donkey_var)]),
+                        world: None,
                     });
 
-                    // Build: Have(x, y)  (using canonical_verb determined earlier)
-                    let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                        name: canonical_verb,
-                        args: self.ctx.terms.alloc_slice([var_term, Term::Variable(donkey_var)]),
-                    });
+                    // Build: ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y)) using Neo-Davidsonian semantics
+                    // IMPORTANT: Use build_verb_neo_event() for consistent Full-tier formatting
+                    let verb_pred = self.build_verb_neo_event(
+                        canonical_verb,
+                        var_name,
+                        Some(Term::Variable(donkey_var)),
+                        vec![],
+                    );
 
-                    // Build: Key(y) ∧ Have(x,y)
+                    // Build: Key(y) ∧ ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y))
                     let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                         left: restriction_pred,
                         op: TokenType::And,
                         right: verb_pred,
                     });
 
-                    // Build: ∃y(Key(y) ∧ Have(x,y))
+                    // Build: ∃y(Key(y) ∧ ∃e(Have(e) ∧ ...))
                     let existential = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: QuantifierKind::Existential,
                         variable: donkey_var,
@@ -1059,7 +1072,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         island_id: self.current_island,
                     });
 
-                    // Build: ¬∃y(Key(y) ∧ Have(x,y))
+                    // Build: ¬∃y(Key(y) ∧ ∃e(Have(e) ∧ ...))
                     let negated_existential = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
                         op: TokenType::Not,
                         operand: existential,
@@ -1076,6 +1089,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(donkey_var)]),
+                    world: None,
                 }));
 
                 args.push(Term::Variable(donkey_var));
@@ -1090,6 +1104,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(nested_var)]),
+                        world: None,
                     }));
                     extra_conditions.push(nested_rel);
                     args.push(Term::Variable(nested_var));
@@ -1114,6 +1129,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     extra_conditions.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(nested_var)]),
+                        world: None,
                     }));
                     extra_conditions.push(nested_rel);
                     args.push(Term::Variable(nested_var));
@@ -1244,6 +1260,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 for adj in adjectives {
@@ -1255,11 +1272,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                 Term::Variable(var),
                                 Term::Intension(noun),
                             ]),
+                            world: None,
                         })
                     } else {
                         self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: *adj,
                             args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                            world: None,
                         })
                     };
                     restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -1325,6 +1344,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
+                        world: None,
                     });
 
                     for adj in adjectives {
@@ -1336,11 +1356,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                     Term::Variable(x),
                                     Term::Intension(noun),
                                 ]),
+                                world: None,
                             })
                         } else {
                             self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: *adj,
                                 args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
+                                world: None,
                             })
                         };
                         restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -1378,6 +1400,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                         Term::Variable(x),
                                         Term::Constant(whole_sym),
                                     ]),
+                                    world: None,
                                 });
                                 restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                                     left: restriction,
@@ -1391,6 +1414,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     let mut y_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                        world: None,
                     });
                     for adj in adjectives {
                         let adj_str = self.interner.resolve(*adj).to_lowercase();
@@ -1401,11 +1425,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                     Term::Variable(y),
                                     Term::Intension(noun),
                                 ]),
+                                world: None,
                             })
                         } else {
                             self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: *adj,
                                 args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                                world: None,
                             })
                         };
                         y_restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -1467,6 +1493,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 let deictic_name = if matches!(definiteness, Some(Definiteness::Proximal)) {
@@ -1477,6 +1504,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let deictic_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: deictic_name,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
                 restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: restriction,
@@ -1493,11 +1521,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                                 Term::Variable(var),
                                 Term::Intension(noun),
                             ]),
+                            world: None,
                         })
                     } else {
                         self.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: *adj,
                             args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                            world: None,
                         })
                     };
                     restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -1545,6 +1575,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
                 let substituted = self.substitute_constant_with_var(predicate, noun, var)?;
                 let body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -1566,6 +1597,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(x)]),
+                    world: None,
                 });
 
                 let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
@@ -1575,6 +1607,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let inner_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(y)]),
+                    world: None,
                 });
                 let uniqueness_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: inner_pred,
@@ -1614,6 +1647,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
 
                 let deictic_name = if matches!(definiteness, Some(Definiteness::Proximal)) {
@@ -1624,6 +1658,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let deictic_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: deictic_name,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                    world: None,
                 });
                 restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                     left: restriction,
@@ -1651,7 +1686,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     fn substitute_pp_placeholder(&mut self, pp: &'a LogicExpr<'a>, var: Symbol) -> &'a LogicExpr<'a> {
         let placeholder = self.interner.intern("_PP_SELF_");
         match pp {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let new_args: Vec<Term<'a>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -1662,6 +1697,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: *name,
                     args: self.ctx.terms.alloc_slice(new_args),
+                    world: None,
                 })
             }
             _ => pp,
@@ -1675,7 +1711,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         var_name: Symbol,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         match expr {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let new_args: Vec<Term<'a>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -1701,6 +1737,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: *name,
                     args: self.ctx.terms.alloc_slice(new_args),
+                    world: None,
                 }))
             }
             LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -1750,7 +1787,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         sigma_term: Term<'a>,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         match expr {
-            LogicExpr::Predicate { name, args } => {
+            LogicExpr::Predicate { name, args, .. } => {
                 let new_args: Vec<Term<'a>> = args
                     .iter()
                     .map(|arg| match arg {
@@ -1776,6 +1813,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: *name,
                     args: self.ctx.terms.alloc_slice(new_args),
+                    world: None,
                 }))
             }
             LogicExpr::Temporal { operator, body } => Ok(self.ctx.exprs.alloc(LogicExpr::Temporal {
@@ -1846,6 +1884,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     roles: self.ctx.roles.alloc_slice(new_roles),
                     modifiers: data.modifiers,
                     suppress_existential: data.suppress_existential,
+                    world: None,
                 }))))
             }
             LogicExpr::Distributive { predicate } => Ok(self.ctx.exprs.alloc(LogicExpr::Distributive {
@@ -1980,6 +2019,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             roles: self.ctx.roles.alloc_slice(roles),
             modifiers: self.ctx.syms.alloc_slice(modifiers),
             suppress_existential: false,
+            world: None,
         })))
     }
 }

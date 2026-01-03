@@ -60,7 +60,7 @@ pub fn substitute_respecting_opacity<'a>(
             })
         }
 
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<Term<'a>> = args
                 .iter()
                 .map(|arg| substitute_term_for_opacity(arg, var, replacement, term_arena))
@@ -68,6 +68,7 @@ pub fn substitute_respecting_opacity<'a>(
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice(new_args),
+                world: None,
             })
         }
 
@@ -153,13 +154,14 @@ pub fn to_event_semantics<'a>(
     term_arena: &'a Arena<Term<'a>>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let e_sym = interner.intern("e");
             let _event_var = term_arena.alloc(Term::Variable(e_sym));
 
             let event_pred = expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice([Term::Variable(e_sym)]),
+                world: None,
             });
 
             let mut body = event_pred;
@@ -169,6 +171,7 @@ pub fn to_event_semantics<'a>(
                 let agent_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Agent"),
                     args: agent_args,
+                    world: None,
                 });
                 body = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: body,
@@ -182,6 +185,7 @@ pub fn to_event_semantics<'a>(
                 let theme_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Theme"),
                     args: theme_args,
+                    world: None,
                 });
                 body = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: body,
@@ -195,6 +199,7 @@ pub fn to_event_semantics<'a>(
                 let goal_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: interner.intern("Goal"),
                     args: goal_args,
+                    world: None,
                 });
                 body = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: body,
@@ -229,6 +234,7 @@ pub fn apply_adverb<'a>(
             let adverb_pred = expr_arena.alloc(LogicExpr::Predicate {
                 name: interner.intern(&capitalized),
                 args: term_arena.alloc_slice([Term::Variable(*variable)]),
+                world: None,
             });
 
             let new_body = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -596,6 +602,7 @@ pub fn lift_quantifier<'a>(
     let restrictor_pred = expr_arena.alloc(LogicExpr::Predicate {
         name: restrictor,
         args: term_arena.alloc_slice([Term::Variable(x_sym)]),
+        world: None,
     });
 
     let q_of_x = expr_arena.alloc(LogicExpr::App {
@@ -659,7 +666,7 @@ fn substitute<'a>(
     term_arena: &'a Arena<Term<'a>>,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<Term<'a>> = args
                 .iter()
                 .map(|arg| substitute_term(arg, var, replacement, term_arena))
@@ -667,6 +674,7 @@ fn substitute<'a>(
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice(new_args),
+                world: None,
             })
         }
 
@@ -758,7 +766,7 @@ fn find_opaque_verb_context<'a>(
     match expr {
         LogicExpr::Quantifier { kind: QuantifierKind::Existential, variable, body, .. } => {
             if let LogicExpr::BinaryOp { left, op: TokenType::And, right } = body {
-                if let LogicExpr::Predicate { name: restrictor, args } = left {
+                if let LogicExpr::Predicate { name: restrictor, args, .. } = left {
                     if args.len() == 1 {
                         if let Term::Variable(v) = &args[0] {
                             if *v == *variable {
@@ -805,7 +813,7 @@ fn find_opaque_verb_in_scope<'a>(
             }
             None
         }
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             if is_opaque_verb(*name, interner) && args.len() >= 2 {
                 if let Term::Variable(v) = &args[1] {
                     if *v == theme_var {
@@ -884,9 +892,10 @@ fn replace_theme_with_intension<'a>(
                 roles: role_arena.alloc_slice(new_roles),
                 modifiers: data.modifiers,
                 suppress_existential: false,
+                world: None,
             })))
         }
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             let new_args: Vec<_> = args.iter().map(|arg| {
                 if let Term::Variable(v) = arg {
                     if *v == ctx.quantifier_var {
@@ -899,6 +908,7 @@ fn replace_theme_with_intension<'a>(
             expr_arena.alloc(LogicExpr::Predicate {
                 name: *name,
                 args: term_arena.alloc_slice(new_args),
+                world: None,
             })
         }
         _ => expr,
@@ -948,6 +958,7 @@ fn build_de_re_from_de_dicto<'a>(
                         let noun_pred = expr_arena.alloc(LogicExpr::Predicate {
                             name: *noun,
                             args: term_arena.alloc_slice([Term::Variable(var)]),
+                            world: None,
                         });
 
                         // Build new roles with variable instead of intension
@@ -965,6 +976,7 @@ fn build_de_re_from_de_dicto<'a>(
                             roles: role_arena.alloc_slice(new_roles),
                             modifiers: data.modifiers,
                             suppress_existential: false,
+                            world: None,
                         })));
 
                         // Build: ∃x(Noun(x) ∧ Event)
@@ -1009,6 +1021,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: sleep,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
 
@@ -1029,6 +1042,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: sleep,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
 
@@ -1192,6 +1206,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: run,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
         let arg = expr_arena.alloc(LogicExpr::Atom(john));
@@ -1266,6 +1281,7 @@ mod tests {
         let body = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
         let lambda = expr_arena.alloc(LogicExpr::Lambda { variable: x, body });
         let arg = expr_arena.alloc(LogicExpr::Atom(john));
@@ -1291,10 +1307,12 @@ mod tests {
         let left = expr_arena.alloc(LogicExpr::Predicate {
             name: dog,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let right = expr_arena.alloc(LogicExpr::Predicate {
             name: bark,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let body = expr_arena.alloc(LogicExpr::BinaryOp {
             left,
@@ -1324,6 +1342,7 @@ mod tests {
         let expr = expr_arena.alloc(LogicExpr::Predicate {
             name: run,
             args: term_arena.alloc_slice([Term::Constant(john)]),
+            world: None,
         });
 
         let scopings = enumerate_scopings(expr, &mut interner, &expr_arena, &term_arena);
@@ -1370,6 +1389,7 @@ mod tests {
         let content = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
 
         let intensional = make_intensional(believes, content, &expr_arena);
@@ -1394,6 +1414,7 @@ mod tests {
         let content = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
 
         let intensional = expr_arena.alloc(LogicExpr::Intensional {
@@ -1425,6 +1446,7 @@ mod tests {
         let inner = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
         let expr = expr_arena.alloc(LogicExpr::Intensional {
             operator: believes,
@@ -1457,6 +1479,7 @@ mod tests {
         let expr = expr_arena.alloc(LogicExpr::Predicate {
             name: weak,
             args: term_arena.alloc_slice([Term::Constant(clark)]),
+            world: None,
         });
 
         let replacement = expr_arena.alloc(LogicExpr::Atom(superman));
@@ -1497,14 +1520,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -1552,18 +1578,22 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let book_z = expr_arena.alloc(LogicExpr::Predicate {
             name: book,
             args: term_arena.alloc_slice([Term::Variable(z)]),
+            world: None,
         });
         let gives_xyz = expr_arena.alloc(LogicExpr::Predicate {
             name: gives,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y), Term::Variable(z)]),
+            world: None,
         });
 
         let inner_z = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -1623,14 +1653,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -1680,14 +1713,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -1737,14 +1773,17 @@ mod tests {
         let man_x = expr_arena.alloc(LogicExpr::Predicate {
             name: man,
             args: term_arena.alloc_slice([Term::Variable(x)]),
+            world: None,
         });
         let woman_y = expr_arena.alloc(LogicExpr::Predicate {
             name: woman,
             args: term_arena.alloc_slice([Term::Variable(y)]),
+            world: None,
         });
         let loves_xy = expr_arena.alloc(LogicExpr::Predicate {
             name: loves,
             args: term_arena.alloc_slice([Term::Variable(x), Term::Variable(y)]),
+            world: None,
         });
 
         let inner = expr_arena.alloc(LogicExpr::BinaryOp {
@@ -1799,6 +1838,7 @@ mod tests {
                 Term::Variable(z),
                 Term::Variable(w),
             ]),
+            world: None,
         });
 
         let true_sym = interner.intern("T");

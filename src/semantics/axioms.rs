@@ -22,7 +22,7 @@ fn transform_expr<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     match expr {
-        LogicExpr::Predicate { name, args } => {
+        LogicExpr::Predicate { name, args, .. } => {
             expand_predicate(*name, args, expr_arena, term_arena, interner)
         }
 
@@ -116,6 +116,7 @@ fn expand_predicate<'a>(
         let canonical_pred = expr_arena.alloc(LogicExpr::Predicate {
             name: canonical_sym,
             args,
+            world: None,
         });
 
         // Wrap antonyms in negation
@@ -151,7 +152,7 @@ fn expand_predicate<'a>(
     }
 
     // No expansion needed - return original
-    expr_arena.alloc(LogicExpr::Predicate { name, args })
+    expr_arena.alloc(LogicExpr::Predicate { name, args, world: None })
 }
 
 fn expand_privative<'a>(
@@ -169,6 +170,7 @@ fn expand_privative<'a>(
     let noun_pred = expr_arena.alloc(LogicExpr::Predicate {
         name: noun_sym,
         args,
+        world: None,
     });
 
     // ¬Gun(x)
@@ -189,6 +191,7 @@ fn expand_privative<'a>(
     let resembles_pred = expr_arena.alloc(LogicExpr::Predicate {
         name: resembles_sym,
         args: resembles_args,
+        world: None,
     });
 
     // ¬Gun(x) ∧ Resembles(x, ^Gun)
@@ -208,7 +211,7 @@ fn expand_noun_entailments<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     // Bachelor(x) => Bachelor(x) ∧ Unmarried(x) ∧ Male(x)
-    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args });
+    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args, world: None });
 
     let mut result: &LogicExpr = base_pred;
     for entailment in entailments {
@@ -216,6 +219,7 @@ fn expand_noun_entailments<'a>(
         let ent_pred = expr_arena.alloc(LogicExpr::Predicate {
             name: ent_sym,
             args,
+            world: None,
         });
         result = expr_arena.alloc(LogicExpr::BinaryOp {
             left: result,
@@ -236,7 +240,7 @@ fn expand_hypernyms<'a>(
     interner: &mut Interner,
 ) -> &'a LogicExpr<'a> {
     // Dog(x) => Dog(x) ∧ Animal(x)
-    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args });
+    let base_pred = expr_arena.alloc(LogicExpr::Predicate { name: base, args, world: None });
 
     let mut result: &LogicExpr = base_pred;
     for hypernym in hypernyms {
@@ -244,6 +248,7 @@ fn expand_hypernyms<'a>(
         let hyp_pred = expr_arena.alloc(LogicExpr::Predicate {
             name: hyp_sym,
             args,
+            world: None,
         });
         result = expr_arena.alloc(LogicExpr::BinaryOp {
             left: result,
@@ -276,6 +281,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })));
 
         // Wrap antonyms in negation
@@ -299,6 +305,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })));
 
         // Create entailed verb NeoEvent (e.g., Kill)
@@ -308,6 +315,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })));
 
         // Conjoin original with entailed
@@ -331,6 +339,7 @@ fn expand_neo_event<'a>(
                 let manner_pred = expr_arena.alloc(LogicExpr::Predicate {
                     name: manner_sym,
                     args: manner_args,
+                    world: None,
                 });
                 result = expr_arena.alloc(LogicExpr::BinaryOp {
                     left: result,
@@ -349,6 +358,7 @@ fn expand_neo_event<'a>(
             roles: data.roles,
             modifiers: data.modifiers,
             suppress_existential: data.suppress_existential,
+            world: None,
         })))
     }
 }
