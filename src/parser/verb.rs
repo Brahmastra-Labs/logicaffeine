@@ -643,6 +643,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let mut object_term: Option<Term<'a>> = None;
             let mut second_object_term: Option<Term<'a>> = None;
+            let mut object_pps: &[&LogicExpr<'a>] = &[];  // PPs attached to object NP (for NP-attachment mode)
             if self.check(&TokenType::Reflexive) {
                 self.advance();
                 let term = Term::Constant(subject_symbol);
@@ -780,6 +781,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else {
                     let term = Term::Constant(object_np.noun);
                     object_term = Some(term);
+                    // Store PPs attached to object NP for NP-attachment mode
+                    object_pps = object_np.pps;
                     args.push(term);
                 }
             } else if self.check_focus() {
@@ -875,6 +878,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             } else if self.check_content_word() {
                 let potential_object = self.parse_noun_phrase(false)?;
+                // Store PPs attached to object NP for NP-attachment mode
+                object_pps = potential_object.pps;
 
                 if self.check_verb() && self.filler_gap.is_some() {
                     let embedded_subject = potential_object.noun;
@@ -1129,29 +1134,66 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 combined
             };
 
+            // Include PPs attached to object NP (for NP-attachment mode)
+            // These have _PP_SELF_ placeholder that needs to be replaced with the object term
+            let with_object_pps = if object_pps.is_empty() {
+                with_pps
+            } else if let Some(obj_term) = object_term {
+                let placeholder = self.interner.intern("_PP_SELF_");
+                let mut combined = with_pps;
+                for pp in object_pps {
+                    // Substitute _PP_SELF_ placeholder with the object term
+                    let substituted = match pp {
+                        LogicExpr::Predicate { name, args, .. } => {
+                            let new_args: Vec<Term<'a>> = args
+                                .iter()
+                                .map(|arg| match arg {
+                                    Term::Variable(v) if *v == placeholder => obj_term,
+                                    other => *other,
+                                })
+                                .collect();
+                            self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: *name,
+                                args: self.ctx.terms.alloc_slice(new_args),
+                                world: None,
+                            })
+                        }
+                        _ => *pp,
+                    };
+                    combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: combined,
+                        op: TokenType::And,
+                        right: substituted,
+                    });
+                }
+                combined
+            } else {
+                with_pps
+            };
+
             // Apply aspectual operators based on verb class
             let with_aspect = if verb_aspect == Aspect::Simple && effective_time == Time::Present {
                 // Non-state verbs in simple present get Habitual reading
                 if !verb_class.is_stative() {
                     self.ctx.exprs.alloc(LogicExpr::Aspectual {
                         operator: AspectOperator::Habitual,
-                        body: with_pps,
+                        body: with_object_pps,
                     })
                 } else {
-                    with_pps
+                    with_object_pps
                 }
             } else if verb_aspect == Aspect::Progressive {
                 // Semelfactive + Progressive → Iterative
                 if verb_class == crate::lexicon::VerbClass::Semelfactive {
                     self.ctx.exprs.alloc(LogicExpr::Aspectual {
                         operator: AspectOperator::Iterative,
-                        body: with_pps,
+                        body: with_object_pps,
                     })
                 } else {
-                    with_pps
+                    with_object_pps
                 }
             } else {
-                with_pps
+                with_object_pps
             };
 
             Ok(with_aspect)

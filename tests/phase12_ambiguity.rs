@@ -30,6 +30,31 @@ fn structural_ambiguity_pp_attachment() {
 }
 
 #[test]
+fn pp_attachment_both_readings_include_pp() {
+    // Both readings must include the PP - telescope should appear in BOTH
+    let results = compile_forest("I saw the man with the telescope.");
+    assert_eq!(results.len(), 2, "Expected 2 readings, got {}: {:?}", results.len(), results);
+
+    // Both readings should include the telescope
+    for (i, reading) in results.iter().enumerate() {
+        assert!(
+            reading.contains("Telescope") || reading.contains("telescope"),
+            "Reading {} missing PP (no Telescope): {}", i + 1, reading
+        );
+    }
+
+    // One should be VP-attachment: With(e, ...)
+    let has_vp = results.iter().any(|r| r.contains("With(e"));
+    // One should be NP-attachment: With(Man, ...) or With(x, ...)
+    let has_np = results.iter().any(|r|
+        r.contains("With(Man") || r.contains("With(x") || r.contains("With(y")
+    );
+
+    assert!(has_vp, "Missing VP-attachment reading (With(e, ...)).\nReadings: {:?}", results);
+    assert!(has_np, "Missing NP-attachment reading (With(Man/x, ...)).\nReadings: {:?}", results);
+}
+
+#[test]
 fn unambiguous_sentence_single_reading() {
     // "John runs." - unambiguous, should be exactly 1 reading
     let results = compile_forest("John runs.");
