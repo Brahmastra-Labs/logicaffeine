@@ -1326,7 +1326,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 s
             }
-            TokenType::Verb { .. } => {
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
                 // Use lexeme (actual text) not lemma to preserve casing
                 let s = self.peek().lexeme;
                 self.advance();
@@ -2074,9 +2074,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Sync"
 
         // Parse variable name (must be an identifier)
+        // Phase 49: Also handle Verb and Ambiguous tokens (e.g., "state" can be verb or noun)
         let var = match &self.tokens[self.current].kind {
             TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                let s = self.tokens[self.current].lexeme;
                 self.advance();
                 s
             }
@@ -2110,9 +2116,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Mount"
 
         // Parse variable name (must be an identifier)
+        // Phase 49: Also handle Verb and Ambiguous tokens
         let var = match &self.tokens[self.current].kind {
             TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                let s = self.tokens[self.current].lexeme;
                 self.advance();
                 s
             }
@@ -2196,9 +2208,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance();
 
         // Parse function name
+        // Phase 49: Also handle Verb and Ambiguous tokens (e.g., "greet" can be a verb)
         let function = match &self.tokens[self.current].kind {
             TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                let s = self.tokens[self.current].lexeme;
                 self.advance();
                 s
             }
@@ -2600,8 +2618,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the value being pushed
         let value = self.parse_imperative_expr()?;
 
-        // Expect "to" preposition
-        if !self.check_preposition_is("to") {
+        // Expect "to" (can be keyword or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
                 span: self.current_span(),
@@ -2754,8 +2772,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the content expression
         let content = self.parse_imperative_expr()?;
 
-        // Expect "to" preposition
-        if !self.check_preposition_is("to") {
+        // Expect "to" (can be keyword or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
                 span: self.current_span(),
@@ -4640,13 +4658,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 Ok(sym)
             }
-            TokenType::Ambiguous { primary, .. } => {
-                // For ambiguous tokens, extract symbol from primary
-                let sym = match &**primary {
-                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => *s,
-                    TokenType::Verb { lemma, .. } => *lemma,
-                    _ => token.lexeme,
-                };
+            TokenType::Ambiguous { .. } => {
+                // For ambiguous tokens, always use the raw lexeme to preserve original casing
+                // (using verb lemma can give wrong casing like "State" instead of "state")
+                let sym = token.lexeme;
                 self.advance();
                 Ok(sym)
             }
@@ -7025,10 +7040,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn check_to_preposition(&self) -> bool {
-        if let TokenType::Preposition(p) = self.peek().kind {
-            p.is(self.interner, "to")
-        } else {
-            false
+        match self.peek().kind {
+            TokenType::To => true,
+            TokenType::Preposition(p) => p.is(self.interner, "to"),
+            _ => false,
         }
     }
 

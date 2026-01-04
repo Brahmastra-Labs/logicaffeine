@@ -4,7 +4,6 @@ const OUTPUT_STYLE: &str = r#"
 .logic-output-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
     padding: 16px;
 }
 
@@ -13,6 +12,7 @@ const OUTPUT_STYLE: &str = r#"
     align-items: center;
     gap: 8px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
 }
 
 .reading-selector span {
@@ -38,30 +38,29 @@ const OUTPUT_STYLE: &str = r#"
 }
 
 .reading-btn.active {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: #667eea;
     border-color: transparent;
     color: white;
 }
 
 .logic-display {
-    flex: 1;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 12px;
-    padding: 20px;
+    padding: 16px;
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 18px;
+    font-size: 16px;
     line-height: 1.6;
     color: #e8e8e8;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    word-break: break-word;
 }
 
 .logic-display.empty {
     color: #666;
     font-style: italic;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 16px;
 }
 
 .logic-display.error {
@@ -75,6 +74,60 @@ const OUTPUT_STYLE: &str = r#"
 .logic-connective { color: #c678dd; }
 .logic-constant { color: #e5c07b; }
 .logic-paren { color: #abb2bf; }
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .logic-output-container {
+        padding: 12px;
+    }
+
+    .reading-selector {
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .reading-selector span {
+        font-size: 13px;
+    }
+
+    /* Touch-friendly reading buttons */
+    .reading-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 14px;
+        border-radius: 8px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .reading-btn:active {
+        transform: scale(0.95);
+    }
+
+    .logic-display {
+        padding: 16px;
+        font-size: 16px;
+        border-radius: 10px;
+    }
+
+    .logic-display.empty {
+        font-size: 14px;
+        padding: 16px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .reading-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 13px;
+    }
+
+    .logic-display {
+        font-size: 15px;
+        padding: 14px;
+    }
+}
 "#;
 
 #[derive(Clone, Copy, PartialEq, Default)]

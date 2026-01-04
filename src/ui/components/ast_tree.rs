@@ -8,6 +8,7 @@ const TREE_STYLE: &str = r#"
     height: 100%;
     overflow: auto;
     padding: 16px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .ast-tree-empty {
@@ -45,6 +46,7 @@ const TREE_STYLE: &str = r#"
     cursor: pointer;
     transition: background 0.15s ease;
     position: relative;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .ast-node-label:hover {
@@ -87,6 +89,7 @@ const TREE_STYLE: &str = r#"
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.08);
     color: #888;
+    white-space: nowrap;
 }
 
 .ast-node-type.quantifier { background: rgba(198, 120, 221, 0.2); color: #c678dd; }
@@ -116,6 +119,85 @@ const TREE_STYLE: &str = r#"
 
 .ast-root > .ast-node-label:before {
     display: none;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .ast-tree-container {
+        padding: 12px;
+    }
+
+    .ast-tree-empty {
+        padding: 30px 16px;
+        font-size: 14px;
+    }
+
+    /* Larger touch targets for tree nodes */
+    .ast-node {
+        margin-left: 14px;
+    }
+
+    .ast-node-label {
+        padding: 8px 10px;
+        gap: 8px;
+        min-height: 40px;
+        border-radius: 6px;
+    }
+
+    .ast-node-label:active {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .ast-node-toggle {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+    }
+
+    .ast-node-text {
+        font-size: 14px;
+        word-break: break-word;
+    }
+
+    .ast-node-type {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+
+    .ast-node:before {
+        left: -10px;
+    }
+
+    .ast-node-label:before {
+        left: -10px;
+        width: 6px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .ast-tree-container {
+        padding: 10px;
+    }
+
+    .ast-node {
+        margin-left: 12px;
+    }
+
+    .ast-node-label {
+        padding: 6px 8px;
+        min-height: 36px;
+    }
+
+    .ast-node-text {
+        font-size: 13px;
+    }
+
+    .ast-node-type {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
 }
 "#;
 
