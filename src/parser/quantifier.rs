@@ -1800,6 +1800,8 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     verb: data.verb,
                     roles: self.ctx.roles.alloc_slice(new_roles),
                     modifiers: data.modifiers,
+                    suppress_existential: data.suppress_existential,
+                    world: None,
                 }))))
             }
             _ => Ok(expr),

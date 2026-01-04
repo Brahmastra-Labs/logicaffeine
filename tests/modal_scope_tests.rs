@@ -270,14 +270,20 @@ fn unaccusative_intransitive_theme_subject() {
     let result = output.unwrap();
     eprintln!("Intransitive trigger: {}", result);
 
-    // Should have Theme role for the alarm, NOT Agent
+    // Should have Theme role (with quantified variable), NOT Agent
+    // Output format: ∃x(((Alarm(x) ∧ ...) ∧ ...∃e(Trigger(e) ∧ Theme(e, x))))
     assert!(
-        result.contains("Theme(e, Alarm)") || result.contains("Theme(e,Alarm)"),
+        result.contains("Theme(e, x)") || result.contains("Theme(e,x)"),
         "Intransitive unaccusative should use Theme for subject. Got: {}",
         result
     );
     assert!(
-        !result.contains("Agent(e, Alarm)") && !result.contains("Agent(e,Alarm)"),
+        result.contains("Alarm(x)") || result.contains("Alarm(y)"),
+        "Should have Alarm predicate. Got: {}",
+        result
+    );
+    assert!(
+        !result.contains("Agent(e, x)") && !result.contains("Agent(e,x)"),
         "Intransitive unaccusative should NOT use Agent for subject. Got: {}",
         result
     );
@@ -312,9 +318,15 @@ fn unaccusative_break_intransitive() {
     let result = output.unwrap();
     eprintln!("Intransitive break: {}", result);
 
+    // Output uses quantified variable: ∃x(((Window(x) ∧ ...) ∧ ...Theme(e, x)))
     assert!(
-        result.contains("Theme(e, Window)") || result.contains("Theme(e,Window)"),
+        result.contains("Theme(e, x)") || result.contains("Theme(e,x)"),
         "Intransitive 'break' should use Theme. Got: {}",
+        result
+    );
+    assert!(
+        result.contains("Window(x)") || result.contains("Window(y)"),
+        "Should have Window predicate. Got: {}",
         result
     );
 }
@@ -326,9 +338,15 @@ fn unaccusative_melt_intransitive() {
     let result = output.unwrap();
     eprintln!("Intransitive melt: {}", result);
 
+    // Output uses quantified variable: ∃x(((Ice(x) ∧ ...) ∧ ...Theme(e, x)))
     assert!(
-        result.contains("Theme(e, Ice)") || result.contains("Theme(e,Ice)"),
+        result.contains("Theme(e, x)") || result.contains("Theme(e,x)"),
         "Intransitive 'melt' should use Theme. Got: {}",
+        result
+    );
+    assert!(
+        result.contains("Ice(x)") || result.contains("Ice(y)"),
+        "Should have Ice predicate. Got: {}",
         result
     );
 }
