@@ -61,11 +61,14 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             };
 
             let resolved = self.resolve_pronoun(gender, number)?;
+            let resolved_sym = match resolved {
+                super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+            };
 
             let possessor_np = NounPhrase {
                 definiteness: None,
                 adjectives: &[],
-                noun: resolved,
+                noun: resolved_sym,
                 possessor: None,
                 pps: &[],
                 superlative: None,

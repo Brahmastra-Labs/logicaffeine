@@ -109,6 +109,24 @@ pub struct TelescopeCandidate {
     pub origin_box: usize,
     /// Path to navigate AST for scope extension
     pub scope_path: Vec<ScopePath>,
+    /// Whether this referent was introduced in a modal scope
+    pub in_modal_scope: bool,
+}
+
+// ============================================
+// MODAL SUBORDINATION SUPPORT
+// ============================================
+
+/// Modal context for tracking hypothetical worlds across sentences.
+/// Enables modal subordination: "A wolf might walk in. It would eat you."
+#[derive(Debug, Clone)]
+pub struct ModalContext {
+    /// Whether we're currently inside a modal scope
+    pub active: bool,
+    /// The modal flavor (epistemic vs root)
+    pub is_epistemic: bool,
+    /// Force value (0.0 = impossibility, 1.0 = necessity)
+    pub force: f32,
 }
 
 // ============================================
@@ -116,7 +134,6 @@ pub struct TelescopeCandidate {
 // ============================================
 
 /// The unified discourse state that persists across sentences.
-/// Replaces DiscourseContext by merging DRS with temporal tracking.
 #[derive(Debug, Clone)]
 pub struct WorldState {
     /// The global DRS (box hierarchy for scope tracking)
@@ -136,6 +153,10 @@ pub struct WorldState {
     /// Whether we're in discourse mode (processing multi-sentence discourse)
     /// When true, unresolved pronouns should error instead of deictic fallback
     discourse_mode: bool,
+    /// Current modal context (if any) for tracking modal scope
+    current_modal_context: Option<ModalContext>,
+    /// Modal context from previous sentence for subordination
+    prior_modal_context: Option<ModalContext>,
 }
 
 impl WorldState {
@@ -149,6 +170,8 @@ impl WorldState {
             time_constraints: Vec::new(),
             telescope_candidates: Vec::new(),
             discourse_mode: false,
+            current_modal_context: None,
+            prior_modal_context: None,
         }
     }
 
@@ -199,6 +222,8 @@ impl WorldState {
     pub fn end_sentence(&mut self) {
         // Collect referents that can telescope from current DRS state
         self.telescope_candidates = self.drs.get_telescope_candidates();
+        // Capture modal context for subordination in next sentence
+        self.prior_modal_context = self.current_modal_context.take();
         // Mark that we're now in discourse mode (multi-sentence context)
         self.discourse_mode = true;
     }
@@ -253,6 +278,43 @@ impl WorldState {
         self.drs.get_ownership_by_var(var)
     }
 
+    // ============================================
+    // MODAL SUBORDINATION METHODS
+    // ============================================
+
+    /// Enter a modal context (e.g., "might", "would", "could")
+    pub fn enter_modal_context(&mut self, is_epistemic: bool, force: f32) {
+        self.current_modal_context = Some(ModalContext {
+            active: true,
+            is_epistemic,
+            force,
+        });
+        // Also enter a modal box in the DRS
+        self.drs.enter_box(BoxType::ModalScope);
+    }
+
+    /// Exit the current modal context
+    pub fn exit_modal_context(&mut self) {
+        self.current_modal_context = None;
+        self.drs.exit_box();
+    }
+
+    /// Check if we're currently in a modal context
+    pub fn in_modal_context(&self) -> bool {
+        self.current_modal_context.is_some()
+    }
+
+    /// Check if there's a prior modal context for subordination
+    pub fn has_prior_modal_context(&self) -> bool {
+        self.prior_modal_context.is_some()
+    }
+
+    /// Check if current modal can subordinate to prior context
+    /// "would" can continue a "might" world
+    pub fn can_subordinate(&self) -> bool {
+        self.prior_modal_context.is_some()
+    }
+
     /// Clear the world state (reset for new discourse)
     pub fn clear(&mut self) {
         self.drs.clear();
@@ -263,6 +325,8 @@ impl WorldState {
         self.time_constraints.clear();
         self.telescope_candidates.clear();
         self.discourse_mode = false;
+        self.current_modal_context = None;
+        self.prior_modal_context = None;
     }
 }
 
@@ -290,6 +354,8 @@ pub enum ReferentSource {
     NegationScope,
     /// Inside disjunction - inaccessible outward
     Disjunct,
+    /// Inside modal scope - accessible via modal subordination
+    ModalScope,
 }
 
 impl ReferentSource {
@@ -317,6 +383,9 @@ pub enum BoxType {
     UniversalScope,
     /// Branch of disjunction
     Disjunct,
+    /// Scope of modal operator (might, would, could, etc.)
+    /// Allows modal subordination: pronouns can access referents via telescoping
+    ModalScope,
 }
 
 impl BoxType {
@@ -329,11 +398,12 @@ impl BoxType {
             BoxType::UniversalRestrictor => ReferentSource::UniversalRestrictor,
             BoxType::UniversalScope => ReferentSource::MainClause,
             BoxType::Disjunct => ReferentSource::Disjunct,
+            BoxType::ModalScope => ReferentSource::ModalScope,
         }
     }
 
     /// Can referents in this box be accessed via telescoping across sentence boundaries?
-    /// Universal quantifiers and conditionals CAN telescope.
+    /// Universal quantifiers, conditionals, and modals CAN telescope.
     /// Negation and disjunction CANNOT telescope.
     pub fn can_telescope(&self) -> bool {
         matches!(
@@ -343,6 +413,7 @@ impl BoxType {
             | BoxType::UniversalRestrictor
             | BoxType::ConditionalConsequent
             | BoxType::ConditionalAntecedent
+            | BoxType::ModalScope  // Modal subordination allows cross-sentence access
         )
         // NegationScope and Disjunct return false implicitly
     }
@@ -739,6 +810,7 @@ impl Drs {
             }
 
             // Collect referents from this box (skip those with blocking sources)
+            let is_modal_box = drs_box.box_type == Some(BoxType::ModalScope);
             for referent in &drs_box.universe {
                 // Skip referents that are marked with NegationScope or Disjunct source
                 // These are trapped inside negation/disjunction and cannot telescope
@@ -752,6 +824,7 @@ impl Drs {
                     gender: referent.gender,
                     origin_box: box_idx,
                     scope_path: Vec::new(), // TODO: Track scope path during parsing
+                    in_modal_scope: is_modal_box || referent.source == ReferentSource::ModalScope,
                 });
             }
         }

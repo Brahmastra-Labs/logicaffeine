@@ -17,13 +17,21 @@ pub trait ModalParsing<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_modal(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        use crate::drs::BoxType;
+
         let vector = self.token_to_vector(&self.previous().kind.clone());
+
+        // Enter modal box in parser's DRS (not world_state - that's swapped at sentence boundaries)
+        self.drs.enter_box(BoxType::ModalScope);
 
         if self.check(&TokenType::That) {
             self.advance();
         }
 
         let content = self.parse_sentence()?;
+
+        // Exit modal box
+        self.drs.exit_box();
 
         Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
             vector,

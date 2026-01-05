@@ -366,7 +366,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 } else if token_text.eq_ignore_ascii_case("you") {
                     self.interner.intern("Addressee")
                 } else if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    self.resolve_pronoun(gender, number)?
+                    let resolved_pronoun = self.resolve_pronoun(gender, number)?;
+                    match resolved_pronoun {
+                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    }
                 } else {
                     unknown
                 };
@@ -445,7 +448,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         } else if token_text.eq_ignore_ascii_case("you") {
                             self.interner.intern("Addressee")
                         } else {
-                            self.resolve_pronoun(gender, number)?
+                            let resolved_pronoun = self.resolve_pronoun(gender, number)?;
+                            match resolved_pronoun {
+                                super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                            }
                         }
                     } else {
                         unknown
@@ -646,7 +652,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 } else if token_text.eq_ignore_ascii_case("you") {
                     self.interner.intern("Addressee")
                 } else if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    self.resolve_pronoun(gender, number)?
+                    let resolved_pronoun = self.resolve_pronoun(gender, number)?;
+                    match resolved_pronoun {
+                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    }
                 } else {
                     unknown
                 }
@@ -1009,7 +1018,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let token = self.advance().clone();
             if let TokenType::Pronoun { gender, number, .. } = token.kind {
                 match self.resolve_pronoun(gender, number) {
-                    Ok(sym) => sym,
+                    Ok(resolved) => match resolved {
+                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    },
                     Err(e) => return Some(Err(e)),
                 }
             } else {

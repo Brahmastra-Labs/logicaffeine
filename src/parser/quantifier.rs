@@ -465,7 +465,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         args.push(Term::Variable(donkey_var));
                     } else {
                         let resolved = self.resolve_pronoun(gender, Number::Singular)?;
-                        args.push(Term::Constant(resolved));
+                        let term = match resolved {
+                            super::ResolvedPronoun::Variable(s) => Term::Variable(s),
+                            super::ResolvedPronoun::Constant(s) => Term::Constant(s),
+                        };
+                        args.push(term);
                     }
                 }
             } else if self.check_npi_object() {

@@ -77,6 +77,15 @@ pub enum ModalPreference {
     Deontic,
 }
 
+/// Result of pronoun resolution: either a bound variable or a constant
+#[derive(Debug, Clone, Copy)]
+pub enum ResolvedPronoun {
+    /// Bound variable from DRS or telescope (use Term::Variable)
+    Variable(Symbol),
+    /// Constant (deictic or proper name) (use Term::Constant)
+    Constant(Symbol),
+}
+
 #[derive(Clone)]
 struct ParserCheckpoint {
     pos: usize,
@@ -661,11 +670,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> ParseResult<Symbol> {
+    fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> ParseResult<ResolvedPronoun> {
         // Try DRS resolution (scope-aware)
         let current_box = self.drs.current_box_index();
         match self.drs.resolve_pronoun(current_box, gender, number) {
-            Ok(sym) => return Ok(sym),
+            Ok(sym) => return Ok(ResolvedPronoun::Variable(sym)),
             Err(crate::drs::ScopeError::InaccessibleReferent { reason, .. }) => {
                 // Hard error: referent exists but is trapped in inaccessible scope
                 return Err(ParseError {
@@ -676,7 +685,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Err(crate::drs::ScopeError::NoMatchingReferent { gender: g, number: n }) => {
                 // Try telescoping across sentence boundaries
                 if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
-                    return Ok(candidate.variable);
+                    return Ok(ResolvedPronoun::Variable(candidate.variable));
                 }
 
                 // In discourse mode (multi-sentence context), unresolved pronouns are an error
@@ -703,7 +712,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let sym = self.interner.intern(deictic_name);
                 // Introduce the deictic referent to DRS for potential later reference
                 self.drs.introduce_referent(sym, sym, g, n);
-                return Ok(sym);
+                return Ok(ResolvedPronoun::Constant(sym));
             }
         }
     }
@@ -4762,9 +4771,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Handle deictic pronouns that don't need discourse resolution
             let resolved = if token_text.eq_ignore_ascii_case("i") {
-                self.interner.intern("Speaker")
+                ResolvedPronoun::Constant(self.interner.intern("Speaker"))
             } else if token_text.eq_ignore_ascii_case("you") {
-                self.interner.intern("Addressee")
+                ResolvedPronoun::Constant(self.interner.intern("Addressee"))
             } else {
                 // Try discourse resolution for anaphoric pronouns
                 self.resolve_pronoun(gender, number)?
@@ -4773,6 +4782,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Check for performative: "I promise that..." or "I promise to..."
             if self.check_performative() {
                 if let TokenType::Performative(act) = self.advance().kind.clone() {
+                    let sym = match resolved {
+                        ResolvedPronoun::Variable(s) | ResolvedPronoun::Constant(s) => s,
+                    };
                     // Check for infinitive complement: "I promise to come"
                     if self.check(&TokenType::To) {
                         self.advance(); // consume "to"
@@ -4782,12 +4794,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                             let content = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: infinitive_verb,
-                                args: self.ctx.terms.alloc_slice([Term::Constant(resolved)]),
+                                args: self.ctx.terms.alloc_slice([Term::Constant(sym)]),
                                 world: None,
                             });
 
                             return Ok(self.ctx.exprs.alloc(LogicExpr::SpeechAct {
-                                performer: resolved,
+                                performer: sym,
                                 act_type: act,
                                 content,
                             }));
@@ -4800,7 +4812,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     let content = self.parse_sentence()?;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::SpeechAct {
-                        performer: resolved,
+                        performer: sym,
                         act_type: act,
                         content,
                     }));
@@ -4808,7 +4820,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Continue parsing verb phrase with resolved subject
-            return self.parse_predicate_with_subject(resolved);
+            // Use as_var=true for bound variables, as_var=false for constants
+            return match resolved {
+                ResolvedPronoun::Variable(sym) => self.parse_predicate_with_subject_as_var(sym),
+                ResolvedPronoun::Constant(sym) => self.parse_predicate_with_subject(sym),
+            };
         }
 
         // Consume "both" correlative marker if present: "both X and Y"
@@ -4878,13 +4894,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if let Some((gender, number)) = pronoun_features {
                         p.advance(); // consume pronoun
                         let resolved = p.resolve_pronoun(gender, number)?;
+                        let resolved_term = match resolved {
+                            ResolvedPronoun::Variable(s) => Term::Variable(s),
+                            ResolvedPronoun::Constant(s) => Term::Constant(s),
+                        };
 
                         if p.check_verb() {
                             let verb = p.consume_verb();
                             let predicate = p.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: verb,
                                 args: p.ctx.terms.alloc_slice([
-                                    Term::Constant(resolved),
+                                    resolved_term,
                                     Term::Constant(subject.noun),
                                 ]),
                                 world: None,
@@ -6344,7 +6364,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let token = self.advance().clone();
                 if let TokenType::Pronoun { gender, number, .. } = token.kind {
                     let resolved = self.resolve_pronoun(gender, number)?;
-                    let term = Term::Constant(resolved);
+                    let term = match resolved {
+                        ResolvedPronoun::Variable(s) => Term::Variable(s),
+                        ResolvedPronoun::Constant(s) => Term::Constant(s),
+                    };
                     object_term = Some(term.clone());
                     args.push(term);
 
@@ -6787,7 +6810,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let token = self.advance().clone();
                     if let TokenType::Pronoun { gender, number, .. } = token.kind {
                         let resolved = self.resolve_pronoun(gender, number)?;
-                        Term::Constant(resolved)
+                        match resolved {
+                            ResolvedPronoun::Variable(s) => Term::Variable(s),
+                            ResolvedPronoun::Constant(s) => Term::Constant(s),
+                        }
                     } else {
                         continue;
                     }

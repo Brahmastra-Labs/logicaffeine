@@ -148,7 +148,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         if self.check_modal() {
-            return self.parse_aspect_chain(subject_symbol);
+            return self.parse_aspect_chain_with_term(subject_term.clone());
         }
 
         if self.check_content_word() {
@@ -670,7 +670,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 };
 
                 let resolved = self.resolve_pronoun(gender, number)?;
-                let term = Term::Constant(resolved);
+                let term = match resolved {
+                    super::ResolvedPronoun::Variable(s) => Term::Variable(s),
+                    super::ResolvedPronoun::Constant(s) => Term::Constant(s),
+                };
                 object_term = Some(term);
                 args.push(term);
 
@@ -1041,7 +1044,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         _ => (Gender::Unknown, Number::Singular),
                     };
                     let resolved = self.resolve_pronoun(gender, number)?;
-                    Term::Constant(resolved)
+                    match resolved {
+                        super::ResolvedPronoun::Variable(s) => Term::Variable(s),
+                        super::ResolvedPronoun::Constant(s) => Term::Constant(s),
+                    }
                 } else if self.check_content_word() || self.check_article() {
                     let prep_obj = self.parse_noun_phrase(false)?;
                     Term::Constant(prep_obj.noun)
