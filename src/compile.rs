@@ -26,8 +26,8 @@ use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
-use crate::context::DiscourseContext;
 use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
+use crate::drs::WorldState;
 use crate::error::ParseError;
 use crate::intern::Interner;
 use crate::lexer::Lexer;
@@ -50,7 +50,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -74,7 +74,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
@@ -119,7 +119,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -143,7 +143,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
     // Pass 3: Escape analysis
@@ -192,7 +192,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -216,7 +216,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
     // Pass 3: Escape analysis
@@ -451,7 +451,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -475,7 +475,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     );
 
     // Pass 2: Parse with type context (includes imported types)
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 

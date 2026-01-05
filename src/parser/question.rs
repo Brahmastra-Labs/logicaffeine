@@ -144,8 +144,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 if token_text.eq_ignore_ascii_case("you") {
                     self.interner.intern("Addressee")
                 } else {
-                    self.resolve_pronoun(gender, number)
-                        .unwrap_or_else(|| self.interner.intern("?"))
+                    self.resolve_pronoun(gender, number)?
                 }
             } else {
                 self.interner.intern("?")

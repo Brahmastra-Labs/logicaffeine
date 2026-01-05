@@ -22,7 +22,7 @@ fn parse_and_check<F>(source: &str, checker: F) -> bool
 where F: Fn(&Vec<Stmt>) -> bool {
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -45,7 +45,7 @@ where F: Fn(&Vec<Stmt>) -> bool {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     match parser.parse_program() {

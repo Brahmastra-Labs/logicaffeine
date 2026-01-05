@@ -7,7 +7,7 @@ use crate::ast::{
     AspectOperator, LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term,
     ThematicRole,
 };
-use crate::context::{Gender, Number};
+use crate::drs::{Gender, Number};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
@@ -81,7 +81,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -669,9 +669,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     _ => (Gender::Unknown, Number::Singular),
                 };
 
-                let resolved = self
-                    .resolve_pronoun(gender, number)
-                    .unwrap_or_else(|| self.interner.intern("?"));
+                let resolved = self.resolve_pronoun(gender, number)?;
                 let term = Term::Constant(resolved);
                 object_term = Some(term);
                 args.push(term);
@@ -705,6 +703,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 if let Some(obj_q) = obj_quantifier {
                     let obj_var = self.next_var_name();
+
+                    // Introduce object referent in DRS for cross-sentence anaphora
+                    let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
@@ -779,6 +787,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         island_id: self.current_island,
                     }));
                 } else {
+                    // Definite object NP (e.g., "the house")
+                    // Introduce to DRS for cross-sentence bridging anaphora
+                    // E.g., "John entered the house. The door was open." - door bridges to house
+                    if object_np.definiteness == Some(Definiteness::Definite) {
+                        let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                        let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                            Number::Plural
+                        } else {
+                            Number::Singular
+                        };
+                        self.drs.introduce_referent(object_np.noun, object_np.noun, obj_gender, obj_number);
+                    }
+
                     let term = Term::Constant(object_np.noun);
                     object_term = Some(term);
                     // Store PPs attached to object NP for NP-attachment mode
@@ -1019,7 +1040,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         }
                         _ => (Gender::Unknown, Number::Singular),
                     };
-                    let resolved = self.resolve_pronoun(gender, number).unwrap_or(unknown);
+                    let resolved = self.resolve_pronoun(gender, number)?;
                     Term::Constant(resolved)
                 } else if self.check_content_word() || self.check_article() {
                     let prep_obj = self.parse_noun_phrase(false)?;
@@ -1106,7 +1127,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let suppress_existential = self.drs.in_conditional_antecedent();
             if suppress_existential {
                 let event_class = self.interner.intern("Event");
-                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
             }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
@@ -1314,15 +1335,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             return Ok(None);
         }
 
-        // Register the coordinated subjects as a plural entity for pronoun resolution
-        {
-            use crate::context::{Gender, Number};
-            let group_name = subjects.iter()
-                .map(|s| self.interner.resolve(*s))
-                .collect::<Vec<_>>()
-                .join("⊕");
-            self.register_entity(&group_name, "group", Gender::Unknown, Number::Plural);
-        }
+        // Coordinated subjects registered in DRS via introduce_referent
 
         let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
 

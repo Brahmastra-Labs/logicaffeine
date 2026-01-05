@@ -20,7 +20,7 @@ fn type_mismatch_int_with_text_literal() {
     let source = "## Main\nLet x: Int be \"hello\".";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -43,7 +43,7 @@ fn type_mismatch_int_with_text_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -64,7 +64,7 @@ fn type_mismatch_text_with_int_literal() {
     let source = "## Main\nLet name: Text be 42.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -87,7 +87,7 @@ fn type_mismatch_text_with_int_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -108,7 +108,7 @@ fn type_mismatch_bool_with_int_literal() {
     let source = "## Main\nLet flag: Bool be 1.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -131,7 +131,7 @@ fn type_mismatch_bool_with_int_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -156,7 +156,7 @@ fn correct_int_type_annotation() {
     let source = "## Main\nLet x: Int be 42.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -179,7 +179,7 @@ fn correct_int_type_annotation() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -191,7 +191,7 @@ fn correct_text_type_annotation() {
     let source = "## Main\nLet name: Text be \"Alice\".";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -214,7 +214,7 @@ fn correct_text_type_annotation() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -226,7 +226,7 @@ fn correct_bool_type_annotation() {
     let source = "## Main\nLet flag: Bool be true.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -249,7 +249,7 @@ fn correct_bool_type_annotation() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -265,7 +265,7 @@ fn no_type_annotation_allowed() {
     let source = "## Main\nLet x be 42.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -288,7 +288,7 @@ fn no_type_annotation_allowed() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -304,7 +304,7 @@ fn nat_accepts_int_literal() {
     let source = "## Main\nLet n: Nat be 5.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -327,7 +327,7 @@ fn nat_accepts_int_literal() {
         &type_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();

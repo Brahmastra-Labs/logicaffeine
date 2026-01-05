@@ -1,10 +1,12 @@
 use super::*;
 use crate::arena::Arena;
 use crate::ast::NounPhrase;
+use crate::drs::WorldState;
 
 #[test]
 fn guard_restores_all_fields_on_drop() {
     let mut interner = Interner::new();
+    let mut world_state = WorldState::new();
     let expr_arena: Arena<LogicExpr> = Arena::new();
     let term_arena: Arena<Term> = Arena::new();
     let np_arena: Arena<NounPhrase> = Arena::new();
@@ -18,7 +20,7 @@ fn guard_restores_all_fields_on_drop() {
 
     let mut lexer = Lexer::new("a b c d e", &mut interner);
     let tokens = lexer.tokenize();
-    let mut parser = Parser::new(tokens, &mut interner, ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, crate::analysis::TypeRegistry::default());
 
     let initial_pos = parser.current;
     let initial_var_counter = parser.var_counter;
@@ -45,6 +47,7 @@ fn guard_restores_all_fields_on_drop() {
 #[test]
 fn guard_preserves_state_on_commit() {
     let mut interner = Interner::new();
+    let mut world_state = WorldState::new();
     let expr_arena: Arena<LogicExpr> = Arena::new();
     let term_arena: Arena<Term> = Arena::new();
     let np_arena: Arena<NounPhrase> = Arena::new();
@@ -58,7 +61,7 @@ fn guard_preserves_state_on_commit() {
 
     let mut lexer = Lexer::new("a b c", &mut interner);
     let tokens = lexer.tokenize();
-    let mut parser = Parser::new(tokens, &mut interner, ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, crate::analysis::TypeRegistry::default());
 
     {
         let mut guard = parser.guard();
@@ -74,6 +77,7 @@ fn guard_preserves_state_on_commit() {
 #[test]
 fn check_any_matches_wh_words() {
     let mut interner = Interner::new();
+    let mut world_state = WorldState::new();
     let expr_arena: Arena<LogicExpr> = Arena::new();
     let term_arena: Arena<Term> = Arena::new();
     let np_arena: Arena<NounPhrase> = Arena::new();
@@ -87,7 +91,7 @@ fn check_any_matches_wh_words() {
 
     let mut lexer = Lexer::new("who what where", &mut interner);
     let tokens = lexer.tokenize();
-    let mut parser = Parser::new(tokens, &mut interner, ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, crate::analysis::TypeRegistry::default());
 
     assert!(parser.check_any(TokenType::WH_WORDS));
     parser.current = 1;
@@ -99,6 +103,7 @@ fn check_any_matches_wh_words() {
 #[test]
 fn check_any_rejects_non_matching() {
     let mut interner = Interner::new();
+    let mut world_state = WorldState::new();
     let expr_arena: Arena<LogicExpr> = Arena::new();
     let term_arena: Arena<Term> = Arena::new();
     let np_arena: Arena<NounPhrase> = Arena::new();
@@ -112,7 +117,7 @@ fn check_any_rejects_non_matching() {
 
     let mut lexer = Lexer::new("if then", &mut interner);
     let tokens = lexer.tokenize();
-    let parser = Parser::new(tokens, &mut interner, ctx);
+    let parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, crate::analysis::TypeRegistry::default());
 
     assert!(!parser.check_any(TokenType::WH_WORDS));
     assert!(!parser.check_any(TokenType::MODALS));

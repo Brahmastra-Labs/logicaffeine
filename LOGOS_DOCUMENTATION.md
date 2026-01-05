@@ -2294,18 +2294,468 @@ Tests for lexer improvements and edge cases.
 
 ---
 
+#### Phase 53: Persistence
+
+**File:** `tests/phase53_persistence.rs`
+
+VFS + Persistent<T> journaling for crash-resilient CRDT persistence. Mount statement parsing, journal file paths, automatic replay on restart.
+
+**Example:** Mount counter at "data/counter.journal".
+
+---
+
+#### Phase 57: Maps
+
+**File:** `tests/phase57_maps.rs`
+
+Map collection operations with key-value semantics.
+
+**Example:** Let prices be a new Map of Text to Int.
+
+---
+
+#### Phase: Set Operations
+
+**File:** `tests/phase_sets.rs`
+
+Set collection with Add/Remove, contains check, deduplication, and set algebra (union/intersection).
+
+**Example:** Let s be a new Set of Int. Add 1 to s.
+
+---
+
+#### Phase: Extended Primitives
+
+**File:** `tests/phase_primitives_extended.rs`
+
+Extended primitive type operations and edge cases.
+
+**Example:** Primitive type edge case testing.
+
+---
+
+#### Aktionsart Tests
+
+**File:** `tests/aktionsart_tests.rs`
+
+Vendler lexical aspect class verification. Tests all five classes: State (+static), Activity (+durative), Accomplishment (+telic), Achievement (-durative), Semelfactive (-telic). Verifies verb class lookup and aspect operator assignment.
+
+**Example:** VerbClass::State for 'know', VerbClass::Activity for 'run'
+
+---
+
+#### Intensionality Tests
+
+**File:** `tests/intensionality_tests.rs`
+
+De re / de dicto readings for opaque verbs (seek, want, believe, fear). Tests compile_all_scopes() producing two readings: existential (de re) and intensional with Montague up-arrow (de dicto).
+
+**Example:** "John seeks a unicorn." → De Re: ∃x(Unicorn(x) ∧ Seek(j, x)) + De Dicto: Seek(j, ^Unicorn)
+
+---
+
+#### Modal Scope Tests
+
+**File:** `tests/modal_scope_tests.rs`
+
+Modal operator scope interactions with quantifiers and negation.
+
+**Example:** Modal and quantifier scope ambiguity testing.
+
+---
+
+#### Generalized Quantifier Tests
+
+**File:** `tests/gq_test.rs`
+
+Tests for generalized quantifiers (MANY, MOST, FEW) beyond standard ∀/∃.
+
+**Example:** Generalized quantifier semantics.
+
+---
+
+#### Grand Challenge: Mergesort
+
+**File:** `tests/grand_challenge_mergesort.rs`
+
+Full recursive mergesort algorithm compilation. Tests Phase 43 integration: collections, ownership, control flow, comparisons (less than, greater than, at most). End-to-end validation of a complete sorting algorithm.
+
+**Example:** Mergesort with 'is less than', 'is greater than', 'is at most' comparisons
+
+---
+
+#### Integration Tests
+
+**File:** `tests/integration_tests.rs`
+
+Cross-module integration verification for the compiler pipeline.
+
+**Example:** Pipeline integration tests.
+
+---
+
+#### Complex Combinations
+
+**File:** `tests/complex_combinations.rs`
+
+Tests for complex linguistic feature combinations and edge cases.
+
+**Example:** Multi-feature linguistic patterns.
+
+---
+
+#### Torture Tests
+
+**File:** `tests/torture_tests.rs`
+
+Stress tests for parser and compiler edge cases. Pathological inputs and boundary conditions.
+
+**Example:** Parser stress and edge case testing.
+
+---
+
+#### Parser Fixes Tests
+
+**File:** `tests/parser_fixes_test.rs`
+
+Regression tests for specific parser bug fixes.
+
+**Example:** Parser bug fix verification.
+
+---
+
+#### Diagnostic Bridge Tests
+
+**File:** `tests/diagnostic_bridge.rs`
+
+Verifies Rust ownership errors translate to friendly LOGOS messages. Users should never see raw rustc errors. Socratic torture test proving the bridge actually works.
+
+**Example:** E0382 → 'Cannot use X after giving it away' (not raw rustc codes)
+
+---
+
+#### Debug: Any Type
+
+**File:** `tests/debug_any.rs`
+
+Debug utilities for any-type handling.
+
+**Example:** Debug helper tests.
+
+---
+
+#### Debug: Aspect
+
+**File:** `tests/debug_aspect.rs`
+
+Debug utilities for aspect operator handling.
+
+**Example:** Aspect debug helpers.
+
+---
+
+#### Debug: Cardinality
+
+**File:** `tests/debug_card.rs`
+
+Debug utilities for cardinality expressions.
+
+**Example:** Cardinality debug helpers.
+
+---
+
+#### Debug: Garden Path
+
+**File:** `tests/debug_garden.rs`
+
+Debug utilities for garden path reanalysis.
+
+**Example:** Garden path debug helpers.
+
+---
+
+#### Debug: Modal + Relative Clause
+
+**File:** `tests/debug_modal_relclause.rs`
+
+Debug utilities for modal operators in relative clauses.
+
+**Example:** Modal relative clause debug helpers.
+
+---
+
+#### Debug: Reciprocals
+
+**File:** `tests/debug_reciprocal.rs`
+
+Debug utilities for reciprocal expression handling.
+
+**Example:** Reciprocal debug helpers.
+
+---
+
+#### Debug: Tense
+
+**File:** `tests/debug_tense.rs`
+
+Debug utilities for tense and temporal handling.
+
+**Example:** Tense debug helpers.
+
+---
+
+#### Learning State Tests
+
+**File:** `tests/learn_state_tests.rs`
+
+Tab and focus state management for the learning UI. TabMode (LESSON/EXAMPLES/PRACTICE/TEST), ModuleTabState, FocusState for era expansion. Progress tracking infrastructure.
+
+**Example:** TabMode::Lesson.label() → 'LESSON'
+
+---
+
+#### Struggle Detection Tests
+
+**File:** `tests/struggle_tests.rs`
+
+User difficulty identification and adaptive hints. StruggleTracker monitors repeated failures on specific concepts.
+
+**Example:** Struggle pattern detection.
+
+---
+
+#### Symbol Dictionary Tests
+
+**File:** `tests/symbol_dict_tests.rs`
+
+Runtime symbol table for interactive features. Symbol-to-definition mapping for autocomplete and hover info.
+
+**Example:** Symbol lookup and definition mapping.
+
+---
+
+#### Unlock Logic Tests
+
+**File:** `tests/unlock_logic_tests.rs`
+
+Progressive disclosure system. Lessons unlock based on prerequisites and mastery. UnlockState tracks completed lessons.
+
+**Example:** Lesson prerequisite and unlock logic.
+
+---
+
+#### E2E: Concurrency
+
+**File:** `tests/e2e_concurrency.rs`
+
+Runtime verification of Go-like concurrency. Launch task, Pipe channels, Send/Receive, task arguments. Actually compiles and runs generated Rust code.
+
+**Example:** Launch a task to worker. Let ch be a Pipe of Int.
+
+---
+
+#### E2E: GossipSub
+
+**File:** `tests/e2e_gossip.rs`
+
+Runtime verification of GossipSub pub/sub messaging.
+
+**Example:** GossipSub publish and subscribe.
+
+---
+
+#### E2E: GossipSub Edge Cases
+
+**File:** `tests/e2e_gossip_edge_cases.rs`
+
+Edge case testing for GossipSub messaging under various conditions.
+
+**Example:** GossipSub edge case scenarios.
+
+---
+
+#### E2E: Multi-Node
+
+**File:** `tests/e2e_multi_node.rs`
+
+Multi-node distributed system testing. Verifies behavior across multiple peers.
+
+**Example:** Multi-peer distributed scenarios.
+
+---
+
+#### E2E: Network Partition
+
+**File:** `tests/e2e_network_partition.rs`
+
+Network partition resilience testing. Verifies system behavior during network splits.
+
+**Example:** Split-brain and partition recovery.
+
+---
+
+#### E2E: Causal Consistency
+
+**File:** `tests/e2e_causal_consistency.rs`
+
+Causal consistency verification for distributed operations.
+
+**Example:** Causal ordering guarantees.
+
+---
+
+#### E2E: Primitives
+
+**File:** `tests/e2e_primitives.rs`
+
+Runtime verification of primitive type operations.
+
+**Example:** Primitive type end-to-end tests.
+
+---
+
+#### CRDT: Causal Infrastructure
+
+**File:** `tests/phase_crdt_causal.rs`
+
+Wave 1 foundation: VClock, Dot, DotContext for delta-state CRDTs. ReplicaID migration from String to u64.
+
+**Example:** VClock::new(), Dot tracking, generate_replica_id() → u64
+
+---
+
+#### CRDT: Concurrent Operations
+
+**File:** `tests/phase_crdt_concurrent.rs`
+
+Tests for concurrent CRDT operations and merge semantics.
+
+**Example:** Concurrent merge correctness.
+
+---
+
+#### CRDT: Delta State
+
+**File:** `tests/phase_crdt_delta.rs`
+
+Delta-state CRDT implementation tests. Efficient synchronization via delta transmission.
+
+**Example:** Delta extraction and application.
+
+---
+
+#### CRDT: Edge Cases
+
+**File:** `tests/phase_crdt_edge_cases.rs`
+
+Boundary conditions and edge cases for CRDT implementations.
+
+**Example:** CRDT edge case scenarios.
+
+---
+
+#### CRDT: Language Integration
+
+**File:** `tests/phase_crdt_language.rs`
+
+LOGOS language integration for CRDT types and operations.
+
+**Example:** Shared structs and Increase statements.
+
+---
+
+#### CRDT: MVRegister
+
+**File:** `tests/phase_crdt_mvregister.rs`
+
+Multi-value register for concurrent writes. Preserves all concurrent values until resolved.
+
+**Example:** MVRegister concurrent write semantics.
+
+---
+
+#### CRDT: ORMap
+
+**File:** `tests/phase_crdt_ormap.rs`
+
+Observed-Remove Map with per-key CRDT values.
+
+**Example:** ORMap key-value operations.
+
+---
+
+#### CRDT: ORSet
+
+**File:** `tests/phase_crdt_orset.rs`
+
+Observed-Remove Set supporting add/remove without anomalies.
+
+**Example:** ORSet add/remove semantics.
+
+---
+
+#### CRDT: PNCounter
+
+**File:** `tests/phase_crdt_pncounter.rs`
+
+Positive-Negative Counter supporting increment and decrement.
+
+**Example:** PNCounter inc/dec operations.
+
+---
+
+#### CRDT: Sequence
+
+**File:** `tests/phase_crdt_sequence.rs`
+
+Ordered sequence CRDT for collaborative text editing.
+
+**Example:** Sequence insert/delete at positions.
+
+---
+
+#### CRDT: Serialization
+
+**File:** `tests/phase_crdt_serialization.rs`
+
+CRDT serialization/deserialization for wire transmission.
+
+**Example:** Bincode encode/decode for CRDTs.
+
+---
+
+#### CRDT: Stress Tests
+
+**File:** `tests/phase_crdt_stress.rs`
+
+High-load stress testing for CRDT implementations.
+
+**Example:** High-concurrency CRDT operations.
+
+---
+
+#### CRDT: Variants
+
+**File:** `tests/phase_crdt_variants.rs`
+
+Tests for various CRDT type variants and configurations.
+
+**Example:** CRDT variant behavior.
+
+---
+
 ## Statistics
 
 ### By Compiler Stage
 ```
-Lexer (token.rs, lexer.rs):           2458 lines
-Parser (ast/, parser/):               15462 lines
+Lexer (token.rs, lexer.rs):           2495 lines
+Parser (ast/, parser/):               15461 lines
 Transpilation:                        1469 lines
 Code Generation:                      2904 lines
-Semantics (lambda, context, view):    2931 lines
-Type Analysis (analysis/):            2834 lines
-Support Infrastructure:               4621 lines
-Desktop UI:                              17956 lines
+Semantics (lambda, context, view):    2658 lines
+Type Analysis (analysis/):            2841 lines
+Support Infrastructure:               4715 lines
+Desktop UI:                              18854 lines
 CRDT (logos_core/src/crdt/):          1854 lines
 Network (logos_core/src/network/):    1596 lines
 VFS (logos_core/src/fs/):             511 lines
@@ -2314,15 +2764,15 @@ Entry Point:                                16 lines
 
 ### Totals
 ```
-Source lines:        60430
-Test lines:          27346
-Total Rust lines: 87776
+Source lines:        61592
+Test lines:          27778
+Total Rust lines: 89370
 ```
 
 ### File Counts
 ```
 Source files: 122
-Test files:   145
+Test files:   146
 ```
 ## Lexicon Data
 
@@ -2492,6 +2942,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Grow", "class": "Accomplishment", "forms": { "past": "grew", "participle": "grown", "gerund": "growing" } },
     { "lemma": "Blow", "class": "Activity", "forms": { "past": "blew", "participle": "blown", "gerund": "blowing" } },
     { "lemma": "Throw", "class": "Activity", "forms": { "past": "threw", "participle": "thrown", "gerund": "throwing" } },
+    { "lemma": "Shoot", "class": "Activity", "forms": { "past": "shot", "participle": "shot", "gerund": "shooting" } },
     { "lemma": "Draw", "class": "Accomplishment", "forms": { "past": "drew", "participle": "drawn", "gerund": "drawing" } },
     { "lemma": "Drive", "class": "Activity", "forms": { "past": "drove", "participle": "driven", "gerund": "driving" } },
     { "lemma": "Fight", "class": "Activity", "forms": { "past": "fought", "gerund": "fighting" } },
@@ -2728,7 +3179,920 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Combine", "class": "Achievement", "regular": true, "features": ["Collective"] },
     { "lemma": "Collaborate", "class": "Activity", "regular": true, "features": ["Collective"] },
     { "lemma": "Cooperate", "class": "Activity", "regular": true, "features": ["Collective"] },
-    { "lemma": "Conspire", "class": "Activity", "regular": true, "features": ["Collective"] }
+    { "lemma": "Conspire", "class": "Activity", "regular": true, "features": ["Collective"] },
+
+    { "lemma": "Accept", "class": "Achievement", "regular": true },
+    { "lemma": "Achieve", "class": "Achievement", "regular": true },
+    { "lemma": "Add", "class": "Achievement", "regular": true },
+    { "lemma": "Admire", "class": "State", "regular": true },
+    { "lemma": "Admit", "class": "Achievement", "forms": { "past": "admitted", "gerund": "admitting" } },
+    { "lemma": "Advise", "class": "Activity", "regular": true },
+    { "lemma": "Afford", "class": "State", "regular": true },
+    { "lemma": "Aim", "class": "Activity", "regular": true },
+    { "lemma": "Allow", "class": "Achievement", "regular": true },
+    { "lemma": "Announce", "class": "Achievement", "regular": true },
+    { "lemma": "Annoy", "class": "Achievement", "regular": true },
+    { "lemma": "Answer", "class": "Activity", "regular": true },
+    { "lemma": "Apologize", "class": "Achievement", "regular": true },
+    { "lemma": "Appear", "class": "Achievement", "regular": true },
+    { "lemma": "Apply", "class": "Achievement", "forms": { "past": "applied", "gerund": "applying" } },
+    { "lemma": "Appreciate", "class": "State", "regular": true },
+    { "lemma": "Approach", "class": "Achievement", "regular": true },
+    { "lemma": "Approve", "class": "Achievement", "regular": true },
+    { "lemma": "Argue", "class": "Activity", "regular": true },
+    { "lemma": "Arrange", "class": "Accomplishment", "regular": true },
+    { "lemma": "Arrest", "class": "Achievement", "regular": true },
+    { "lemma": "Arrive", "class": "Achievement", "regular": true },
+    { "lemma": "Ask", "class": "Activity", "regular": true },
+    { "lemma": "Assume", "class": "Achievement", "regular": true },
+    { "lemma": "Attach", "class": "Achievement", "regular": true },
+    { "lemma": "Attack", "class": "Activity", "regular": true },
+    { "lemma": "Attempt", "class": "Activity", "regular": true },
+    { "lemma": "Attend", "class": "Activity", "regular": true },
+    { "lemma": "Attract", "class": "Achievement", "regular": true },
+    { "lemma": "Avoid", "class": "Activity", "regular": true },
+    { "lemma": "Bake", "class": "Accomplishment", "regular": true },
+    { "lemma": "Balance", "class": "Activity", "regular": true },
+    { "lemma": "Ban", "class": "Achievement", "forms": { "past": "banned", "gerund": "banning" } },
+    { "lemma": "Bark", "class": "Activity", "regular": true },
+    { "lemma": "Base", "class": "Achievement", "regular": true },
+    { "lemma": "Bathe", "class": "Activity", "regular": true },
+    { "lemma": "Beat", "class": "Activity", "forms": { "past": "beat", "participle": "beaten", "gerund": "beating" } },
+    { "lemma": "Become", "class": "Achievement", "forms": { "past": "became", "participle": "become", "gerund": "becoming" } },
+    { "lemma": "Beg", "class": "Activity", "forms": { "past": "begged", "gerund": "begging" } },
+    { "lemma": "Begin", "class": "Achievement", "forms": { "past": "began", "participle": "begun", "gerund": "beginning" } },
+    { "lemma": "Behave", "class": "Activity", "regular": true },
+    { "lemma": "Believe", "class": "State", "regular": true, "features": ["Opaque"] },
+    { "lemma": "Belong", "class": "State", "regular": true },
+    { "lemma": "Bend", "class": "Achievement", "forms": { "past": "bent", "gerund": "bending" } },
+    { "lemma": "Bet", "class": "Activity", "forms": { "past": "bet", "gerund": "betting" } },
+    { "lemma": "Bite", "class": "Activity", "forms": { "past": "bit", "participle": "bitten", "gerund": "biting" } },
+    { "lemma": "Blame", "class": "Activity", "regular": true },
+    { "lemma": "Bless", "class": "Achievement", "regular": true },
+    { "lemma": "Block", "class": "Achievement", "regular": true },
+    { "lemma": "Boil", "class": "Accomplishment", "regular": true },
+    { "lemma": "Borrow", "class": "Achievement", "regular": true },
+    { "lemma": "Bother", "class": "Activity", "regular": true },
+    { "lemma": "Bounce", "class": "Activity", "regular": true },
+    { "lemma": "Bow", "class": "Activity", "regular": true },
+    { "lemma": "Breathe", "class": "Activity", "regular": true },
+    { "lemma": "Broadcast", "class": "Activity", "forms": { "past": "broadcast", "gerund": "broadcasting" } },
+    { "lemma": "Brush", "class": "Activity", "regular": true },
+    { "lemma": "Burn", "class": "Accomplishment", "forms": { "past": "burnt", "gerund": "burning" } },
+    { "lemma": "Burst", "class": "Achievement", "forms": { "past": "burst", "gerund": "bursting" } },
+    { "lemma": "Bury", "class": "Achievement", "forms": { "past": "buried", "gerund": "burying" } },
+    { "lemma": "Buy", "class": "Achievement", "forms": { "past": "bought", "gerund": "buying" } },
+    { "lemma": "Calculate", "class": "Accomplishment", "regular": true },
+    { "lemma": "Call", "class": "Activity", "regular": true },
+    { "lemma": "Calm", "class": "Achievement", "regular": true },
+    { "lemma": "Camp", "class": "Activity", "regular": true },
+    { "lemma": "Cancel", "class": "Achievement", "regular": true },
+    { "lemma": "Care", "class": "State", "regular": true },
+    { "lemma": "Carry", "class": "Activity", "forms": { "past": "carried", "gerund": "carrying" } },
+    { "lemma": "Carve", "class": "Accomplishment", "regular": true },
+    { "lemma": "Cast", "class": "Activity", "forms": { "past": "cast", "gerund": "casting" } },
+    { "lemma": "Catch", "class": "Achievement", "forms": { "past": "caught", "gerund": "catching" } },
+    { "lemma": "Cause", "class": "Achievement", "regular": true },
+    { "lemma": "Celebrate", "class": "Activity", "regular": true },
+    { "lemma": "Challenge", "class": "Activity", "regular": true },
+    { "lemma": "Change", "class": "Achievement", "regular": true },
+    { "lemma": "Charge", "class": "Achievement", "regular": true },
+    { "lemma": "Chase", "class": "Activity", "regular": true },
+    { "lemma": "Chat", "class": "Activity", "forms": { "past": "chatted", "gerund": "chatting" } },
+    { "lemma": "Cheat", "class": "Activity", "regular": true },
+    { "lemma": "Check", "class": "Activity", "regular": true },
+    { "lemma": "Cheer", "class": "Activity", "regular": true },
+    { "lemma": "Chew", "class": "Activity", "regular": true },
+    { "lemma": "Claim", "class": "Activity", "regular": true },
+    { "lemma": "Clap", "class": "Activity", "forms": { "past": "clapped", "gerund": "clapping" } },
+    { "lemma": "Clean", "class": "Accomplishment", "regular": true },
+    { "lemma": "Clear", "class": "Achievement", "regular": true },
+    { "lemma": "Climb", "class": "Activity", "regular": true },
+    { "lemma": "Cling", "class": "Activity", "forms": { "past": "clung", "gerund": "clinging" } },
+    { "lemma": "Close", "class": "Achievement", "regular": true },
+    { "lemma": "Coach", "class": "Activity", "regular": true },
+    { "lemma": "Collect", "class": "Activity", "regular": true },
+    { "lemma": "Comfort", "class": "Activity", "regular": true },
+    { "lemma": "Command", "class": "Activity", "regular": true },
+    { "lemma": "Comment", "class": "Activity", "regular": true },
+    { "lemma": "Commit", "class": "Achievement", "forms": { "past": "committed", "gerund": "committing" } },
+    { "lemma": "Communicate", "class": "Activity", "regular": true },
+    { "lemma": "Compare", "class": "Activity", "regular": true },
+    { "lemma": "Compete", "class": "Activity", "regular": true },
+    { "lemma": "Complain", "class": "Activity", "regular": true },
+    { "lemma": "Complete", "class": "Achievement", "regular": true },
+    { "lemma": "Concern", "class": "State", "regular": true },
+    { "lemma": "Conclude", "class": "Achievement", "regular": true },
+    { "lemma": "Conduct", "class": "Activity", "regular": true },
+    { "lemma": "Confess", "class": "Achievement", "regular": true },
+    { "lemma": "Confirm", "class": "Achievement", "regular": true },
+    { "lemma": "Confuse", "class": "Achievement", "regular": true },
+    { "lemma": "Connect", "class": "Achievement", "regular": true },
+    { "lemma": "Consider", "class": "State", "regular": true },
+    { "lemma": "Consist", "class": "State", "regular": true },
+    { "lemma": "Construct", "class": "Accomplishment", "regular": true },
+    { "lemma": "Consult", "class": "Activity", "regular": true },
+    { "lemma": "Consume", "class": "Accomplishment", "regular": true },
+    { "lemma": "Contact", "class": "Achievement", "regular": true },
+    { "lemma": "Contain", "class": "State", "regular": true },
+    { "lemma": "Continue", "class": "Activity", "regular": true },
+    { "lemma": "Contribute", "class": "Activity", "regular": true },
+    { "lemma": "Control", "class": "Activity", "regular": true },
+    { "lemma": "Convert", "class": "Achievement", "regular": true },
+    { "lemma": "Convince", "class": "Achievement", "regular": true },
+    { "lemma": "Cook", "class": "Accomplishment", "regular": true },
+    { "lemma": "Cool", "class": "Achievement", "regular": true },
+    { "lemma": "Copy", "class": "Achievement", "forms": { "past": "copied", "gerund": "copying" } },
+    { "lemma": "Correct", "class": "Achievement", "regular": true },
+    { "lemma": "Cost", "class": "State", "forms": { "past": "cost", "gerund": "costing" } },
+    { "lemma": "Cough", "class": "Activity", "regular": true },
+    { "lemma": "Count", "class": "Activity", "regular": true },
+    { "lemma": "Cover", "class": "Achievement", "regular": true },
+    { "lemma": "Crack", "class": "Achievement", "regular": true },
+    { "lemma": "Crash", "class": "Achievement", "regular": true },
+    { "lemma": "Crawl", "class": "Activity", "regular": true },
+    { "lemma": "Create", "class": "Accomplishment", "regular": true },
+    { "lemma": "Creep", "class": "Activity", "forms": { "past": "crept", "gerund": "creeping" } },
+    { "lemma": "Criticize", "class": "Activity", "regular": true },
+    { "lemma": "Cross", "class": "Achievement", "regular": true },
+    { "lemma": "Crush", "class": "Achievement", "regular": true },
+    { "lemma": "Cry", "class": "Activity", "forms": { "past": "cried", "gerund": "crying" } },
+    { "lemma": "Cure", "class": "Achievement", "regular": true },
+    { "lemma": "Curl", "class": "Achievement", "regular": true },
+    { "lemma": "Cut", "class": "Activity", "forms": { "past": "cut", "gerund": "cutting" } },
+    { "lemma": "Damage", "class": "Achievement", "regular": true },
+    { "lemma": "Dance", "class": "Activity", "regular": true },
+    { "lemma": "Dare", "class": "Activity", "regular": true },
+    { "lemma": "Deal", "class": "Activity", "forms": { "past": "dealt", "gerund": "dealing" } },
+    { "lemma": "Debate", "class": "Activity", "regular": true },
+    { "lemma": "Decay", "class": "Accomplishment", "regular": true },
+    { "lemma": "Deceive", "class": "Activity", "regular": true },
+    { "lemma": "Decide", "class": "Achievement", "regular": true },
+    { "lemma": "Declare", "class": "Achievement", "regular": true },
+    { "lemma": "Decline", "class": "Achievement", "regular": true },
+    { "lemma": "Decorate", "class": "Accomplishment", "regular": true },
+    { "lemma": "Decrease", "class": "Achievement", "regular": true },
+    { "lemma": "Defeat", "class": "Achievement", "regular": true },
+    { "lemma": "Defend", "class": "Activity", "regular": true },
+    { "lemma": "Define", "class": "Achievement", "regular": true },
+    { "lemma": "Delay", "class": "Achievement", "regular": true },
+    { "lemma": "Delete", "class": "Achievement", "regular": true },
+    { "lemma": "Deliver", "class": "Achievement", "regular": true },
+    { "lemma": "Demand", "class": "Activity", "regular": true },
+    { "lemma": "Demonstrate", "class": "Activity", "regular": true },
+    { "lemma": "Deny", "class": "Activity", "forms": { "past": "denied", "gerund": "denying" } },
+    { "lemma": "Depart", "class": "Achievement", "regular": true },
+    { "lemma": "Depend", "class": "State", "regular": true },
+    { "lemma": "Deposit", "class": "Achievement", "regular": true },
+    { "lemma": "Describe", "class": "Activity", "regular": true },
+    { "lemma": "Deserve", "class": "State", "regular": true },
+    { "lemma": "Design", "class": "Accomplishment", "regular": true },
+    { "lemma": "Desire", "class": "State", "regular": true },
+    { "lemma": "Destroy", "class": "Achievement", "regular": true },
+    { "lemma": "Detect", "class": "Achievement", "regular": true },
+    { "lemma": "Determine", "class": "Achievement", "regular": true },
+    { "lemma": "Develop", "class": "Accomplishment", "regular": true },
+    { "lemma": "Differ", "class": "State", "regular": true },
+    { "lemma": "Dig", "class": "Activity", "forms": { "past": "dug", "gerund": "digging" } },
+    { "lemma": "Dine", "class": "Activity", "regular": true },
+    { "lemma": "Dip", "class": "Achievement", "forms": { "past": "dipped", "gerund": "dipping" } },
+    { "lemma": "Direct", "class": "Activity", "regular": true },
+    { "lemma": "Disappear", "class": "Achievement", "regular": true },
+    { "lemma": "Disappoint", "class": "Achievement", "regular": true },
+    { "lemma": "Discover", "class": "Achievement", "regular": true },
+    { "lemma": "Discuss", "class": "Activity", "regular": true },
+    { "lemma": "Disguise", "class": "Achievement", "regular": true },
+    { "lemma": "Dislike", "class": "State", "regular": true },
+    { "lemma": "Dismiss", "class": "Achievement", "regular": true },
+    { "lemma": "Display", "class": "Activity", "regular": true },
+    { "lemma": "Dissolve", "class": "Accomplishment", "regular": true },
+    { "lemma": "Distribute", "class": "Activity", "regular": true },
+    { "lemma": "Disturb", "class": "Achievement", "regular": true },
+    { "lemma": "Dive", "class": "Activity", "forms": { "past": "dove", "gerund": "diving" } },
+    { "lemma": "Divide", "class": "Achievement", "regular": true },
+    { "lemma": "Doubt", "class": "State", "regular": true },
+    { "lemma": "Download", "class": "Achievement", "regular": true },
+    { "lemma": "Drag", "class": "Activity", "forms": { "past": "dragged", "gerund": "dragging" } },
+    { "lemma": "Drain", "class": "Accomplishment", "regular": true },
+    { "lemma": "Dream", "class": "Activity", "forms": { "past": "dreamt", "gerund": "dreaming" } },
+    { "lemma": "Dress", "class": "Achievement", "regular": true },
+    { "lemma": "Drill", "class": "Activity", "regular": true },
+    { "lemma": "Drip", "class": "Activity", "forms": { "past": "dripped", "gerund": "dripping" } },
+    { "lemma": "Drop", "class": "Achievement", "forms": { "past": "dropped", "gerund": "dropping" } },
+    { "lemma": "Drown", "class": "Achievement", "regular": true },
+    { "lemma": "Dry", "class": "Accomplishment", "forms": { "past": "dried", "gerund": "drying" } },
+    { "lemma": "Dump", "class": "Achievement", "regular": true },
+    { "lemma": "Earn", "class": "Achievement", "regular": true },
+    { "lemma": "Edit", "class": "Accomplishment", "regular": true },
+    { "lemma": "Educate", "class": "Accomplishment", "regular": true },
+    { "lemma": "Elect", "class": "Achievement", "regular": true },
+    { "lemma": "Eliminate", "class": "Achievement", "regular": true },
+    { "lemma": "Email", "class": "Activity", "regular": true },
+    { "lemma": "Embarrass", "class": "Achievement", "regular": true },
+    { "lemma": "Embrace", "class": "Activity", "regular": true },
+    { "lemma": "Emerge", "class": "Achievement", "regular": true },
+    { "lemma": "Employ", "class": "Achievement", "regular": true },
+    { "lemma": "Empty", "class": "Achievement", "forms": { "past": "emptied", "gerund": "emptying" } },
+    { "lemma": "Enable", "class": "Achievement", "regular": true },
+    { "lemma": "Encourage", "class": "Activity", "regular": true },
+    { "lemma": "End", "class": "Achievement", "regular": true },
+    { "lemma": "Endure", "class": "Activity", "regular": true },
+    { "lemma": "Engage", "class": "Achievement", "regular": true },
+    { "lemma": "Enjoy", "class": "Activity", "regular": true },
+    { "lemma": "Ensure", "class": "Achievement", "regular": true },
+    { "lemma": "Enter", "class": "Achievement", "regular": true },
+    { "lemma": "Entertain", "class": "Activity", "regular": true },
+    { "lemma": "Envy", "class": "State", "forms": { "past": "envied", "gerund": "envying" } },
+    { "lemma": "Equal", "class": "State", "regular": true },
+    { "lemma": "Equip", "class": "Achievement", "forms": { "past": "equipped", "gerund": "equipping" } },
+    { "lemma": "Escape", "class": "Achievement", "regular": true },
+    { "lemma": "Establish", "class": "Achievement", "regular": true },
+    { "lemma": "Estimate", "class": "Activity", "regular": true },
+    { "lemma": "Evaluate", "class": "Activity", "regular": true },
+    { "lemma": "Examine", "class": "Activity", "regular": true },
+    { "lemma": "Exceed", "class": "Achievement", "regular": true },
+    { "lemma": "Exchange", "class": "Achievement", "regular": true },
+    { "lemma": "Excite", "class": "Achievement", "regular": true },
+    { "lemma": "Exclude", "class": "Achievement", "regular": true },
+    { "lemma": "Excuse", "class": "Achievement", "regular": true },
+    { "lemma": "Execute", "class": "Achievement", "regular": true },
+    { "lemma": "Exercise", "class": "Activity", "regular": true },
+    { "lemma": "Exist", "class": "State", "regular": true },
+    { "lemma": "Expand", "class": "Accomplishment", "regular": true },
+    { "lemma": "Expect", "class": "State", "regular": true },
+    { "lemma": "Experience", "class": "Activity", "regular": true },
+    { "lemma": "Experiment", "class": "Activity", "regular": true },
+    { "lemma": "Explain", "class": "Activity", "regular": true },
+    { "lemma": "Explode", "class": "Achievement", "regular": true },
+    { "lemma": "Explore", "class": "Activity", "regular": true },
+    { "lemma": "Export", "class": "Activity", "regular": true },
+    { "lemma": "Expose", "class": "Achievement", "regular": true },
+    { "lemma": "Express", "class": "Activity", "regular": true },
+    { "lemma": "Extend", "class": "Accomplishment", "regular": true },
+    { "lemma": "Face", "class": "Activity", "regular": true },
+    { "lemma": "Fail", "class": "Achievement", "regular": true },
+    { "lemma": "Faint", "class": "Achievement", "regular": true },
+    { "lemma": "Fall", "class": "Achievement", "forms": { "past": "fell", "participle": "fallen", "gerund": "falling" } },
+    { "lemma": "Fancy", "class": "State", "forms": { "past": "fancied", "gerund": "fancying" } },
+    { "lemma": "Farm", "class": "Activity", "regular": true },
+    { "lemma": "Fascinate", "class": "Achievement", "regular": true },
+    { "lemma": "Fasten", "class": "Achievement", "regular": true },
+    { "lemma": "Favor", "class": "State", "regular": true },
+    { "lemma": "Fear", "class": "State", "regular": true },
+    { "lemma": "Feed", "class": "Activity", "forms": { "past": "fed", "gerund": "feeding" } },
+    { "lemma": "Feel", "class": "State", "forms": { "past": "felt", "gerund": "feeling" } },
+    { "lemma": "Fetch", "class": "Achievement", "regular": true },
+    { "lemma": "File", "class": "Achievement", "regular": true },
+    { "lemma": "Fill", "class": "Achievement", "regular": true },
+    { "lemma": "Film", "class": "Activity", "regular": true },
+    { "lemma": "Filter", "class": "Activity", "regular": true },
+    { "lemma": "Finance", "class": "Activity", "regular": true },
+    { "lemma": "Finish", "class": "Achievement", "regular": true },
+    { "lemma": "Fire", "class": "Achievement", "regular": true },
+    { "lemma": "Fish", "class": "Activity", "regular": true },
+    { "lemma": "Fit", "class": "State", "forms": { "past": "fit", "gerund": "fitting" } },
+    { "lemma": "Fix", "class": "Accomplishment", "regular": true },
+    { "lemma": "Flash", "class": "Activity", "regular": true },
+    { "lemma": "Flatten", "class": "Achievement", "regular": true },
+    { "lemma": "Flee", "class": "Achievement", "forms": { "past": "fled", "gerund": "fleeing" } },
+    { "lemma": "Float", "class": "Activity", "regular": true },
+    { "lemma": "Flood", "class": "Achievement", "regular": true },
+    { "lemma": "Flow", "class": "Activity", "regular": true },
+    { "lemma": "Fly", "class": "Activity", "forms": { "past": "flew", "participle": "flown", "gerund": "flying" } },
+    { "lemma": "Focus", "class": "Activity", "regular": true },
+    { "lemma": "Fold", "class": "Achievement", "regular": true },
+    { "lemma": "Follow", "class": "Activity", "regular": true },
+    { "lemma": "Forbid", "class": "Achievement", "forms": { "past": "forbade", "participle": "forbidden", "gerund": "forbidding" } },
+    { "lemma": "Force", "class": "Achievement", "regular": true },
+    { "lemma": "Forecast", "class": "Activity", "forms": { "past": "forecast", "gerund": "forecasting" } },
+    { "lemma": "Forget", "class": "Achievement", "forms": { "past": "forgot", "participle": "forgotten", "gerund": "forgetting" } },
+    { "lemma": "Forgive", "class": "Achievement", "forms": { "past": "forgave", "participle": "forgiven", "gerund": "forgiving" } },
+    { "lemma": "Form", "class": "Accomplishment", "regular": true },
+    { "lemma": "Found", "class": "Achievement", "regular": true },
+    { "lemma": "Frame", "class": "Achievement", "regular": true },
+    { "lemma": "Freeze", "class": "Achievement", "forms": { "past": "froze", "participle": "frozen", "gerund": "freezing" } },
+    { "lemma": "Frighten", "class": "Achievement", "regular": true },
+    { "lemma": "Fry", "class": "Accomplishment", "forms": { "past": "fried", "gerund": "frying" } },
+    { "lemma": "Fulfill", "class": "Achievement", "regular": true },
+    { "lemma": "Function", "class": "Activity", "regular": true },
+    { "lemma": "Fund", "class": "Activity", "regular": true },
+    { "lemma": "Gain", "class": "Achievement", "regular": true },
+    { "lemma": "Gamble", "class": "Activity", "regular": true },
+    { "lemma": "Gather", "class": "Activity", "regular": true, "features": ["Collective"] },
+    { "lemma": "Gaze", "class": "Activity", "regular": true },
+    { "lemma": "Generate", "class": "Accomplishment", "regular": true },
+    { "lemma": "Get", "class": "Achievement", "forms": { "past": "got", "participle": "gotten", "gerund": "getting" } },
+    { "lemma": "Glance", "class": "Activity", "regular": true },
+    { "lemma": "Glow", "class": "Activity", "regular": true },
+    { "lemma": "Grab", "class": "Achievement", "forms": { "past": "grabbed", "gerund": "grabbing" } },
+    { "lemma": "Graduate", "class": "Achievement", "regular": true },
+    { "lemma": "Grant", "class": "Achievement", "regular": true },
+    { "lemma": "Grasp", "class": "Achievement", "regular": true },
+    { "lemma": "Greet", "class": "Activity", "regular": true },
+    { "lemma": "Grind", "class": "Activity", "forms": { "past": "ground", "gerund": "grinding" } },
+    { "lemma": "Grip", "class": "Activity", "forms": { "past": "gripped", "gerund": "gripping" } },
+    { "lemma": "Guarantee", "class": "Achievement", "regular": true },
+    { "lemma": "Guard", "class": "Activity", "regular": true },
+    { "lemma": "Guess", "class": "Activity", "regular": true },
+    { "lemma": "Guide", "class": "Activity", "regular": true },
+    { "lemma": "Halt", "class": "Achievement", "regular": true },
+    { "lemma": "Hand", "class": "Achievement", "regular": true },
+    { "lemma": "Handle", "class": "Activity", "regular": true },
+    { "lemma": "Hang", "class": "Activity", "forms": { "past": "hung", "gerund": "hanging" } },
+    { "lemma": "Happen", "class": "Achievement", "regular": true },
+    { "lemma": "Harm", "class": "Achievement", "regular": true },
+    { "lemma": "Harvest", "class": "Accomplishment", "regular": true },
+    { "lemma": "Hate", "class": "State", "regular": true },
+    { "lemma": "Haunt", "class": "Activity", "regular": true },
+    { "lemma": "Head", "class": "Activity", "regular": true },
+    { "lemma": "Heal", "class": "Accomplishment", "regular": true },
+    { "lemma": "Heat", "class": "Accomplishment", "regular": true },
+    { "lemma": "Help", "class": "Activity", "regular": true },
+    { "lemma": "Hesitate", "class": "Activity", "regular": true },
+    { "lemma": "Highlight", "class": "Achievement", "regular": true },
+    { "lemma": "Hike", "class": "Activity", "regular": true },
+    { "lemma": "Hire", "class": "Achievement", "regular": true },
+    { "lemma": "Hit", "class": "Activity", "forms": { "past": "hit", "gerund": "hitting" } },
+    { "lemma": "Honor", "class": "Activity", "regular": true },
+    { "lemma": "Hook", "class": "Achievement", "regular": true },
+    { "lemma": "Hope", "class": "State", "regular": true },
+    { "lemma": "Host", "class": "Activity", "regular": true },
+    { "lemma": "Hug", "class": "Activity", "forms": { "past": "hugged", "gerund": "hugging" } },
+    { "lemma": "Hunt", "class": "Activity", "regular": true },
+    { "lemma": "Hurry", "class": "Activity", "forms": { "past": "hurried", "gerund": "hurrying" } },
+    { "lemma": "Hurt", "class": "Achievement", "forms": { "past": "hurt", "gerund": "hurting" } },
+    { "lemma": "Identify", "class": "Achievement", "forms": { "past": "identified", "gerund": "identifying" } },
+    { "lemma": "Ignore", "class": "Activity", "regular": true },
+    { "lemma": "Illustrate", "class": "Activity", "regular": true },
+    { "lemma": "Imagine", "class": "State", "regular": true },
+    { "lemma": "Imitate", "class": "Activity", "regular": true },
+    { "lemma": "Implement", "class": "Accomplishment", "regular": true },
+    { "lemma": "Imply", "class": "State", "forms": { "past": "implied", "gerund": "implying" } },
+    { "lemma": "Import", "class": "Activity", "regular": true },
+    { "lemma": "Impose", "class": "Achievement", "regular": true },
+    { "lemma": "Impress", "class": "Achievement", "regular": true },
+    { "lemma": "Improve", "class": "Accomplishment", "regular": true },
+    { "lemma": "Include", "class": "State", "regular": true },
+    { "lemma": "Increase", "class": "Achievement", "regular": true },
+    { "lemma": "Indicate", "class": "Activity", "regular": true },
+    { "lemma": "Influence", "class": "Achievement", "regular": true },
+    { "lemma": "Inform", "class": "Activity", "regular": true },
+    { "lemma": "Inherit", "class": "Achievement", "regular": true },
+    { "lemma": "Initiate", "class": "Achievement", "regular": true },
+    { "lemma": "Inject", "class": "Achievement", "regular": true },
+    { "lemma": "Injure", "class": "Achievement", "regular": true },
+    { "lemma": "Insert", "class": "Achievement", "regular": true },
+    { "lemma": "Insist", "class": "Activity", "regular": true },
+    { "lemma": "Inspect", "class": "Activity", "regular": true },
+    { "lemma": "Inspire", "class": "Achievement", "regular": true },
+    { "lemma": "Install", "class": "Achievement", "regular": true },
+    { "lemma": "Instruct", "class": "Activity", "regular": true },
+    { "lemma": "Insult", "class": "Activity", "regular": true },
+    { "lemma": "Insure", "class": "Achievement", "regular": true },
+    { "lemma": "Intend", "class": "State", "regular": true },
+    { "lemma": "Interact", "class": "Activity", "regular": true },
+    { "lemma": "Interest", "class": "State", "regular": true },
+    { "lemma": "Interfere", "class": "Activity", "regular": true },
+    { "lemma": "Interpret", "class": "Activity", "regular": true },
+    { "lemma": "Interrupt", "class": "Achievement", "regular": true },
+    { "lemma": "Interview", "class": "Activity", "regular": true },
+    { "lemma": "Introduce", "class": "Achievement", "regular": true },
+    { "lemma": "Invade", "class": "Achievement", "regular": true },
+    { "lemma": "Invent", "class": "Achievement", "regular": true },
+    { "lemma": "Invest", "class": "Activity", "regular": true },
+    { "lemma": "Investigate", "class": "Activity", "regular": true },
+    { "lemma": "Invite", "class": "Achievement", "regular": true },
+    { "lemma": "Involve", "class": "State", "regular": true },
+    { "lemma": "Iron", "class": "Activity", "regular": true },
+    { "lemma": "Irritate", "class": "Achievement", "regular": true },
+    { "lemma": "Isolate", "class": "Achievement", "regular": true },
+    { "lemma": "Jail", "class": "Achievement", "regular": true },
+    { "lemma": "Jam", "class": "Achievement", "forms": { "past": "jammed", "gerund": "jamming" } },
+    { "lemma": "Jog", "class": "Activity", "forms": { "past": "jogged", "gerund": "jogging" } },
+    { "lemma": "Join", "class": "Achievement", "regular": true },
+    { "lemma": "Joke", "class": "Activity", "regular": true },
+    { "lemma": "Judge", "class": "Activity", "regular": true },
+    { "lemma": "Jump", "class": "Activity", "regular": true },
+    { "lemma": "Justify", "class": "Activity", "forms": { "past": "justified", "gerund": "justifying" } },
+    { "lemma": "Kick", "class": "Activity", "regular": true },
+    { "lemma": "Kidnap", "class": "Achievement", "forms": { "past": "kidnapped", "gerund": "kidnapping" } },
+    { "lemma": "Kill", "class": "Achievement", "regular": true },
+    { "lemma": "Kiss", "class": "Activity", "regular": true },
+    { "lemma": "Kneel", "class": "Activity", "forms": { "past": "knelt", "gerund": "kneeling" } },
+    { "lemma": "Knit", "class": "Activity", "forms": { "past": "knit", "gerund": "knitting" } },
+    { "lemma": "Label", "class": "Achievement", "regular": true },
+    { "lemma": "Lack", "class": "State", "regular": true },
+    { "lemma": "Land", "class": "Achievement", "regular": true },
+    { "lemma": "Last", "class": "State", "regular": true },
+    { "lemma": "Laugh", "class": "Activity", "regular": true },
+    { "lemma": "Launch", "class": "Achievement", "regular": true },
+    { "lemma": "Lay", "class": "Achievement", "forms": { "past": "laid", "gerund": "laying" } },
+    { "lemma": "Lead", "class": "Activity", "forms": { "past": "led", "gerund": "leading" } },
+    { "lemma": "Leak", "class": "Activity", "regular": true },
+    { "lemma": "Lean", "class": "Activity", "forms": { "past": "leant", "gerund": "leaning" } },
+    { "lemma": "Leap", "class": "Activity", "forms": { "past": "leapt", "gerund": "leaping" } },
+    { "lemma": "Learn", "class": "Achievement", "forms": { "past": "learnt", "gerund": "learning" } },
+    { "lemma": "Lend", "class": "Achievement", "forms": { "past": "lent", "gerund": "lending" } },
+    { "lemma": "Lengthen", "class": "Achievement", "regular": true },
+    { "lemma": "Lie", "class": "Activity", "forms": { "past": "lay", "participle": "lain", "gerund": "lying" } },
+    { "lemma": "Lift", "class": "Activity", "regular": true },
+    { "lemma": "Light", "class": "Achievement", "forms": { "past": "lit", "gerund": "lighting" } },
+    { "lemma": "Like", "class": "State", "regular": true },
+    { "lemma": "Limit", "class": "Achievement", "regular": true },
+    { "lemma": "Link", "class": "Achievement", "regular": true },
+    { "lemma": "List", "class": "Activity", "regular": true },
+    { "lemma": "Listen", "class": "Activity", "regular": true },
+    { "lemma": "Live", "class": "State", "regular": true },
+    { "lemma": "Load", "class": "Achievement", "regular": true },
+    { "lemma": "Loan", "class": "Achievement", "regular": true },
+    { "lemma": "Locate", "class": "Achievement", "regular": true },
+    { "lemma": "Lock", "class": "Achievement", "regular": true },
+    { "lemma": "Log", "class": "Activity", "forms": { "past": "logged", "gerund": "logging" } },
+    { "lemma": "Long", "class": "State", "regular": true },
+    { "lemma": "Look", "class": "Activity", "regular": true },
+    { "lemma": "Lose", "class": "Achievement", "forms": { "past": "lost", "gerund": "losing" } },
+    { "lemma": "Love", "class": "State", "regular": true },
+    { "lemma": "Lower", "class": "Achievement", "regular": true },
+    { "lemma": "Maintain", "class": "Activity", "regular": true },
+    { "lemma": "Manage", "class": "Activity", "regular": true },
+    { "lemma": "Manufacture", "class": "Accomplishment", "regular": true },
+    { "lemma": "Map", "class": "Accomplishment", "forms": { "past": "mapped", "gerund": "mapping" } },
+    { "lemma": "March", "class": "Activity", "regular": true },
+    { "lemma": "Mark", "class": "Achievement", "regular": true },
+    { "lemma": "Market", "class": "Activity", "regular": true },
+    { "lemma": "Marry", "class": "Achievement", "forms": { "past": "married", "gerund": "marrying" }, "features": ["Collective"] },
+    { "lemma": "Match", "class": "Activity", "regular": true },
+    { "lemma": "Matter", "class": "State", "regular": true },
+    { "lemma": "Measure", "class": "Activity", "regular": true },
+    { "lemma": "Melt", "class": "Accomplishment", "regular": true },
+    { "lemma": "Memorize", "class": "Accomplishment", "regular": true },
+    { "lemma": "Mend", "class": "Accomplishment", "regular": true },
+    { "lemma": "Mention", "class": "Activity", "regular": true },
+    { "lemma": "Mind", "class": "State", "regular": true },
+    { "lemma": "Miss", "class": "Achievement", "regular": true },
+    { "lemma": "Mix", "class": "Accomplishment", "regular": true },
+    { "lemma": "Modify", "class": "Accomplishment", "forms": { "past": "modified", "gerund": "modifying" } },
+    { "lemma": "Monitor", "class": "Activity", "regular": true },
+    { "lemma": "Motivate", "class": "Achievement", "regular": true },
+    { "lemma": "Mount", "class": "Achievement", "regular": true },
+    { "lemma": "Mourn", "class": "Activity", "regular": true },
+    { "lemma": "Move", "class": "Activity", "regular": true },
+    { "lemma": "Multiply", "class": "Accomplishment", "forms": { "past": "multiplied", "gerund": "multiplying" } },
+    { "lemma": "Murder", "class": "Achievement", "regular": true },
+    { "lemma": "Name", "class": "Achievement", "regular": true },
+    { "lemma": "Narrow", "class": "Achievement", "regular": true },
+    { "lemma": "Need", "class": "State", "regular": true },
+    { "lemma": "Neglect", "class": "Activity", "regular": true },
+    { "lemma": "Negotiate", "class": "Activity", "regular": true },
+    { "lemma": "Nod", "class": "Activity", "forms": { "past": "nodded", "gerund": "nodding" } },
+    { "lemma": "Nominate", "class": "Achievement", "regular": true },
+    { "lemma": "Note", "class": "Activity", "regular": true },
+    { "lemma": "Notice", "class": "Achievement", "regular": true },
+    { "lemma": "Notify", "class": "Achievement", "forms": { "past": "notified", "gerund": "notifying" } },
+    { "lemma": "Obey", "class": "Activity", "regular": true },
+    { "lemma": "Object", "class": "Activity", "regular": true },
+    { "lemma": "Observe", "class": "Activity", "regular": true },
+    { "lemma": "Obtain", "class": "Achievement", "regular": true },
+    { "lemma": "Occupy", "class": "Activity", "forms": { "past": "occupied", "gerund": "occupying" } },
+    { "lemma": "Occur", "class": "Achievement", "forms": { "past": "occurred", "gerund": "occurring" } },
+    { "lemma": "Offend", "class": "Achievement", "regular": true },
+    { "lemma": "Offer", "class": "Activity", "regular": true },
+    { "lemma": "Open", "class": "Achievement", "regular": true },
+    { "lemma": "Operate", "class": "Activity", "regular": true },
+    { "lemma": "Oppose", "class": "Activity", "regular": true },
+    { "lemma": "Order", "class": "Activity", "regular": true },
+    { "lemma": "Organize", "class": "Accomplishment", "regular": true },
+    { "lemma": "Ought", "class": "State", "regular": true },
+    { "lemma": "Outline", "class": "Activity", "regular": true },
+    { "lemma": "Overcome", "class": "Achievement", "forms": { "past": "overcame", "participle": "overcome", "gerund": "overcoming" } },
+    { "lemma": "Overlook", "class": "Activity", "regular": true },
+    { "lemma": "Owe", "class": "State", "regular": true },
+    { "lemma": "Own", "class": "State", "regular": true },
+    { "lemma": "Pack", "class": "Achievement", "regular": true },
+    { "lemma": "Paint", "class": "Accomplishment", "regular": true },
+    { "lemma": "Park", "class": "Achievement", "regular": true },
+    { "lemma": "Participate", "class": "Activity", "regular": true },
+    { "lemma": "Pass", "class": "Achievement", "regular": true },
+    { "lemma": "Pat", "class": "Activity", "forms": { "past": "patted", "gerund": "patting" } },
+    { "lemma": "Pause", "class": "Achievement", "regular": true },
+    { "lemma": "Pay", "class": "Achievement", "forms": { "past": "paid", "gerund": "paying" } },
+    { "lemma": "Peel", "class": "Activity", "regular": true },
+    { "lemma": "Perceive", "class": "Achievement", "regular": true },
+    { "lemma": "Perform", "class": "Activity", "regular": true },
+    { "lemma": "Permit", "class": "Achievement", "forms": { "past": "permitted", "gerund": "permitting" } },
+    { "lemma": "Persuade", "class": "Achievement", "regular": true },
+    { "lemma": "Phone", "class": "Activity", "regular": true },
+    { "lemma": "Photograph", "class": "Activity", "regular": true },
+    { "lemma": "Pick", "class": "Activity", "regular": true },
+    { "lemma": "Pile", "class": "Achievement", "regular": true },
+    { "lemma": "Pinch", "class": "Activity", "regular": true },
+    { "lemma": "Pioneer", "class": "Activity", "regular": true },
+    { "lemma": "Pitch", "class": "Activity", "regular": true },
+    { "lemma": "Place", "class": "Achievement", "regular": true },
+    { "lemma": "Plan", "class": "Activity", "forms": { "past": "planned", "gerund": "planning" } },
+    { "lemma": "Plant", "class": "Achievement", "regular": true },
+    { "lemma": "Play", "class": "Activity", "regular": true },
+    { "lemma": "Plead", "class": "Activity", "forms": { "past": "pled", "gerund": "pleading" } },
+    { "lemma": "Please", "class": "Achievement", "regular": true },
+    { "lemma": "Pledge", "class": "Activity", "regular": true },
+    { "lemma": "Plot", "class": "Activity", "forms": { "past": "plotted", "gerund": "plotting" } },
+    { "lemma": "Plug", "class": "Achievement", "forms": { "past": "plugged", "gerund": "plugging" } },
+    { "lemma": "Plunge", "class": "Achievement", "regular": true },
+    { "lemma": "Point", "class": "Activity", "regular": true },
+    { "lemma": "Poison", "class": "Achievement", "regular": true },
+    { "lemma": "Poke", "class": "Activity", "regular": true },
+    { "lemma": "Polish", "class": "Accomplishment", "regular": true },
+    { "lemma": "Poll", "class": "Activity", "regular": true },
+    { "lemma": "Pollute", "class": "Achievement", "regular": true },
+    { "lemma": "Pop", "class": "Activity", "forms": { "past": "popped", "gerund": "popping" } },
+    { "lemma": "Port", "class": "Activity", "regular": true },
+    { "lemma": "Pose", "class": "Activity", "regular": true },
+    { "lemma": "Position", "class": "Achievement", "regular": true },
+    { "lemma": "Possess", "class": "State", "regular": true },
+    { "lemma": "Post", "class": "Activity", "regular": true },
+    { "lemma": "Postpone", "class": "Achievement", "regular": true },
+    { "lemma": "Pour", "class": "Activity", "regular": true },
+    { "lemma": "Practice", "class": "Activity", "regular": true },
+    { "lemma": "Praise", "class": "Activity", "regular": true },
+    { "lemma": "Pray", "class": "Activity", "regular": true },
+    { "lemma": "Preach", "class": "Activity", "regular": true },
+    { "lemma": "Precede", "class": "State", "regular": true },
+    { "lemma": "Predict", "class": "Activity", "regular": true },
+    { "lemma": "Prefer", "class": "State", "forms": { "past": "preferred", "gerund": "preferring" } },
+    { "lemma": "Prepare", "class": "Accomplishment", "regular": true },
+    { "lemma": "Prescribe", "class": "Activity", "regular": true },
+    { "lemma": "Present", "class": "Activity", "regular": true },
+    { "lemma": "Preserve", "class": "Activity", "regular": true },
+    { "lemma": "Preside", "class": "Activity", "regular": true },
+    { "lemma": "Press", "class": "Activity", "regular": true },
+    { "lemma": "Pretend", "class": "Activity", "regular": true },
+    { "lemma": "Prevent", "class": "Achievement", "regular": true },
+    { "lemma": "Price", "class": "Activity", "regular": true },
+    { "lemma": "Print", "class": "Activity", "regular": true },
+    { "lemma": "Proceed", "class": "Activity", "regular": true },
+    { "lemma": "Process", "class": "Activity", "regular": true },
+    { "lemma": "Produce", "class": "Accomplishment", "regular": true },
+    { "lemma": "Program", "class": "Accomplishment", "forms": { "past": "programmed", "gerund": "programming" } },
+    { "lemma": "Progress", "class": "Activity", "regular": true },
+    { "lemma": "Project", "class": "Activity", "regular": true },
+    { "lemma": "Promise", "class": "Activity", "regular": true },
+    { "lemma": "Promote", "class": "Achievement", "regular": true },
+    { "lemma": "Pronounce", "class": "Activity", "regular": true },
+    { "lemma": "Propose", "class": "Activity", "regular": true },
+    { "lemma": "Prosecute", "class": "Activity", "regular": true },
+    { "lemma": "Protect", "class": "Activity", "regular": true },
+    { "lemma": "Protest", "class": "Activity", "regular": true },
+    { "lemma": "Prove", "class": "Achievement", "forms": { "past": "proved", "participle": "proven", "gerund": "proving" } },
+    { "lemma": "Provide", "class": "Achievement", "regular": true },
+    { "lemma": "Publish", "class": "Achievement", "regular": true },
+    { "lemma": "Pull", "class": "Activity", "regular": true },
+    { "lemma": "Pump", "class": "Activity", "regular": true },
+    { "lemma": "Punch", "class": "Activity", "regular": true },
+    { "lemma": "Punish", "class": "Activity", "regular": true },
+    { "lemma": "Purchase", "class": "Achievement", "regular": true },
+    { "lemma": "Pursue", "class": "Activity", "regular": true },
+    { "lemma": "Push", "class": "Activity", "regular": true },
+    { "lemma": "Qualify", "class": "Achievement", "forms": { "past": "qualified", "gerund": "qualifying" } },
+    { "lemma": "Question", "class": "Activity", "regular": true },
+    { "lemma": "Quit", "class": "Achievement", "forms": { "past": "quit", "gerund": "quitting" } },
+    { "lemma": "Quote", "class": "Activity", "regular": true },
+    { "lemma": "Race", "class": "Activity", "regular": true },
+    { "lemma": "Raid", "class": "Activity", "regular": true },
+    { "lemma": "Rain", "class": "Activity", "regular": true },
+    { "lemma": "Raise", "class": "Achievement", "regular": true },
+    { "lemma": "Rank", "class": "State", "regular": true },
+    { "lemma": "Rap", "class": "Activity", "forms": { "past": "rapped", "gerund": "rapping" } },
+    { "lemma": "Reach", "class": "Achievement", "regular": true },
+    { "lemma": "React", "class": "Activity", "regular": true },
+    { "lemma": "Realize", "class": "Achievement", "regular": true, "features": ["Factive"] },
+    { "lemma": "Rebuild", "class": "Accomplishment", "forms": { "past": "rebuilt", "gerund": "rebuilding" } },
+    { "lemma": "Recall", "class": "Achievement", "regular": true },
+    { "lemma": "Receive", "class": "Achievement", "regular": true },
+    { "lemma": "Reckon", "class": "Activity", "regular": true },
+    { "lemma": "Recognize", "class": "Achievement", "regular": true },
+    { "lemma": "Recommend", "class": "Activity", "regular": true },
+    { "lemma": "Record", "class": "Achievement", "regular": true },
+    { "lemma": "Recover", "class": "Accomplishment", "regular": true },
+    { "lemma": "Recruit", "class": "Achievement", "regular": true },
+    { "lemma": "Recycle", "class": "Activity", "regular": true },
+    { "lemma": "Reduce", "class": "Achievement", "regular": true },
+    { "lemma": "Refer", "class": "Activity", "forms": { "past": "referred", "gerund": "referring" } },
+    { "lemma": "Reflect", "class": "Activity", "regular": true },
+    { "lemma": "Refresh", "class": "Achievement", "regular": true },
+    { "lemma": "Refuse", "class": "Achievement", "regular": true },
+    { "lemma": "Regard", "class": "State", "regular": true },
+    { "lemma": "Register", "class": "Achievement", "regular": true },
+    { "lemma": "Regret", "class": "State", "forms": { "past": "regretted", "gerund": "regretting" }, "features": ["Factive"] },
+    { "lemma": "Reign", "class": "Activity", "regular": true },
+    { "lemma": "Reject", "class": "Achievement", "regular": true },
+    { "lemma": "Relate", "class": "Activity", "regular": true },
+    { "lemma": "Relax", "class": "Activity", "regular": true },
+    { "lemma": "Release", "class": "Achievement", "regular": true },
+    { "lemma": "Rely", "class": "State", "forms": { "past": "relied", "gerund": "relying" } },
+    { "lemma": "Remain", "class": "State", "regular": true },
+    { "lemma": "Remark", "class": "Activity", "regular": true },
+    { "lemma": "Remember", "class": "State", "regular": true },
+    { "lemma": "Remind", "class": "Activity", "regular": true },
+    { "lemma": "Remove", "class": "Achievement", "regular": true },
+    { "lemma": "Rent", "class": "Activity", "regular": true },
+    { "lemma": "Repair", "class": "Accomplishment", "regular": true },
+    { "lemma": "Repeat", "class": "Activity", "regular": true },
+    { "lemma": "Replace", "class": "Achievement", "regular": true },
+    { "lemma": "Reply", "class": "Activity", "forms": { "past": "replied", "gerund": "replying" } },
+    { "lemma": "Report", "class": "Activity", "regular": true },
+    { "lemma": "Represent", "class": "State", "regular": true },
+    { "lemma": "Reproduce", "class": "Accomplishment", "regular": true },
+    { "lemma": "Request", "class": "Activity", "regular": true },
+    { "lemma": "Require", "class": "State", "regular": true },
+    { "lemma": "Rescue", "class": "Achievement", "regular": true },
+    { "lemma": "Research", "class": "Activity", "regular": true },
+    { "lemma": "Resemble", "class": "State", "regular": true },
+    { "lemma": "Resent", "class": "State", "regular": true },
+    { "lemma": "Reserve", "class": "Achievement", "regular": true },
+    { "lemma": "Reside", "class": "State", "regular": true },
+    { "lemma": "Resign", "class": "Achievement", "regular": true },
+    { "lemma": "Resist", "class": "Activity", "regular": true },
+    { "lemma": "Resolve", "class": "Achievement", "regular": true },
+    { "lemma": "Resort", "class": "Activity", "regular": true },
+    { "lemma": "Respect", "class": "State", "regular": true },
+    { "lemma": "Respond", "class": "Activity", "regular": true },
+    { "lemma": "Rest", "class": "Activity", "regular": true },
+    { "lemma": "Restore", "class": "Accomplishment", "regular": true },
+    { "lemma": "Restrict", "class": "Achievement", "regular": true },
+    { "lemma": "Result", "class": "Achievement", "regular": true },
+    { "lemma": "Retain", "class": "State", "regular": true },
+    { "lemma": "Retire", "class": "Achievement", "regular": true },
+    { "lemma": "Retreat", "class": "Achievement", "regular": true },
+    { "lemma": "Return", "class": "Achievement", "regular": true },
+    { "lemma": "Reveal", "class": "Achievement", "regular": true },
+    { "lemma": "Review", "class": "Activity", "regular": true },
+    { "lemma": "Revise", "class": "Accomplishment", "regular": true },
+    { "lemma": "Reward", "class": "Activity", "regular": true },
+    { "lemma": "Ring", "class": "Activity", "forms": { "past": "rang", "participle": "rung", "gerund": "ringing" } },
+    { "lemma": "Rip", "class": "Achievement", "forms": { "past": "ripped", "gerund": "ripping" } },
+    { "lemma": "Risk", "class": "Activity", "regular": true },
+    { "lemma": "Roar", "class": "Activity", "regular": true },
+    { "lemma": "Rob", "class": "Achievement", "forms": { "past": "robbed", "gerund": "robbing" } },
+    { "lemma": "Rock", "class": "Activity", "regular": true },
+    { "lemma": "Roll", "class": "Activity", "regular": true },
+    { "lemma": "Rub", "class": "Activity", "forms": { "past": "rubbed", "gerund": "rubbing" } },
+    { "lemma": "Ruin", "class": "Achievement", "regular": true },
+    { "lemma": "Rule", "class": "Activity", "regular": true },
+    { "lemma": "Rush", "class": "Activity", "regular": true },
+    { "lemma": "Sail", "class": "Activity", "regular": true },
+    { "lemma": "Satisfy", "class": "Achievement", "forms": { "past": "satisfied", "gerund": "satisfying" } },
+    { "lemma": "Save", "class": "Achievement", "regular": true },
+    { "lemma": "Saw", "class": "Activity", "regular": true },
+    { "lemma": "Scan", "class": "Activity", "forms": { "past": "scanned", "gerund": "scanning" } },
+    { "lemma": "Scare", "class": "Achievement", "regular": true },
+    { "lemma": "Schedule", "class": "Achievement", "regular": true },
+    { "lemma": "Score", "class": "Achievement", "regular": true },
+    { "lemma": "Scratch", "class": "Activity", "regular": true },
+    { "lemma": "Scream", "class": "Activity", "regular": true },
+    { "lemma": "Seal", "class": "Achievement", "regular": true },
+    { "lemma": "Search", "class": "Activity", "regular": true },
+    { "lemma": "Secure", "class": "Achievement", "regular": true },
+    { "lemma": "Seek", "class": "Activity", "forms": { "past": "sought", "gerund": "seeking" } },
+    { "lemma": "Seem", "class": "State", "regular": true },
+    { "lemma": "Seize", "class": "Achievement", "regular": true },
+    { "lemma": "Select", "class": "Achievement", "regular": true },
+    { "lemma": "Sell", "class": "Achievement", "forms": { "past": "sold", "gerund": "selling" } },
+    { "lemma": "Separate", "class": "Achievement", "regular": true },
+    { "lemma": "Serve", "class": "Activity", "regular": true },
+    { "lemma": "Settle", "class": "Achievement", "regular": true },
+    { "lemma": "Sew", "class": "Activity", "forms": { "past": "sewed", "participle": "sewn", "gerund": "sewing" } },
+    { "lemma": "Shape", "class": "Accomplishment", "regular": true },
+    { "lemma": "Share", "class": "Activity", "regular": true },
+    { "lemma": "Shelter", "class": "Activity", "regular": true },
+    { "lemma": "Shift", "class": "Achievement", "regular": true },
+    { "lemma": "Shine", "class": "Activity", "forms": { "past": "shone", "gerund": "shining" } },
+    { "lemma": "Ship", "class": "Achievement", "forms": { "past": "shipped", "gerund": "shipping" } },
+    { "lemma": "Shock", "class": "Achievement", "regular": true },
+    { "lemma": "Shop", "class": "Activity", "forms": { "past": "shopped", "gerund": "shopping" } },
+    { "lemma": "Shorten", "class": "Achievement", "regular": true },
+    { "lemma": "Shout", "class": "Activity", "regular": true },
+    { "lemma": "Shove", "class": "Activity", "regular": true },
+    { "lemma": "Shrink", "class": "Achievement", "forms": { "past": "shrank", "participle": "shrunk", "gerund": "shrinking" } },
+    { "lemma": "Shrug", "class": "Activity", "forms": { "past": "shrugged", "gerund": "shrugging" } },
+    { "lemma": "Shut", "class": "Achievement", "forms": { "past": "shut", "gerund": "shutting" } },
+    { "lemma": "Sign", "class": "Achievement", "regular": true },
+    { "lemma": "Signal", "class": "Activity", "regular": true },
+    { "lemma": "Simplify", "class": "Achievement", "forms": { "past": "simplified", "gerund": "simplifying" } },
+    { "lemma": "Sing", "class": "Activity", "forms": { "past": "sang", "participle": "sung", "gerund": "singing" } },
+    { "lemma": "Sink", "class": "Achievement", "forms": { "past": "sank", "participle": "sunk", "gerund": "sinking" } },
+    { "lemma": "Sit", "class": "State", "forms": { "past": "sat", "gerund": "sitting" } },
+    { "lemma": "Sketch", "class": "Activity", "regular": true },
+    { "lemma": "Ski", "class": "Activity", "regular": true },
+    { "lemma": "Skip", "class": "Activity", "forms": { "past": "skipped", "gerund": "skipping" } },
+    { "lemma": "Slap", "class": "Activity", "forms": { "past": "slapped", "gerund": "slapping" } },
+    { "lemma": "Slice", "class": "Activity", "regular": true },
+    { "lemma": "Slide", "class": "Activity", "forms": { "past": "slid", "gerund": "sliding" } },
+    { "lemma": "Slip", "class": "Achievement", "forms": { "past": "slipped", "gerund": "slipping" } },
+    { "lemma": "Slow", "class": "Achievement", "regular": true },
+    { "lemma": "Smash", "class": "Achievement", "regular": true },
+    { "lemma": "Smell", "class": "State", "regular": true },
+    { "lemma": "Smile", "class": "Activity", "regular": true },
+    { "lemma": "Smoke", "class": "Activity", "regular": true },
+    { "lemma": "Snap", "class": "Achievement", "forms": { "past": "snapped", "gerund": "snapping" } },
+    { "lemma": "Sneeze", "class": "Activity", "regular": true },
+    { "lemma": "Snow", "class": "Activity", "regular": true },
+    { "lemma": "Soak", "class": "Activity", "regular": true },
+    { "lemma": "Solve", "class": "Achievement", "regular": true },
+    { "lemma": "Sort", "class": "Activity", "regular": true },
+    { "lemma": "Sound", "class": "State", "regular": true },
+    { "lemma": "Spare", "class": "Activity", "regular": true },
+    { "lemma": "Spark", "class": "Achievement", "regular": true },
+    { "lemma": "Specialize", "class": "Activity", "regular": true },
+    { "lemma": "Specify", "class": "Activity", "forms": { "past": "specified", "gerund": "specifying" } },
+    { "lemma": "Speed", "class": "Activity", "forms": { "past": "sped", "gerund": "speeding" } },
+    { "lemma": "Spell", "class": "Activity", "forms": { "past": "spelt", "gerund": "spelling" } },
+    { "lemma": "Spend", "class": "Accomplishment", "forms": { "past": "spent", "gerund": "spending" } },
+    { "lemma": "Spill", "class": "Achievement", "forms": { "past": "spilt", "gerund": "spilling" } },
+    { "lemma": "Spin", "class": "Activity", "forms": { "past": "spun", "gerund": "spinning" } },
+    { "lemma": "Spit", "class": "Activity", "forms": { "past": "spat", "gerund": "spitting" } },
+    { "lemma": "Split", "class": "Achievement", "forms": { "past": "split", "gerund": "splitting" } },
+    { "lemma": "Spoil", "class": "Achievement", "forms": { "past": "spoilt", "gerund": "spoiling" } },
+    { "lemma": "Sponsor", "class": "Activity", "regular": true },
+    { "lemma": "Spot", "class": "Achievement", "forms": { "past": "spotted", "gerund": "spotting" } },
+    { "lemma": "Spray", "class": "Activity", "regular": true },
+    { "lemma": "Spread", "class": "Activity", "forms": { "past": "spread", "gerund": "spreading" } },
+    { "lemma": "Spring", "class": "Achievement", "forms": { "past": "sprang", "participle": "sprung", "gerund": "springing" } },
+    { "lemma": "Squeeze", "class": "Activity", "regular": true },
+    { "lemma": "Stab", "class": "Activity", "forms": { "past": "stabbed", "gerund": "stabbing" } },
+    { "lemma": "Stain", "class": "Achievement", "regular": true },
+    { "lemma": "Stamp", "class": "Activity", "regular": true },
+    { "lemma": "Stand", "class": "State", "forms": { "past": "stood", "gerund": "standing" } },
+    { "lemma": "Stare", "class": "Activity", "regular": true },
+    { "lemma": "Start", "class": "Achievement", "regular": true },
+    { "lemma": "Starve", "class": "Accomplishment", "regular": true },
+    { "lemma": "State", "class": "Activity", "regular": true },
+    { "lemma": "Stay", "class": "State", "regular": true },
+    { "lemma": "Stick", "class": "Achievement", "forms": { "past": "stuck", "gerund": "sticking" } },
+    { "lemma": "Stimulate", "class": "Achievement", "regular": true },
+    { "lemma": "Stir", "class": "Activity", "forms": { "past": "stirred", "gerund": "stirring" } },
+    { "lemma": "Stop", "class": "Achievement", "forms": { "past": "stopped", "gerund": "stopping" } },
+    { "lemma": "Store", "class": "Achievement", "regular": true },
+    { "lemma": "Strain", "class": "Activity", "regular": true },
+    { "lemma": "Strengthen", "class": "Achievement", "regular": true },
+    { "lemma": "Stress", "class": "Activity", "regular": true },
+    { "lemma": "Stretch", "class": "Activity", "regular": true },
+    { "lemma": "Strike", "class": "Achievement", "forms": { "past": "struck", "gerund": "striking" } },
+    { "lemma": "Strip", "class": "Achievement", "forms": { "past": "stripped", "gerund": "stripping" } },
+    { "lemma": "Strive", "class": "Activity", "forms": { "past": "strove", "participle": "striven", "gerund": "striving" } },
+    { "lemma": "Stroke", "class": "Activity", "regular": true },
+    { "lemma": "Struggle", "class": "Activity", "regular": true },
+    { "lemma": "Study", "class": "Activity", "forms": { "past": "studied", "gerund": "studying" } },
+    { "lemma": "Stuff", "class": "Achievement", "regular": true },
+    { "lemma": "Submit", "class": "Achievement", "forms": { "past": "submitted", "gerund": "submitting" } },
+    { "lemma": "Substitute", "class": "Achievement", "regular": true },
+    { "lemma": "Succeed", "class": "Achievement", "regular": true },
+    { "lemma": "Suck", "class": "Activity", "regular": true },
+    { "lemma": "Suffer", "class": "Activity", "regular": true },
+    { "lemma": "Suggest", "class": "Activity", "regular": true },
+    { "lemma": "Suit", "class": "State", "regular": true },
+    { "lemma": "Summarize", "class": "Activity", "regular": true },
+    { "lemma": "Supervise", "class": "Activity", "regular": true },
+    { "lemma": "Supply", "class": "Achievement", "forms": { "past": "supplied", "gerund": "supplying" } },
+    { "lemma": "Support", "class": "Activity", "regular": true },
+    { "lemma": "Suppose", "class": "State", "regular": true },
+    { "lemma": "Suppress", "class": "Achievement", "regular": true },
+    { "lemma": "Surf", "class": "Activity", "regular": true },
+    { "lemma": "Surprise", "class": "Achievement", "regular": true },
+    { "lemma": "Surround", "class": "State", "regular": true },
+    { "lemma": "Survey", "class": "Activity", "regular": true },
+    { "lemma": "Survive", "class": "Achievement", "regular": true },
+    { "lemma": "Suspect", "class": "State", "regular": true },
+    { "lemma": "Suspend", "class": "Achievement", "regular": true },
+    { "lemma": "Sustain", "class": "Activity", "regular": true },
+    { "lemma": "Swallow", "class": "Achievement", "regular": true },
+    { "lemma": "Swap", "class": "Achievement", "forms": { "past": "swapped", "gerund": "swapping" } },
+    { "lemma": "Swear", "class": "Activity", "forms": { "past": "swore", "participle": "sworn", "gerund": "swearing" } },
+    { "lemma": "Sweat", "class": "Activity", "regular": true },
+    { "lemma": "Sweep", "class": "Activity", "forms": { "past": "swept", "gerund": "sweeping" } },
+    { "lemma": "Swell", "class": "Achievement", "forms": { "past": "swelled", "participle": "swollen", "gerund": "swelling" } },
+    { "lemma": "Swim", "class": "Activity", "forms": { "past": "swam", "participle": "swum", "gerund": "swimming" } },
+    { "lemma": "Swing", "class": "Activity", "forms": { "past": "swung", "gerund": "swinging" } },
+    { "lemma": "Switch", "class": "Achievement", "regular": true },
+    { "lemma": "Tackle", "class": "Activity", "regular": true },
+    { "lemma": "Tag", "class": "Activity", "forms": { "past": "tagged", "gerund": "tagging" } },
+    { "lemma": "Talk", "class": "Activity", "regular": true },
+    { "lemma": "Tame", "class": "Achievement", "regular": true },
+    { "lemma": "Tap", "class": "Activity", "forms": { "past": "tapped", "gerund": "tapping" } },
+    { "lemma": "Target", "class": "Activity", "regular": true },
+    { "lemma": "Taste", "class": "State", "regular": true },
+    { "lemma": "Tax", "class": "Activity", "regular": true },
+    { "lemma": "Teach", "class": "Activity", "forms": { "past": "taught", "gerund": "teaching" } },
+    { "lemma": "Tear", "class": "Achievement", "forms": { "past": "tore", "participle": "torn", "gerund": "tearing" } },
+    { "lemma": "Tease", "class": "Activity", "regular": true },
+    { "lemma": "Telephone", "class": "Activity", "regular": true },
+    { "lemma": "Tempt", "class": "Activity", "regular": true },
+    { "lemma": "Tend", "class": "State", "regular": true },
+    { "lemma": "Terminate", "class": "Achievement", "regular": true },
+    { "lemma": "Terrify", "class": "Achievement", "forms": { "past": "terrified", "gerund": "terrifying" } },
+    { "lemma": "Test", "class": "Activity", "regular": true },
+    { "lemma": "Testify", "class": "Activity", "forms": { "past": "testified", "gerund": "testifying" } },
+    { "lemma": "Text", "class": "Activity", "regular": true },
+    { "lemma": "Thank", "class": "Activity", "regular": true },
+    { "lemma": "Threaten", "class": "Activity", "regular": true },
+    { "lemma": "Thrill", "class": "Achievement", "regular": true },
+    { "lemma": "Tick", "class": "Activity", "regular": true },
+    { "lemma": "Tie", "class": "Achievement", "forms": { "past": "tied", "gerund": "tying" } },
+    { "lemma": "Tighten", "class": "Achievement", "regular": true },
+    { "lemma": "Tip", "class": "Activity", "forms": { "past": "tipped", "gerund": "tipping" } },
+    { "lemma": "Tire", "class": "Achievement", "regular": true },
+    { "lemma": "Toast", "class": "Activity", "regular": true },
+    { "lemma": "Tolerate", "class": "State", "regular": true },
+    { "lemma": "Top", "class": "Achievement", "forms": { "past": "topped", "gerund": "topping" } },
+    { "lemma": "Toss", "class": "Activity", "regular": true },
+    { "lemma": "Touch", "class": "Activity", "regular": true },
+    { "lemma": "Tour", "class": "Activity", "regular": true },
+    { "lemma": "Tow", "class": "Activity", "regular": true },
+    { "lemma": "Trace", "class": "Activity", "regular": true },
+    { "lemma": "Track", "class": "Activity", "regular": true },
+    { "lemma": "Trade", "class": "Activity", "regular": true },
+    { "lemma": "Train", "class": "Accomplishment", "regular": true },
+    { "lemma": "Transfer", "class": "Achievement", "forms": { "past": "transferred", "gerund": "transferring" } },
+    { "lemma": "Transform", "class": "Achievement", "regular": true },
+    { "lemma": "Translate", "class": "Accomplishment", "regular": true },
+    { "lemma": "Transmit", "class": "Activity", "forms": { "past": "transmitted", "gerund": "transmitting" } },
+    { "lemma": "Transport", "class": "Activity", "regular": true },
+    { "lemma": "Trap", "class": "Achievement", "forms": { "past": "trapped", "gerund": "trapping" } },
+    { "lemma": "Travel", "class": "Activity", "regular": true },
+    { "lemma": "Treasure", "class": "State", "regular": true },
+    { "lemma": "Treat", "class": "Activity", "regular": true },
+    { "lemma": "Trick", "class": "Activity", "regular": true },
+    { "lemma": "Trigger", "class": "Achievement", "regular": true },
+    { "lemma": "Trim", "class": "Activity", "forms": { "past": "trimmed", "gerund": "trimming" } },
+    { "lemma": "Trip", "class": "Achievement", "forms": { "past": "tripped", "gerund": "tripping" } },
+    { "lemma": "Trouble", "class": "Achievement", "regular": true },
+    { "lemma": "Trust", "class": "State", "regular": true },
+    { "lemma": "Try", "class": "Activity", "forms": { "past": "tried", "gerund": "trying" } },
+    { "lemma": "Tune", "class": "Activity", "regular": true },
+    { "lemma": "Turn", "class": "Achievement", "regular": true },
+    { "lemma": "Twist", "class": "Achievement", "regular": true },
+    { "lemma": "Type", "class": "Activity", "regular": true },
+    { "lemma": "Undergo", "class": "Activity", "forms": { "past": "underwent", "participle": "undergone", "gerund": "undergoing" } },
+    { "lemma": "Understand", "class": "State", "forms": { "past": "understood", "gerund": "understanding" } },
+    { "lemma": "Undertake", "class": "Achievement", "forms": { "past": "undertook", "participle": "undertaken", "gerund": "undertaking" } },
+    { "lemma": "Undo", "class": "Achievement", "forms": { "past": "undid", "participle": "undone", "gerund": "undoing" } },
+    { "lemma": "Unfold", "class": "Accomplishment", "regular": true },
+    { "lemma": "Unify", "class": "Achievement", "forms": { "past": "unified", "gerund": "unifying" } },
+    { "lemma": "Unlock", "class": "Achievement", "regular": true },
+    { "lemma": "Unpack", "class": "Activity", "regular": true },
+    { "lemma": "Update", "class": "Achievement", "regular": true },
+    { "lemma": "Upgrade", "class": "Achievement", "regular": true },
+    { "lemma": "Upload", "class": "Achievement", "regular": true },
+    { "lemma": "Urge", "class": "Activity", "regular": true },
+    { "lemma": "Use", "class": "Activity", "regular": true },
+    { "lemma": "Utilize", "class": "Activity", "regular": true },
+    { "lemma": "Value", "class": "State", "regular": true },
+    { "lemma": "Vanish", "class": "Achievement", "regular": true },
+    { "lemma": "Vary", "class": "State", "forms": { "past": "varied", "gerund": "varying" } },
+    { "lemma": "Venture", "class": "Activity", "regular": true },
+    { "lemma": "Verify", "class": "Achievement", "forms": { "past": "verified", "gerund": "verifying" } },
+    { "lemma": "View", "class": "Activity", "regular": true },
+    { "lemma": "Violate", "class": "Achievement", "regular": true },
+    { "lemma": "Visit", "class": "Activity", "regular": true },
+    { "lemma": "Voice", "class": "Activity", "regular": true },
+    { "lemma": "Volunteer", "class": "Activity", "regular": true },
+    { "lemma": "Vote", "class": "Activity", "regular": true },
+    { "lemma": "Wander", "class": "Activity", "regular": true },
+    { "lemma": "Wanna", "class": "State", "regular": true },
+    { "lemma": "Want", "class": "State", "regular": true },
+    { "lemma": "Warm", "class": "Achievement", "regular": true },
+    { "lemma": "Warn", "class": "Activity", "regular": true },
+    { "lemma": "Wash", "class": "Accomplishment", "regular": true },
+    { "lemma": "Waste", "class": "Accomplishment", "regular": true },
+    { "lemma": "Watch", "class": "Activity", "regular": true },
+    { "lemma": "Water", "class": "Activity", "regular": true },
+    { "lemma": "Wave", "class": "Activity", "regular": true },
+    { "lemma": "Weaken", "class": "Achievement", "regular": true },
+    { "lemma": "Weave", "class": "Activity", "forms": { "past": "wove", "participle": "woven", "gerund": "weaving" } },
+    { "lemma": "Weigh", "class": "State", "regular": true },
+    { "lemma": "Welcome", "class": "Activity", "regular": true },
+    { "lemma": "Whisper", "class": "Activity", "regular": true },
+    { "lemma": "Whistle", "class": "Activity", "regular": true },
+    { "lemma": "Widen", "class": "Achievement", "regular": true },
+    { "lemma": "Win", "class": "Achievement", "forms": { "past": "won", "gerund": "winning" } },
+    { "lemma": "Wind", "class": "Activity", "forms": { "past": "wound", "gerund": "winding" } },
+    { "lemma": "Wink", "class": "Activity", "regular": true },
+    { "lemma": "Wipe", "class": "Activity", "regular": true },
+    { "lemma": "Wish", "class": "State", "regular": true },
+    { "lemma": "Withdraw", "class": "Achievement", "forms": { "past": "withdrew", "participle": "withdrawn", "gerund": "withdrawing" } },
+    { "lemma": "Witness", "class": "Activity", "regular": true },
+    { "lemma": "Work", "class": "Activity", "regular": true },
+    { "lemma": "Worry", "class": "State", "forms": { "past": "worried", "gerund": "worrying" } },
+    { "lemma": "Worship", "class": "Activity", "regular": true },
+    { "lemma": "Wound", "class": "Achievement", "regular": true },
+    { "lemma": "Wrap", "class": "Achievement", "forms": { "past": "wrapped", "gerund": "wrapping" } },
+    { "lemma": "Wreck", "class": "Achievement", "regular": true },
+    { "lemma": "Wrestle", "class": "Activity", "regular": true },
+    { "lemma": "Wring", "class": "Activity", "forms": { "past": "wrung", "gerund": "wringing" } },
+    { "lemma": "Yawn", "class": "Activity", "regular": true },
+    { "lemma": "Yell", "class": "Activity", "regular": true },
+    { "lemma": "Yield", "class": "Achievement", "regular": true },
+    { "lemma": "Zip", "class": "Achievement", "forms": { "past": "zipped", "gerund": "zipping" } },
+    { "lemma": "Zone", "class": "Activity", "regular": true }
   ],
   "nouns": [
     { "lemma": "Man", "forms": { "plural": "men" }, "features": ["Masculine"], "sort": "Human" },
@@ -2824,20 +4188,363 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Set", "forms": { "plural": "sets" } },
     { "lemma": "Cardinality" },
     { "lemma": "Dog", "sort": "Animate" }, { "lemma": "Cat", "sort": "Animate" }, { "lemma": "Bird", "sort": "Animate" }, { "lemma": "Student", "sort": "Human" },
-    { "lemma": "Hunter", "sort": "Human" }, { "lemma": "Book", "sort": "Information" }, { "lemma": "House", "sort": "Physical" }, { "lemma": "Code" },
+    { "lemma": "Hunter", "sort": "Human", "derivation": { "root": "Hunt", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Book", "sort": "Information" }, { "lemma": "Code" },
     { "lemma": "User", "sort": "Human" }, { "lemma": "Logic", "sort": "Abstract" }, { "lemma": "Time", "sort": "Abstract" }, { "lemma": "Letter" },
-    { "lemma": "Logician", "sort": "Human" }, { "lemma": "Philosopher", "sort": "Human" }, { "lemma": "Teacher", "sort": "Human" }, { "lemma": "Writer", "sort": "Human" },
+    { "lemma": "Logician", "sort": "Human" }, { "lemma": "Philosopher", "sort": "Human" },
+    { "lemma": "Teacher", "sort": "Human", "derivation": { "root": "Teach", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Writer", "sort": "Human", "derivation": { "root": "Write", "pos": "Verb", "relation": "Agent" } },
     { "lemma": "Athlete", "sort": "Human" }, { "lemma": "World" }, { "lemma": "Unicorn", "sort": "Animate" }, { "lemma": "Toast", "sort": "Physical" },
     { "lemma": "Bathroom", "sort": "Place" }, { "lemma": "Knife", "sort": "Physical" }, { "lemma": "Gun", "sort": "Physical" }, { "lemma": "Thief", "sort": "Human" },
     { "lemma": "Senator", "sort": "Human" }, { "lemma": "Ball", "sort": "Physical" }, { "lemma": "President", "sort": "Human" }, { "lemma": "Hero", "sort": "Human" },
     { "lemma": "Friend", "sort": "Human" }, { "lemma": "Story", "sort": "Information" }, { "lemma": "Horse", "sort": "Animate" }, { "lemma": "Water", "sort": "Physical" },
     { "lemma": "Money", "sort": "Value" }, { "lemma": "Apple", "sort": "Physical" }, { "lemma": "Rat", "sort": "Animate" }, { "lemma": "Tail", "sort": "Physical" },
-    { "lemma": "Door", "sort": "Physical" }, { "lemma": "Key", "sort": "Physical" }, { "lemma": "Glass", "sort": "Physical" }, { "lemma": "Ice", "sort": "Physical" },
+    { "lemma": "Key", "sort": "Physical" }, { "lemma": "Glass", "sort": "Physical" }, { "lemma": "Ice", "sort": "Physical" },
     { "lemma": "Sun", "sort": "Celestial" }, { "lemma": "Moon", "sort": "Celestial" }, { "lemma": "Star", "sort": "Celestial" },
-    { "lemma": "Rock", "sort": "Physical" }, { "lemma": "Justice", "sort": "Abstract" }, { "lemma": "Love", "sort": "Abstract" },
+    { "lemma": "Justice", "sort": "Abstract" }, { "lemma": "Love", "sort": "Abstract" },
     { "lemma": "Team", "features": ["Collective"], "sort": "Group" }, { "lemma": "Army", "features": ["Collective"], "sort": "Group" },
     { "lemma": "Animal", "sort": "Animate" },
-    { "lemma": "Duck", "sort": "Animate" }
+    { "lemma": "Duck", "sort": "Animate" }, { "lemma": "Donkey", "features": ["Neuter"], "sort": "Animate" },
+    { "lemma": "Elephant", "sort": "Animate" }, { "lemma": "Lion", "sort": "Animate" }, { "lemma": "Tiger", "sort": "Animate" },
+    { "lemma": "Bear", "sort": "Animate" }, { "lemma": "Wolf", "forms": { "plural": "wolves" }, "sort": "Animate" },
+    { "lemma": "Fox", "forms": { "plural": "foxes" }, "sort": "Animate" }, { "lemma": "Rabbit", "sort": "Animate" },
+    { "lemma": "Cow", "sort": "Animate" }, { "lemma": "Pig", "sort": "Animate" }, { "lemma": "Chicken", "sort": "Animate" },
+    { "lemma": "Frog", "sort": "Animate" }, { "lemma": "Snake", "sort": "Animate" }, { "lemma": "Turtle", "sort": "Animate" },
+    { "lemma": "Whale", "sort": "Animate" }, { "lemma": "Shark", "sort": "Animate" }, { "lemma": "Dolphin", "sort": "Animate" },
+    { "lemma": "Eagle", "sort": "Animate" }, { "lemma": "Owl", "sort": "Animate" }, { "lemma": "Crow", "sort": "Animate" },
+    { "lemma": "Bee", "sort": "Animate" }, { "lemma": "Butterfly", "forms": { "plural": "butterflies" }, "sort": "Animate" },
+    { "lemma": "Spider", "sort": "Animate" }, { "lemma": "Ant", "sort": "Animate" }, { "lemma": "Monkey", "sort": "Animate" },
+    { "lemma": "Gorilla", "sort": "Animate" }, { "lemma": "Zebra", "sort": "Animate" }, { "lemma": "Giraffe", "sort": "Animate" },
+    { "lemma": "Crocodile", "sort": "Animate" }, { "lemma": "Penguin", "sort": "Animate" }, { "lemma": "Parrot", "sort": "Animate" },
+    { "lemma": "Table", "sort": "Physical" }, { "lemma": "Chair", "sort": "Physical" }, { "lemma": "Desk", "sort": "Physical" },
+    { "lemma": "Bed", "sort": "Physical" }, { "lemma": "Couch", "sort": "Physical" }, { "lemma": "Lamp", "sort": "Physical" },
+    { "lemma": "Mirror", "sort": "Physical" }, { "lemma": "Shelf", "forms": { "plural": "shelves" }, "sort": "Physical" },
+    { "lemma": "Cabinet", "sort": "Physical" }, { "lemma": "Drawer", "sort": "Physical" }, { "lemma": "Closet", "sort": "Physical" },
+    { "lemma": "Phone", "sort": "Physical" }, { "lemma": "Computer", "sort": "Physical" }, { "lemma": "Laptop", "sort": "Physical" },
+    { "lemma": "Keyboard", "sort": "Physical" }, { "lemma": "Screen", "sort": "Physical" }, { "lemma": "Camera", "sort": "Physical" },
+    { "lemma": "Television", "sort": "Physical" }, { "lemma": "Radio", "sort": "Physical" }, { "lemma": "Speaker", "sort": "Physical" },
+    { "lemma": "Microphone", "sort": "Physical" }, { "lemma": "Headphone", "sort": "Physical" }, { "lemma": "Battery", "sort": "Physical" },
+    { "lemma": "Bread", "sort": "Physical" }, { "lemma": "Butter", "sort": "Physical" }, { "lemma": "Cheese", "sort": "Physical" },
+    { "lemma": "Milk", "sort": "Physical" }, { "lemma": "Egg", "sort": "Physical" }, { "lemma": "Meat", "sort": "Physical" },
+    { "lemma": "Rice", "sort": "Physical" }, { "lemma": "Pasta", "sort": "Physical" }, { "lemma": "Soup", "sort": "Physical" },
+    { "lemma": "Salad", "sort": "Physical" }, { "lemma": "Cake", "sort": "Physical" }, { "lemma": "Cookie", "sort": "Physical" },
+    { "lemma": "Candy", "sort": "Physical" }, { "lemma": "Fruit", "sort": "Physical" }, { "lemma": "Vegetable", "sort": "Physical" },
+    { "lemma": "Orange", "sort": "Physical" }, { "lemma": "Banana", "sort": "Physical" }, { "lemma": "Grape", "sort": "Physical" },
+    { "lemma": "Strawberry", "forms": { "plural": "strawberries" }, "sort": "Physical" }, { "lemma": "Lemon", "sort": "Physical" },
+    { "lemma": "Tomato", "forms": { "plural": "tomatoes" }, "sort": "Physical" }, { "lemma": "Potato", "forms": { "plural": "potatoes" }, "sort": "Physical" },
+    { "lemma": "Carrot", "sort": "Physical" }, { "lemma": "Onion", "sort": "Physical" }, { "lemma": "Pepper", "sort": "Physical" },
+    { "lemma": "Coffee", "sort": "Physical" }, { "lemma": "Tea", "sort": "Physical" }, { "lemma": "Juice", "sort": "Physical" },
+    { "lemma": "Wine", "sort": "Physical" }, { "lemma": "Beer", "sort": "Physical" }, { "lemma": "Soda", "sort": "Physical" },
+    { "lemma": "Shirt", "sort": "Physical" }, { "lemma": "Pants", "sort": "Physical" }, { "lemma": "Dress", "sort": "Physical" },
+    { "lemma": "Skirt", "sort": "Physical" }, { "lemma": "Jacket", "sort": "Physical" }, { "lemma": "Coat", "sort": "Physical" },
+    { "lemma": "Sweater", "sort": "Physical" }, { "lemma": "Shoe", "sort": "Physical" }, { "lemma": "Boot", "sort": "Physical" },
+    { "lemma": "Sock", "sort": "Physical" }, { "lemma": "Hat", "sort": "Physical" }, { "lemma": "Glove", "sort": "Physical" },
+    { "lemma": "Scarf", "forms": { "plural": "scarves" }, "sort": "Physical" }, { "lemma": "Belt", "sort": "Physical" },
+    { "lemma": "Watch", "sort": "Physical" }, { "lemma": "Necklace", "sort": "Physical" }, { "lemma": "Bracelet", "sort": "Physical" },
+    { "lemma": "Tree", "sort": "Physical" }, { "lemma": "Flower", "sort": "Physical" }, { "lemma": "Grass", "sort": "Physical" },
+    { "lemma": "Leaf", "forms": { "plural": "leaves" }, "sort": "Physical" }, { "lemma": "Branch", "sort": "Physical" },
+    { "lemma": "Root", "sort": "Physical" }, { "lemma": "Seed", "sort": "Physical" }, { "lemma": "Plant", "sort": "Physical" },
+    { "lemma": "Forest", "sort": "Place" }, { "lemma": "Garden", "sort": "Place" }, { "lemma": "Park", "sort": "Place" },
+    { "lemma": "Mountain", "sort": "Physical" }, { "lemma": "Hill", "sort": "Physical" }, { "lemma": "Valley", "sort": "Physical" },
+    { "lemma": "River", "sort": "Physical" }, { "lemma": "Lake", "sort": "Physical" }, { "lemma": "Ocean", "sort": "Physical" },
+    { "lemma": "Sea", "sort": "Physical" }, { "lemma": "Beach", "sort": "Place" }, { "lemma": "Island", "sort": "Physical" },
+    { "lemma": "Desert", "sort": "Physical" }, { "lemma": "Cave", "sort": "Physical" }, { "lemma": "Cliff", "sort": "Physical" },
+    { "lemma": "City", "forms": { "plural": "cities" }, "sort": "Place" }, { "lemma": "Town", "sort": "Place" },
+    { "lemma": "Village", "sort": "Place" }, { "lemma": "Country", "forms": { "plural": "countries" }, "sort": "Place" },
+    { "lemma": "Street", "sort": "Place" }, { "lemma": "Road", "sort": "Physical" }, { "lemma": "Bridge", "sort": "Physical" },
+    { "lemma": "Building", "sort": "Physical" }, { "lemma": "Tower", "sort": "Physical" }, { "lemma": "Castle", "sort": "Physical" },
+    { "lemma": "Church", "sort": "Physical" }, { "lemma": "Temple", "sort": "Physical" }, { "lemma": "School", "sort": "Place" },
+    { "lemma": "Hospital", "sort": "Place" }, { "lemma": "Library", "forms": { "plural": "libraries" }, "sort": "Place" },
+    { "lemma": "Museum", "sort": "Place" }, { "lemma": "Theater", "sort": "Place" }, { "lemma": "Restaurant", "sort": "Place" },
+    { "lemma": "Hotel", "sort": "Place" }, { "lemma": "Airport", "sort": "Place" }, { "lemma": "Station", "sort": "Place" },
+    { "lemma": "Store", "sort": "Place" }, { "lemma": "Shop", "sort": "Place" }, { "lemma": "Market", "sort": "Place" },
+    { "lemma": "Office", "sort": "Place" }, { "lemma": "Factory", "forms": { "plural": "factories" }, "sort": "Place" },
+    { "lemma": "Bank", "sort": "Place" }, { "lemma": "Prison", "sort": "Place" }, { "lemma": "Court", "sort": "Place" },
+    { "lemma": "Doctor", "sort": "Human" }, { "lemma": "Nurse", "sort": "Human" }, { "lemma": "Lawyer", "sort": "Human" },
+    { "lemma": "Judge", "sort": "Human" }, { "lemma": "Police", "sort": "Human" }, { "lemma": "Soldier", "sort": "Human" },
+    { "lemma": "Farmer", "sort": "Human", "derivation": { "root": "Farm", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Merchant", "sort": "Human" }, { "lemma": "Chef", "sort": "Human" }, { "lemma": "Artist", "sort": "Human" },
+    { "lemma": "Musician", "sort": "Human" }, { "lemma": "Engineer", "sort": "Human" },
+    { "lemma": "Scientist", "sort": "Human", "derivation": { "root": "Science", "pos": "Noun", "relation": "Practitioner" } },
+    { "lemma": "Pilot", "sort": "Human" },
+    { "lemma": "Driver", "sort": "Human", "derivation": { "root": "Drive", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Manager", "sort": "Human", "derivation": { "root": "Manage", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Boss", "sort": "Human" }, { "lemma": "Employee", "sort": "Human" }, { "lemma": "Customer", "sort": "Human" },
+    { "lemma": "Guest", "sort": "Human" }, { "lemma": "Neighbor", "sort": "Human" }, { "lemma": "Stranger", "sort": "Human" },
+    { "lemma": "Baby", "forms": { "plural": "babies" }, "sort": "Human" }, { "lemma": "Teenager", "sort": "Human" },
+    { "lemma": "Adult", "sort": "Human" }, { "lemma": "Elder", "sort": "Human" }, { "lemma": "Citizen", "sort": "Human" },
+    { "lemma": "Leader", "sort": "Human", "derivation": { "root": "Lead", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Follower", "sort": "Human", "derivation": { "root": "Follow", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Winner", "sort": "Human", "derivation": { "root": "Win", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Player", "sort": "Human", "derivation": { "root": "Play", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Loser", "sort": "Human", "derivation": { "root": "Lose", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Victim", "sort": "Human" },
+    { "lemma": "Survivor", "sort": "Human", "derivation": { "root": "Survive", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Prisoner", "sort": "Human" }, { "lemma": "Criminal", "sort": "Human" },
+    { "lemma": "Killer", "sort": "Human", "derivation": { "root": "Kill", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Dancer", "sort": "Human", "derivation": { "root": "Dance", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Runner", "sort": "Human", "derivation": { "root": "Run", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Singer", "sort": "Human", "derivation": { "root": "Sing", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Speaker", "sort": "Human", "derivation": { "root": "Speak", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Worker", "sort": "Human", "derivation": { "root": "Work", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Swimmer", "sort": "Human", "derivation": { "root": "Swim", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Jumper", "sort": "Human", "derivation": { "root": "Jump", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Walker", "sort": "Human", "derivation": { "root": "Walk", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Thinker", "sort": "Human", "derivation": { "root": "Think", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Reader", "sort": "Human", "derivation": { "root": "Read", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Fighter", "sort": "Human", "derivation": { "root": "Fight", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Painter", "sort": "Human", "derivation": { "root": "Paint", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Builder", "sort": "Human", "derivation": { "root": "Build", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Baker", "sort": "Human", "derivation": { "root": "Bake", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Catcher", "sort": "Human", "derivation": { "root": "Catch", "pos": "Verb", "relation": "Agent" } },
+    { "lemma": "Problem", "sort": "Abstract" }, { "lemma": "Solution", "sort": "Abstract" }, { "lemma": "Question", "sort": "Abstract" },
+    { "lemma": "Answer", "sort": "Abstract" }, { "lemma": "Idea", "sort": "Abstract" }, { "lemma": "Thought", "sort": "Abstract" },
+    { "lemma": "Dream", "sort": "Abstract" }, { "lemma": "Hope", "sort": "Abstract" }, { "lemma": "Fear", "sort": "Abstract" },
+    { "lemma": "Anger", "sort": "Abstract" }, { "lemma": "Joy", "sort": "Abstract" }, { "lemma": "Happiness", "sort": "Abstract" },
+    { "lemma": "Sadness", "sort": "Abstract" }, { "lemma": "Pain", "sort": "Abstract" }, { "lemma": "Pleasure", "sort": "Abstract" },
+    { "lemma": "Truth", "sort": "Abstract" }, { "lemma": "Lie", "sort": "Abstract" }, { "lemma": "Secret", "sort": "Abstract" },
+    { "lemma": "Mystery", "forms": { "plural": "mysteries" }, "sort": "Abstract" }, { "lemma": "Miracle", "sort": "Abstract" },
+    { "lemma": "Chance", "sort": "Abstract" }, { "lemma": "Luck", "sort": "Abstract" }, { "lemma": "Fate", "sort": "Abstract" },
+    { "lemma": "Destiny", "sort": "Abstract" }, { "lemma": "Freedom", "sort": "Abstract" }, { "lemma": "Peace", "sort": "Abstract" },
+    { "lemma": "War", "sort": "Abstract" }, { "lemma": "Battle", "sort": "Abstract" }, { "lemma": "Victory", "sort": "Abstract" },
+    { "lemma": "Defeat", "sort": "Abstract" }, { "lemma": "Success", "sort": "Abstract" }, { "lemma": "Failure", "sort": "Abstract" },
+    { "lemma": "Power", "sort": "Abstract" }, { "lemma": "Strength", "sort": "Abstract" }, { "lemma": "Weakness", "sort": "Abstract" },
+    { "lemma": "Knowledge", "sort": "Abstract" }, { "lemma": "Wisdom", "sort": "Abstract" }, { "lemma": "Intelligence", "sort": "Abstract" },
+    { "lemma": "Memory", "forms": { "plural": "memories" }, "sort": "Abstract" }, { "lemma": "Experience", "sort": "Abstract" },
+    { "lemma": "Skill", "sort": "Abstract" }, { "lemma": "Talent", "sort": "Abstract" }, { "lemma": "Ability", "sort": "Abstract" },
+    { "lemma": "Art", "sort": "Abstract" }, { "lemma": "Music", "sort": "Abstract" }, { "lemma": "Dance", "sort": "Abstract" },
+    { "lemma": "Song", "sort": "Abstract" }, { "lemma": "Poem", "sort": "Abstract" }, { "lemma": "Movie", "sort": "Abstract" },
+    { "lemma": "Game", "sort": "Abstract" }, { "lemma": "Sport", "sort": "Abstract" }, { "lemma": "Race", "sort": "Abstract" },
+    { "lemma": "Competition", "sort": "Abstract" }, { "lemma": "Prize", "sort": "Physical" }, { "lemma": "Award", "sort": "Physical" },
+    { "lemma": "Gift", "sort": "Physical" }, { "lemma": "Reward", "sort": "Physical" }, { "lemma": "Punishment", "sort": "Abstract" },
+    { "lemma": "Crime", "sort": "Abstract" }, { "lemma": "Law", "sort": "Abstract" }, { "lemma": "Rule", "sort": "Abstract" },
+    { "lemma": "Right", "sort": "Abstract" }, { "lemma": "Wrong", "sort": "Abstract" }, { "lemma": "Duty", "sort": "Abstract" },
+    { "lemma": "Responsibility", "sort": "Abstract" }, { "lemma": "Promise", "sort": "Abstract" }, { "lemma": "Agreement", "sort": "Abstract" },
+    { "lemma": "Contract", "sort": "Abstract" }, { "lemma": "Deal", "sort": "Abstract" }, { "lemma": "Trade", "sort": "Abstract" },
+    { "lemma": "Price", "sort": "Abstract" }, { "lemma": "Cost", "sort": "Abstract" }, { "lemma": "Value", "sort": "Abstract" },
+    { "lemma": "Profit", "sort": "Abstract" }, { "lemma": "Loss", "sort": "Abstract" }, { "lemma": "Debt", "sort": "Abstract" },
+    { "lemma": "Tax", "sort": "Abstract" }, { "lemma": "Income", "sort": "Abstract" }, { "lemma": "Salary", "sort": "Abstract" },
+    { "lemma": "Wage", "sort": "Abstract" }, { "lemma": "Job", "sort": "Abstract" }, { "lemma": "Work", "sort": "Abstract" },
+    { "lemma": "Career", "sort": "Abstract" }, { "lemma": "Business", "sort": "Abstract" }, { "lemma": "Company", "sort": "Group" },
+    { "lemma": "Corporation", "sort": "Group" }, { "lemma": "Organization", "sort": "Group" }, { "lemma": "Government", "sort": "Group" },
+    { "lemma": "Society", "sort": "Group" }, { "lemma": "Community", "sort": "Group" }, { "lemma": "Family", "sort": "Group" },
+    { "lemma": "Class", "sort": "Group" }, { "lemma": "Group", "sort": "Group" }, { "lemma": "Crowd", "sort": "Group" },
+    { "lemma": "Population", "sort": "Group" }, { "lemma": "Nation", "sort": "Group" }, { "lemma": "State", "sort": "Abstract" },
+    { "lemma": "Region", "sort": "Place" }, { "lemma": "Area", "sort": "Place" }, { "lemma": "Zone", "sort": "Place" },
+    { "lemma": "Space", "sort": "Abstract" }, { "lemma": "Place", "sort": "Place" }, { "lemma": "Position", "sort": "Abstract" },
+    { "lemma": "Location", "sort": "Place" }, { "lemma": "Direction", "sort": "Abstract" }, { "lemma": "Distance", "sort": "Abstract" },
+    { "lemma": "Height", "sort": "Abstract" }, { "lemma": "Width", "sort": "Abstract" }, { "lemma": "Depth", "sort": "Abstract" },
+    { "lemma": "Length", "sort": "Abstract" }, { "lemma": "Size", "sort": "Abstract" }, { "lemma": "Shape", "sort": "Abstract" },
+    { "lemma": "Form", "sort": "Abstract" }, { "lemma": "Color", "sort": "Abstract" }, { "lemma": "Sound", "sort": "Abstract" },
+    { "lemma": "Smell", "sort": "Abstract" }, { "lemma": "Taste", "sort": "Abstract" }, { "lemma": "Touch", "sort": "Abstract" },
+    { "lemma": "Feeling", "sort": "Abstract" }, { "lemma": "Emotion", "sort": "Abstract" }, { "lemma": "Mood", "sort": "Abstract" },
+    { "lemma": "Spirit", "sort": "Abstract" }, { "lemma": "Soul", "sort": "Abstract" }, { "lemma": "Mind", "sort": "Abstract" },
+    { "lemma": "Brain", "sort": "Physical" }, { "lemma": "Heart", "sort": "Physical" }, { "lemma": "Blood", "sort": "Physical" },
+    { "lemma": "Bone", "sort": "Physical" }, { "lemma": "Muscle", "sort": "Physical" }, { "lemma": "Skin", "sort": "Physical" },
+    { "lemma": "Hair", "sort": "Physical" }, { "lemma": "Eye", "sort": "Physical" }, { "lemma": "Ear", "sort": "Physical" },
+    { "lemma": "Nose", "sort": "Physical" }, { "lemma": "Mouth", "sort": "Physical" }, { "lemma": "Tongue", "sort": "Physical" },
+    { "lemma": "Lip", "sort": "Physical" }, { "lemma": "Face", "sort": "Physical" }, { "lemma": "Head", "sort": "Physical" },
+    { "lemma": "Neck", "sort": "Physical" }, { "lemma": "Shoulder", "sort": "Physical" }, { "lemma": "Arm", "sort": "Physical" },
+    { "lemma": "Hand", "sort": "Physical" }, { "lemma": "Finger", "sort": "Physical" }, { "lemma": "Thumb", "sort": "Physical" },
+    { "lemma": "Leg", "sort": "Physical" }, { "lemma": "Knee", "sort": "Physical" }, { "lemma": "Back", "sort": "Physical" },
+    { "lemma": "Stomach", "sort": "Physical" }, { "lemma": "Chest", "sort": "Physical" }, { "lemma": "Body", "sort": "Physical" },
+    { "lemma": "Voice", "sort": "Abstract" }, { "lemma": "Word", "sort": "Abstract" }, { "lemma": "Sentence", "sort": "Abstract" },
+    { "lemma": "Paragraph", "sort": "Abstract" }, { "lemma": "Page", "sort": "Physical" }, { "lemma": "Chapter", "sort": "Abstract" },
+    { "lemma": "Text", "sort": "Abstract" }, { "lemma": "Message", "sort": "Abstract" }, { "lemma": "Letter", "sort": "Physical" },
+    { "lemma": "Email", "sort": "Abstract" }, { "lemma": "Call", "sort": "Abstract" }, { "lemma": "Conversation", "sort": "Abstract" },
+    { "lemma": "Discussion", "sort": "Abstract" }, { "lemma": "Debate", "sort": "Abstract" }, { "lemma": "Argument", "sort": "Abstract" },
+    { "lemma": "Speech", "sort": "Abstract" }, { "lemma": "Language", "sort": "Abstract" }, { "lemma": "Grammar", "sort": "Abstract" },
+    { "lemma": "Name", "sort": "Abstract" }, { "lemma": "Title", "sort": "Abstract" }, { "lemma": "Number", "sort": "Abstract" },
+    { "lemma": "Amount", "sort": "Abstract" }, { "lemma": "Quantity", "sort": "Abstract" }, { "lemma": "Quality", "sort": "Abstract" },
+    { "lemma": "Type", "sort": "Abstract" }, { "lemma": "Kind", "sort": "Abstract" }, { "lemma": "Sort", "sort": "Abstract" },
+    { "lemma": "Part", "sort": "Abstract" }, { "lemma": "Piece", "sort": "Physical" }, { "lemma": "Half", "forms": { "plural": "halves" }, "sort": "Abstract" },
+    { "lemma": "Whole", "sort": "Abstract" }, { "lemma": "Beginning", "sort": "Abstract" }, { "lemma": "End", "sort": "Abstract" },
+    { "lemma": "Middle", "sort": "Abstract" }, { "lemma": "Edge", "sort": "Physical" }, { "lemma": "Corner", "sort": "Physical" },
+    { "lemma": "Side", "sort": "Physical" }, { "lemma": "Top", "sort": "Physical" }, { "lemma": "Bottom", "sort": "Physical" },
+    { "lemma": "Front", "sort": "Physical" }, { "lemma": "Center", "sort": "Physical" }, { "lemma": "Surface", "sort": "Physical" },
+    { "lemma": "Line", "sort": "Abstract" }, { "lemma": "Circle", "sort": "Abstract" }, { "lemma": "Square", "sort": "Abstract" },
+    { "lemma": "Triangle", "sort": "Abstract" }, { "lemma": "Point", "sort": "Abstract" }, { "lemma": "Angle", "sort": "Abstract" },
+    { "lemma": "Curve", "sort": "Abstract" }, { "lemma": "Pattern", "sort": "Abstract" }, { "lemma": "Design", "sort": "Abstract" },
+    { "lemma": "Structure", "sort": "Abstract" }, { "lemma": "System", "sort": "Abstract" }, { "lemma": "Method", "sort": "Abstract" },
+    { "lemma": "Process", "sort": "Abstract" }, { "lemma": "Step", "sort": "Abstract" }, { "lemma": "Stage", "sort": "Abstract" },
+    { "lemma": "Phase", "sort": "Abstract" }, { "lemma": "Level", "sort": "Abstract" }, { "lemma": "Degree", "sort": "Abstract" },
+    { "lemma": "Measure", "sort": "Abstract" }, { "lemma": "Unit", "sort": "Abstract" }, { "lemma": "Standard", "sort": "Abstract" },
+    { "lemma": "Limit", "sort": "Abstract" }, { "lemma": "Range", "sort": "Abstract" }, { "lemma": "Scale", "sort": "Abstract" },
+    { "lemma": "Rate", "sort": "Abstract" }, { "lemma": "Speed", "sort": "Abstract" }, { "lemma": "Pace", "sort": "Abstract" },
+    { "lemma": "Force", "sort": "Abstract" }, { "lemma": "Energy", "sort": "Abstract" }, { "lemma": "Heat", "sort": "Physical" },
+    { "lemma": "Light", "sort": "Physical" }, { "lemma": "Shadow", "sort": "Physical" }, { "lemma": "Darkness", "sort": "Abstract" },
+    { "lemma": "Fire", "sort": "Physical" }, { "lemma": "Flame", "sort": "Physical" }, { "lemma": "Smoke", "sort": "Physical" },
+    { "lemma": "Ash", "sort": "Physical" }, { "lemma": "Dust", "sort": "Physical" }, { "lemma": "Dirt", "sort": "Physical" },
+    { "lemma": "Mud", "sort": "Physical" }, { "lemma": "Sand", "sort": "Physical" }, { "lemma": "Clay", "sort": "Physical" },
+    { "lemma": "Metal", "sort": "Physical" }, { "lemma": "Gold", "sort": "Physical" }, { "lemma": "Silver", "sort": "Physical" },
+    { "lemma": "Iron", "sort": "Physical" }, { "lemma": "Steel", "sort": "Physical" }, { "lemma": "Copper", "sort": "Physical" },
+    { "lemma": "Wood", "sort": "Physical" }, { "lemma": "Plastic", "sort": "Physical" }, { "lemma": "Paper", "features": ["Neuter"], "sort": "Physical" }, { "lemma": "Trophy", "features": ["Neuter"], "sort": "Physical" },
+    { "lemma": "Cloth", "sort": "Physical" }, { "lemma": "Fabric", "sort": "Physical" }, { "lemma": "Thread", "sort": "Physical" },
+    { "lemma": "Rope", "sort": "Physical" }, { "lemma": "Wire", "sort": "Physical" }, { "lemma": "Tube", "sort": "Physical" },
+    { "lemma": "Pipe", "sort": "Physical" }, { "lemma": "Hole", "sort": "Physical" }, { "lemma": "Gap", "sort": "Physical" },
+    { "lemma": "Crack", "sort": "Physical" }, { "lemma": "Break", "sort": "Physical" }, { "lemma": "Cut", "sort": "Physical" },
+    { "lemma": "Spot", "sort": "Physical" }, { "lemma": "Stain", "sort": "Physical" },
+    { "lemma": "Weather", "sort": "Abstract" }, { "lemma": "Climate", "sort": "Abstract" }, { "lemma": "Temperature", "sort": "Abstract" },
+    { "lemma": "Rain", "sort": "Physical" }, { "lemma": "Snow", "sort": "Physical" }, { "lemma": "Storm", "sort": "Abstract" },
+    { "lemma": "Wind", "sort": "Physical" }, { "lemma": "Cloud", "sort": "Physical" }, { "lemma": "Fog", "sort": "Physical" },
+    { "lemma": "Sky", "sort": "Physical" }, { "lemma": "Air", "sort": "Physical" }, { "lemma": "Atmosphere", "sort": "Physical" },
+    { "lemma": "Earth", "sort": "Physical" }, { "lemma": "Ground", "sort": "Physical" }, { "lemma": "Land", "sort": "Physical" },
+    { "lemma": "Soil", "sort": "Physical" }, { "lemma": "Field", "sort": "Physical" }, { "lemma": "Farm", "sort": "Place" },
+    { "lemma": "Crop", "sort": "Physical" }, { "lemma": "Harvest", "sort": "Abstract" }, { "lemma": "Season", "sort": "Abstract" },
+    { "lemma": "Spring", "sort": "Abstract" }, { "lemma": "Summer", "sort": "Abstract" }, { "lemma": "Autumn", "sort": "Abstract" },
+    { "lemma": "Winter", "sort": "Abstract" }, { "lemma": "Year", "sort": "Abstract" }, { "lemma": "Month", "sort": "Abstract" },
+    { "lemma": "Week", "sort": "Abstract" }, { "lemma": "Day", "sort": "Abstract" }, { "lemma": "Hour", "sort": "Abstract" },
+    { "lemma": "Minute", "sort": "Abstract" }, { "lemma": "Second", "sort": "Abstract" }, { "lemma": "Moment", "sort": "Abstract" },
+    { "lemma": "Period", "sort": "Abstract" }, { "lemma": "Era", "sort": "Abstract" }, { "lemma": "Age", "sort": "Abstract" },
+    { "lemma": "Century", "forms": { "plural": "centuries" }, "sort": "Abstract" }, { "lemma": "Decade", "sort": "Abstract" },
+    { "lemma": "Past", "sort": "Abstract" }, { "lemma": "Present", "sort": "Abstract" }, { "lemma": "Future", "sort": "Abstract" },
+    { "lemma": "History", "sort": "Abstract" }, { "lemma": "Event", "sort": "Abstract" }, { "lemma": "Situation", "sort": "Abstract" },
+    { "lemma": "Condition", "sort": "Abstract" }, { "lemma": "Circumstance", "sort": "Abstract" }, { "lemma": "Case", "sort": "Abstract" },
+    { "lemma": "Example", "sort": "Abstract" }, { "lemma": "Instance", "sort": "Abstract" }, { "lemma": "Sample", "sort": "Abstract" },
+    { "lemma": "Model", "sort": "Abstract" }, { "lemma": "Version", "sort": "Abstract" }, { "lemma": "Copy", "sort": "Physical" },
+    { "lemma": "Original", "sort": "Abstract" }, { "lemma": "Difference", "sort": "Abstract" }, { "lemma": "Similarity", "sort": "Abstract" },
+    { "lemma": "Comparison", "sort": "Abstract" }, { "lemma": "Contrast", "sort": "Abstract" }, { "lemma": "Connection", "sort": "Abstract" },
+    { "lemma": "Relationship", "sort": "Abstract" }, { "lemma": "Link", "sort": "Abstract" }, { "lemma": "Bond", "sort": "Abstract" },
+    { "lemma": "Union", "sort": "Abstract" }, { "lemma": "Marriage", "sort": "Abstract" }, { "lemma": "Divorce", "sort": "Abstract" },
+    { "lemma": "Birth", "sort": "Abstract" }, { "lemma": "Death", "sort": "Abstract" }, { "lemma": "Life", "forms": { "plural": "lives" }, "sort": "Abstract" },
+    { "lemma": "Health", "sort": "Abstract" }, { "lemma": "Disease", "sort": "Abstract" }, { "lemma": "Illness", "sort": "Abstract" },
+    { "lemma": "Injury", "sort": "Abstract" }, { "lemma": "Wound", "sort": "Physical" }, { "lemma": "Cure", "sort": "Abstract" },
+    { "lemma": "Medicine", "sort": "Physical" }, { "lemma": "Drug", "sort": "Physical" }, { "lemma": "Treatment", "sort": "Abstract" },
+    { "lemma": "Surgery", "sort": "Abstract" }, { "lemma": "Operation", "sort": "Abstract" }, { "lemma": "Test", "sort": "Abstract" },
+    { "lemma": "Exam", "sort": "Abstract" }, { "lemma": "Result", "sort": "Abstract" }, { "lemma": "Effect", "sort": "Abstract" },
+    { "lemma": "Cause", "sort": "Abstract" }, { "lemma": "Reason", "sort": "Abstract" }, { "lemma": "Purpose", "sort": "Abstract" },
+    { "lemma": "Goal", "sort": "Abstract" }, { "lemma": "Aim", "sort": "Abstract" }, { "lemma": "Target", "sort": "Abstract" },
+    { "lemma": "Object", "sort": "Physical" }, { "lemma": "Subject", "sort": "Abstract" }, { "lemma": "Topic", "sort": "Abstract" },
+    { "lemma": "Theme", "sort": "Abstract" }, { "lemma": "Issue", "sort": "Abstract" }, { "lemma": "Matter", "sort": "Abstract" },
+    { "lemma": "Fact", "sort": "Abstract" }, { "lemma": "Detail", "sort": "Abstract" }, { "lemma": "Information", "sort": "Abstract" },
+    { "lemma": "Data", "sort": "Abstract" }, { "lemma": "Evidence", "sort": "Abstract" }, { "lemma": "Proof", "sort": "Abstract" },
+    { "lemma": "Claim", "sort": "Abstract" }, { "lemma": "Statement", "sort": "Abstract" }, { "lemma": "Declaration", "sort": "Abstract" },
+    { "lemma": "Announcement", "sort": "Abstract" }, { "lemma": "Report", "sort": "Abstract" }, { "lemma": "News", "sort": "Abstract" },
+    { "lemma": "Article", "sort": "Abstract" }, { "lemma": "Document", "sort": "Physical" }, { "lemma": "File", "sort": "Abstract" },
+    { "lemma": "Record", "sort": "Abstract" }, { "lemma": "List", "sort": "Abstract" },
+    { "lemma": "Chart", "sort": "Abstract" }, { "lemma": "Graph", "sort": "Abstract" }, { "lemma": "Map", "sort": "Physical" },
+    { "lemma": "Plan", "sort": "Abstract" }, { "lemma": "Project", "sort": "Abstract" }, { "lemma": "Program", "sort": "Abstract" },
+    { "lemma": "Activity", "sort": "Abstract" }, { "lemma": "Action", "sort": "Abstract" }, { "lemma": "Movement", "sort": "Abstract" },
+    { "lemma": "Change", "sort": "Abstract" }, { "lemma": "Development", "sort": "Abstract" }, { "lemma": "Growth", "sort": "Abstract" },
+    { "lemma": "Progress", "sort": "Abstract" }, { "lemma": "Improvement", "sort": "Abstract" }, { "lemma": "Increase", "sort": "Abstract" },
+    { "lemma": "Decrease", "sort": "Abstract" }, { "lemma": "Reduction", "sort": "Abstract" }, { "lemma": "Rise", "sort": "Abstract" },
+    { "lemma": "Fall", "sort": "Abstract" }, { "lemma": "Shift", "sort": "Abstract" }, { "lemma": "Turn", "sort": "Abstract" },
+    { "lemma": "Return", "sort": "Abstract" }, { "lemma": "Arrival", "sort": "Abstract" }, { "lemma": "Departure", "sort": "Abstract" },
+    { "lemma": "Journey", "sort": "Abstract" }, { "lemma": "Trip", "sort": "Abstract" }, { "lemma": "Travel", "sort": "Abstract" },
+    { "lemma": "Visit", "sort": "Abstract" }, { "lemma": "Tour", "sort": "Abstract" }, { "lemma": "Adventure", "sort": "Abstract" },
+    { "lemma": "Expedition", "sort": "Abstract" }, { "lemma": "Mission", "sort": "Abstract" }, { "lemma": "Task", "sort": "Abstract" },
+    { "lemma": "Assignment", "sort": "Abstract" }, { "lemma": "Homework", "sort": "Abstract" }, { "lemma": "Lesson", "sort": "Abstract" },
+    { "lemma": "Course", "sort": "Abstract" }, { "lemma": "Training", "sort": "Abstract" }, { "lemma": "Education", "sort": "Abstract" },
+    { "lemma": "Study", "sort": "Abstract" }, { "lemma": "Research", "sort": "Abstract" }, { "lemma": "Analysis", "sort": "Abstract" },
+    { "lemma": "Theory", "sort": "Abstract" }, { "lemma": "Hypothesis", "forms": { "plural": "hypotheses" }, "sort": "Abstract" },
+    { "lemma": "Experiment", "sort": "Abstract" }, { "lemma": "Discovery", "sort": "Abstract" }, { "lemma": "Invention", "sort": "Abstract" },
+    { "lemma": "Creation", "sort": "Abstract" }, { "lemma": "Production", "sort": "Abstract" }, { "lemma": "Construction", "sort": "Abstract" },
+    { "lemma": "Destruction", "sort": "Abstract" }, { "lemma": "Damage", "sort": "Abstract" }, { "lemma": "Repair", "sort": "Abstract" },
+    { "lemma": "Maintenance", "sort": "Abstract" }, { "lemma": "Care", "sort": "Abstract" }, { "lemma": "Protection", "sort": "Abstract" },
+    { "lemma": "Defense", "sort": "Abstract" }, { "lemma": "Attack", "sort": "Abstract" }, { "lemma": "Fight", "sort": "Abstract" },
+    { "lemma": "Conflict", "sort": "Abstract" }, { "lemma": "Struggle", "sort": "Abstract" }, { "lemma": "Effort", "sort": "Abstract" },
+    { "lemma": "Attempt", "sort": "Abstract" }, { "lemma": "Trial", "sort": "Abstract" }, { "lemma": "Challenge", "sort": "Abstract" },
+    { "lemma": "Difficulty", "sort": "Abstract" }, { "lemma": "Trouble", "sort": "Abstract" }, { "lemma": "Danger", "sort": "Abstract" },
+    { "lemma": "Risk", "sort": "Abstract" }, { "lemma": "Threat", "sort": "Abstract" }, { "lemma": "Warning", "sort": "Abstract" },
+    { "lemma": "Signal", "sort": "Abstract" }, { "lemma": "Sign", "sort": "Physical" }, { "lemma": "Symbol", "sort": "Abstract" },
+    { "lemma": "Image", "sort": "Abstract" }, { "lemma": "Picture", "sort": "Physical" }, { "lemma": "Photo", "sort": "Physical" },
+    { "lemma": "Painting", "sort": "Physical" }, { "lemma": "Drawing", "sort": "Physical" }, { "lemma": "Sculpture", "sort": "Physical" },
+    { "lemma": "Statue", "sort": "Physical" }, { "lemma": "Monument", "sort": "Physical" }, { "lemma": "Memorial", "sort": "Physical" },
+    { "lemma": "Celebration", "sort": "Abstract" }, { "lemma": "Party", "sort": "Abstract" }, { "lemma": "Festival", "sort": "Abstract" },
+    { "lemma": "Holiday", "sort": "Abstract" }, { "lemma": "Vacation", "sort": "Abstract" }, { "lemma": "Rest", "sort": "Abstract" },
+    { "lemma": "Sleep", "sort": "Abstract" }, { "lemma": "Food", "sort": "Physical" }, { "lemma": "Meal", "sort": "Physical" },
+    { "lemma": "Breakfast", "sort": "Physical" }, { "lemma": "Lunch", "sort": "Physical" }, { "lemma": "Dinner", "sort": "Physical" },
+    { "lemma": "Snack", "sort": "Physical" }, { "lemma": "Drink", "sort": "Physical" }, { "lemma": "Bottle", "sort": "Physical" },
+    { "lemma": "Cup", "sort": "Physical" }, { "lemma": "Plate", "sort": "Physical" }, { "lemma": "Bowl", "sort": "Physical" },
+    { "lemma": "Spoon", "sort": "Physical" }, { "lemma": "Fork", "sort": "Physical" }, { "lemma": "Pan", "sort": "Physical" },
+    { "lemma": "Pot", "sort": "Physical" }, { "lemma": "Oven", "sort": "Physical" }, { "lemma": "Stove", "sort": "Physical" },
+    { "lemma": "Refrigerator", "sort": "Physical" }, { "lemma": "Sink", "sort": "Physical" }, { "lemma": "Faucet", "sort": "Physical" },
+    { "lemma": "Shower", "sort": "Physical" }, { "lemma": "Bath", "sort": "Physical" }, { "lemma": "Toilet", "sort": "Physical" },
+    { "lemma": "Towel", "sort": "Physical" }, { "lemma": "Soap", "sort": "Physical" }, { "lemma": "Shampoo", "sort": "Physical" },
+    { "lemma": "Toothbrush", "sort": "Physical" }, { "lemma": "Toothpaste", "sort": "Physical" }, { "lemma": "Comb", "sort": "Physical" },
+    { "lemma": "Brush", "sort": "Physical" }, { "lemma": "Razor", "sort": "Physical" }, { "lemma": "Scissors", "sort": "Physical" },
+    { "lemma": "Needle", "sort": "Physical" }, { "lemma": "Button", "sort": "Physical" }, { "lemma": "Zipper", "sort": "Physical" },
+    { "lemma": "Pocket", "sort": "Physical" }, { "lemma": "Bag", "sort": "Physical" }, { "lemma": "Box", "sort": "Physical" },
+    { "lemma": "Package", "sort": "Physical" }, { "lemma": "Container", "sort": "Physical" }, { "lemma": "Basket", "sort": "Physical" },
+    { "lemma": "Bucket", "sort": "Physical" }, { "lemma": "Barrel", "sort": "Physical" }, { "lemma": "Tank", "sort": "Physical" },
+    { "lemma": "Tool", "sort": "Physical" }, { "lemma": "Hammer", "sort": "Physical" }, { "lemma": "Nail", "sort": "Physical" },
+    { "lemma": "Screw", "sort": "Physical" }, { "lemma": "Wrench", "sort": "Physical" }, { "lemma": "Drill", "sort": "Physical" },
+    { "lemma": "Saw", "sort": "Physical" }, { "lemma": "Axe", "sort": "Physical" }, { "lemma": "Shovel", "sort": "Physical" },
+    { "lemma": "Rake", "sort": "Physical" }, { "lemma": "Hose", "sort": "Physical" }, { "lemma": "Ladder", "sort": "Physical" },
+    { "lemma": "Stairs", "sort": "Physical" }, { "lemma": "Elevator", "sort": "Physical" }, { "lemma": "Escalator", "sort": "Physical" },
+    { "lemma": "Ramp", "sort": "Physical" }, { "lemma": "Gate", "sort": "Physical" }, { "lemma": "Fence", "sort": "Physical" },
+    { "lemma": "Lock", "sort": "Physical" }, { "lemma": "Handle", "sort": "Physical" }, { "lemma": "Knob", "sort": "Physical" },
+    { "lemma": "Switch", "sort": "Physical" }, { "lemma": "Plug", "sort": "Physical" }, { "lemma": "Outlet", "sort": "Physical" },
+    { "lemma": "Cord", "sort": "Physical" }, { "lemma": "Cable", "sort": "Physical" }, { "lemma": "Network", "sort": "Abstract" },
+    { "lemma": "Internet", "sort": "Abstract" }, { "lemma": "Website", "sort": "Abstract" }, { "lemma": "Software", "sort": "Abstract" },
+    { "lemma": "Hardware", "sort": "Physical" }, { "lemma": "Database", "sort": "Abstract" }, { "lemma": "Server", "sort": "Physical" },
+    { "lemma": "Machine", "sort": "Physical" }, { "lemma": "Device", "sort": "Physical" }, { "lemma": "Equipment", "sort": "Physical" },
+    { "lemma": "Instrument", "sort": "Physical" }, { "lemma": "Appliance", "sort": "Physical" }, { "lemma": "Gadget", "sort": "Physical" },
+    { "lemma": "Vehicle", "sort": "Physical" }, { "lemma": "Truck", "sort": "Physical" }, { "lemma": "Van", "sort": "Physical" },
+    { "lemma": "Motorcycle", "sort": "Physical" }, { "lemma": "Bicycle", "sort": "Physical" }, { "lemma": "Boat", "sort": "Physical" },
+    { "lemma": "Ship", "sort": "Physical" }, { "lemma": "Plane", "sort": "Physical" }, { "lemma": "Helicopter", "sort": "Physical" },
+    { "lemma": "Train", "sort": "Physical" }, { "lemma": "Subway", "sort": "Physical" }, { "lemma": "Taxi", "sort": "Physical" },
+    { "lemma": "Hayden", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Charlie", "features": ["Proper"], "sort": "Human" },
+    { "lemma": "Tristen", "features": ["Proper"], "sort": "Human" },
+    { "lemma": "Collin", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Max", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Jake", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Ryan", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Tyler", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Brandon", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Justin", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Kevin", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Brian", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Eric", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Jason", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Adam", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Andrew", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Matthew", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Michael", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Daniel", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "William", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Robert", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Richard", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Joseph", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Thomas", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Charles", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Christopher", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Anthony", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Steven", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Kenneth", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "George", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Edward", "features": ["Proper", "Masculine"], "sort": "Human" },
+    { "lemma": "Jennifer", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Elizabeth", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Linda", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Barbara", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Patricia", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Margaret", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Sandra", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Ashley", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Dorothy", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Kimberly", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Michelle", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Carol", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Amanda", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Melissa", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Deborah", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Stephanie", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Rebecca", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Sharon", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Cynthia", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Kathleen", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Karen", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Nicole", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Christine", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Samantha", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Janet", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Catherine", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Frances", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Ann", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Joyce", "features": ["Proper", "Feminine"], "sort": "Human" },
+    { "lemma": "Diane", "features": ["Proper", "Feminine"], "sort": "Human" }
   ],
   "adjectives": [
     { "lemma": "Red", "regular": true, "features": ["Intersective"] },
@@ -2921,29 +4628,295 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
     { "lemma": "Elegant", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
     { "lemma": "Awkward", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
     { "lemma": "Careful", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
-    { "lemma": "Careless", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] }
+    { "lemma": "Careless", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Angry", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Afraid", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Alive", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Dead", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Asleep", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Awake", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Busy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Calm", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Cheap", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Expensive", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Clever", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Crazy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Curious", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Delicious", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Different", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Same", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Easy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Empty", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Full", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Excited", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Famous", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Friendly", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Funny", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Gentle", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Guilty", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Innocent", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Healthy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Sick", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Heavy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Helpful", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Honest", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Hungry", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Thirsty", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Important", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Impossible", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Interesting", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Boring", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Jealous", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Kind", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Lazy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Lonely", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Lucky", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Modern", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Ancient", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Narrow", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Nervous", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Nice", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Normal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Strange", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Obvious", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Perfect", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Pleasant", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Polite", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Rude", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Popular", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Powerful", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Pretty", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Ugly", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Private", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Public", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Proud", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Ready", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Real", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Reasonable", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Relaxed", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Relevant", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Responsible", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Rough", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Smooth", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Round", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Safe", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Scared", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Serious", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Sharp", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Dull", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Silent", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Silly", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Simple", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Complex", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Single", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Sleepy", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Sorry", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Special", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Steep", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Strict", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Stupid", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Successful", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Sudden", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Sure", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Surprised", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Terrible", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Tired", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Traditional", "regular": true, "features": ["Intersective"] },
+    { "lemma": "True", "regular": true, "features": ["Intersective"] },
+    { "lemma": "False", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Typical", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Unusual", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Useful", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Useless", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Various", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Visible", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Invisible", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Warm", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Wild", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Wise", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Wonderful", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Wooden", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Worried", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Worth", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Wrong", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Yellow", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Orange", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Purple", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Pink", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Brown", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Gray", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Golden", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Silver", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Massive", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Tiny", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Huge", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Giant", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Little", "regular": true, "features": ["Subsective", "Gradable"] },
+    { "lemma": "Entire", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Whole", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Main", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Major", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Minor", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Only", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Own", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Other", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Next", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Last", "regular": true, "features": ["Intersective"] },
+    { "lemma": "First", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Final", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Previous", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Current", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Recent", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Early", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Late", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Daily", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Weekly", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Monthly", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Annual", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Constant", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Temporary", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Permanent", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Local", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Global", "regular": true, "features": ["Intersective"] },
+    { "lemma": "National", "regular": true, "features": ["Intersective"] },
+    { "lemma": "International", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Foreign", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Native", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Natural", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Artificial", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Physical", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Mental", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Emotional", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Social", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Political", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Economic", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Legal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Illegal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Medical", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Scientific", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Technical", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Professional", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Personal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Official", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Original", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Additional", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Available", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Basic", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Central", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Common", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Rare", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Complete", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Incomplete", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Correct", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Incorrect", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Direct", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Indirect", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Exact", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Fair", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Unfair", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Favorite", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Final", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Fine", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Firm", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Fit", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Flat", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Formal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Informal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Free", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Fresh", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "General", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Specific", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Grand", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Gross", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Net", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Independent", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Dependent", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Individual", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Inner", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Outer", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Upper", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Lower", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Latter", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Likely", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Unlikely", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Loose", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Tight", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Married", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Maximum", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Minimum", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Mere", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Mutual", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Naked", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Necessary", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Negative", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Positive", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Neutral", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Obvious", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Opposite", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Parallel", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Particular", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Plain", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Primary", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Secondary", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Prime", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Principal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Proper", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Pure", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Quick", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Rapid", "regular": true, "features": ["Intersective", "Gradable", "EventModifier"] },
+    { "lemma": "Raw", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Regular", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Irregular", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Relative", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Absolute", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Remote", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Royal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Rural", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Urban", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Secure", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Senior", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Junior", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Separate", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Severe", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Slight", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Solid", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Liquid", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Spare", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Stable", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Standard", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Steady", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Straight", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Sufficient", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Suitable", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Supreme", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Total", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Tough", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Ultimate", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Unique", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Universal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Valid", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Invalid", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Valuable", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Worthless", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Vast", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Vertical", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Horizontal", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Virtual", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Vital", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Voluntary", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Weird", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Wicked", "regular": true, "features": ["Intersective", "Gradable"] },
+    { "lemma": "Willing", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Wooden", "regular": true, "features": ["Intersective"] },
+    { "lemma": "Worthy", "regular": true, "features": ["Intersective", "Gradable"] }
   ],
-  "agentive_nouns": {
-    "dancer": "Dance",
-    "runner": "Run",
-    "singer": "Sing",
-    "driver": "Drive",
-    "teacher": "Teach",
-    "writer": "Write",
-    "speaker": "Speak",
-    "player": "Play",
-    "worker": "Work",
-    "swimmer": "Swim",
-    "jumper": "Jump",
-    "walker": "Walk",
-    "thinker": "Think",
-    "reader": "Read",
-    "fighter": "Fight",
-    "painter": "Paint",
-    "builder": "Build",
-    "baker": "Bake",
-    "catcher": "Catch"
-  },
+  "morphological_rules": [
+    { "suffix": "ist", "base_pos": "Noun", "relation": "Practitioner" },
+    { "suffix": "ian", "base_pos": "Noun", "relation": "Practitioner" },
+    { "suffix": "er", "base_pos": "Verb", "relation": "Agent" },
+    { "suffix": "or", "base_pos": "Verb", "relation": "Agent" },
+    { "suffix": "ee", "base_pos": "Verb", "relation": "Patient" }
+  ],
   "prepositions": [
     "from", "with", "for", "by", "of", "in", "on", "at", "into", "onto",
     "under", "over", "through", "about", "around", "between", "among",
@@ -2999,7 +4972,7 @@ The lexicon defines all vocabulary entries that drive the lexer and parser behav
   "disambiguation_not_verbs": [
     "ring", "king", "thing", "spring", "string", "swing", "wing", "bring", "sing",
     "bus", "plus", "gas", "us", "thus", "focus", "campus", "status", "bonus",
-    "red", "bed", "led", "shed", "sled", "wed",
+    "red", "bed", "led", "shed", "sled", "wed", "ground",
     "tired", "bored", "excited", "interested", "blessed", "wicked",
     "mortal", "happy", "friendly", "loud", "black", "old", "wise", "bald",
     "tall", "short", "big", "small", "fast", "slow", "good", "bad", "lazy",
@@ -3164,7 +5137,7 @@ The lexer transforms English text into a stream of classified tokens using dicti
 Token type taxonomy including quantifiers, modal operators, connectives (Because for causal), pronouns, prepositions, demonstratives (This/That/These/Those), Reciprocal (each other), and performatives. Supports presupposition triggers, focus particles, and measure words (MeasureKind: Much/Little). Number(Symbol) stores numeric literals as interned strings for prover-ready symbolic math. Includes semantic token sets (WH_WORDS, MODALS) as const arrays for pattern matching. Span struct (start/end byte positions) for source location tracking. **Phase 12:** TokenType::Ambiguous { primary: Box<TokenType>, alternatives: Vec<TokenType> } for polysemous words that have multiple valid interpretations (e.g., 'duck' as Noun or Verb).
 
 ```rust
-use crate::context::{Case, Gender, Number};
+use crate::drs::{Case, Gender, Number};
 use crate::intern::Symbol;
 use crate::lexicon::{Aspect, Definiteness, Time, VerbClass};
 
@@ -4861,13 +6834,15 @@ impl<'a> Lexer<'a> {
                     return TokenType::ProperName(sym);
                 }
 
-                // If next word is a verb (like "has", "is", "ran"), A is likely a name
+                // If next word is ONLY a verb (like "has", "is", "ran"), A is likely a name
                 // Exception: gerunds (like "running") can follow articles
                 // Exception: words in disambiguation_not_verbs (like "red") are not verbs
+                // Exception: words that are also nouns/adjectives (like "fire") can follow articles
                 let is_verb = self.lexicon.lookup_verb(&next_lower).is_some()
                     && !lexicon::is_disambiguation_not_verb(&next_lower);
                 let is_gerund = next_lower.ends_with("ing");
-                if is_verb && !is_gerund {
+                let is_also_noun_or_adj = self.is_noun_like(&next_lower) || self.is_adjective_like(&next_lower);
+                if is_verb && !is_gerund && !is_also_noun_or_adj {
                     let sym = self.interner.intern(word);
                     return TokenType::ProperName(sym);
                 }
@@ -5198,6 +7173,41 @@ impl<'a> Lexer<'a> {
         }
 
         if first_char.is_uppercase() {
+            // Smart Lexicon: Check if this capitalized word is actually a common noun
+            // Only apply for sentence-initial words (followed by verb) to avoid
+            // breaking type definitions like "A Point has:"
+            //
+            // Pattern: "Farmers walk." → Farmers is plural of Farmer (common noun)
+            // Pattern: "A Point has:" → Point is a type name (proper name)
+            if let Some(next) = self.peek_word(1) {
+                let next_lower = next.to_lowercase();
+                // If next word is a verb, this capitalized word is likely a subject noun
+                let is_followed_by_verb = self.lexicon.lookup_verb(&next_lower).is_some()
+                    || matches!(next_lower.as_str(), "is" | "are" | "was" | "were" | "has" | "have" | "had");
+
+                if is_followed_by_verb {
+                    // Check if lowercase version is a derivable common noun
+                    if let Some(analysis) = lexicon::analyze_word(&lower) {
+                        match analysis {
+                            lexicon::WordAnalysis::Noun(meta) if meta.number == lexicon::Number::Plural => {
+                                // It's a plural noun - definitely a common noun
+                                let sym = self.interner.intern(&lower);
+                                return TokenType::Noun(sym);
+                            }
+                            lexicon::WordAnalysis::DerivedNoun { number: lexicon::Number::Plural, .. } => {
+                                // Derived plural agentive noun (e.g., "Bloggers")
+                                let sym = self.interner.intern(&lower);
+                                return TokenType::Noun(sym);
+                            }
+                            _ => {
+                                // Singular nouns at sentence start could still be proper names
+                                // e.g., "John walks." vs "Farmer walks."
+                            }
+                        }
+                    }
+                }
+            }
+
             let sym = self.interner.intern(word);
             return TokenType::ProperName(sym);
         }
@@ -6802,8 +8812,8 @@ use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::ast::stmt::ReadSource;
-use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
-use crate::drs::{Drs, BoxType};
+use crate::drs::{Case, Gender, Number};
+use crate::drs::{Drs, BoxType, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
@@ -6912,7 +8922,6 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) current: usize,
     pub(super) var_counter: usize,
     pub(super) pending_time: Option<Time>,
-    pub(super) context: Option<&'ctx mut DiscourseContext>,
     /// Donkey bindings: (noun, var, is_donkey_used, wide_scope_negation)
     /// The 4th field tracks if this binding's existential needs negation wrapping (for "lacks" scope)
     pub(super) donkey_bindings: Vec<(Symbol, Symbol, bool, bool)>,
@@ -6930,103 +8939,23 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) mode: ParserMode,
     pub(super) type_registry: Option<TypeRegistry>,
     pub(super) event_reading_mode: bool,
+    /// Internal DRS for sentence-level scope tracking (swapped with WorldState's DRS)
     pub(super) drs: Drs,
     pub(super) negative_scope_mode: NegativeScopeMode,
     pub(super) modal_preference: ModalPreference,
+    /// WorldState for discourse-level parsing (DRS persists across sentences)
+    pub(super) world_state: &'ctx mut WorldState,
+    /// Track when inside "No X" quantifier (referents are inaccessible for cross-sentence anaphora)
+    pub(super) in_negative_quantifier: bool,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// Create a parser with WorldState for discourse-level parsing.
+    /// WorldState is REQUIRED - there is no "single sentence mode".
+    /// A single sentence is just a discourse of length 1.
     pub fn new(
         tokens: Vec<Token>,
-        interner: &'int mut Interner,
-        ctx: AstContext<'a>,
-    ) -> Self {
-        Parser {
-            tokens,
-            current: 0,
-            var_counter: 0,
-            pending_time: None,
-            context: None,
-            donkey_bindings: Vec::new(),
-            interner,
-            ctx,
-            current_island: 0,
-            pp_attach_to_noun: false,
-            filler_gap: None,
-            negative_depth: 0,
-            discourse_event_var: None,
-            last_event_template: None,
-            noun_priority_mode: false,
-            collective_mode: false,
-            pending_cardinal: None,
-            mode: ParserMode::Declarative,
-            type_registry: None,
-            event_reading_mode: false,
-            drs: Drs::new(),
-            negative_scope_mode: NegativeScopeMode::default(),
-            modal_preference: ModalPreference::default(),
-        }
-    }
-
-    pub fn set_noun_priority_mode(&mut self, mode: bool) {
-        self.noun_priority_mode = mode;
-    }
-
-    pub fn set_collective_mode(&mut self, mode: bool) {
-        self.collective_mode = mode;
-    }
-
-    pub fn set_event_reading_mode(&mut self, mode: bool) {
-        self.event_reading_mode = mode;
-    }
-
-    pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
-        self.negative_scope_mode = mode;
-    }
-
-    pub fn set_modal_preference(&mut self, pref: ModalPreference) {
-        self.modal_preference = pref;
-    }
-
-    pub fn with_context(
-        tokens: Vec<Token>,
-        context: &'ctx mut DiscourseContext,
-        interner: &'int mut Interner,
-        ctx: AstContext<'a>,
-    ) -> Self {
-        Parser {
-            tokens,
-            current: 0,
-            var_counter: 0,
-            pending_time: None,
-            context: Some(context),
-            donkey_bindings: Vec::new(),
-            interner,
-            ctx,
-            current_island: 0,
-            pp_attach_to_noun: false,
-            filler_gap: None,
-            negative_depth: 0,
-            discourse_event_var: None,
-            last_event_template: None,
-            noun_priority_mode: false,
-            collective_mode: false,
-            pending_cardinal: None,
-            mode: ParserMode::Declarative,
-            type_registry: None,
-            event_reading_mode: false,
-            drs: Drs::new(),
-            negative_scope_mode: NegativeScopeMode::default(),
-            modal_preference: ModalPreference::default(),
-        }
-    }
-
-    /// Create a parser with type registry for two-pass compilation.
-    /// The type registry enables disambiguation of "Stack of Integers" (generic)
-    /// vs "Owner of House" (possessive).
-    pub fn with_types(
-        tokens: Vec<Token>,
-        context: &'ctx mut DiscourseContext,
+        world_state: &'ctx mut WorldState,
         interner: &'int mut Interner,
         ctx: AstContext<'a>,
         types: TypeRegistry,
@@ -7036,7 +8965,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             current: 0,
             var_counter: 0,
             pending_time: None,
-            context: Some(context),
             donkey_bindings: Vec::new(),
             interner,
             ctx,
@@ -7052,14 +8980,38 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: Some(types),
             event_reading_mode: false,
-            drs: Drs::new(),
+            drs: Drs::new(), // Internal DRS for sentence-level scope tracking
             negative_scope_mode: NegativeScopeMode::default(),
             modal_preference: ModalPreference::default(),
+            world_state,
+            in_negative_quantifier: false,
         }
     }
 
     pub fn set_discourse_event_var(&mut self, var: Symbol) {
         self.discourse_event_var = Some(var);
+    }
+
+    /// Get mutable reference to the active DRS (from WorldState).
+    pub fn drs_mut(&mut self) -> &mut Drs {
+        &mut self.world_state.drs
+    }
+
+    /// Get immutable reference to the active DRS (from WorldState).
+    pub fn drs_ref(&self) -> &Drs {
+        &self.world_state.drs
+    }
+
+    /// Swap DRS between Parser and WorldState.
+    /// Call at start of parsing to get the accumulated DRS from WorldState.
+    /// Call at end of parsing to save the updated DRS back to WorldState.
+    pub fn swap_drs_with_world_state(&mut self) {
+        std::mem::swap(&mut self.drs, &mut self.world_state.drs);
+    }
+
+    /// WorldState is always present (no "single sentence mode")
+    pub fn has_world_state(&self) -> bool {
+        true
     }
 
     pub fn mode(&self) -> ParserMode {
@@ -7433,6 +9385,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.pp_attach_to_noun = attach_to_noun;
     }
 
+    pub fn set_noun_priority_mode(&mut self, mode: bool) {
+        self.noun_priority_mode = mode;
+    }
+
+    pub fn set_collective_mode(&mut self, mode: bool) {
+        self.collective_mode = mode;
+    }
+
+    pub fn set_event_reading_mode(&mut self, mode: bool) {
+        self.event_reading_mode = mode;
+    }
+
+    pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
+        self.negative_scope_mode = mode;
+    }
+
+    pub fn set_modal_preference(&mut self, pref: ModalPreference) {
+        self.modal_preference = pref;
+    }
+
     fn checkpoint(&self) -> ParserCheckpoint {
         ParserCheckpoint {
             pos: self.current,
@@ -7479,25 +9451,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    fn register_entity(&mut self, symbol: &str, noun_class: &str, gender: Gender, number: Number) {
-        use crate::context::OwnershipState;
-        if let Some(ref mut ctx) = self.context {
-            ctx.register(Entity {
-                symbol: symbol.to_string(),
-                gender,
-                number,
-                noun_class: noun_class.to_string(),
-                ownership: OwnershipState::Owned,
-            });
+    fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> ParseResult<Symbol> {
+        // Try DRS resolution (scope-aware)
+        let current_box = self.drs.current_box_index();
+        match self.drs.resolve_pronoun(current_box, gender, number) {
+            Ok(sym) => return Ok(sym),
+            Err(crate::drs::ScopeError::InaccessibleReferent { reason, .. }) => {
+                // Hard error: referent exists but is trapped in inaccessible scope
+                return Err(ParseError {
+                    kind: ParseErrorKind::ScopeViolation(reason),
+                    span: self.current_span(),
+                });
+            }
+            Err(crate::drs::ScopeError::NoMatchingReferent { gender: g, number: n }) => {
+                // Try telescoping across sentence boundaries
+                if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
+                    return Ok(candidate.variable);
+                }
+                // No matching referent found - hard error (zero tolerance policy)
+                return Err(ParseError {
+                    kind: ParseErrorKind::ScopeViolation(format!(
+                        "No accessible {:?} {:?} referent in scope", g, n
+                    )),
+                    span: self.current_span(),
+                });
+            }
         }
-    }
-
-    fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> Option<Symbol> {
-        self.context
-            .as_ref()
-            .and_then(|ctx| ctx.resolve_pronoun(gender, number))
-            .map(|e| e.symbol.clone())
-            .map(|s| self.interner.intern(&s))
     }
 
     fn resolve_donkey_pronoun(&mut self, gender: Gender) -> Option<Symbol> {
@@ -7518,6 +9497,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Gender::Female
         } else if lexicon::is_male_noun(&lower) {
             Gender::Male
+        } else if lexicon::is_neuter_noun(&lower) {
+            Gender::Neuter
         } else {
             Gender::Unknown
         }
@@ -8106,7 +10087,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 s
             }
-            TokenType::Verb { .. } => {
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
                 // Use lexeme (actual text) not lemma to preserve casing
                 let s = self.peek().lexeme;
                 self.advance();
@@ -8359,19 +10340,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         // Parse address expression
                         let address = self.parse_imperative_expr()?;
 
-                        // Bind in ScopeStack if context available
-                        if let Some(ctx) = self.context.as_mut() {
-                            use crate::context::{Entity, Gender, Number, OwnershipState};
-                            let var_name = self.interner.resolve(var).to_string();
-                            ctx.register(Entity {
-                                symbol: var_name.clone(),
-                                gender: Gender::Neuter,
-                                number: Number::Singular,
-                                noun_class: var_name,
-                                ownership: OwnershipState::Owned,
-                            });
-                        }
-
                         return Ok(Stmt::LetPeerAgent { var, address });
                     }
                 }
@@ -8400,18 +10368,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Parse element type
                 let element_type = self.expect_identifier()?;
 
-                // Register variable in scope
-                if let Some(ctx) = self.context.as_mut() {
-                    use crate::context::{Entity, Gender, Number, OwnershipState};
-                    let var_name = self.interner.resolve(var).to_string();
-                    ctx.register(Entity {
-                        symbol: var_name.clone(),
-                        gender: Gender::Neuter,
-                        number: Number::Singular,
-                        noun_class: "Pipe".to_string(),
-                        ownership: OwnershipState::Owned,
-                    });
-                }
+                // Variable registration now handled by DRS
 
                 return Ok(Stmt::CreatePipe { var, element_type, capacity: None });
             }
@@ -8488,18 +10445,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        // Bind in ScopeStack if context available
-        if let Some(ctx) = self.context.as_mut() {
-            use crate::context::{Entity, Gender, Number, OwnershipState};
-            let var_name = self.interner.resolve(var).to_string();
-            ctx.register(Entity {
-                symbol: var_name.clone(),
-                gender: Gender::Neuter,
-                number: Number::Singular,
-                noun_class: var_name,
-                ownership: OwnershipState::Owned,
-            });
-        }
+        // Variable registration now handled by DRS
 
         Ok(Stmt::Let { var, ty, value, mutable })
     }
@@ -8854,9 +10800,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Sync"
 
         // Parse variable name (must be an identifier)
+        // Phase 49: Also handle Verb and Ambiguous tokens (e.g., "state" can be verb or noun)
         let var = match &self.tokens[self.current].kind {
             TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                let s = self.tokens[self.current].lexeme;
                 self.advance();
                 s
             }
@@ -8890,9 +10842,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance(); // consume "Mount"
 
         // Parse variable name (must be an identifier)
+        // Phase 49: Also handle Verb and Ambiguous tokens
         let var = match &self.tokens[self.current].kind {
             TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                let s = self.tokens[self.current].lexeme;
                 self.advance();
                 s
             }
@@ -8976,9 +10934,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.advance();
 
         // Parse function name
+        // Phase 49: Also handle Verb and Ambiguous tokens (e.g., "greet" can be a verb)
         let function = match &self.tokens[self.current].kind {
             TokenType::ProperName(sym) | TokenType::Noun(sym) | TokenType::Adjective(sym) => {
                 let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                let s = self.tokens[self.current].lexeme;
                 self.advance();
                 s
             }
@@ -9299,8 +11263,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        use crate::context::OwnershipState;
-
         self.advance(); // consume "Give"
 
         // Parse the object being given: "x" or "the data"
@@ -9318,20 +11280,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the recipient: "processor" or "the console"
         let recipient = self.parse_imperative_expr()?;
 
-        // CRITICAL: Mark the object as Moved in the ownership tracker
-        if let Expr::Identifier(sym) = *object {
-            if let Some(ctx) = self.context.as_mut() {
-                let name = self.interner.resolve(sym);
-                ctx.set_ownership(name, OwnershipState::Moved);
-            }
-        }
-
+        // Ownership tracking removed - use borrow checker at compile time
         Ok(Stmt::Give { object, recipient })
     }
 
     fn parse_show_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        use crate::context::OwnershipState;
-
         self.advance(); // consume "Show"
 
         // Parse the object being shown - use parse_condition to support
@@ -9361,14 +11314,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.ctx.alloc_imperative_expr(Expr::Identifier(show_sym))
         };
 
-        // Mark the object as Borrowed (NOT Moved - still accessible)
-        if let Expr::Identifier(sym) = *object {
-            if let Some(ctx) = self.context.as_mut() {
-                let name = self.interner.resolve(sym);
-                ctx.set_ownership(name, OwnershipState::Borrowed);
-            }
-        }
-
+        // Ownership tracking removed - use borrow checker at compile time
         Ok(Stmt::Show { object, recipient })
     }
 
@@ -9380,8 +11326,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the value being pushed
         let value = self.parse_imperative_expr()?;
 
-        // Expect "to" preposition
-        if !self.check_preposition_is("to") {
+        // Expect "to" (can be keyword or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
                 span: self.current_span(),
@@ -9534,8 +11480,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the content expression
         let content = self.parse_imperative_expr()?;
 
-        // Expect "to" preposition
-        if !self.check_preposition_is("to") {
+        // Expect "to" (can be keyword or preposition)
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
                 span: self.current_span(),
@@ -11354,20 +13300,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(());
         }
 
-        use crate::context::OwnershipState;
-        let name = self.interner.resolve(sym);
-
-        // Check for Use-After-Move on variables we're tracking
-        let ownership = self.context.as_ref()
-            .and_then(|ctx| ctx.get_ownership(name));
-
-        if ownership == Some(OwnershipState::Moved) {
-            return Err(ParseError {
-                kind: ParseErrorKind::UseAfterMove { name: name.to_string() },
-                span: self.current_span(),
-            });
-        }
-
+        // Ownership tracking removed - use borrow checker at compile time
         Ok(())
     }
 
@@ -11420,13 +13353,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance();
                 Ok(sym)
             }
-            TokenType::Ambiguous { primary, .. } => {
-                // For ambiguous tokens, extract symbol from primary
-                let sym = match &**primary {
-                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => *s,
-                    TokenType::Verb { lemma, .. } => *lemma,
-                    _ => token.lexeme,
-                };
+            TokenType::Ambiguous { .. } => {
+                // For ambiguous tokens, always use the raw lexeme to preserve original casing
+                // (using verb lemma can give wrong casing like "State" instead of "state")
+                let sym = token.lexeme;
                 self.advance();
                 Ok(sym)
             }
@@ -11557,7 +13487,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
@@ -11590,8 +13520,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.interner.intern("Addressee")
             } else {
                 // Try discourse resolution for anaphoric pronouns
-                let unknown = self.interner.intern("?");
-                self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                self.resolve_pronoun(gender, number)?
             };
 
             // Check for performative: "I promise that..." or "I promise to..."
@@ -11684,8 +13613,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                     if let Some((gender, number)) = pronoun_features {
                         p.advance(); // consume pronoun
-                        let unknown = p.interner.intern("?");
-                        let resolved = p.resolve_pronoun(gender, number).unwrap_or(unknown);
+                        let resolved = p.resolve_pronoun(gender, number)?;
 
                         if p.check_verb() {
                             let verb = p.consume_verb();
@@ -12530,7 +14458,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -12679,7 +14607,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let suppress_existential = self.drs.in_conditional_antecedent();
                             if suppress_existential {
                                 let event_class = self.interner.intern("Event");
-                                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                             }
                             let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var,
@@ -12699,7 +14627,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let suppress_existential2 = self.drs.in_conditional_antecedent();
                             if suppress_existential2 {
                                 let event_class = self.interner.intern("Event");
-                                self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                                self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
                             }
                             let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var: know_event_var,
@@ -12756,7 +14684,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                 }
 
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
@@ -13062,7 +14990,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
@@ -13083,7 +15011,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential2 = self.drs.in_conditional_antecedent();
                         if suppress_existential2 {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var: know_event_var,
@@ -13113,7 +15041,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                    self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
                 }
                 let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var: know_event_var,
@@ -13151,8 +15079,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else if self.check_pronoun() {
                 let token = self.advance().clone();
                 if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    let resolved = self.resolve_pronoun(gender, number)
-                        .unwrap_or(unknown);
+                    let resolved = self.resolve_pronoun(gender, number)?;
                     let term = Term::Constant(resolved);
                     object_term = Some(term.clone());
                     args.push(term);
@@ -13215,14 +15142,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let intension_term = Term::Intension(object_np.noun);
 
                         // Register intensional entity for anaphora resolution
-                        let noun_str = self.interner.resolve(object_np.noun).to_string();
-                        let first_char = noun_str.chars().next().unwrap_or('X');
-                        if first_char.is_alphabetic() {
-                            // Use full noun name with ^ prefix for intensional terms
-                            let symbol = format!("^{}", crate::transpile::capitalize_first(&noun_str));
-                            self.register_entity(&symbol, &noun_str, Gender::Neuter, Number::Singular);
-                        }
-
                         let event_var = self.get_event_var();
                         let mut modifiers = self.collect_adverbs();
                         let effective_time = self.pending_time.take().unwrap_or(verb_time);
@@ -13241,7 +15160,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
@@ -13256,6 +15175,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
 
                     let obj_var = self.next_var_name();
+
+                    // Introduce object referent in DRS for cross-sentence anaphora
+                    let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
@@ -13300,7 +15229,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -13348,12 +15277,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         }),
                     };
 
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    // Wrap object with its quantifier
+                    let obj_quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: obj_kind,
                         variable: obj_var,
                         body: obj_body,
                         island_id: self.current_island,
-                    }));
+                    });
+
+                    // Now wrap the SUBJECT (don't skip it with early return!)
+                    return self.wrap_with_definiteness_full(&subject, obj_quantified);
                 } else {
                     let term = self.noun_phrase_to_term(&object_np);
                     object_term = Some(term.clone());
@@ -13391,7 +15324,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -13434,7 +15367,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                 }
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
@@ -13575,8 +15508,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else if self.check_pronoun() {
                     let token = self.advance().clone();
                     if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                        let resolved = self.resolve_pronoun(gender, number)
-                            .unwrap_or(unknown);
+                        let resolved = self.resolve_pronoun(gender, number)?;
                         Term::Constant(resolved)
                     } else {
                         continue;
@@ -13677,7 +15609,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let suppress_existential = self.drs.in_conditional_antecedent();
             if suppress_existential {
                 let event_class = self.interner.intern("Event");
-                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
             }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
@@ -13805,10 +15737,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn check_to_preposition(&self) -> bool {
-        if let TokenType::Preposition(p) = self.peek().kind {
-            p.is(self.interner, "to")
-        } else {
-            false
+        match self.peek().kind {
+            TokenType::To => true,
+            TokenType::Preposition(p) => p.is(self.interner, "to"),
+            _ => false,
         }
     }
 
@@ -14164,38 +16096,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::ProperName(s) => {
                 let s_str = self.interner.resolve(s);
 
-                // In imperative mode, reject unknown or moved entities
-                if self.mode == ParserMode::Imperative {
-                    use crate::context::OwnershipState;
-
-                    let is_known = self.context.as_ref()
-                        .map(|ctx| ctx.has_entity_by_noun_class(s_str))
-                        .unwrap_or(false);
-
-                    if !is_known {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UndefinedVariable { name: s_str.to_string() },
-                            span: self.current_span(),
-                        });
-                    }
-
-                    // Check for use-after-move
-                    let ownership = self.context.as_ref()
-                        .and_then(|ctx| ctx.get_ownership(s_str));
-
-                    if ownership == Some(OwnershipState::Moved) {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UseAfterMove { name: s_str.to_string() },
-                            span: self.current_span(),
-                        });
-                    }
-                }
+                // Ownership tracking removed - use borrow checker at compile time
 
                 let gender = Self::infer_gender(s_str);
-                // Use full name as symbol for consistent output in Full mode
-                let symbol_str = crate::transpile::capitalize_first(s_str);
-                let noun_class = s_str.to_string();
-                self.register_entity(&symbol_str, &noun_class, gender, Number::Singular);
+
+                // Register in DRS for cross-sentence anaphora resolution
+                self.drs.introduce_proper_name(s, s, gender);
+
                 Ok(s)
             }
             TokenType::Verb { lemma, .. } => Ok(lemma),
@@ -14203,7 +16110,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 match *primary {
                     TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
                     TokenType::Verb { lemma, .. } => Ok(lemma),
-                    TokenType::ProperName(s) => Ok(s),
+                    TokenType::ProperName(s) => {
+                        // Register proper name in DRS for ambiguous tokens too
+                        let s_str = self.interner.resolve(s);
+                        let gender = Self::infer_gender(s_str);
+                        self.drs.introduce_proper_name(s, s, gender);
+                        Ok(s)
+                    }
                     _ => Err(ParseError {
                         kind: ParseErrorKind::ExpectedContentWord { found: *primary },
                         span: self.current_span(),
@@ -14621,7 +16534,7 @@ use super::{ParseResult, Parser};
 use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term, ThematicRole};
 use crate::lexer::Lexer;
 use crate::lexicon::Time;
-use crate::drs::BoxType;
+use crate::drs::{BoxType, Gender, Number};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexicon::Definiteness;
@@ -14837,7 +16750,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                 let suppress_existential = self.drs.in_conditional_antecedent();
                                 if suppress_existential {
                                     let event_class = self.interner.intern("Event");
-                                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                                 }
 
                                 let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
@@ -14906,7 +16819,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
                 let resolved = if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                    self.resolve_pronoun(gender, number)?
                 } else {
                     unknown
                 };
@@ -14918,9 +16831,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 if np.definiteness == Some(Definiteness::Indefinite) {
                     let var = self.next_var_name();
                     let gender = Self::infer_noun_gender(self.interner.resolve(np.noun));
+                    let number = if Self::is_plural_noun(self.interner.resolve(np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
 
                     // Register in DRS - will get universal force from ConditionalAntecedent box
-                    self.drs.introduce_referent(var, np.noun, gender);
+                    self.drs.introduce_referent(var, np.noun, gender, number);
 
                     // Create type predicate: Farmer(x)
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -14977,7 +16895,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         } else if token_text.eq_ignore_ascii_case("you") {
                             self.interner.intern("Addressee")
                         } else {
-                            self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                            self.resolve_pronoun(gender, number)?
                         }
                     } else {
                         unknown
@@ -15172,7 +17090,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let subject = if self.check_pronoun() {
                 let token = self.advance().clone();
                 if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                    self.resolve_pronoun(gender, number)?
                 } else {
                     unknown
                 }
@@ -15534,8 +17452,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         } else if self.check_pronoun() {
             let token = self.advance().clone();
             if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                self.resolve_pronoun(gender, number)
-                    .unwrap_or_else(|| self.interner.intern("?"))
+                match self.resolve_pronoun(gender, number) {
+                    Ok(sym) => sym,
+                    Err(e) => return Some(Err(e)),
+                }
             } else {
                 self.current = saved_pos;
                 return None;
@@ -15631,7 +17551,8 @@ use super::modal::ModalParsing;
 use super::noun::NounParsing;
 use super::{NegativeScopeMode, ParseResult, Parser};
 use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
-use crate::context::Number;
+use crate::drs::Number;
+use crate::drs::ReferentSource;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
@@ -15709,6 +17630,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     fn parse_quantified(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let quantifier_token = self.previous().kind.clone();
         let var_name = self.next_var_name();
+
+        // Track if we're inside a "No" quantifier - referents introduced here
+        // are inaccessible for cross-sentence anaphora
+        let was_in_negative_quantifier = self.in_negative_quantifier;
+        if matches!(quantifier_token, TokenType::No) {
+            self.in_negative_quantifier = true;
+        }
 
         let subject_pred = self.parse_restriction(var_name)?;
 
@@ -15846,6 +17774,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 }
                 self.donkey_bindings.clear();
 
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(result);
 
             } else {
@@ -15931,6 +17860,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 self.donkey_bindings.clear();
 
                 // Wrap the entire quantifier in the modal
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
                     vector,
                     operand: result,
@@ -15998,6 +17928,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     _ => QuantifierKind::Universal,
                 };
 
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
                     variable: var_name,
@@ -16061,6 +17992,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 _ => QuantifierKind::Universal,
             };
 
+            self.in_negative_quantifier = was_in_negative_quantifier;
             return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                 kind,
                 variable: var_name,
@@ -16080,10 +18012,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     if let Some(donkey_var) = self.resolve_donkey_pronoun(gender) {
                         args.push(Term::Variable(donkey_var));
                     } else {
-                        let unknown = self.interner.intern("?");
-                        let resolved = self
-                            .resolve_pronoun(gender, Number::Singular)
-                            .unwrap_or(unknown);
+                        let resolved = self.resolve_pronoun(gender, Number::Singular)?;
                         args.push(Term::Constant(resolved));
                     }
                 }
@@ -16154,6 +18083,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     _ => QuantifierKind::Universal,
                 };
 
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
                     variable: var_name,
@@ -16180,6 +18110,21 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 if let Some(obj_q) = obj_quantifier {
                     let obj_var = self.next_var_name();
+
+                    // Introduce object referent in DRS for cross-sentence anaphora (telescoping)
+                    // BUT: If inside "No X" quantifier, mark with NegationScope to block accessibility
+                    let obj_gender = Self::infer_noun_gender(self.interner.resolve(object.noun));
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    if self.in_negative_quantifier {
+                        self.drs.introduce_referent_with_source(obj_var, object.noun, obj_gender, obj_number, ReferentSource::NegationScope);
+                    } else {
+                        self.drs.introduce_referent(obj_var, object.noun, obj_gender, obj_number);
+                    }
+
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
@@ -16280,6 +18225,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         }),
                     };
 
+                    self.in_negative_quantifier = was_in_negative_quantifier;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: subj_kind,
                         variable: var_name,
@@ -16404,6 +18350,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
             self.donkey_bindings.clear();
 
+            self.in_negative_quantifier = was_in_negative_quantifier;
             return Ok(result);
         }
 
@@ -16534,6 +18481,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
         self.donkey_bindings.clear();
 
+        self.in_negative_quantifier = was_in_negative_quantifier;
         Ok(result)
     }
 
@@ -16885,6 +18833,20 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             Some(Definiteness::Indefinite) => {
                 let var = self.next_var_name();
 
+                // Introduce referent into DRS for cross-sentence anaphora
+                // If inside a "No" quantifier, mark as NegationScope (inaccessible)
+                let gender = Self::infer_noun_gender(self.interner.resolve(noun));
+                let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
+                    Number::Plural
+                } else {
+                    Number::Singular
+                };
+                if self.in_negative_quantifier {
+                    self.drs.introduce_referent_with_source(var, noun, gender, number, ReferentSource::NegationScope);
+                } else {
+                    self.drs.introduce_referent(var, noun, gender, number);
+                }
+
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
@@ -17009,35 +18971,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         });
                     }
 
-                    // Bridging anaphora: check if this noun is a part of a previously mentioned whole
-                    if let Some(ref mut ctx) = self.context {
-                        // Use full name for symbol comparison (matches discourse context storage)
-                        let our_symbol = crate::transpile::capitalize_first(&noun_str);
-                        let has_prior_antecedent = ctx.resolve_definite(&noun_str)
-                            .map(|e| e.symbol != our_symbol)
-                            .unwrap_or(false);
-
-                        if !has_prior_antecedent {
-                            let bridging_matches = ctx.resolve_bridging(&noun_str);
-                            if let Some((entity, _whole_name)) = bridging_matches.first() {
-                                let whole_sym = self.interner.intern(&entity.symbol);
-                                let part_of_sym = self.interner.intern("PartOf");
-                                let part_of_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                    name: part_of_sym,
-                                    args: self.ctx.terms.alloc_slice([
-                                        Term::Variable(x),
-                                        Term::Constant(whole_sym),
-                                    ]),
-                                    world: None,
-                                });
-                                restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                    left: restriction,
-                                    op: TokenType::And,
-                                    right: part_of_pred,
-                                });
-                            }
-                        }
-                    }
+                    // Bridging anaphora now handled by DRS
 
                     let mut y_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
@@ -17200,6 +19134,21 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         match definiteness {
             Some(Definiteness::Indefinite) => {
                 let var = self.next_var_name();
+
+                // Introduce referent into DRS for cross-sentence anaphora
+                // If inside a "No" quantifier, mark as NegationScope (inaccessible)
+                let gender = Self::infer_noun_gender(self.interner.resolve(noun));
+                let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
+                    Number::Plural
+                } else {
+                    Number::Singular
+                };
+                if self.in_negative_quantifier {
+                    self.drs.introduce_referent_with_source(var, noun, gender, number, ReferentSource::NegationScope);
+                } else {
+                    self.drs.introduce_referent(var, noun, gender, number);
+                }
+
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
@@ -17393,6 +19342,53 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 Ok(self.ctx.exprs.alloc(LogicExpr::TemporalAnchor {
                     anchor: *anchor,
                     body: self.substitute_constant_with_var(body, constant_name, var_name)?,
+                }))
+            }
+            LogicExpr::NeoEvent(data) => {
+                // Substitute constants in thematic roles (Agent, Theme, etc.)
+                let new_roles: Vec<(crate::ast::ThematicRole, Term<'a>)> = data
+                    .roles
+                    .iter()
+                    .map(|(role, term)| {
+                        let new_term = match term {
+                            Term::Constant(c) if *c == constant_name => Term::Variable(var_name),
+                            Term::Constant(c) => Term::Constant(*c),
+                            Term::Variable(v) => Term::Variable(*v),
+                            Term::Function(n, a) => Term::Function(*n, *a),
+                            Term::Group(m) => Term::Group(*m),
+                            Term::Possessed { possessor, possessed } => Term::Possessed {
+                                possessor: *possessor,
+                                possessed: *possessed,
+                            },
+                            Term::Sigma(p) => Term::Sigma(*p),
+                            Term::Intension(p) => Term::Intension(*p),
+                            Term::Proposition(e) => Term::Proposition(*e),
+                            Term::Value { kind, unit, dimension } => Term::Value {
+                                kind: *kind,
+                                unit: *unit,
+                                dimension: *dimension,
+                            },
+                        };
+                        (*role, new_term)
+                    })
+                    .collect();
+                Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(crate::ast::NeoEventData {
+                    event_var: data.event_var,
+                    verb: data.verb,
+                    roles: self.ctx.roles.alloc_slice(new_roles),
+                    modifiers: data.modifiers,
+                    suppress_existential: data.suppress_existential,
+                    world: None,
+                }))))
+            }
+            // Recurse into nested quantifiers to substitute constants in their bodies
+            LogicExpr::Quantifier { kind, variable, body, island_id } => {
+                let new_body = self.substitute_constant_with_var(body, constant_name, var_name)?;
+                Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: *kind,
+                    variable: *variable,
+                    body: new_body,
+                    island_id: *island_id,
                 }))
             }
             _ => Ok(expr),
@@ -17899,7 +19895,7 @@ use crate::ast::{
     AspectOperator, LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term,
     ThematicRole,
 };
-use crate::context::{Gender, Number};
+use crate::drs::{Gender, Number};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
@@ -17973,7 +19969,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -18535,6 +20531,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             let mut object_term: Option<Term<'a>> = None;
             let mut second_object_term: Option<Term<'a>> = None;
+            let mut object_pps: &[&LogicExpr<'a>] = &[];  // PPs attached to object NP (for NP-attachment mode)
             if self.check(&TokenType::Reflexive) {
                 self.advance();
                 let term = Term::Constant(subject_symbol);
@@ -18560,9 +20557,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     _ => (Gender::Unknown, Number::Singular),
                 };
 
-                let resolved = self
-                    .resolve_pronoun(gender, number)
-                    .unwrap_or_else(|| self.interner.intern("?"));
+                let resolved = self.resolve_pronoun(gender, number)?;
                 let term = Term::Constant(resolved);
                 object_term = Some(term);
                 args.push(term);
@@ -18596,6 +20591,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 if let Some(obj_q) = obj_quantifier {
                     let obj_var = self.next_var_name();
+
+                    // Introduce object referent in DRS for cross-sentence anaphora
+                    let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
@@ -18672,6 +20677,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else {
                     let term = Term::Constant(object_np.noun);
                     object_term = Some(term);
+                    // Store PPs attached to object NP for NP-attachment mode
+                    object_pps = object_np.pps;
                     args.push(term);
                 }
             } else if self.check_focus() {
@@ -18767,6 +20774,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             } else if self.check_content_word() {
                 let potential_object = self.parse_noun_phrase(false)?;
+                // Store PPs attached to object NP for NP-attachment mode
+                object_pps = potential_object.pps;
 
                 if self.check_verb() && self.filler_gap.is_some() {
                     let embedded_subject = potential_object.noun;
@@ -18906,7 +20915,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         }
                         _ => (Gender::Unknown, Number::Singular),
                     };
-                    let resolved = self.resolve_pronoun(gender, number).unwrap_or(unknown);
+                    let resolved = self.resolve_pronoun(gender, number)?;
                     Term::Constant(resolved)
                 } else if self.check_content_word() || self.check_article() {
                     let prep_obj = self.parse_noun_phrase(false)?;
@@ -18993,7 +21002,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let suppress_existential = self.drs.in_conditional_antecedent();
             if suppress_existential {
                 let event_class = self.interner.intern("Event");
-                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
             }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
@@ -19021,29 +21030,66 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 combined
             };
 
+            // Include PPs attached to object NP (for NP-attachment mode)
+            // These have _PP_SELF_ placeholder that needs to be replaced with the object term
+            let with_object_pps = if object_pps.is_empty() {
+                with_pps
+            } else if let Some(obj_term) = object_term {
+                let placeholder = self.interner.intern("_PP_SELF_");
+                let mut combined = with_pps;
+                for pp in object_pps {
+                    // Substitute _PP_SELF_ placeholder with the object term
+                    let substituted = match pp {
+                        LogicExpr::Predicate { name, args, .. } => {
+                            let new_args: Vec<Term<'a>> = args
+                                .iter()
+                                .map(|arg| match arg {
+                                    Term::Variable(v) if *v == placeholder => obj_term,
+                                    other => *other,
+                                })
+                                .collect();
+                            self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: *name,
+                                args: self.ctx.terms.alloc_slice(new_args),
+                                world: None,
+                            })
+                        }
+                        _ => *pp,
+                    };
+                    combined = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                        left: combined,
+                        op: TokenType::And,
+                        right: substituted,
+                    });
+                }
+                combined
+            } else {
+                with_pps
+            };
+
             // Apply aspectual operators based on verb class
             let with_aspect = if verb_aspect == Aspect::Simple && effective_time == Time::Present {
                 // Non-state verbs in simple present get Habitual reading
                 if !verb_class.is_stative() {
                     self.ctx.exprs.alloc(LogicExpr::Aspectual {
                         operator: AspectOperator::Habitual,
-                        body: with_pps,
+                        body: with_object_pps,
                     })
                 } else {
-                    with_pps
+                    with_object_pps
                 }
             } else if verb_aspect == Aspect::Progressive {
                 // Semelfactive + Progressive → Iterative
                 if verb_class == crate::lexicon::VerbClass::Semelfactive {
                     self.ctx.exprs.alloc(LogicExpr::Aspectual {
                         operator: AspectOperator::Iterative,
-                        body: with_pps,
+                        body: with_object_pps,
                     })
                 } else {
-                    with_pps
+                    with_object_pps
                 }
             } else {
-                with_pps
+                with_object_pps
             };
 
             Ok(with_aspect)
@@ -19164,15 +21210,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             return Ok(None);
         }
 
-        // Register the coordinated subjects as a plural entity for pronoun resolution
-        {
-            use crate::context::{Gender, Number};
-            let group_name = subjects.iter()
-                .map(|s| self.interner.resolve(*s))
-                .collect::<Vec<_>>()
-                .join("⊕");
-            self.register_entity(&group_name, "group", Gender::Unknown, Number::Plural);
-        }
+        // Coordinated subjects registered in DRS via introduce_referent
 
         let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
 
@@ -19574,7 +21612,7 @@ Extension trait for noun phrase parsing: articles, intersective/non-intersective
 use super::clause::ClauseParsing;
 use super::{ParseResult, Parser};
 use crate::ast::{LogicExpr, NounPhrase, Term};
-use crate::context::{Case, Gender, Number};
+use crate::drs::{Case, Gender, Number};
 use crate::intern::SymbolEq;
 use crate::lexicon::Definiteness;
 use crate::token::TokenType;
@@ -19633,8 +21671,7 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 _ => (Gender::Unknown, Number::Singular),
             };
 
-            let resolved = self.resolve_pronoun(gender, number)
-                .unwrap_or_else(|| self.interner.intern("?"));
+            let resolved = self.resolve_pronoun(gender, number)?;
 
             let possessor_np = NounPhrase {
                 definiteness: None,
@@ -19833,8 +21870,6 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             } else {
                 Number::Singular
             };
-            let noun_class = noun_str.to_string();
-            self.register_entity(&symbol, &noun_class, Gender::Neuter, number);
         }
 
         Ok(NounPhrase {
@@ -20119,8 +22154,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
                 if token_text.eq_ignore_ascii_case("you") {
                     self.interner.intern("Addressee")
                 } else {
-                    self.resolve_pronoun(gender, number)
-                        .unwrap_or_else(|| self.interner.intern("?"))
+                    self.resolve_pronoun(gender, number)?
                 }
             } else {
                 self.interner.intern("?")
@@ -20248,7 +22282,7 @@ use super::clause::ClauseParsing;
 use super::noun::NounParsing;
 use super::{ParseResult, Parser};
 use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
-use crate::context::TimeRelation;
+use crate::drs::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexicon::{Time, Aspect};
@@ -20344,10 +22378,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance();
             has_perfect = true;
             // "had" = past perfect: R < S (past reference time)
-            if let Some(ref mut context) = self.context {
-                let r_var = context.next_reference_time();
-                context.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
-            }
+            // Time constraints now handled by DRS/event semantics
         }
 
         if self.check_content_word() {
@@ -20451,29 +22482,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         if has_perfect {
             result = self.ctx.aspectual(AspectOperator::Perfect, result);
-            if let Some(ref mut context) = self.context {
-                // Check pending_time to set up reference time for tense
-                if let Some(pending) = self.pending_time.take() {
-                    match pending {
-                        Time::Future => {
-                            let r_var = context.next_reference_time();
-                            context.add_time_constraint("S".to_string(), TimeRelation::Precedes, r_var);
-                        }
-                        Time::Past => {
-                            // Past tense with perfect (should be handled by "had" already, but as fallback)
-                            if context.current_reference_time() == "S" {
-                                let r_var = context.next_reference_time();
-                                context.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                // Perfect: E < R
-                let e_var = format!("e{}", context.event_history().len().max(1));
-                let r_var = context.current_reference_time();
-                context.add_time_constraint(e_var, TimeRelation::Precedes, r_var);
-            }
+            // Time constraints now handled by DRS/event semantics
         }
 
         if has_negation {
@@ -24671,13 +26680,20 @@ mod tests {
 
 ---
 
-### Discourse Context
+### Discourse Representation Structures
 
-**File:** `src/context.rs`
+**File:** `src/drs.rs`
 
-Entity registration and resolution for anaphora. Tracks gender, number, and case attributes for pronoun binding.
+Kamp's DRT implementation for donkey anaphora and accessibility. **ReferentSource** tracks where variables are introduced (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). **BoxType** represents DRS boxes (Main, ConditionalAntecedent/Consequent, NegationScope, UniversalRestrictor/Scope, Disjunct). **Referent** stores variable info with noun_class, gender, source, and used_by_pronoun flag. **DrsBox** contains universe of referents with parent pointer. **Drs** manages box stack and provides introduce_referent(), resolve_pronoun(), find_accessible_referent() methods.
 
 ```rust
+use crate::intern::Symbol;
+use std::fmt;
+
+// ============================================
+// CORE DISCOURSE TYPES (moved from context.rs)
+// ============================================
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeRelation {
     Precedes,
@@ -24720,62 +26736,108 @@ pub enum OwnershipState {
     Borrowed,
 }
 
+// ============================================
+// SCOPE ERROR TYPES
+// ============================================
+
+/// Error when pronoun resolution fails due to scope constraints
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScopeError {
+    /// Referent exists but is trapped in an inaccessible scope
+    InaccessibleReferent {
+        gender: Gender,
+        blocking_scope: BoxType,
+        reason: String,
+    },
+    /// No matching referent found at all
+    NoMatchingReferent {
+        gender: Gender,
+        number: Number,
+    },
+}
+
+impl fmt::Display for ScopeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScopeError::InaccessibleReferent { gender, blocking_scope, reason } => {
+                write!(f, "Cannot resolve {:?} pronoun: referent is trapped in {:?} scope. {}",
+                    gender, blocking_scope, reason)
+            }
+            ScopeError::NoMatchingReferent { gender, number } => {
+                write!(f, "Cannot resolve {:?} {:?} pronoun: no matching referent in accessible scope",
+                    gender, number)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScopeError {}
+
+// ============================================
+// TELESCOPE SUPPORT
+// ============================================
+
+/// Path segment for navigating to insertion point during AST restructuring
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopePath {
+    /// Enter body of ∀ or ∃ quantifier
+    QuantifierBody,
+    /// Enter consequent of → implication
+    ImplicationRight,
+    /// Enter right side of ∧ conjunction
+    ConjunctionRight,
+}
+
+/// A referent that may be accessed via telescoping across sentence boundaries
 #[derive(Debug, Clone)]
-pub struct Entity {
-    pub symbol: String,
+pub struct TelescopeCandidate {
+    pub variable: Symbol,
+    pub noun_class: Symbol,
     pub gender: Gender,
-    pub number: Number,
-    pub noun_class: String,
-    pub ownership: OwnershipState,
+    /// The box index where this referent was introduced
+    pub origin_box: usize,
+    /// Path to navigate AST for scope extension
+    pub scope_path: Vec<ScopePath>,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct DiscourseContext {
-    history: Vec<Entity>,
+// ============================================
+// WORLD STATE (Unified Discourse State)
+// ============================================
+
+/// The unified discourse state that persists across sentences.
+/// Replaces DiscourseContext by merging DRS with temporal tracking.
+#[derive(Debug, Clone)]
+pub struct WorldState {
+    /// The global DRS (box hierarchy for scope tracking)
+    pub drs: Drs,
+    /// Event variable counter (e1, e2, e3...)
     event_counter: usize,
+    /// Event history for temporal ordering
     event_history: Vec<String>,
+    /// Reference time counter (r1, r2, r3...)
     reference_time_counter: usize,
+    /// Current reference time
     current_reference_time: Option<String>,
+    /// Temporal constraints between events
     time_constraints: Vec<TimeConstraint>,
+    /// Telescope candidates from previous sentence
+    telescope_candidates: Vec<TelescopeCandidate>,
 }
 
-impl DiscourseContext {
+impl WorldState {
     pub fn new() -> Self {
         Self {
-            history: Vec::new(),
+            drs: Drs::new(),
             event_counter: 0,
             event_history: Vec::new(),
             reference_time_counter: 0,
             current_reference_time: None,
             time_constraints: Vec::new(),
+            telescope_candidates: Vec::new(),
         }
     }
 
-    pub fn next_reference_time(&mut self) -> String {
-        self.reference_time_counter += 1;
-        let var = format!("r{}", self.reference_time_counter);
-        self.current_reference_time = Some(var.clone());
-        var
-    }
-
-    pub fn current_reference_time(&self) -> String {
-        self.current_reference_time.clone().unwrap_or_else(|| "S".to_string())
-    }
-
-    pub fn add_time_constraint(&mut self, left: String, relation: TimeRelation, right: String) {
-        self.time_constraints.push(TimeConstraint { left, relation, right });
-    }
-
-    pub fn time_constraints(&self) -> &[TimeConstraint] {
-        &self.time_constraints
-    }
-
-    pub fn clear_time_constraints(&mut self) {
-        self.time_constraints.clear();
-        self.reference_time_counter = 0;
-        self.current_reference_time = None;
-    }
-
+    /// Generate next event variable (e1, e2, e3...)
     pub fn next_event_var(&mut self) -> String {
         self.event_counter += 1;
         let var = format!("e{}", self.event_counter);
@@ -24783,188 +26845,92 @@ impl DiscourseContext {
         var
     }
 
+    /// Get event history for temporal ordering
     pub fn event_history(&self) -> &[String] {
         &self.event_history
     }
 
-    pub fn register(&mut self, entity: Entity) {
-        self.history.push(entity);
+    /// Generate next reference time (r1, r2, r3...)
+    pub fn next_reference_time(&mut self) -> String {
+        self.reference_time_counter += 1;
+        let var = format!("r{}", self.reference_time_counter);
+        self.current_reference_time = Some(var.clone());
+        var
     }
 
-    pub fn resolve_pronoun(&self, gender: Gender, number: Number) -> Option<&Entity> {
-        self.history
-            .iter()
-            .rev()
-            .find(|e| {
-                let gender_match = gender == Gender::Unknown
-                    || e.gender == Gender::Unknown
-                    || e.gender == gender;
-                let number_match = e.number == number;
-                gender_match && number_match
-            })
+    /// Get current reference time
+    pub fn current_reference_time(&self) -> String {
+        self.current_reference_time.clone().unwrap_or_else(|| "S".to_string())
     }
 
-    pub fn resolve_definite(&self, noun_class: &str) -> Option<&Entity> {
-        self.history
-            .iter()
-            .rev()
-            .find(|e| e.noun_class.to_lowercase() == noun_class.to_lowercase())
+    /// Add a temporal constraint
+    pub fn add_time_constraint(&mut self, left: String, relation: TimeRelation, right: String) {
+        self.time_constraints.push(TimeConstraint { left, relation, right });
     }
 
-    pub fn has_entity_by_noun_class(&self, noun_class: &str) -> bool {
-        self.history
-            .iter()
-            .any(|e| e.noun_class.to_lowercase() == noun_class.to_lowercase())
+    /// Get all time constraints
+    pub fn time_constraints(&self) -> &[TimeConstraint] {
+        &self.time_constraints
     }
 
-    /// Resolve bridging anaphora by finding entities whose type contains the noun as a part.
-    /// Returns all matching entities for ambiguity handling (parse forest).
-    pub fn resolve_bridging(&self, noun_class: &str) -> Vec<(&Entity, &'static str)> {
-        use crate::ontology::find_bridging_wholes;
+    /// Clear time constraints (for sentence boundary reset if needed)
+    pub fn clear_time_constraints(&mut self) {
+        self.time_constraints.clear();
+        self.reference_time_counter = 0;
+        self.current_reference_time = None;
+    }
 
-        let Some(wholes) = find_bridging_wholes(noun_class) else {
-            return Vec::new();
-        };
+    /// Mark a sentence boundary - collect telescope candidates
+    pub fn end_sentence(&mut self) {
+        // Collect referents that can telescope from current DRS state
+        self.telescope_candidates = self.drs.get_telescope_candidates();
+    }
 
-        let mut matches = Vec::new();
-        for whole in wholes {
-            for entity in self.history.iter().rev() {
-                if entity.noun_class.to_lowercase() == whole.to_lowercase() {
-                    matches.push((entity, *whole));
-                }
+    /// Get telescope candidates from previous sentence
+    pub fn telescope_candidates(&self) -> &[TelescopeCandidate] {
+        &self.telescope_candidates
+    }
+
+    /// Try to resolve a pronoun via telescoping
+    pub fn resolve_via_telescope(&mut self, gender: Gender) -> Option<TelescopeCandidate> {
+        // Apply same Gender Accommodation rules as resolve_pronoun:
+        // - Exact match (Male=Male, Female=Female, etc)
+        // - Unknown referent matches any pronoun (Gender Accommodation)
+        // - Unknown pronoun matches any referent
+        for candidate in &self.telescope_candidates {
+            let gender_match = candidate.gender == gender
+                || candidate.gender == Gender::Unknown  // Gender Accommodation
+                || gender == Gender::Unknown;
+
+            if gender_match {
+                return Some(candidate.clone());
             }
         }
-        matches
+
+        None
     }
 
-    pub fn set_ownership(&mut self, noun_class: &str, state: OwnershipState) {
-        for entity in self.history.iter_mut() {
-            if entity.noun_class.to_lowercase() == noun_class.to_lowercase() {
-                entity.ownership = state;
-                return;
-            }
-        }
-    }
-
-    pub fn get_ownership(&self, noun_class: &str) -> Option<OwnershipState> {
-        self.history
-            .iter()
-            .find(|e| e.noun_class.to_lowercase() == noun_class.to_lowercase())
-            .map(|e| e.ownership)
-    }
-
+    /// Clear the world state (reset for new discourse)
     pub fn clear(&mut self) {
-        self.history.clear();
+        self.drs.clear();
+        self.event_counter = 0;
+        self.event_history.clear();
+        self.reference_time_counter = 0;
+        self.current_reference_time = None;
+        self.time_constraints.clear();
+        self.telescope_candidates.clear();
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn register_and_resolve_male() {
-        let mut ctx = DiscourseContext::new();
-        ctx.register(Entity {
-            symbol: "John".into(),
-            gender: Gender::Male,
-            number: Number::Singular,
-            noun_class: "John".into(),
-            ownership: OwnershipState::Owned,
-        });
-        let resolved = ctx.resolve_pronoun(Gender::Male, Number::Singular);
-        assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "John");
-    }
-
-    #[test]
-    fn resolve_female_pronoun() {
-        let mut ctx = DiscourseContext::new();
-        ctx.register(Entity {
-            symbol: "Mary".into(),
-            gender: Gender::Female,
-            number: Number::Singular,
-            noun_class: "Mary".into(),
-            ownership: OwnershipState::Owned,
-        });
-        let resolved = ctx.resolve_pronoun(Gender::Female, Number::Singular);
-        assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "Mary");
-    }
-
-    #[test]
-    fn resolve_most_recent() {
-        let mut ctx = DiscourseContext::new();
-        ctx.register(Entity {
-            symbol: "John".into(),
-            gender: Gender::Male,
-            number: Number::Singular,
-            noun_class: "John".into(),
-            ownership: OwnershipState::Owned,
-        });
-        ctx.register(Entity {
-            symbol: "Bob".into(),
-            gender: Gender::Male,
-            number: Number::Singular,
-            noun_class: "Bob".into(),
-            ownership: OwnershipState::Owned,
-        });
-        let resolved = ctx.resolve_pronoun(Gender::Male, Number::Singular);
-        assert_eq!(resolved.unwrap().symbol, "Bob");
-    }
-
-    #[test]
-    fn resolve_definite_by_class() {
-        let mut ctx = DiscourseContext::new();
-        ctx.register(Entity {
-            symbol: "Dog".into(),
-            gender: Gender::Neuter,
-            number: Number::Singular,
-            noun_class: "Dog".into(),
-            ownership: OwnershipState::Owned,
-        });
-        let resolved = ctx.resolve_definite("dog");
-        assert!(resolved.is_some());
-        assert_eq!(resolved.unwrap().symbol, "Dog");
-    }
-
-    #[test]
-    fn gender_filtering() {
-        let mut ctx = DiscourseContext::new();
-        ctx.register(Entity {
-            symbol: "John".into(),
-            gender: Gender::Male,
-            number: Number::Singular,
-            noun_class: "John".into(),
-            ownership: OwnershipState::Owned,
-        });
-        ctx.register(Entity {
-            symbol: "Mary".into(),
-            gender: Gender::Female,
-            number: Number::Singular,
-            noun_class: "Mary".into(),
-            ownership: OwnershipState::Owned,
-        });
-        let he = ctx.resolve_pronoun(Gender::Male, Number::Singular);
-        let she = ctx.resolve_pronoun(Gender::Female, Number::Singular);
-        assert_eq!(he.unwrap().symbol, "John");
-        assert_eq!(she.unwrap().symbol, "Mary");
+impl Default for WorldState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-```
-
----
-
-### Discourse Representation Structures
-
-**File:** `src/drs.rs`
-
-Kamp's DRT implementation for donkey anaphora and accessibility. **ReferentSource** tracks where variables are introduced (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). **BoxType** represents DRS boxes (Main, ConditionalAntecedent/Consequent, NegationScope, UniversalRestrictor/Scope, Disjunct). **Referent** stores variable info with noun_class, gender, source, and used_by_pronoun flag. **DrsBox** contains universe of referents with parent pointer. **Drs** manages box stack and provides introduce_referent(), resolve_pronoun(), find_accessible_referent() methods.
-
-```rust
-use crate::context::Gender;
-use crate::intern::Symbol;
+// ============================================
+// REFERENT SOURCE
+// ============================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferentSource {
@@ -25021,6 +26987,26 @@ impl BoxType {
             BoxType::Disjunct => ReferentSource::Disjunct,
         }
     }
+
+    /// Can referents in this box be accessed via telescoping across sentence boundaries?
+    /// Universal quantifiers and conditionals CAN telescope.
+    /// Negation and disjunction CANNOT telescope.
+    pub fn can_telescope(&self) -> bool {
+        matches!(
+            self,
+            BoxType::Main
+            | BoxType::UniversalScope
+            | BoxType::UniversalRestrictor
+            | BoxType::ConditionalConsequent
+            | BoxType::ConditionalAntecedent
+        )
+        // NegationScope and Disjunct return false implicitly
+    }
+
+    /// Does this box type block accessibility from outside?
+    pub fn blocks_accessibility(&self) -> bool {
+        matches!(self, BoxType::NegationScope | BoxType::Disjunct)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -25028,16 +27014,18 @@ pub struct Referent {
     pub variable: Symbol,
     pub noun_class: Symbol,
     pub gender: Gender,
+    pub number: Number,
     pub source: ReferentSource,
     pub used_by_pronoun: bool,
 }
 
 impl Referent {
-    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, source: ReferentSource) -> Self {
+    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) -> Self {
         Self {
             variable,
             noun_class,
             gender,
+            number,
             source,
             used_by_pronoun: false,
         }
@@ -25105,18 +27093,25 @@ impl Drs {
         self.boxes.get(self.current_box).and_then(|b| b.box_type)
     }
 
-    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender) {
+    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number) {
         let source = self.boxes[self.current_box]
             .box_type
             .map(|bt| bt.to_referent_source())
             .unwrap_or(ReferentSource::MainClause);
 
-        let referent = Referent::new(variable, noun_class, gender, source);
+        let referent = Referent::new(variable, noun_class, gender, number, source);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Introduce a referent with an explicit source (used for negative quantifiers like "No X")
+    pub fn introduce_referent_with_source(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) {
+        let referent = Referent::new(variable, noun_class, gender, number, source);
         self.boxes[self.current_box].universe.push(referent);
     }
 
     pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
-        let referent = Referent::new(variable, name, gender, ReferentSource::ProperName);
+        // Proper names are always singular
+        let referent = Referent::new(variable, name, gender, Number::Singular, ReferentSource::ProperName);
         self.boxes[self.current_box].universe.push(referent);
     }
 
@@ -25172,41 +27167,90 @@ impl Drs {
         false
     }
 
-    /// Resolve a pronoun by finding accessible referents matching gender
-    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender) -> Option<Symbol> {
-        // Search current box and accessible ancestors/siblings
+    /// Resolve a pronoun by finding accessible referents matching gender and number
+    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender, number: Number) -> Result<Symbol, ScopeError> {
+        // Phase 1: Search accessible boxes (skip referents from NegationScope source)
         let mut candidates = Vec::new();
 
-        // Check all boxes for accessibility
         for (box_idx, drs_box) in self.boxes.iter().enumerate() {
             if self.is_accessible(box_idx, from_box) {
                 for referent in &drs_box.universe {
-                    let gender_match = gender == Gender::Unknown
-                        || referent.gender == Gender::Unknown
-                        || referent.gender == gender
-                        || gender == Gender::Neuter; // "it" can refer to things
+                    // Skip referents that are from negative quantifiers (No X)
+                    if matches!(referent.source, ReferentSource::NegationScope) {
+                        continue;
+                    }
 
-                    if gender_match {
+                    // Gender matching rules:
+                    // - Exact match (Male=Male, Female=Female, etc)
+                    // - Unknown referents match any pronoun (gender accommodation)
+                    // - Unknown pronouns match any referent
+                    // This allows "He" to refer to "farmer" even if farmer's gender is Unknown
+                    let gender_match = referent.gender == gender
+                        || referent.gender == Gender::Unknown
+                        || gender == Gender::Unknown;
+
+                    // Number matching: must match exactly (no number accommodation)
+                    let number_match = referent.number == number;
+
+                    if gender_match && number_match {
                         candidates.push((box_idx, referent.variable));
                     }
                 }
             }
         }
 
-        // Return most recent (last) candidate
+        // If found in accessible scope, return success
         if let Some((box_idx, var)) = candidates.last() {
-            // Mark as used by pronoun
             let box_idx = *box_idx;
             let var = *var;
             for referent in &mut self.boxes[box_idx].universe {
                 if referent.variable == var {
                     referent.used_by_pronoun = true;
-                    return Some(var);
+                    return Ok(var);
                 }
             }
         }
 
-        None
+        // Phase 2: Check inaccessible boxes OR referents with NegationScope source
+        // Use the same strict gender matching for consistency
+        for (_box_idx, drs_box) in self.boxes.iter().enumerate() {
+            for referent in &drs_box.universe {
+                // Check for referents with NegationScope source (from "No X")
+                // OR referents in inaccessible boxes
+                let is_inaccessible = matches!(referent.source, ReferentSource::NegationScope)
+                    || !self.is_accessible(_box_idx, from_box);
+
+                if is_inaccessible {
+                    // Same matching as Phase 1
+                    let gender_match = referent.gender == gender
+                        || (gender == Gender::Unknown)
+                        || (gender == Gender::Neuter && referent.gender == Gender::Unknown);
+                    let number_match = referent.number == number;
+
+                    if gender_match && number_match {
+                        // Found a matching referent but it's inaccessible
+                        let blocking_scope = if matches!(referent.source, ReferentSource::NegationScope) {
+                            BoxType::NegationScope
+                        } else {
+                            drs_box.box_type.unwrap_or(BoxType::Main)
+                        };
+                        let noun_class_str = format!("{:?}", referent.noun_class);
+                        return Err(ScopeError::InaccessibleReferent {
+                            gender,
+                            blocking_scope,
+                            reason: format!("'{}' is trapped in {:?} scope and cannot be accessed",
+                                noun_class_str, blocking_scope),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Phase 3: Not found anywhere
+        Err(ScopeError::NoMatchingReferent {
+            gender,
+            number,
+        })
     }
 
     /// Resolve a definite description by finding accessible referent matching noun class
@@ -25281,6 +27325,86 @@ impl Drs {
         )
     }
 
+    /// Get all referents that can telescope across sentence boundaries.
+    /// Only includes referents from boxes where can_telescope() is true.
+    /// Excludes referents blocked by negation or disjunction.
+    pub fn get_telescope_candidates(&self) -> Vec<TelescopeCandidate> {
+        let mut candidates = Vec::new();
+
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            // Check if this box type allows telescoping
+            if let Some(box_type) = drs_box.box_type {
+                if !box_type.can_telescope() {
+                    continue; // Skip negation and disjunction boxes
+                }
+            }
+
+            // Check if this box is blocked by an ancestor negation/disjunction
+            let mut is_blocked = false;
+            let mut check_idx = box_idx;
+            while let Some(parent_idx) = self.boxes.get(check_idx).and_then(|b| b.parent) {
+                if let Some(parent_type) = self.boxes.get(parent_idx).and_then(|b| b.box_type) {
+                    if parent_type.blocks_accessibility() {
+                        is_blocked = true;
+                        break;
+                    }
+                }
+                check_idx = parent_idx;
+            }
+
+            if is_blocked {
+                continue;
+            }
+
+            // Collect referents from this box (skip those with blocking sources)
+            for referent in &drs_box.universe {
+                // Skip referents that are marked with NegationScope or Disjunct source
+                // These are trapped inside negation/disjunction and cannot telescope
+                if matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct) {
+                    continue;
+                }
+
+                candidates.push(TelescopeCandidate {
+                    variable: referent.variable,
+                    noun_class: referent.noun_class,
+                    gender: referent.gender,
+                    origin_box: box_idx,
+                    scope_path: Vec::new(), // TODO: Track scope path during parsing
+                });
+            }
+        }
+
+        candidates
+    }
+
+    /// Find a referent that matches but is blocked by scope.
+    /// Used to generate informative error messages.
+    pub fn find_blocked_referent(&self, from_box: usize, gender: Gender) -> Option<(Symbol, BoxType)> {
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            // Only check boxes that are NOT accessible
+            if self.is_accessible(box_idx, from_box) {
+                continue;
+            }
+
+            // Check if this box type blocks access
+            if let Some(box_type) = drs_box.box_type {
+                if box_type.blocks_accessibility() {
+                    for referent in &drs_box.universe {
+                        let gender_match = gender == Gender::Unknown
+                            || referent.gender == Gender::Unknown
+                            || referent.gender == gender
+                            || gender == Gender::Neuter;
+
+                        if gender_match {
+                            return Some((referent.variable, box_type));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn clear(&mut self) {
         self.boxes.clear();
         let main = DrsBox::new(BoxType::Main, None);
@@ -25340,14 +27464,14 @@ mod tests {
         let farmer = interner.intern("Farmer");
 
         // In main box - should be MainClause
-        drs.introduce_referent(x, farmer, Gender::Male);
+        drs.introduce_referent(x, farmer, Gender::Male, Number::Singular);
         assert_eq!(drs.boxes[0].universe[0].source, ReferentSource::MainClause);
 
         // Enter conditional antecedent
         drs.enter_box(BoxType::ConditionalAntecedent);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
         assert_eq!(
             drs.boxes[1].universe[0].source,
             ReferentSource::ConditionalAntecedent
@@ -25363,7 +27487,7 @@ mod tests {
         let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
         drs.exit_box();
 
         // Enter conditional consequent
@@ -25392,12 +27516,12 @@ mod tests {
 
         let x = interner.intern("x");
         let farmer = interner.intern("Farmer");
-        drs.introduce_referent(x, farmer, Gender::Male);
+        drs.introduce_referent(x, farmer, Gender::Male, Number::Singular);
 
         drs.enter_box(BoxType::ConditionalAntecedent);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
 
         let universals = drs.get_universal_referents();
         assert_eq!(universals.len(), 1);
@@ -25412,11 +27536,11 @@ mod tests {
         drs.enter_box(BoxType::UniversalRestrictor);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
 
         // Resolve "it" - should find donkey
-        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter);
-        assert_eq!(resolved, Some(y));
+        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter, Number::Singular);
+        assert_eq!(resolved, Ok(y));
 
         // Should be marked as used
         assert!(drs.boxes[1].universe[0].used_by_pronoun);
@@ -28223,6 +30347,13 @@ impl<'a> DiscoveryPass<'a> {
             TokenType::Divergent => {
                 self.advance();
                 Some(self.interner.intern("Divergent"))
+            }
+            // Phase 49: Accept Ambiguous tokens (e.g., "name" could be verb or noun)
+            // Use lexeme to get the original word
+            TokenType::Ambiguous { .. } => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
             }
             _ => None
         }
@@ -32287,8 +34418,8 @@ use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
-use crate::context::DiscourseContext;
 use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
+use crate::drs::WorldState;
 use crate::error::ParseError;
 use crate::intern::Interner;
 use crate::lexer::Lexer;
@@ -32311,7 +34442,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -32335,7 +34466,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
@@ -32380,7 +34511,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -32404,7 +34535,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
     // Pass 3: Escape analysis
@@ -32453,7 +34584,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -32477,7 +34608,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
     // Pass 3: Escape analysis
@@ -32712,7 +34843,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -32736,7 +34867,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     );
 
     // Pass 2: Parse with type context (includes imported types)
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
@@ -32804,7 +34935,7 @@ Variable scope tracking for imperative blocks. ScopeStack manages nested lexical
 
 ```rust
 use std::collections::HashMap;
-use crate::context::OwnershipState;
+use crate::drs::OwnershipState;
 
 #[derive(Debug, Clone)]
 pub struct ScopeEntry {
@@ -34577,7 +36708,6 @@ pub mod diagnostic;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sourcemap;
 pub mod content;
-pub mod context;
 pub mod debug;
 pub mod drs;
 pub mod error;
@@ -34634,7 +36764,7 @@ pub use compile::copy_logos_core;
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
-pub use context::{DiscourseContext, OwnershipState, TimeConstraint, TimeRelation};
+pub use drs::{TimeConstraint, TimeRelation, WorldState, Gender, Number, Case, OwnershipState};
 pub use error::{ParseError, ParseErrorKind, socratic_explanation};
 pub use debug::{DebugWorld, DisplayWith, WithInterner};
 pub use formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, UnicodeFormatter};
@@ -34750,8 +36880,8 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
 
@@ -34764,29 +36894,16 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
 
     let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
     let mut registry = SymbolRegistry::new();
-    let main_output = ast.transpile(&mut registry, &interner, options.format);
-
-    let constraints = discourse.time_constraints();
-    if constraints.is_empty() {
-        Ok(main_output)
-    } else {
-        let constraint_strs: Vec<String> = constraints.iter().map(|c| {
-            match c.relation {
-                TimeRelation::Precedes => format!("Precedes({}, {})", c.left, c.right),
-                TimeRelation::Equals => format!("{}={}", c.left, c.right),
-            }
-        }).collect();
-        Ok(format!("{} ∧ {}", main_output, constraint_strs.join(" ∧ ")))
-    }
+    Ok(ast.transpile(&mut registry, &interner, options.format))
 }
 
-pub fn compile_with_context(input: &str, ctx: &mut DiscourseContext) -> Result<String, ParseError> {
-    compile_with_context_options(input, ctx, CompileOptions::default())
+pub fn compile_with_world_state(input: &str, world_state: &mut drs::WorldState) -> Result<String, ParseError> {
+    compile_with_world_state_options(input, world_state, CompileOptions::default())
 }
 
-pub fn compile_with_context_options(
+pub fn compile_with_world_state_options(
     input: &str,
-    ctx: &mut DiscourseContext,
+    world_state: &mut drs::WorldState,
     options: CompileOptions,
 ) -> Result<String, ParseError> {
     let mut interner = Interner::new();
@@ -34820,7 +36937,7 @@ pub fn compile_with_context_options(
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, world_state, &mut interner, ast_ctx, type_registry);
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
@@ -34833,13 +36950,13 @@ pub fn compile_discourse(sentences: &[&str]) -> Result<String, ParseError> {
 
 pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOptions) -> Result<String, ParseError> {
     let mut interner = Interner::new();
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = drs::WorldState::new();
     let mut results = Vec::new();
     let mut registry = SymbolRegistry::new();
     let mwe_trie = mwe::build_mwe_trie();
 
     for sentence in sentences {
-        let event_var_name = ctx.next_event_var();
+        let event_var_name = world_state.next_event_var();
         let event_var_symbol = interner.intern(&event_var_name);
 
         let mut lexer = Lexer::new(sentence, &mut interner);
@@ -34870,15 +36987,23 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
             &pp_arena,
         );
 
-        // Pass 2: Parse with type context
-        let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+        // Pass 2: Parse with WorldState (DRS persists across sentences)
+        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
         parser.set_discourse_event_var(event_var_symbol);
+        // Swap DRS from WorldState into Parser at start
+        parser.swap_drs_with_world_state();
         let ast = parser.parse()?;
+        // Swap DRS back to WorldState at end
+        parser.swap_drs_with_world_state();
+
+        // Mark sentence boundary - collect telescope candidates for cross-sentence anaphora
+        world_state.end_sentence();
+
         let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
         results.push(ast.transpile(&mut registry, &interner, options.format));
     }
 
-    let event_history = ctx.event_history();
+    let event_history = world_state.event_history();
     let mut precedes = Vec::new();
     for i in 0..event_history.len().saturating_sub(1) {
         precedes.push(format!("Precedes({}, {})", event_history[i], event_history[i + 1]));
@@ -34932,8 +37057,8 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
 
     let scope_arena = Arena::new();
@@ -34999,8 +37124,8 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens.clone(), &mut discourse, &mut interner, ctx, type_registry.clone());
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ctx, type_registry.clone());
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
@@ -35032,8 +37157,8 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
             &pp_arena2,
         );
 
-        let mut discourse2 = DiscourseContext::new();
-        let mut parser2 = Parser::with_types(tokens, &mut discourse2, &mut interner, ctx2, type_registry);
+        let mut world_state2 = drs::WorldState::new();
+        let mut parser2 = Parser::new(tokens, &mut world_state2, &mut interner, ctx2, type_registry);
         parser2.set_pp_attachment_mode(true);
         let ast2 = parser2.parse()?;
         let ast2 = semantics::apply_axioms(ast2, ctx2.exprs, ctx2.terms, &mut interner);
@@ -35166,8 +37291,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         // Pass 2: Parse with type context
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_noun_priority_mode(false);
 
         if let Ok(ast) = parser.parse() {
@@ -35201,8 +37326,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_noun_priority_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -35239,8 +37364,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_pp_attachment_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -35277,8 +37402,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_collective_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -35312,8 +37437,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_event_reading_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -35352,8 +37477,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
 
         if let Ok(ast) = parser.parse() {
@@ -35391,8 +37516,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_modal_preference(parser::ModalPreference::Epistemic);
 
         if let Ok(ast) = parser.parse() {
@@ -35430,8 +37555,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_modal_preference(parser::ModalPreference::Deontic);
 
         if let Ok(ast) = parser.parse() {
@@ -35471,8 +37596,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry);
         parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
         parser.set_modal_preference(parser::ModalPreference::Deontic);
 
@@ -35765,8 +37890,8 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(lex_tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(lex_tokens, &mut world_state, &mut interner, ctx, type_registry);
 
     match parser.parse() {
         Ok(ast) => {
@@ -35859,8 +37984,8 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     );
 
     // Pass 2: Parse with type context (imperative mode)
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
 
     match parser.parse_program() {
         Ok(stmts) => {
@@ -36395,10 +38520,9 @@ mod tests {
 
     #[test]
     fn discourse_basic_pronoun_he() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        let _r1 = compile_with_context("John ran.", &mut ctx).unwrap();
-        let r2 = compile_with_context("He stopped.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let _r1 = compile_with_world_state("John ran.", &mut world_state).unwrap();
+        let r2 = compile_with_world_state("He stopped.", &mut world_state).unwrap();
         assert!(
             r2.contains("J"),
             "He should resolve to John (J): got '{}'",
@@ -36408,10 +38532,9 @@ mod tests {
 
     #[test]
     fn discourse_basic_pronoun_she() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        let _r1 = compile_with_context("Mary ran.", &mut ctx).unwrap();
-        let r2 = compile_with_context("She stopped.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let _r1 = compile_with_world_state("Mary ran.", &mut world_state).unwrap();
+        let r2 = compile_with_world_state("She stopped.", &mut world_state).unwrap();
         assert!(
             r2.contains("M"),
             "She should resolve to Mary (M): got '{}'",
@@ -36421,10 +38544,9 @@ mod tests {
 
     #[test]
     fn discourse_multiple_entities() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("John saw Mary.", &mut ctx).unwrap();
-        let result = compile_with_context("He loves her.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        compile_with_world_state("John saw Mary.", &mut world_state).unwrap();
+        let result = compile_with_world_state("He loves her.", &mut world_state).unwrap();
         assert!(
             (result.contains("Agent(e, John)") && result.contains("Theme(e, Mary)"))
                 || result.contains("(John, Mary)")
@@ -36436,10 +38558,9 @@ mod tests {
 
     #[test]
     fn discourse_definite_reference() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("A dog barked.", &mut ctx).unwrap();
-        let result = compile_with_context("The dog ran.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        compile_with_world_state("A dog barked.", &mut world_state).unwrap();
+        let result = compile_with_world_state("The dog ran.", &mut world_state).unwrap();
         assert!(
             !result.contains("D2"),
             "The dog should refer to same entity, not D2: got '{}'",
@@ -36449,10 +38570,9 @@ mod tests {
 
     #[test]
     fn discourse_plural_pronoun_they() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("The dogs ran.", &mut ctx).unwrap();
-        let result = compile_with_context("They barked.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        compile_with_world_state("The dogs ran.", &mut world_state).unwrap();
+        let result = compile_with_world_state("They barked.", &mut world_state).unwrap();
         assert!(
             result.contains("D"),
             "They should resolve to dogs: got '{}'",
@@ -36462,10 +38582,9 @@ mod tests {
 
     #[test]
     fn discourse_object_pronoun_him() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("John entered.", &mut ctx).unwrap();
-        let result = compile_with_context("Mary saw him.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        compile_with_world_state("John entered.", &mut world_state).unwrap();
+        let result = compile_with_world_state("Mary saw him.", &mut world_state).unwrap();
         assert!(
             (result.contains("Agent(e, Mary)") && result.contains("Theme(e, John)"))
                 || result.contains("(Mary, John)"),
@@ -37075,6 +39194,99 @@ impl Default for Lexicon {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Result of smart word analysis for derivational morphology
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WordAnalysis {
+    /// A dictionary entry (exact match or derived plural)
+    Noun(NounMetadata),
+    /// A word derived via morphological rules (agentive nouns like "blogger")
+    DerivedNoun {
+        lemma: String,
+        number: Number,
+    },
+}
+
+/// Smart word analysis with derivational morphology support.
+///
+/// Three-step resolution:
+/// 1. **Exact Match** - Check if word exists in lexicon (handles irregulars like "mice")
+/// 2. **Plural Derivation** - Strip 's'/'es' and check if stem exists (farmers → farmer)
+/// 3. **Morphological Rules** - Apply suffix rules for unknown agentive nouns
+pub fn analyze_word(word: &str) -> Option<WordAnalysis> {
+    let lower = word.to_lowercase();
+
+    // 1. EXACT MATCH (Fast Path)
+    // Handles explicit entries like "farmer", "mice", "children"
+    if let Some(meta) = lookup_noun_db(&lower) {
+        return Some(WordAnalysis::Noun(meta));
+    }
+
+    // 2. PLURAL DERIVATION (Smart Path)
+    // "farmers" → stem "farmer" → lookup
+    if lower.ends_with('s') && lower.len() > 2 {
+        // Try simple 's' stripping: "farmers" -> "farmer"
+        let stem = &lower[..lower.len() - 1];
+        if let Some(meta) = lookup_noun_db(stem) {
+            // Found the singular base - return as plural
+            return Some(WordAnalysis::Noun(NounMetadata {
+                lemma: meta.lemma,
+                number: Number::Plural,
+                features: meta.features,
+            }));
+        }
+
+        // Try 'es' stripping: "boxes" -> "box", "churches" -> "church"
+        if lower.ends_with("es") && lower.len() > 3 {
+            let stem_es = &lower[..lower.len() - 2];
+            if let Some(meta) = lookup_noun_db(stem_es) {
+                return Some(WordAnalysis::Noun(NounMetadata {
+                    lemma: meta.lemma,
+                    number: Number::Plural,
+                    features: meta.features,
+                }));
+            }
+        }
+
+        // Try 'ies' -> 'y': "cities" -> "city"
+        if lower.ends_with("ies") && lower.len() > 4 {
+            let stem_ies = format!("{}y", &lower[..lower.len() - 3]);
+            if let Some(meta) = lookup_noun_db(&stem_ies) {
+                return Some(WordAnalysis::Noun(NounMetadata {
+                    lemma: meta.lemma,
+                    number: Number::Plural,
+                    features: meta.features,
+                }));
+            }
+        }
+    }
+
+    // 3. MORPHOLOGICAL RULES (Data-driven from lexicon.json)
+    // Handle agentive nouns like "blogger", "vlogger" even if not in lexicon
+    for rule in get_morphological_rules() {
+        // Check plural form first (e.g., "vloggers" -> "vlogger" -> rule match)
+        let (is_plural, check_word) = if lower.ends_with('s') && !rule.suffix.ends_with('s') {
+            (true, &lower[..lower.len() - 1])
+        } else {
+            (false, lower.as_str())
+        };
+
+        if check_word.ends_with(rule.suffix) {
+            return Some(WordAnalysis::DerivedNoun {
+                lemma: check_word.to_string(),
+                number: if is_plural { Number::Plural } else { Number::Singular },
+            });
+        }
+    }
+
+    None
+}
+
+/// Check if a word is a known common noun or derivable from one.
+/// This is used for sentence-initial capitalization disambiguation.
+pub fn is_derivable_noun(word: &str) -> bool {
+    analyze_word(word).is_some()
 }
 
 #[cfg(test)]
@@ -38208,6 +40420,8 @@ pub enum ParseErrorKind {
     InvalidRefinementPredicate,
     // Phase 42: Grammar errors (e.g., "its" vs "it's")
     GrammarError(String),
+    // Phase 43: DRS scope violations (pronoun trapped in negation, etc.)
+    ScopeViolation(String),
     // Phase 8.5: Escape analysis errors
     Custom(String),
 }
@@ -38414,6 +40628,14 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
         ParseErrorKind::GrammarError(msg) => {
             format!(
                 "At position {}, grammar issue: {}",
+                pos, msg
+            )
+        }
+        // Phase 43: DRS scope violations
+        ParseErrorKind::ScopeViolation(msg) => {
+            format!(
+                "At position {}, scope violation: {}. The pronoun cannot access a referent \
+                trapped in a different scope (e.g., inside negation or disjunction).",
                 pos, msg
             )
         }
@@ -40989,9 +43211,11 @@ macro_rules! assert_snapshot {
 #[macro_export]
 macro_rules! parse {
     ($input:expr) => {{
-        use $crate::{Arena, AstContext, LogicExpr, Interner, Lexer, NounPhrase, Parser, Resolve, Symbol, Term, ThematicRole};
+        use $crate::{Arena, AstContext, LogicExpr, Interner, Lexer, NounPhrase, Parser, Resolve, Symbol, Term, ThematicRole, WorldState};
+        use $crate::analysis::TypeRegistry;
 
         let interner: &'static mut Interner = Box::leak(Box::new(Interner::new()));
+        let world_state: &'static mut WorldState = Box::leak(Box::new(WorldState::new()));
         let expr_arena: &'static Arena<LogicExpr> = Box::leak(Box::new(Arena::new()));
         let term_arena: &'static Arena<Term> = Box::leak(Box::new(Arena::new()));
         let np_arena: &'static Arena<NounPhrase> = Box::leak(Box::new(Arena::new()));
@@ -41011,7 +43235,8 @@ macro_rules! parse {
         let mut lexer = Lexer::new($input, interner);
         let tokens = lexer.tokenize();
 
-        let mut parser = Parser::new(tokens, interner, ctx);
+        let type_registry = TypeRegistry::default();
+        let mut parser = Parser::new(tokens, world_state, interner, ctx, type_registry);
 
         let ast = parser.parse().unwrap();
         ast.resolve(interner)
@@ -45578,9 +47803,514 @@ pub mod hooks;
 pub mod router;
 pub mod pages;
 pub mod theme;
+pub mod responsive;
 
 pub use app::App;
 pub use theme::{colors, font_size, font_family, spacing, radius};
+pub use responsive::{breakpoints, media, touch};
+
+```
+
+---
+
+### UI: responsive
+
+**File:** `src/ui/responsive.rs`
+
+UI module built with Dioxus 0.6.
+
+```rust
+/// Unified responsive and mobile styling system for Logicaffeine.
+///
+/// This module centralizes all mobile/responsive concerns:
+/// - Breakpoint definitions
+/// - Touch target standards
+/// - Mobile-specific CSS utilities
+/// - Reusable mobile component styles (tabs, bottom sheets, etc.)
+///
+/// Usage: Import this module and include `MOBILE_BASE_STYLES` in your root component,
+/// then use the provided class names and CSS variables throughout.
+
+// =============================================================================
+// BREAKPOINTS
+// =============================================================================
+
+/// Standard breakpoint values used across the application
+pub mod breakpoints {
+    /// Extra small devices (phones in portrait)
+    pub const XS: &str = "480px";
+    /// Small devices (phones in landscape, small tablets)
+    pub const SM: &str = "640px";
+    /// Medium devices (tablets)
+    pub const MD: &str = "768px";
+    /// Large devices (small laptops)
+    pub const LG: &str = "1024px";
+    /// Extra large devices (desktops)
+    pub const XL: &str = "1280px";
+}
+
+/// Media query helpers - use these in your CSS strings
+pub mod media {
+    pub const MOBILE: &str = "@media (max-width: 768px)";
+    pub const TABLET: &str = "@media (min-width: 769px) and (max-width: 1024px)";
+    pub const DESKTOP: &str = "@media (min-width: 1025px)";
+    pub const MOBILE_LANDSCAPE: &str = "@media (max-height: 500px) and (orientation: landscape)";
+    pub const TOUCH_DEVICE: &str = "@media (hover: none) and (pointer: coarse)";
+    pub const REDUCED_MOTION: &str = "@media (prefers-reduced-motion: reduce)";
+}
+
+// =============================================================================
+// TOUCH TARGETS
+// =============================================================================
+
+/// WCAG 2.5 compliant touch target sizes
+pub mod touch {
+    /// Minimum touch target size (44x44px per WCAG 2.5)
+    pub const MIN_TARGET: &str = "44px";
+    /// Comfortable touch target size
+    pub const COMFORTABLE_TARGET: &str = "48px";
+    /// Large touch target for primary actions
+    pub const LARGE_TARGET: &str = "56px";
+}
+
+// =============================================================================
+// BASE MOBILE STYLES
+// =============================================================================
+
+/// Include this in your root component (app.rs) for global mobile utilities
+pub const MOBILE_BASE_STYLES: &str = r#"
+/* ============================================ */
+/* MOBILE CSS VARIABLES                         */
+/* ============================================ */
+:root {
+    /* Touch targets */
+    --touch-min: 44px;
+    --touch-comfortable: 48px;
+    --touch-large: 56px;
+
+    /* Mobile spacing */
+    --mobile-padding: 12px;
+    --mobile-gap: 8px;
+
+    /* Safe area insets for notched devices */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* ============================================ */
+/* MOBILE UTILITY CLASSES                       */
+/* ============================================ */
+
+/* Hide on mobile, show on desktop */
+.desktop-only {
+    display: block;
+}
+
+/* Show on mobile, hide on desktop */
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .desktop-only {
+        display: none !important;
+    }
+    .mobile-only {
+        display: block !important;
+    }
+    .mobile-only-flex {
+        display: flex !important;
+    }
+}
+
+/* Touch-friendly button base */
+.touch-target {
+    min-width: var(--touch-min);
+    min-height: var(--touch-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+/* Safe area padding utilities */
+.safe-top {
+    padding-top: max(var(--mobile-padding), var(--safe-top));
+}
+
+.safe-bottom {
+    padding-bottom: max(var(--mobile-padding), var(--safe-bottom));
+}
+
+.safe-horizontal {
+    padding-left: max(var(--mobile-padding), var(--safe-left));
+    padding-right: max(var(--mobile-padding), var(--safe-right));
+}
+
+/* Smooth scrolling with momentum on iOS */
+.scroll-smooth {
+    -webkit-overflow-scrolling: touch;
+    scroll-behavior: smooth;
+}
+
+/* Prevent text selection on interactive elements */
+.no-select {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE TAB BAR COMPONENT STYLES
+// =============================================================================
+
+/// Reusable mobile tab bar styles - use for any tabbed interface on mobile
+pub const MOBILE_TAB_BAR_STYLES: &str = r#"
+/* Mobile Tab Bar Container */
+.mobile-tabs {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobile-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 8px var(--mobile-padding, 12px);
+        background: rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-shrink: 0;
+        /* Hide scrollbar but keep functionality */
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .mobile-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Individual Tab Button */
+    .mobile-tab {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 8px;
+        border: none;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #888;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-height: var(--touch-min, 44px);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-tab-icon {
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .mobile-tab-label {
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    .mobile-tab:active {
+        background: rgba(255, 255, 255, 0.15);
+        transform: scale(0.97);
+    }
+
+    .mobile-tab.active {
+        background: rgba(102, 126, 234, 0.25);
+        color: #e8e8e8;
+        border: 1px solid rgba(102, 126, 234, 0.4);
+    }
+
+    /* Tab indicator dots (optional, for swipe hint) */
+    .mobile-tab-indicator {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .mobile-tab-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        transition: all 0.2s ease;
+    }
+
+    .mobile-tab-dot.active {
+        background: #667eea;
+        width: 18px;
+        border-radius: 3px;
+    }
+}
+
+/* Landscape mobile - horizontal tab layout */
+@media (max-height: 500px) and (orientation: landscape) {
+    .mobile-tabs {
+        padding: 4px 8px;
+    }
+
+    .mobile-tab {
+        padding: 6px 12px;
+        flex-direction: row;
+        gap: 6px;
+        min-height: 36px;
+    }
+
+    .mobile-tab-icon {
+        font-size: 16px;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE PANEL STYLES
+// =============================================================================
+
+/// Styles for switchable panel content (used with mobile tabs)
+pub const MOBILE_PANEL_STYLES: &str = r#"
+/* Desktop: show all panels side by side */
+.panel-container {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.panel-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.panel-content {
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+    .panel-container {
+        flex-direction: column;
+        position: relative;
+    }
+
+    /* On mobile, panels stack and only active one shows */
+    .panel {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+        min-width: unset;
+    }
+
+    .panel.panel-active {
+        position: relative;
+        flex: 1;
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Panel headers hidden on mobile (tabs replace them) */
+    .panel .panel-header {
+        display: none;
+    }
+
+    /* But show header for active panel if it has controls */
+    .panel.panel-active .panel-header.has-controls {
+        display: flex;
+        padding: 8px 12px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE BUTTON STYLES
+// =============================================================================
+
+/// Mobile-optimized button styles with proper touch targets
+pub const MOBILE_BUTTON_STYLES: &str = r#"
+@media (max-width: 768px) {
+    /* Ensure all buttons meet touch target requirements */
+    button,
+    .btn,
+    [role="button"] {
+        min-height: var(--touch-min, 44px);
+        min-width: var(--touch-min, 44px);
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+
+    /* Toggle button groups */
+    .toggle-group {
+        gap: 6px;
+        padding: 4px;
+        border-radius: 8px;
+    }
+
+    .toggle-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        min-height: var(--touch-min, 44px);
+        min-width: var(--touch-min, 44px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Small icon buttons */
+    .icon-btn {
+        width: var(--touch-min, 44px);
+        height: var(--touch-min, 44px);
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .icon-btn svg,
+    .icon-btn .icon {
+        width: 20px;
+        height: 20px;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE INPUT STYLES
+// =============================================================================
+
+/// Mobile-optimized form input styles
+pub const MOBILE_INPUT_STYLES: &str = r#"
+@media (max-width: 768px) {
+    /* Text inputs and textareas */
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="search"],
+    textarea {
+        font-size: 16px; /* Prevents iOS zoom on focus */
+        min-height: var(--touch-min, 44px);
+        padding: 12px 16px;
+        border-radius: 10px;
+    }
+
+    textarea {
+        min-height: 120px;
+        resize: vertical;
+    }
+
+    /* Labels above inputs */
+    label {
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+
+    /* Form groups */
+    .form-group {
+        margin-bottom: 16px;
+    }
+}
+"#;
+
+// =============================================================================
+// MOBILE RESIZER ALTERNATIVE
+// =============================================================================
+
+/// On mobile, hide desktop resizers entirely
+pub const MOBILE_RESIZER_STYLES: &str = r#"
+.panel-resizer {
+    width: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    cursor: col-resize;
+    transition: background 0.2s ease;
+    flex-shrink: 0;
+}
+
+.panel-resizer:hover,
+.panel-resizer.active {
+    background: rgba(102, 126, 234, 0.5);
+}
+
+@media (max-width: 768px) {
+    .panel-resizer {
+        display: none;
+    }
+}
+"#;
+
+// =============================================================================
+// COMBINED MOBILE STYLES
+// =============================================================================
+
+/// All mobile styles combined - include this for a complete mobile solution
+pub fn all_mobile_styles() -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n{}\n{}",
+        MOBILE_BASE_STYLES,
+        MOBILE_TAB_BAR_STYLES,
+        MOBILE_PANEL_STYLES,
+        MOBILE_BUTTON_STYLES,
+        MOBILE_INPUT_STYLES,
+        MOBILE_RESIZER_STYLES,
+    )
+}
+
+/// Generate a complete mobile-ready style block for a page
+/// This combines the base mobile utilities with any page-specific styles
+pub fn with_mobile_styles(page_styles: &str) -> String {
+    format!("{}\n{}", MOBILE_BASE_STYLES, page_styles)
+}
 
 ```
 
@@ -53892,102 +56622,82 @@ use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::symbol_dictionary::SymbolDictionary;
+use crate::ui::components::vocab_reference::VocabReference;
+use crate::ui::responsive::{MOBILE_BASE_STYLES, MOBILE_TAB_BAR_STYLES};
 
+/// Studio-specific styles that extend the shared responsive styles
 const STUDIO_STYLE: &str = r#"
+/* ============================================ */
+/* STUDIO PAGE - Design Tokens                  */
+/* ============================================ */
+:root {
+    --studio-bg: #0f1419;
+    --studio-panel-bg: #12161c;
+    --studio-elevated: #1a1f27;
+    --studio-border: rgba(255, 255, 255, 0.08);
+    --studio-border-hover: rgba(255, 255, 255, 0.15);
+    --studio-text: #e8eaed;
+    --studio-text-secondary: #9ca3af;
+    --studio-text-muted: #6b7280;
+    --studio-accent: #667eea;
+}
+
+/* ============================================ */
+/* STUDIO PAGE - Desktop Layout                 */
+/* ============================================ */
 .studio-container {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-    color: #e8e8e8;
+    height: 100dvh;
+    background: var(--studio-bg);
+    color: var(--studio-text);
+    overflow: hidden;
 }
 
-.studio-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 24px;
-    background: rgba(0, 0, 0, 0.2);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.studio-logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.studio-logo-icon {
-    font-size: 24px;
-}
-
-.studio-logo-text {
-    font-size: 20px;
-    font-weight: 700;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.studio-nav {
-    display: flex;
-    gap: 8px;
-}
-
-.studio-nav-btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    background: rgba(255, 255, 255, 0.05);
-    color: #888;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-decoration: none;
-}
-
-.studio-nav-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #e8e8e8;
-}
-
+/* Desktop: 3-column panel layout */
 .studio-main {
     flex: 1;
     display: flex;
     overflow: hidden;
+    gap: 1px;
+    background: var(--studio-border);
 }
 
 .studio-panel {
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--studio-panel-bg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
     min-width: 200px;
 }
 
-.panel-header {
-    padding: 12px 16px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 12px;
+.studio-panel .panel-header {
+    padding: 0 20px;
+    height: 52px;
+    background: rgba(255, 255, 255, 0.02);
+    border-bottom: 1px solid var(--studio-border);
+    font-size: 16px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #888;
+    letter-spacing: 0.3px;
+    color: var(--studio-text);
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-shrink: 0;
 }
 
-.panel-content {
+.studio-panel .panel-content {
     flex: 1;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
+/* Panel Resizers (desktop only) */
 .panel-resizer {
-    width: 6px;
-    background: rgba(255, 255, 255, 0.05);
+    width: 4px;
+    background: var(--studio-border);
     cursor: col-resize;
     transition: background 0.2s ease;
     flex-shrink: 0;
@@ -53995,13 +56705,15 @@ const STUDIO_STYLE: &str = r#"
 
 .panel-resizer:hover,
 .panel-resizer.active {
-    background: rgba(102, 126, 234, 0.5);
+    background: var(--studio-accent);
 }
 
+/* Format Toggle (Unicode/LaTeX) */
 .format-toggle {
     display: flex;
     gap: 4px;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--studio-border);
     border-radius: 6px;
     padding: 2px;
 }
@@ -54010,42 +56722,133 @@ const STUDIO_STYLE: &str = r#"
     padding: 4px 10px;
     border: none;
     background: transparent;
-    color: #888;
-    font-size: 11px;
+    color: var(--studio-text-muted);
+    font-size: 12px;
     border-radius: 4px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
+    line-height: 1;
 }
 
 .format-btn:hover {
-    color: #e8e8e8;
+    color: var(--studio-text);
+    background: rgba(255, 255, 255, 0.04);
 }
 
 .format-btn.active {
-    background: rgba(255, 255, 255, 0.1);
-    color: #e8e8e8;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--studio-text);
 }
 
-.studio-footer {
-    background: rgba(0, 0, 0, 0.3);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+/* Guide Bar - above panels */
+.studio-guide {
+    background: var(--studio-panel-bg);
+    border-bottom: 1px solid var(--studio-border);
+    flex-shrink: 0;
 }
 
+/* ============================================ */
+/* STUDIO PAGE - Mobile Overrides               */
+/* ============================================ */
 @media (max-width: 768px) {
+    /* Hide desktop resizers */
+    .panel-resizer {
+        display: none;
+    }
+
+    /* Mobile main switches to column with stacked panels */
     .studio-main {
         flex-direction: column;
+        position: relative;
+        gap: 0;
+        background: var(--studio-bg);
     }
-    .panel-resizer {
-        width: 100%;
-        height: 6px;
-        cursor: row-resize;
-    }
+
+    /* Panels are absolute positioned and hidden by default */
     .studio-panel {
         min-width: unset;
-        min-height: 150px;
+        min-height: unset;
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+        width: 100% !important;
+    }
+
+    /* Active panel becomes visible */
+    .studio-panel.mobile-active {
+        position: relative;
+        flex: 1;
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Hide panel headers on mobile (tabs replace them) */
+    .studio-panel .panel-header {
+        display: none;
+    }
+
+    /* Show header only for Logic panel when it has format toggle */
+    .studio-panel.mobile-active.has-controls .panel-header {
+        display: flex;
+        padding: 10px 14px;
+        background: var(--studio-elevated);
+        border-bottom: 1px solid var(--studio-border);
+    }
+
+    /* Mobile-sized format toggle */
+    .format-toggle {
+        gap: 6px;
+        padding: 4px;
+        border-radius: 8px;
+    }
+
+    .format-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+        border-radius: 6px;
+        min-height: var(--touch-min, 44px);
+        min-width: var(--touch-min, 44px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Footer constraints */
+    .studio-footer {
+        max-height: 30vh;
+        overflow: auto;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .format-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+}
+
+/* Landscape mobile */
+@media (max-height: 500px) and (orientation: landscape) {
+    .studio-footer {
+        max-height: 25vh;
     }
 }
 "#;
+
+/// Mobile tab options
+#[derive(Clone, Copy, PartialEq, Default)]
+enum MobileTab {
+    #[default]
+    Input,
+    Logic,
+    Tree,
+}
 
 #[component]
 pub fn Studio() -> Element {
@@ -54063,9 +56866,17 @@ pub fn Studio() -> Element {
     });
     let mut format = use_signal(|| OutputFormat::SimpleFOL);
 
+    // Desktop panel resizing state
     let mut left_width = use_signal(|| 35.0f64);
     let mut right_width = use_signal(|| 25.0f64);
     let mut resizing = use_signal(|| None::<&'static str>);
+
+    // Mobile tab state
+    let mut active_tab = use_signal(|| MobileTab::Input);
+
+    // Touch gesture state for swipe detection
+    let mut touch_start_x = use_signal(|| 0.0f64);
+    let mut touch_start_y = use_signal(|| 0.0f64);
 
     let handle_input = move |new_value: String| {
         input.set(new_value.clone());
@@ -54105,6 +56916,7 @@ pub fn Studio() -> Element {
     let right_w = *right_width.read();
     let center_w = 100.0 - left_w - right_w;
 
+    // Desktop mouse handlers for panel resizing
     let handle_mouse_move = move |evt: MouseEvent| {
         if let Some(which) = *resizing.read() {
             let window = web_sys::window().unwrap();
@@ -54131,9 +56943,76 @@ pub fn Studio() -> Element {
         resizing.set(None);
     };
 
+    // Mobile touch handlers for swipe gestures
+    let handle_touch_start = move |evt: TouchEvent| {
+        let touches = evt.data().touches();
+        if let Some(touch) = touches.first() {
+            let coords = touch.client_coordinates();
+            touch_start_x.set(coords.x);
+            touch_start_y.set(coords.y);
+        }
+    };
+
+    let handle_touch_end = move |evt: TouchEvent| {
+        let changed = evt.data().touches_changed();
+        if let Some(touch) = changed.first() {
+            let coords = touch.client_coordinates();
+            let end_x = coords.x;
+            let end_y = coords.y;
+            let dx = end_x - *touch_start_x.read();
+            let dy = end_y - *touch_start_y.read();
+
+            // Only trigger swipe if horizontal movement > vertical and > 50px threshold
+            if dx.abs() > dy.abs() && dx.abs() > 50.0 {
+                let current = *active_tab.read();
+                if dx < 0.0 {
+                    // Swipe left - go to next tab
+                    match current {
+                        MobileTab::Input => active_tab.set(MobileTab::Logic),
+                        MobileTab::Logic => active_tab.set(MobileTab::Tree),
+                        MobileTab::Tree => {} // Already at last tab
+                    }
+                } else {
+                    // Swipe right - go to previous tab
+                    match current {
+                        MobileTab::Input => {} // Already at first tab
+                        MobileTab::Logic => active_tab.set(MobileTab::Input),
+                        MobileTab::Tree => active_tab.set(MobileTab::Logic),
+                    }
+                }
+            }
+        }
+    };
+
     let current_format = *format.read();
+    let current_tab = *active_tab.read();
+
+    // Helper classes for panels based on active tab
+    let input_panel_class = if current_tab == MobileTab::Input {
+        "studio-panel mobile-active"
+    } else {
+        "studio-panel"
+    };
+
+    let logic_panel_class = if current_tab == MobileTab::Logic {
+        "studio-panel mobile-active has-controls"
+    } else {
+        "studio-panel"
+    };
+
+    let tree_panel_class = if current_tab == MobileTab::Tree {
+        "studio-panel mobile-active"
+    } else {
+        "studio-panel"
+    };
+
+    // Clone logic for VocabReference (needs owned String)
+    let _vocab_logic = current_result.logic.clone();
 
     rsx! {
+        // Include shared mobile styles from responsive module
+        style { "{MOBILE_BASE_STYLES}" }
+        style { "{MOBILE_TAB_BAR_STYLES}" }
         style { "{STUDIO_STYLE}" }
 
         div {
@@ -54141,12 +57020,45 @@ pub fn Studio() -> Element {
             onmousemove: handle_mouse_move,
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
+            ontouchstart: handle_touch_start,
+            ontouchend: handle_touch_end,
 
             MainNav { active: ActivePage::Studio }
 
+            // Mobile Tab Bar - shown only on mobile via CSS
+            nav { class: "mobile-tabs",
+                button {
+                    class: if current_tab == MobileTab::Input { "mobile-tab active" } else { "mobile-tab" },
+                    onclick: move |_| active_tab.set(MobileTab::Input),
+                    span { class: "mobile-tab-icon", "\u{270F}" } // Pencil icon
+                    span { class: "mobile-tab-label", "Input" }
+                }
+                button {
+                    class: if current_tab == MobileTab::Logic { "mobile-tab active" } else { "mobile-tab" },
+                    onclick: move |_| active_tab.set(MobileTab::Logic),
+                    span { class: "mobile-tab-icon", "\u{2200}" } // Forall symbol
+                    span { class: "mobile-tab-label", "Logic" }
+                }
+                button {
+                    class: if current_tab == MobileTab::Tree { "mobile-tab active" } else { "mobile-tab" },
+                    onclick: move |_| active_tab.set(MobileTab::Tree),
+                    span { class: "mobile-tab-icon", "\u{1F333}" } // Tree emoji
+                    span { class: "mobile-tab-label", "Tree" }
+                }
+            }
+
+            // Socratic Guide - prominent position above panels
+            div { class: "studio-guide",
+                SocraticGuide {
+                    mode: guide_mode.clone(),
+                    on_hint_request: None,
+                }
+            }
+
             main { class: "studio-main",
+                // Input Panel
                 section {
-                    class: "studio-panel",
+                    class: "{input_panel_class}",
                     style: "width: {left_w}%;",
                     div { class: "panel-header",
                         span { "English Input" }
@@ -54159,13 +57071,15 @@ pub fn Studio() -> Element {
                     }
                 }
 
+                // Left resizer (desktop only)
                 div {
                     class: if resizing.read().is_some() { "panel-resizer active" } else { "panel-resizer" },
                     onmousedown: move |_| resizing.set(Some("left")),
                 }
 
+                // Logic Output Panel
                 section {
-                    class: "studio-panel",
+                    class: "{logic_panel_class}",
                     style: "width: {center_w}%;",
                     div { class: "panel-header",
                         span { "Logic Output" }
@@ -54203,19 +57117,29 @@ pub fn Studio() -> Element {
                             error: current_result.error.clone(),
                             format: current_format,
                         }
+                        // Symbol Dictionary - auto-generated from FOL output
+                        if let Some(ref logic) = current_result.logic {
+                            SymbolDictionary {
+                                logic: logic.clone(),
+                                collapsed: false,
+                                inline: false,
+                            }
+                        }
                     }
                 }
 
+                // Right resizer (desktop only)
                 div {
                     class: if resizing.read().is_some() { "panel-resizer active" } else { "panel-resizer" },
                     onmousedown: move |_| resizing.set(Some("right")),
                 }
 
+                // Syntax Tree Panel
                 aside {
-                    class: "studio-panel",
+                    class: "{tree_panel_class}",
                     style: "width: {right_w}%;",
                     div { class: "panel-header",
-                        span { "AST Inspector" }
+                        span { "Syntax Tree" }
                     }
                     div { class: "panel-content",
                         AstTree {
@@ -54225,12 +57149,8 @@ pub fn Studio() -> Element {
                 }
             }
 
-            footer { class: "studio-footer",
-                SocraticGuide {
-                    mode: guide_mode,
-                    on_hint_request: None,
-                }
-            }
+            // Floating vocab reference button
+            VocabReference {}
         }
     }
 }
@@ -56310,6 +59230,7 @@ const TREE_STYLE: &str = r#"
     height: 100%;
     overflow: auto;
     padding: 16px;
+    -webkit-overflow-scrolling: touch;
 }
 
 .ast-tree-empty {
@@ -56347,6 +59268,7 @@ const TREE_STYLE: &str = r#"
     cursor: pointer;
     transition: background 0.15s ease;
     position: relative;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .ast-node-label:hover {
@@ -56389,6 +59311,7 @@ const TREE_STYLE: &str = r#"
     border-radius: 3px;
     background: rgba(255, 255, 255, 0.08);
     color: #888;
+    white-space: nowrap;
 }
 
 .ast-node-type.quantifier { background: rgba(198, 120, 221, 0.2); color: #c678dd; }
@@ -56418,6 +59341,85 @@ const TREE_STYLE: &str = r#"
 
 .ast-root > .ast-node-label:before {
     display: none;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .ast-tree-container {
+        padding: 12px;
+    }
+
+    .ast-tree-empty {
+        padding: 30px 16px;
+        font-size: 14px;
+    }
+
+    /* Larger touch targets for tree nodes */
+    .ast-node {
+        margin-left: 14px;
+    }
+
+    .ast-node-label {
+        padding: 8px 10px;
+        gap: 8px;
+        min-height: 40px;
+        border-radius: 6px;
+    }
+
+    .ast-node-label:active {
+        background: rgba(255, 255, 255, 0.1);
+    }
+
+    .ast-node-toggle {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+    }
+
+    .ast-node-text {
+        font-size: 14px;
+        word-break: break-word;
+    }
+
+    .ast-node-type {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 4px;
+    }
+
+    .ast-node:before {
+        left: -10px;
+    }
+
+    .ast-node-label:before {
+        left: -10px;
+        width: 6px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .ast-tree-container {
+        padding: 10px;
+    }
+
+    .ast-node {
+        margin-left: 12px;
+    }
+
+    .ast-node-label {
+        padding: 6px 8px;
+        min-height: 36px;
+    }
+
+    .ast-node-text {
+        font-size: 13px;
+    }
+
+    .ast-node-type {
+        font-size: 10px;
+        padding: 2px 6px;
+    }
 }
 "#;
 
@@ -56693,6 +59695,7 @@ const EDITOR_STYLE: &str = r#"
     color: #e8e8e8;
     resize: none;
     outline: none;
+    -webkit-overflow-scrolling: touch;
 }
 
 .editor-fallback:focus {
@@ -56702,6 +59705,59 @@ const EDITOR_STYLE: &str = r#"
 
 .editor-fallback::placeholder {
     color: #666;
+}
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .editor-container {
+        padding: 12px;
+        min-height: unset;
+    }
+
+    .editor-fallback {
+        /* 16px minimum prevents iOS zoom on focus */
+        font-size: 16px;
+        padding: 14px;
+        border-radius: 10px;
+        min-height: 120px;
+        /* Allow textarea to grow with content */
+        resize: vertical;
+    }
+
+    .editor-fallback:focus {
+        /* Slightly stronger focus for mobile visibility */
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.25);
+    }
+
+    .editor-fallback::placeholder {
+        color: #777;
+        font-size: 15px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .editor-container {
+        padding: 10px;
+    }
+
+    .editor-fallback {
+        padding: 12px;
+        font-size: 16px; /* Keep at 16px to prevent zoom */
+        min-height: 100px;
+    }
+}
+
+/* Landscape mobile - more horizontal space for input */
+@media (max-height: 500px) and (orientation: landscape) {
+    .editor-container {
+        padding: 8px;
+    }
+
+    .editor-fallback {
+        min-height: 80px;
+        padding: 10px 12px;
+    }
 }
 "#;
 
@@ -57916,7 +60972,6 @@ const OUTPUT_STYLE: &str = r#"
 .logic-output-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
     padding: 16px;
 }
 
@@ -57925,6 +60980,7 @@ const OUTPUT_STYLE: &str = r#"
     align-items: center;
     gap: 8px;
     margin-bottom: 12px;
+    flex-wrap: wrap;
 }
 
 .reading-selector span {
@@ -57950,30 +61006,29 @@ const OUTPUT_STYLE: &str = r#"
 }
 
 .reading-btn.active {
-    background: linear-gradient(135deg, #667eea, #764ba2);
+    background: #667eea;
     border-color: transparent;
     color: white;
 }
 
 .logic-display {
-    flex: 1;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 12px;
-    padding: 20px;
+    padding: 16px;
     font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-    font-size: 18px;
+    font-size: 16px;
     line-height: 1.6;
     color: #e8e8e8;
     overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    word-break: break-word;
 }
 
 .logic-display.empty {
     color: #666;
     font-style: italic;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    padding: 16px;
 }
 
 .logic-display.error {
@@ -57987,6 +61042,60 @@ const OUTPUT_STYLE: &str = r#"
 .logic-connective { color: #c678dd; }
 .logic-constant { color: #e5c07b; }
 .logic-paren { color: #abb2bf; }
+
+/* Mobile optimizations */
+@media (max-width: 768px) {
+    .logic-output-container {
+        padding: 12px;
+    }
+
+    .reading-selector {
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .reading-selector span {
+        font-size: 13px;
+    }
+
+    /* Touch-friendly reading buttons */
+    .reading-btn {
+        width: 44px;
+        height: 44px;
+        font-size: 14px;
+        border-radius: 8px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .reading-btn:active {
+        transform: scale(0.95);
+    }
+
+    .logic-display {
+        padding: 16px;
+        font-size: 16px;
+        border-radius: 10px;
+    }
+
+    .logic-display.empty {
+        font-size: 14px;
+        padding: 16px;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 480px) {
+    .reading-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 13px;
+    }
+
+    .logic-display {
+        font-size: 15px;
+        padding: 14px;
+    }
+}
 "#;
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -59002,45 +62111,33 @@ use dioxus::prelude::*;
 const GUIDE_STYLE: &str = r#"
 .socratic-guide {
     display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 16px 20px;
-    background: rgba(255, 255, 255, 0.03);
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    min-height: 60px;
-}
-
-.guide-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #667eea, #764ba2);
-    display: flex;
     align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
+    gap: 12px;
+    padding: 12px 20px;
+    background: transparent;
+    min-height: 44px;
 }
 
 .guide-content {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
 }
 
 .guide-label {
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: #667eea;
+    white-space: nowrap;
 }
 
 .guide-message {
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1.5;
-    color: #c8c8c8;
+    color: #e0e0e0;
 }
 
 .guide-message.error {
@@ -59060,7 +62157,7 @@ const GUIDE_STYLE: &str = r#"
     background: rgba(255, 255, 255, 0.08);
     padding: 2px 6px;
     border-radius: 4px;
-    font-size: 13px;
+    font-size: 15px;
 }
 
 .guide-actions {
@@ -59126,11 +62223,9 @@ pub fn SocraticGuide(
             return rsx! {
                 style { "{GUIDE_STYLE}" }
                 div { class: "socratic-guide",
-                    div { class: "guide-avatar", "\u{1F989}" }
                     div { class: "guide-content",
-                        div { class: "guide-label", "Socrates" }
                         div { class: "guide-message guide-empty",
-                            "Type a sentence to begin your journey into logic..."
+                            "Type an English sentence to translate it to First-Order Logic"
                         }
                     }
                 }
@@ -59146,7 +62241,6 @@ pub fn SocraticGuide(
         style { "{GUIDE_STYLE}" }
 
         div { class: "socratic-guide",
-            div { class: "guide-avatar", "\u{1F989}" }
             div { class: "guide-content",
                 div { class: "guide-label", "{label}" }
                 div { class: "{message_class}",
@@ -59693,15 +62787,15 @@ const VOCAB_REFERENCE_STYLE: &str = r#"
     width: 48px;
     height: 48px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--color-accent-blue), var(--color-accent-purple));
+    background: #667eea;
     border: none;
-    color: #060814;
+    color: #fff;
     font-size: 24px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 20px rgba(96, 165, 250, 0.3);
+    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
     transition: transform 0.2s ease, box-shadow 0.2s ease;
     z-index: 1000;
 }
@@ -59716,16 +62810,32 @@ const VOCAB_REFERENCE_STYLE: &str = r#"
     color: var(--text-primary);
 }
 
+/* Attention animation - pulses after delay */
+.vocab-reference-toggle.attention {
+    animation: attentionPulse 2s ease-in-out 3;
+}
+
+@keyframes attentionPulse {
+    0%, 100% {
+        transform: scale(1);
+        box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+    }
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 6px 30px rgba(102, 126, 234, 0.6);
+    }
+}
+
 .vocab-reference-panel {
     position: fixed;
     bottom: 84px;
     right: 24px;
     width: 360px;
     max-height: 70vh;
-    background: linear-gradient(180deg, #0d1424 0%, #0a0f1a 100%);
+    background: #12161c;
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: var(--radius-xl);
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 30px rgba(96, 165, 250, 0.1);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
     z-index: 999;
     overflow: hidden;
     animation: slideUp 0.2s ease;
@@ -60004,6 +63114,19 @@ pub struct VocabReferenceProps {
 pub fn VocabReference(props: VocabReferenceProps) -> Element {
     let mut is_open = use_signal(|| props.initial_open);
     let mut search_query = use_signal(|| String::new());
+    let mut show_attention = use_signal(|| false);
+
+    // Trigger attention animation after 10 seconds if not opened
+    use_effect(move || {
+        spawn(async move {
+            // Wait 10 seconds
+            gloo_timers::future::TimeoutFuture::new(10_000).await;
+            // Only show attention if panel hasn't been opened
+            if !*is_open.peek() {
+                show_attention.set(true);
+            }
+        });
+    });
 
     let symbols = get_symbols();
     let vocab_terms = get_vocab_terms();
@@ -60039,10 +63162,22 @@ pub fn VocabReference(props: VocabReferenceProps) -> Element {
 
         // Toggle button
         button {
-            class: if *is_open.read() { "vocab-reference-toggle active" } else { "vocab-reference-toggle" },
+            class: {
+                let open = *is_open.read();
+                let attention = *show_attention.read();
+                if open {
+                    "vocab-reference-toggle active"
+                } else if attention {
+                    "vocab-reference-toggle attention"
+                } else {
+                    "vocab-reference-toggle"
+                }
+            },
             onclick: move |_| {
                 let current = *is_open.read();
                 is_open.set(!current);
+                // Stop attention animation once clicked
+                show_attention.set(false);
             },
             title: "Symbol & Vocabulary Reference",
             if *is_open.read() { "×" } else { "📖" }
@@ -74647,8 +77782,8 @@ use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::codegen_program;
-use crate::context::DiscourseContext;
 use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
+use crate::drs::WorldState;
 use crate::error::ParseError;
 use crate::intern::Interner;
 use crate::lexer::Lexer;
@@ -74671,7 +77806,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -74695,7 +77830,7 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
@@ -74740,7 +77875,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -74764,7 +77899,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
     // Pass 3: Escape analysis
@@ -74813,7 +77948,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     let codegen_registry = type_registry.clone();
     let codegen_policies = policy_registry.clone();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -74837,7 +77972,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
     // Pass 3: Escape analysis
@@ -75072,7 +78207,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     let mut lexer = Lexer::new(&source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -75096,7 +78231,7 @@ pub fn compile_project(path: &Path) -> Result<String, CompileError> {
     );
 
     // Pass 2: Parse with type context (includes imported types)
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
     let stmts = parser.parse_program().map_err(CompileError::Parse)?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
@@ -75588,8 +78723,250 @@ mod tests {
 Additional source module.
 
 ```rust
-use crate::context::Gender;
 use crate::intern::Symbol;
+use std::fmt;
+
+// ============================================
+// CORE DISCOURSE TYPES (moved from context.rs)
+// ============================================
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeRelation {
+    Precedes,
+    Equals,
+}
+
+#[derive(Debug, Clone)]
+pub struct TimeConstraint {
+    pub left: String,
+    pub relation: TimeRelation,
+    pub right: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gender {
+    Male,
+    Female,
+    Neuter,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Number {
+    Singular,
+    Plural,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Case {
+    Subject,
+    Object,
+    Possessive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OwnershipState {
+    #[default]
+    Owned,
+    Moved,
+    Borrowed,
+}
+
+// ============================================
+// SCOPE ERROR TYPES
+// ============================================
+
+/// Error when pronoun resolution fails due to scope constraints
+#[derive(Debug, Clone, PartialEq)]
+pub enum ScopeError {
+    /// Referent exists but is trapped in an inaccessible scope
+    InaccessibleReferent {
+        gender: Gender,
+        blocking_scope: BoxType,
+        reason: String,
+    },
+    /// No matching referent found at all
+    NoMatchingReferent {
+        gender: Gender,
+        number: Number,
+    },
+}
+
+impl fmt::Display for ScopeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScopeError::InaccessibleReferent { gender, blocking_scope, reason } => {
+                write!(f, "Cannot resolve {:?} pronoun: referent is trapped in {:?} scope. {}",
+                    gender, blocking_scope, reason)
+            }
+            ScopeError::NoMatchingReferent { gender, number } => {
+                write!(f, "Cannot resolve {:?} {:?} pronoun: no matching referent in accessible scope",
+                    gender, number)
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScopeError {}
+
+// ============================================
+// TELESCOPE SUPPORT
+// ============================================
+
+/// Path segment for navigating to insertion point during AST restructuring
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScopePath {
+    /// Enter body of ∀ or ∃ quantifier
+    QuantifierBody,
+    /// Enter consequent of → implication
+    ImplicationRight,
+    /// Enter right side of ∧ conjunction
+    ConjunctionRight,
+}
+
+/// A referent that may be accessed via telescoping across sentence boundaries
+#[derive(Debug, Clone)]
+pub struct TelescopeCandidate {
+    pub variable: Symbol,
+    pub noun_class: Symbol,
+    pub gender: Gender,
+    /// The box index where this referent was introduced
+    pub origin_box: usize,
+    /// Path to navigate AST for scope extension
+    pub scope_path: Vec<ScopePath>,
+}
+
+// ============================================
+// WORLD STATE (Unified Discourse State)
+// ============================================
+
+/// The unified discourse state that persists across sentences.
+/// Replaces DiscourseContext by merging DRS with temporal tracking.
+#[derive(Debug, Clone)]
+pub struct WorldState {
+    /// The global DRS (box hierarchy for scope tracking)
+    pub drs: Drs,
+    /// Event variable counter (e1, e2, e3...)
+    event_counter: usize,
+    /// Event history for temporal ordering
+    event_history: Vec<String>,
+    /// Reference time counter (r1, r2, r3...)
+    reference_time_counter: usize,
+    /// Current reference time
+    current_reference_time: Option<String>,
+    /// Temporal constraints between events
+    time_constraints: Vec<TimeConstraint>,
+    /// Telescope candidates from previous sentence
+    telescope_candidates: Vec<TelescopeCandidate>,
+}
+
+impl WorldState {
+    pub fn new() -> Self {
+        Self {
+            drs: Drs::new(),
+            event_counter: 0,
+            event_history: Vec::new(),
+            reference_time_counter: 0,
+            current_reference_time: None,
+            time_constraints: Vec::new(),
+            telescope_candidates: Vec::new(),
+        }
+    }
+
+    /// Generate next event variable (e1, e2, e3...)
+    pub fn next_event_var(&mut self) -> String {
+        self.event_counter += 1;
+        let var = format!("e{}", self.event_counter);
+        self.event_history.push(var.clone());
+        var
+    }
+
+    /// Get event history for temporal ordering
+    pub fn event_history(&self) -> &[String] {
+        &self.event_history
+    }
+
+    /// Generate next reference time (r1, r2, r3...)
+    pub fn next_reference_time(&mut self) -> String {
+        self.reference_time_counter += 1;
+        let var = format!("r{}", self.reference_time_counter);
+        self.current_reference_time = Some(var.clone());
+        var
+    }
+
+    /// Get current reference time
+    pub fn current_reference_time(&self) -> String {
+        self.current_reference_time.clone().unwrap_or_else(|| "S".to_string())
+    }
+
+    /// Add a temporal constraint
+    pub fn add_time_constraint(&mut self, left: String, relation: TimeRelation, right: String) {
+        self.time_constraints.push(TimeConstraint { left, relation, right });
+    }
+
+    /// Get all time constraints
+    pub fn time_constraints(&self) -> &[TimeConstraint] {
+        &self.time_constraints
+    }
+
+    /// Clear time constraints (for sentence boundary reset if needed)
+    pub fn clear_time_constraints(&mut self) {
+        self.time_constraints.clear();
+        self.reference_time_counter = 0;
+        self.current_reference_time = None;
+    }
+
+    /// Mark a sentence boundary - collect telescope candidates
+    pub fn end_sentence(&mut self) {
+        // Collect referents that can telescope from current DRS state
+        self.telescope_candidates = self.drs.get_telescope_candidates();
+    }
+
+    /// Get telescope candidates from previous sentence
+    pub fn telescope_candidates(&self) -> &[TelescopeCandidate] {
+        &self.telescope_candidates
+    }
+
+    /// Try to resolve a pronoun via telescoping
+    pub fn resolve_via_telescope(&mut self, gender: Gender) -> Option<TelescopeCandidate> {
+        // Apply same Gender Accommodation rules as resolve_pronoun:
+        // - Exact match (Male=Male, Female=Female, etc)
+        // - Unknown referent matches any pronoun (Gender Accommodation)
+        // - Unknown pronoun matches any referent
+        for candidate in &self.telescope_candidates {
+            let gender_match = candidate.gender == gender
+                || candidate.gender == Gender::Unknown  // Gender Accommodation
+                || gender == Gender::Unknown;
+
+            if gender_match {
+                return Some(candidate.clone());
+            }
+        }
+
+        None
+    }
+
+    /// Clear the world state (reset for new discourse)
+    pub fn clear(&mut self) {
+        self.drs.clear();
+        self.event_counter = 0;
+        self.event_history.clear();
+        self.reference_time_counter = 0;
+        self.current_reference_time = None;
+        self.time_constraints.clear();
+        self.telescope_candidates.clear();
+    }
+}
+
+impl Default for WorldState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================
+// REFERENT SOURCE
+// ============================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReferentSource {
@@ -75646,6 +79023,26 @@ impl BoxType {
             BoxType::Disjunct => ReferentSource::Disjunct,
         }
     }
+
+    /// Can referents in this box be accessed via telescoping across sentence boundaries?
+    /// Universal quantifiers and conditionals CAN telescope.
+    /// Negation and disjunction CANNOT telescope.
+    pub fn can_telescope(&self) -> bool {
+        matches!(
+            self,
+            BoxType::Main
+            | BoxType::UniversalScope
+            | BoxType::UniversalRestrictor
+            | BoxType::ConditionalConsequent
+            | BoxType::ConditionalAntecedent
+        )
+        // NegationScope and Disjunct return false implicitly
+    }
+
+    /// Does this box type block accessibility from outside?
+    pub fn blocks_accessibility(&self) -> bool {
+        matches!(self, BoxType::NegationScope | BoxType::Disjunct)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -75653,16 +79050,18 @@ pub struct Referent {
     pub variable: Symbol,
     pub noun_class: Symbol,
     pub gender: Gender,
+    pub number: Number,
     pub source: ReferentSource,
     pub used_by_pronoun: bool,
 }
 
 impl Referent {
-    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, source: ReferentSource) -> Self {
+    pub fn new(variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) -> Self {
         Self {
             variable,
             noun_class,
             gender,
+            number,
             source,
             used_by_pronoun: false,
         }
@@ -75730,18 +79129,25 @@ impl Drs {
         self.boxes.get(self.current_box).and_then(|b| b.box_type)
     }
 
-    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender) {
+    pub fn introduce_referent(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number) {
         let source = self.boxes[self.current_box]
             .box_type
             .map(|bt| bt.to_referent_source())
             .unwrap_or(ReferentSource::MainClause);
 
-        let referent = Referent::new(variable, noun_class, gender, source);
+        let referent = Referent::new(variable, noun_class, gender, number, source);
+        self.boxes[self.current_box].universe.push(referent);
+    }
+
+    /// Introduce a referent with an explicit source (used for negative quantifiers like "No X")
+    pub fn introduce_referent_with_source(&mut self, variable: Symbol, noun_class: Symbol, gender: Gender, number: Number, source: ReferentSource) {
+        let referent = Referent::new(variable, noun_class, gender, number, source);
         self.boxes[self.current_box].universe.push(referent);
     }
 
     pub fn introduce_proper_name(&mut self, variable: Symbol, name: Symbol, gender: Gender) {
-        let referent = Referent::new(variable, name, gender, ReferentSource::ProperName);
+        // Proper names are always singular
+        let referent = Referent::new(variable, name, gender, Number::Singular, ReferentSource::ProperName);
         self.boxes[self.current_box].universe.push(referent);
     }
 
@@ -75797,41 +79203,90 @@ impl Drs {
         false
     }
 
-    /// Resolve a pronoun by finding accessible referents matching gender
-    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender) -> Option<Symbol> {
-        // Search current box and accessible ancestors/siblings
+    /// Resolve a pronoun by finding accessible referents matching gender and number
+    pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender, number: Number) -> Result<Symbol, ScopeError> {
+        // Phase 1: Search accessible boxes (skip referents from NegationScope source)
         let mut candidates = Vec::new();
 
-        // Check all boxes for accessibility
         for (box_idx, drs_box) in self.boxes.iter().enumerate() {
             if self.is_accessible(box_idx, from_box) {
                 for referent in &drs_box.universe {
-                    let gender_match = gender == Gender::Unknown
-                        || referent.gender == Gender::Unknown
-                        || referent.gender == gender
-                        || gender == Gender::Neuter; // "it" can refer to things
+                    // Skip referents that are from negative quantifiers (No X)
+                    if matches!(referent.source, ReferentSource::NegationScope) {
+                        continue;
+                    }
 
-                    if gender_match {
+                    // Gender matching rules:
+                    // - Exact match (Male=Male, Female=Female, etc)
+                    // - Unknown referents match any pronoun (gender accommodation)
+                    // - Unknown pronouns match any referent
+                    // This allows "He" to refer to "farmer" even if farmer's gender is Unknown
+                    let gender_match = referent.gender == gender
+                        || referent.gender == Gender::Unknown
+                        || gender == Gender::Unknown;
+
+                    // Number matching: must match exactly (no number accommodation)
+                    let number_match = referent.number == number;
+
+                    if gender_match && number_match {
                         candidates.push((box_idx, referent.variable));
                     }
                 }
             }
         }
 
-        // Return most recent (last) candidate
+        // If found in accessible scope, return success
         if let Some((box_idx, var)) = candidates.last() {
-            // Mark as used by pronoun
             let box_idx = *box_idx;
             let var = *var;
             for referent in &mut self.boxes[box_idx].universe {
                 if referent.variable == var {
                     referent.used_by_pronoun = true;
-                    return Some(var);
+                    return Ok(var);
                 }
             }
         }
 
-        None
+        // Phase 2: Check inaccessible boxes OR referents with NegationScope source
+        // Use the same strict gender matching for consistency
+        for (_box_idx, drs_box) in self.boxes.iter().enumerate() {
+            for referent in &drs_box.universe {
+                // Check for referents with NegationScope source (from "No X")
+                // OR referents in inaccessible boxes
+                let is_inaccessible = matches!(referent.source, ReferentSource::NegationScope)
+                    || !self.is_accessible(_box_idx, from_box);
+
+                if is_inaccessible {
+                    // Same matching as Phase 1
+                    let gender_match = referent.gender == gender
+                        || (gender == Gender::Unknown)
+                        || (gender == Gender::Neuter && referent.gender == Gender::Unknown);
+                    let number_match = referent.number == number;
+
+                    if gender_match && number_match {
+                        // Found a matching referent but it's inaccessible
+                        let blocking_scope = if matches!(referent.source, ReferentSource::NegationScope) {
+                            BoxType::NegationScope
+                        } else {
+                            drs_box.box_type.unwrap_or(BoxType::Main)
+                        };
+                        let noun_class_str = format!("{:?}", referent.noun_class);
+                        return Err(ScopeError::InaccessibleReferent {
+                            gender,
+                            blocking_scope,
+                            reason: format!("'{}' is trapped in {:?} scope and cannot be accessed",
+                                noun_class_str, blocking_scope),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Phase 3: Not found anywhere
+        Err(ScopeError::NoMatchingReferent {
+            gender,
+            number,
+        })
     }
 
     /// Resolve a definite description by finding accessible referent matching noun class
@@ -75906,6 +79361,86 @@ impl Drs {
         )
     }
 
+    /// Get all referents that can telescope across sentence boundaries.
+    /// Only includes referents from boxes where can_telescope() is true.
+    /// Excludes referents blocked by negation or disjunction.
+    pub fn get_telescope_candidates(&self) -> Vec<TelescopeCandidate> {
+        let mut candidates = Vec::new();
+
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            // Check if this box type allows telescoping
+            if let Some(box_type) = drs_box.box_type {
+                if !box_type.can_telescope() {
+                    continue; // Skip negation and disjunction boxes
+                }
+            }
+
+            // Check if this box is blocked by an ancestor negation/disjunction
+            let mut is_blocked = false;
+            let mut check_idx = box_idx;
+            while let Some(parent_idx) = self.boxes.get(check_idx).and_then(|b| b.parent) {
+                if let Some(parent_type) = self.boxes.get(parent_idx).and_then(|b| b.box_type) {
+                    if parent_type.blocks_accessibility() {
+                        is_blocked = true;
+                        break;
+                    }
+                }
+                check_idx = parent_idx;
+            }
+
+            if is_blocked {
+                continue;
+            }
+
+            // Collect referents from this box (skip those with blocking sources)
+            for referent in &drs_box.universe {
+                // Skip referents that are marked with NegationScope or Disjunct source
+                // These are trapped inside negation/disjunction and cannot telescope
+                if matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct) {
+                    continue;
+                }
+
+                candidates.push(TelescopeCandidate {
+                    variable: referent.variable,
+                    noun_class: referent.noun_class,
+                    gender: referent.gender,
+                    origin_box: box_idx,
+                    scope_path: Vec::new(), // TODO: Track scope path during parsing
+                });
+            }
+        }
+
+        candidates
+    }
+
+    /// Find a referent that matches but is blocked by scope.
+    /// Used to generate informative error messages.
+    pub fn find_blocked_referent(&self, from_box: usize, gender: Gender) -> Option<(Symbol, BoxType)> {
+        for (box_idx, drs_box) in self.boxes.iter().enumerate() {
+            // Only check boxes that are NOT accessible
+            if self.is_accessible(box_idx, from_box) {
+                continue;
+            }
+
+            // Check if this box type blocks access
+            if let Some(box_type) = drs_box.box_type {
+                if box_type.blocks_accessibility() {
+                    for referent in &drs_box.universe {
+                        let gender_match = gender == Gender::Unknown
+                            || referent.gender == Gender::Unknown
+                            || referent.gender == gender
+                            || gender == Gender::Neuter;
+
+                        if gender_match {
+                            return Some((referent.variable, box_type));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     pub fn clear(&mut self) {
         self.boxes.clear();
         let main = DrsBox::new(BoxType::Main, None);
@@ -75965,14 +79500,14 @@ mod tests {
         let farmer = interner.intern("Farmer");
 
         // In main box - should be MainClause
-        drs.introduce_referent(x, farmer, Gender::Male);
+        drs.introduce_referent(x, farmer, Gender::Male, Number::Singular);
         assert_eq!(drs.boxes[0].universe[0].source, ReferentSource::MainClause);
 
         // Enter conditional antecedent
         drs.enter_box(BoxType::ConditionalAntecedent);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
         assert_eq!(
             drs.boxes[1].universe[0].source,
             ReferentSource::ConditionalAntecedent
@@ -75988,7 +79523,7 @@ mod tests {
         let ant_idx = drs.enter_box(BoxType::ConditionalAntecedent);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
         drs.exit_box();
 
         // Enter conditional consequent
@@ -76017,12 +79552,12 @@ mod tests {
 
         let x = interner.intern("x");
         let farmer = interner.intern("Farmer");
-        drs.introduce_referent(x, farmer, Gender::Male);
+        drs.introduce_referent(x, farmer, Gender::Male, Number::Singular);
 
         drs.enter_box(BoxType::ConditionalAntecedent);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
 
         let universals = drs.get_universal_referents();
         assert_eq!(universals.len(), 1);
@@ -76037,11 +79572,11 @@ mod tests {
         drs.enter_box(BoxType::UniversalRestrictor);
         let y = interner.intern("y");
         let donkey = interner.intern("Donkey");
-        drs.introduce_referent(y, donkey, Gender::Neuter);
+        drs.introduce_referent(y, donkey, Gender::Neuter, Number::Singular);
 
         // Resolve "it" - should find donkey
-        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter);
-        assert_eq!(resolved, Some(y));
+        let resolved = drs.resolve_pronoun(drs.current_box, Gender::Neuter, Number::Singular);
+        assert_eq!(resolved, Ok(y));
 
         // Should be marked as used
         assert!(drs.boxes[1].universe[0].used_by_pronoun);
@@ -78138,7 +81673,7 @@ Additional source module.
 
 ```rust
 use std::collections::HashMap;
-use crate::context::OwnershipState;
+use crate::drs::OwnershipState;
 
 #[derive(Debug, Clone)]
 pub struct ScopeEntry {
@@ -80463,7 +83998,7 @@ struct RefactoredLexiconData {
     #[serde(default)]
     axioms: Option<AxiomData>,
     #[serde(default)]
-    agentive_nouns: HashMap<String, String>,
+    morphological_rules: Vec<MorphologicalRule>,
 }
 
 #[derive(Deserialize)]
@@ -80511,6 +84046,22 @@ struct NounDefinition {
     features: Vec<String>,
     #[serde(default)]
     sort: Option<String>,
+    #[serde(default)]
+    derivation: Option<NounDerivation>,
+}
+
+#[derive(Deserialize, Default)]
+struct NounDerivation {
+    root: String,
+    pos: String,
+    relation: String,
+}
+
+#[derive(Deserialize)]
+struct MorphologicalRule {
+    suffix: String,
+    base_pos: String,
+    relation: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -80721,17 +84272,15 @@ fn main() {
     generate_is_check(&mut file, "is_gradable_adjective", &gradable);
     generate_is_check(&mut file, "is_event_modifier_adjective", &event_modifier);
 
-    // Generate agentive noun lookup (dancer -> Dance)
-    generate_lookup_agentive_noun(&mut file, &data.agentive_nouns);
-
     // Derive noun lists from features
-    let (common_nouns, male_names, female_names, male_nouns, female_nouns) =
+    let (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns) =
         derive_noun_lists(&data.nouns);
     generate_is_check(&mut file, "is_common_noun", &common_nouns);
     generate_is_check(&mut file, "is_male_name", &male_names);
     generate_is_check(&mut file, "is_female_name", &female_names);
     generate_is_check(&mut file, "is_male_noun", &male_nouns);
     generate_is_check(&mut file, "is_female_noun", &female_nouns);
+    generate_is_check(&mut file, "is_neuter_noun", &neuter_nouns);
 
     // Generate verb class lookup from verb definitions
     let (state_verbs, activity_verbs, accomplishment_verbs, achievement_verbs, semelfactive_verbs) =
@@ -80781,6 +84330,12 @@ fn main() {
 
     // Generate canonical mapping lookup for synonyms/antonyms
     generate_canonical_mapping(&mut file, &data.verbs);
+
+    // Generate morphological rules for derivational morphology
+    generate_morphological_rules(&mut file, &data.morphological_rules);
+
+    // Generate noun derivation lookups (replaces agentive_nouns)
+    generate_lookup_noun_derivation(&mut file, &data.nouns);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -80975,18 +84530,20 @@ fn derive_adjective_lists(
 
 fn derive_noun_lists(
     nouns: &[NounDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut common_nouns = Vec::new();
     let mut male_names = Vec::new();
     let mut female_names = Vec::new();
     let mut male_nouns = Vec::new();
     let mut female_nouns = Vec::new();
+    let mut neuter_nouns = Vec::new();
 
     for noun in nouns {
         let lower = noun.lemma.to_lowercase();
         let is_proper = noun.features.iter().any(|f| f == "Proper");
         let is_masculine = noun.features.iter().any(|f| f == "Masculine");
         let is_feminine = noun.features.iter().any(|f| f == "Feminine");
+        let is_neuter = noun.features.iter().any(|f| f == "Neuter");
 
         if is_proper {
             if is_masculine {
@@ -81003,10 +84560,13 @@ fn derive_noun_lists(
             if is_feminine {
                 female_nouns.push(lower.clone());
             }
+            if is_neuter {
+                neuter_nouns.push(lower.clone());
+            }
         }
     }
 
-    (common_nouns, male_names, female_names, male_nouns, female_nouns)
+    (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns)
 }
 
 fn derive_irregular_plurals(nouns: &[NounDefinition]) -> HashMap<String, String> {
@@ -81097,19 +84657,19 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
 
 fn format_pronoun_token(p: &PronounEntry) -> String {
     let gender = match p.gender.as_str() {
-        "Male" => "crate::context::Gender::Male",
-        "Female" => "crate::context::Gender::Female",
-        "Neuter" => "crate::context::Gender::Neuter",
-        _ => "crate::context::Gender::Unknown",
+        "Male" => "crate::drs::Gender::Male",
+        "Female" => "crate::drs::Gender::Female",
+        "Neuter" => "crate::drs::Gender::Neuter",
+        _ => "crate::drs::Gender::Unknown",
     };
     let number = match p.number.as_str() {
-        "Singular" => "crate::context::Number::Singular",
-        _ => "crate::context::Number::Plural",
+        "Singular" => "crate::drs::Number::Singular",
+        _ => "crate::drs::Number::Plural",
     };
     let case = match p.case.as_str() {
-        "Subject" => "crate::context::Case::Subject",
-        "Possessive" => "crate::context::Case::Possessive",
-        _ => "crate::context::Case::Object",
+        "Subject" => "crate::drs::Case::Subject",
+        "Possessive" => "crate::drs::Case::Possessive",
+        _ => "crate::drs::Case::Object",
     };
     format!(
         "crate::token::TokenType::Pronoun {{ gender: {}, number: {}, case: {} }}",
@@ -81685,28 +85245,6 @@ fn generate_lookup_phrasal_verb(file: &mut fs::File, phrasal_verbs: &HashMap<Str
     writeln!(file, "}}\n").unwrap();
 }
 
-fn generate_lookup_agentive_noun(file: &mut fs::File, agentive_nouns: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance)"
-    )
-    .unwrap();
-    writeln!(
-        file,
-        "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
-    for (noun, verb) in agentive_nouns {
-        writeln!(file, "        \"{}\" => Some(\"{}\"),", noun, verb).unwrap();
-    }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
-}
-
 fn generate_lookup_sort(file: &mut fs::File, nouns: &[NounDefinition]) {
     writeln!(
         file,
@@ -81947,6 +85485,105 @@ fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
     writeln!(file, "}}").unwrap();
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Morphological Rules Generation
+// ═══════════════════════════════════════════════════════════════════
+
+fn generate_morphological_rules(file: &mut fs::File, rules: &[MorphologicalRule]) {
+    // Generate MorphRule struct
+    writeln!(file, "/// Morphological derivation rule from lexicon.").unwrap();
+    writeln!(file, "#[derive(Debug, Clone, Copy)]").unwrap();
+    writeln!(file, "pub struct MorphRule {{").unwrap();
+    writeln!(file, "    pub suffix: &'static str,").unwrap();
+    writeln!(file, "    pub base_pos: &'static str,").unwrap();
+    writeln!(file, "    pub relation: &'static str,").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate get_morphological_rules function
+    writeln!(file, "/// Get morphological derivation rules from lexicon.").unwrap();
+    writeln!(file, "pub fn get_morphological_rules() -> &'static [MorphRule] {{").unwrap();
+    writeln!(file, "    &[").unwrap();
+
+    for rule in rules {
+        writeln!(
+            file,
+            "        MorphRule {{ suffix: \"{}\", base_pos: \"{}\", relation: \"{}\" }},",
+            rule.suffix, rule.base_pos, rule.relation
+        )
+        .unwrap();
+    }
+
+    writeln!(file, "    ]").unwrap();
+    writeln!(file, "}}").unwrap();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Noun Derivation Lookup Generation
+// ═══════════════════════════════════════════════════════════════════
+
+fn generate_lookup_noun_derivation(file: &mut fs::File, nouns: &[NounDefinition]) {
+    writeln!(file, "/// Lookup the derivation info for a noun (e.g., dancer -> (Dance, Verb, Agent))").unwrap();
+    writeln!(file, "/// Returns (root, pos, relation) if the noun has a derivation.").unwrap();
+    writeln!(file, "pub fn lookup_noun_derivation(word: &str) -> Option<(&'static str, &'static str, &'static str)> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for noun in nouns {
+        if let Some(ref deriv) = noun.derivation {
+            writeln!(
+                file,
+                "        \"{}\" => Some((\"{}\", \"{}\", \"{}\")),",
+                noun.lemma.to_lowercase(),
+                deriv.root,
+                deriv.pos,
+                deriv.relation
+            )
+            .unwrap();
+        }
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Also generate a simple check for whether a noun is agentive (derived from a verb)
+    writeln!(file, "/// Check if a noun is agentive (derived from a verb with Agent relation).").unwrap();
+    writeln!(file, "pub fn is_agentive_noun(word: &str) -> bool {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for noun in nouns {
+        if let Some(ref deriv) = noun.derivation {
+            if deriv.pos == "Verb" && deriv.relation == "Agent" {
+                writeln!(file, "        \"{}\" => true,", noun.lemma.to_lowercase()).unwrap();
+            }
+        }
+    }
+
+    writeln!(file, "        _ => false,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate lookup_agentive_noun for backward compatibility
+    writeln!(file, "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance).").unwrap();
+    writeln!(file, "/// This is for backward compatibility with existing code.").unwrap();
+    writeln!(file, "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for noun in nouns {
+        if let Some(ref deriv) = noun.derivation {
+            if deriv.pos == "Verb" && deriv.relation == "Agent" {
+                writeln!(file, "        \"{}\" => Some(\"{}\"),", noun.lemma.to_lowercase(), deriv.root).unwrap();
+            }
+        }
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+}
+
 ```
 
 ---
@@ -81956,10 +85593,10 @@ fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
 
 ## Metadata
 
-- **Generated:** Fri Jan  2 22:57:07 CST 2026
+- **Generated:** Sun Jan  4 21:57:04 CST 2026
 - **Repository:** /Users/tristen/logicaffeine/logicaffeine
 - **Git Branch:** main
-- **Git Commit:** d07dbbd
+- **Git Commit:** 39a5311
 - **Documentation Size:** 3.0M
 
 ---

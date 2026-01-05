@@ -13,7 +13,7 @@ fn parse_program_method_exists() {
     let source = "## Main\nLet x be 5.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -34,7 +34,7 @@ fn parse_program_method_exists() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -46,7 +46,7 @@ fn let_statement_parses() {
     let source = "## Main\nLet x be 5.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -67,7 +67,7 @@ fn let_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -83,7 +83,7 @@ fn return_statement_parses() {
     let source = "## Main\nReturn 42.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -104,7 +104,7 @@ fn return_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -119,7 +119,7 @@ fn set_statement_parses() {
     let source = "## Main\nLet x be 5.\nSet x to 10.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -140,7 +140,7 @@ fn set_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();

@@ -129,6 +129,13 @@ pub enum ParseErrorKind {
     InvalidRefinementPredicate,
     // Phase 42: Grammar errors (e.g., "its" vs "it's")
     GrammarError(String),
+    // Phase 43: DRS scope violations (pronoun trapped in negation, etc.)
+    ScopeViolation(String),
+    // Phase 43: Unresolved pronoun in discourse mode
+    UnresolvedPronoun {
+        gender: crate::drs::Gender,
+        number: crate::drs::Number,
+    },
     // Phase 8.5: Escape analysis errors
     Custom(String),
 }
@@ -336,6 +343,23 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
             format!(
                 "At position {}, grammar issue: {}",
                 pos, msg
+            )
+        }
+        // Phase 43: DRS scope violations
+        ParseErrorKind::ScopeViolation(msg) => {
+            format!(
+                "At position {}, scope violation: {}. The pronoun cannot access a referent \
+                trapped in a different scope (e.g., inside negation or disjunction).",
+                pos, msg
+            )
+        }
+        ParseErrorKind::UnresolvedPronoun { gender, number } => {
+            format!(
+                "At position {}, I found a {:?} {:?} pronoun but couldn't resolve it. \
+                In discourse mode, all pronouns must have an accessible antecedent from earlier sentences. \
+                The referent may be trapped in an inaccessible scope (negation, disjunction) or \
+                there may be no matching referent.",
+                pos, gender, number
             )
         }
         // Phase 8.5: Escape analysis - the message is already Socratic

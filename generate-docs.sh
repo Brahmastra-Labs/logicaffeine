@@ -1939,6 +1939,237 @@ add_test_description "tests/phase_lexer_refactor.rs" \
     "Tests for lexer improvements and edge cases." \
     "Lexer stress tests and edge cases."
 
+add_test_description "tests/phase53_persistence.rs" \
+    "Phase 53: Persistence" \
+    "VFS + Persistent<T> journaling for crash-resilient CRDT persistence. Mount statement parsing, journal file paths, automatic replay on restart." \
+    "Mount counter at \"data/counter.journal\"."
+
+add_test_description "tests/phase57_maps.rs" \
+    "Phase 57: Maps" \
+    "Map collection operations with key-value semantics." \
+    "Let prices be a new Map of Text to Int."
+
+add_test_description "tests/phase_sets.rs" \
+    "Phase: Set Operations" \
+    "Set collection with Add/Remove, contains check, deduplication, and set algebra (union/intersection)." \
+    "Let s be a new Set of Int. Add 1 to s."
+
+add_test_description "tests/phase_primitives_extended.rs" \
+    "Phase: Extended Primitives" \
+    "Extended primitive type operations and edge cases." \
+    "Primitive type edge case testing."
+
+# Linguistic tests
+add_test_description "tests/aktionsart_tests.rs" \
+    "Aktionsart Tests" \
+    "Vendler lexical aspect class verification. Tests all five classes: State (+static), Activity (+durative), Accomplishment (+telic), Achievement (-durative), Semelfactive (-telic). Verifies verb class lookup and aspect operator assignment." \
+    "VerbClass::State for 'know', VerbClass::Activity for 'run'"
+
+add_test_description "tests/intensionality_tests.rs" \
+    "Intensionality Tests" \
+    "De re / de dicto readings for opaque verbs (seek, want, believe, fear). Tests compile_all_scopes() producing two readings: existential (de re) and intensional with Montague up-arrow (de dicto)." \
+    "\"John seeks a unicorn.\" → De Re: ∃x(Unicorn(x) ∧ Seek(j, x)) + De Dicto: Seek(j, ^Unicorn)"
+
+add_test_description "tests/modal_scope_tests.rs" \
+    "Modal Scope Tests" \
+    "Modal operator scope interactions with quantifiers and negation." \
+    "Modal and quantifier scope ambiguity testing."
+
+add_test_description "tests/gq_test.rs" \
+    "Generalized Quantifier Tests" \
+    "Tests for generalized quantifiers (MANY, MOST, FEW) beyond standard ∀/∃." \
+    "Generalized quantifier semantics."
+
+# Grand challenge tests
+add_test_description "tests/grand_challenge_mergesort.rs" \
+    "Grand Challenge: Mergesort" \
+    "Full recursive mergesort algorithm compilation. Tests Phase 43 integration: collections, ownership, control flow, comparisons (less than, greater than, at most). End-to-end validation of a complete sorting algorithm." \
+    "Mergesort with 'is less than', 'is greater than', 'is at most' comparisons"
+
+add_test_description "tests/integration_tests.rs" \
+    "Integration Tests" \
+    "Cross-module integration verification for the compiler pipeline." \
+    "Pipeline integration tests."
+
+add_test_description "tests/complex_combinations.rs" \
+    "Complex Combinations" \
+    "Tests for complex linguistic feature combinations and edge cases." \
+    "Multi-feature linguistic patterns."
+
+add_test_description "tests/torture_tests.rs" \
+    "Torture Tests" \
+    "Stress tests for parser and compiler edge cases. Pathological inputs and boundary conditions." \
+    "Parser stress and edge case testing."
+
+add_test_description "tests/parser_fixes_test.rs" \
+    "Parser Fixes Tests" \
+    "Regression tests for specific parser bug fixes." \
+    "Parser bug fix verification."
+
+# Diagnostic and debug tests
+add_test_description "tests/diagnostic_bridge.rs" \
+    "Diagnostic Bridge Tests" \
+    "Verifies Rust ownership errors translate to friendly LOGOS messages. Users should never see raw rustc errors. Socratic torture test proving the bridge actually works." \
+    "E0382 → 'Cannot use X after giving it away' (not raw rustc codes)"
+
+add_test_description "tests/debug_any.rs" \
+    "Debug: Any Type" \
+    "Debug utilities for any-type handling." \
+    "Debug helper tests."
+
+add_test_description "tests/debug_aspect.rs" \
+    "Debug: Aspect" \
+    "Debug utilities for aspect operator handling." \
+    "Aspect debug helpers."
+
+add_test_description "tests/debug_card.rs" \
+    "Debug: Cardinality" \
+    "Debug utilities for cardinality expressions." \
+    "Cardinality debug helpers."
+
+add_test_description "tests/debug_garden.rs" \
+    "Debug: Garden Path" \
+    "Debug utilities for garden path reanalysis." \
+    "Garden path debug helpers."
+
+add_test_description "tests/debug_modal_relclause.rs" \
+    "Debug: Modal + Relative Clause" \
+    "Debug utilities for modal operators in relative clauses." \
+    "Modal relative clause debug helpers."
+
+add_test_description "tests/debug_reciprocal.rs" \
+    "Debug: Reciprocals" \
+    "Debug utilities for reciprocal expression handling." \
+    "Reciprocal debug helpers."
+
+add_test_description "tests/debug_tense.rs" \
+    "Debug: Tense" \
+    "Debug utilities for tense and temporal handling." \
+    "Tense debug helpers."
+
+# Learning/gamification tests
+add_test_description "tests/learn_state_tests.rs" \
+    "Learning State Tests" \
+    "Tab and focus state management for the learning UI. TabMode (LESSON/EXAMPLES/PRACTICE/TEST), ModuleTabState, FocusState for era expansion. Progress tracking infrastructure." \
+    "TabMode::Lesson.label() → 'LESSON'"
+
+add_test_description "tests/struggle_tests.rs" \
+    "Struggle Detection Tests" \
+    "User difficulty identification and adaptive hints. StruggleTracker monitors repeated failures on specific concepts." \
+    "Struggle pattern detection."
+
+add_test_description "tests/symbol_dict_tests.rs" \
+    "Symbol Dictionary Tests" \
+    "Runtime symbol table for interactive features. Symbol-to-definition mapping for autocomplete and hover info." \
+    "Symbol lookup and definition mapping."
+
+add_test_description "tests/unlock_logic_tests.rs" \
+    "Unlock Logic Tests" \
+    "Progressive disclosure system. Lessons unlock based on prerequisites and mastery. UnlockState tracks completed lessons." \
+    "Lesson prerequisite and unlock logic."
+
+# E2E tests not already documented
+add_test_description "tests/e2e_concurrency.rs" \
+    "E2E: Concurrency" \
+    "Runtime verification of Go-like concurrency. Launch task, Pipe channels, Send/Receive, task arguments. Actually compiles and runs generated Rust code." \
+    "Launch a task to worker. Let ch be a Pipe of Int."
+
+add_test_description "tests/e2e_gossip.rs" \
+    "E2E: GossipSub" \
+    "Runtime verification of GossipSub pub/sub messaging." \
+    "GossipSub publish and subscribe."
+
+add_test_description "tests/e2e_gossip_edge_cases.rs" \
+    "E2E: GossipSub Edge Cases" \
+    "Edge case testing for GossipSub messaging under various conditions." \
+    "GossipSub edge case scenarios."
+
+add_test_description "tests/e2e_multi_node.rs" \
+    "E2E: Multi-Node" \
+    "Multi-node distributed system testing. Verifies behavior across multiple peers." \
+    "Multi-peer distributed scenarios."
+
+add_test_description "tests/e2e_network_partition.rs" \
+    "E2E: Network Partition" \
+    "Network partition resilience testing. Verifies system behavior during network splits." \
+    "Split-brain and partition recovery."
+
+add_test_description "tests/e2e_causal_consistency.rs" \
+    "E2E: Causal Consistency" \
+    "Causal consistency verification for distributed operations." \
+    "Causal ordering guarantees."
+
+add_test_description "tests/e2e_primitives.rs" \
+    "E2E: Primitives" \
+    "Runtime verification of primitive type operations." \
+    "Primitive type end-to-end tests."
+
+# CRDT tests
+add_test_description "tests/phase_crdt_causal.rs" \
+    "CRDT: Causal Infrastructure" \
+    "Wave 1 foundation: VClock, Dot, DotContext for delta-state CRDTs. ReplicaID migration from String to u64." \
+    "VClock::new(), Dot tracking, generate_replica_id() → u64"
+
+add_test_description "tests/phase_crdt_concurrent.rs" \
+    "CRDT: Concurrent Operations" \
+    "Tests for concurrent CRDT operations and merge semantics." \
+    "Concurrent merge correctness."
+
+add_test_description "tests/phase_crdt_delta.rs" \
+    "CRDT: Delta State" \
+    "Delta-state CRDT implementation tests. Efficient synchronization via delta transmission." \
+    "Delta extraction and application."
+
+add_test_description "tests/phase_crdt_edge_cases.rs" \
+    "CRDT: Edge Cases" \
+    "Boundary conditions and edge cases for CRDT implementations." \
+    "CRDT edge case scenarios."
+
+add_test_description "tests/phase_crdt_language.rs" \
+    "CRDT: Language Integration" \
+    "LOGOS language integration for CRDT types and operations." \
+    "Shared structs and Increase statements."
+
+add_test_description "tests/phase_crdt_mvregister.rs" \
+    "CRDT: MVRegister" \
+    "Multi-value register for concurrent writes. Preserves all concurrent values until resolved." \
+    "MVRegister concurrent write semantics."
+
+add_test_description "tests/phase_crdt_ormap.rs" \
+    "CRDT: ORMap" \
+    "Observed-Remove Map with per-key CRDT values." \
+    "ORMap key-value operations."
+
+add_test_description "tests/phase_crdt_orset.rs" \
+    "CRDT: ORSet" \
+    "Observed-Remove Set supporting add/remove without anomalies." \
+    "ORSet add/remove semantics."
+
+add_test_description "tests/phase_crdt_pncounter.rs" \
+    "CRDT: PNCounter" \
+    "Positive-Negative Counter supporting increment and decrement." \
+    "PNCounter inc/dec operations."
+
+add_test_description "tests/phase_crdt_sequence.rs" \
+    "CRDT: Sequence" \
+    "Ordered sequence CRDT for collaborative text editing." \
+    "Sequence insert/delete at positions."
+
+add_test_description "tests/phase_crdt_serialization.rs" \
+    "CRDT: Serialization" \
+    "CRDT serialization/deserialization for wire transmission." \
+    "Bincode encode/decode for CRDTs."
+
+add_test_description "tests/phase_crdt_stress.rs" \
+    "CRDT: Stress Tests" \
+    "High-load stress testing for CRDT implementations." \
+    "High-concurrency CRDT operations."
+
+add_test_description "tests/phase_crdt_variants.rs" \
+    "CRDT: Variants" \
+    "Tests for various CRDT type variants and configurations." \
+    "CRDT variant behavior."
+
 # STATISTICS
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'

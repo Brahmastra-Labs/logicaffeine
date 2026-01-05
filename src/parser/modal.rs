@@ -2,7 +2,7 @@ use super::clause::ClauseParsing;
 use super::noun::NounParsing;
 use super::{ParseResult, Parser};
 use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
-use crate::context::TimeRelation;
+use crate::drs::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexicon::{Time, Aspect};
@@ -98,10 +98,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance();
             has_perfect = true;
             // "had" = past perfect: R < S (past reference time)
-            if let Some(ref mut context) = self.context {
-                let r_var = context.next_reference_time();
-                context.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
-            }
+            let r_var = self.world_state.next_reference_time();
+            self.world_state.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
         }
 
         if self.check_content_word() {
@@ -205,29 +203,30 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         if has_perfect {
             result = self.ctx.aspectual(AspectOperator::Perfect, result);
-            if let Some(ref mut context) = self.context {
-                // Check pending_time to set up reference time for tense
-                if let Some(pending) = self.pending_time.take() {
-                    match pending {
-                        Time::Future => {
-                            let r_var = context.next_reference_time();
-                            context.add_time_constraint("S".to_string(), TimeRelation::Precedes, r_var);
-                        }
-                        Time::Past => {
-                            // Past tense with perfect (should be handled by "had" already, but as fallback)
-                            if context.current_reference_time() == "S" {
-                                let r_var = context.next_reference_time();
-                                context.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
-                            }
-                        }
-                        _ => {}
+
+            // Check pending_time to set up reference time for tense
+            if let Some(pending) = self.pending_time.take() {
+                match pending {
+                    Time::Future => {
+                        // Future perfect: S < R
+                        let r_var = self.world_state.next_reference_time();
+                        self.world_state.add_time_constraint("S".to_string(), TimeRelation::Precedes, r_var);
                     }
+                    Time::Past => {
+                        // Past perfect fallback (if not already set by "had")
+                        if self.world_state.current_reference_time() == "S" {
+                            let r_var = self.world_state.next_reference_time();
+                            self.world_state.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
+                        }
+                    }
+                    _ => {}
                 }
-                // Perfect: E < R
-                let e_var = format!("e{}", context.event_history().len().max(1));
-                let r_var = context.current_reference_time();
-                context.add_time_constraint(e_var, TimeRelation::Precedes, r_var);
             }
+
+            // Perfect: E < R (event before reference)
+            let e_var = format!("e{}", self.world_state.event_history().len().max(1));
+            let r_var = self.world_state.current_reference_time();
+            self.world_state.add_time_constraint(e_var, TimeRelation::Precedes, r_var);
         }
 
         if has_negation {

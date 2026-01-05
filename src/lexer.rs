@@ -1585,6 +1585,41 @@ impl<'a> Lexer<'a> {
         }
 
         if first_char.is_uppercase() {
+            // Smart Lexicon: Check if this capitalized word is actually a common noun
+            // Only apply for sentence-initial words (followed by verb) to avoid
+            // breaking type definitions like "A Point has:"
+            //
+            // Pattern: "Farmers walk." → Farmers is plural of Farmer (common noun)
+            // Pattern: "A Point has:" → Point is a type name (proper name)
+            if let Some(next) = self.peek_word(1) {
+                let next_lower = next.to_lowercase();
+                // If next word is a verb, this capitalized word is likely a subject noun
+                let is_followed_by_verb = self.lexicon.lookup_verb(&next_lower).is_some()
+                    || matches!(next_lower.as_str(), "is" | "are" | "was" | "were" | "has" | "have" | "had");
+
+                if is_followed_by_verb {
+                    // Check if lowercase version is a derivable common noun
+                    if let Some(analysis) = lexicon::analyze_word(&lower) {
+                        match analysis {
+                            lexicon::WordAnalysis::Noun(meta) if meta.number == lexicon::Number::Plural => {
+                                // It's a plural noun - definitely a common noun
+                                let sym = self.interner.intern(&lower);
+                                return TokenType::Noun(sym);
+                            }
+                            lexicon::WordAnalysis::DerivedNoun { number: lexicon::Number::Plural, .. } => {
+                                // Derived plural agentive noun (e.g., "Bloggers")
+                                let sym = self.interner.intern(&lower);
+                                return TokenType::Noun(sym);
+                            }
+                            _ => {
+                                // Singular nouns at sentence start could still be proper names
+                                // e.g., "John walks." vs "Farmer walks."
+                            }
+                        }
+                    }
+                }
+            }
+
             let sym = self.interner.intern(word);
             return TokenType::ProperName(sym);
         }
