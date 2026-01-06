@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![Version](https://img.shields.io/badge/version-0.5.5-blue)]()
-[![Phases](https://img.shields.io/badge/linguistic%20phases-53-success)]()
+[![Phases](https://img.shields.io/badge/linguistic%20phases-85+-success)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE.md)
 
 **[Try LOGOS Online →](https://logicaffeine.com/guide)**
@@ -74,12 +74,35 @@ The programming language is called **LOGOS**.
 - [Imperative Mode](#imperative-mode)
 - [Logic Mode](#logic-mode)
   - [Quantifiers](#quantifiers)
+  - [Connectives](#connectives)
   - [Modal Operators](#modal-operators)
   - [Tense & Aspect](#tense--aspect)
+  - [Comparatives & Superlatives](#comparatives--superlatives)
+  - [Event Adjectives](#event-adjectives)
+  - [Distributive vs Collective](#distributive-vs-collective)
+  - [Axioms & Entailment](#axioms--entailment)
+  - [Focus Particles](#focus-particles)
+  - [Intensionality](#intensionality)
+  - [Wh-Questions](#wh-questions)
+  - [Scope Ambiguity](#scope-ambiguity)
   - [Parse Forests](#parse-forests)
   - [Garden Path Sentences](#garden-path-sentences)
+  - [Discourse & Pronouns](#discourse--pronouns)
+  - [Modal Subordination](#modal-subordination)
+  - [Bridging Anaphora](#bridging-anaphora)
   - [Multi-Word Expressions](#multi-word-expressions--idioms)
 - [Type System](#type-system)
+- [Concurrency](#concurrency)
+  - [Structured Concurrency](#structured-concurrency)
+  - [Go-like Channels](#go-like-channels)
+  - [Agent System](#agent-system)
+- [Distributed Systems](#distributed-systems)
+  - [P2P Networking](#p2p-networking)
+  - [CRDT Types](#crdt-types)
+  - [GossipSub](#gossipsub)
+  - [Persistence](#persistence)
+- [Security](#security)
+- [Memory Zones](#memory-zones)
 - [Static Verification](#static-verification)
 - [The CLI: largo](#the-cli-largo)
 - [API Reference](#api-reference)
@@ -208,33 +231,12 @@ This is a complete, recursive mergesort algorithm written in LOGOS. It compiles 
 
 ## Beyond Hello World
 
-### Distributed Systems in Natural Language
+LOGOS goes far beyond basic logic and imperative code. See the sections below for:
 
-LOGOS includes a P2P mesh networking layer with native CRDT support:
-
-```logos
-## Main
-Listen on "/ip4/0.0.0.0/tcp/8080".
-Connect to "/ip4/192.168.1.5/tcp/8080".
-
-Let counter be a new shared GCounter.
-Increment counter.
-Sync counter.
-```
-
-Compiles to production-grade Rust with libp2p, GossipSub, and CRDT merge semantics.
-
-### Conflict-Free Replicated Data Types
-
-Native CRDT support in the standard library:
-
-```logos
-Let votes be a new GCounter.              # Grow-only counter
-Increment votes.
-Let merged be merge(votes, remote_votes). # Automatic convergence
-```
-
-CRDTs guarantee eventual consistency without coordination—nodes can be offline, updates can arrive out of order, and the system still converges to the correct state.
+- **[Concurrency](#concurrency)** — Structured concurrency, Go-like channels, actor system
+- **[Distributed Systems](#distributed-systems)** — P2P networking, 6 CRDT types, GossipSub, persistence
+- **[Security](#security)** — Mandatory guards, capability checks, policy blocks
+- **[Memory Zones](#memory-zones)** — Arena allocation for high-performance scenarios
 
 ---
 
@@ -545,6 +547,146 @@ This enables correct parsing of aspectual compositions:
 - "John was building a house" → progressive of accomplishment
 - "John was knowing the answer" → anomalous (states resist progressive)
 
+### Comparatives & Superlatives
+
+LOGOS handles gradable adjectives with degree semantics:
+
+```
+Input:  "John is taller than Mary."
+Output: Taller(j, m)
+
+Input:  "John is the tallest man."
+Output: ∃x(Man(x) ∧ Tallest(x) ∧ x = j)
+
+Input:  "Mary is much taller than John."
+Output: Taller(m, j, MUCH)
+```
+
+The system distinguishes:
+- **Comparatives**: "taller than", "more intelligent than"
+- **Superlatives**: "the tallest", "the most intelligent"
+- **Degree modifiers**: "much taller", "slightly faster", "far better"
+
+### Event Adjectives
+
+Adjectives can have multiple readings depending on whether they modify individuals or events:
+
+```
+Input: "The beautiful dancer performed."
+
+Reading 1 (Intersective - modifies the person):
+Beautiful(x) ∧ Dancer(x) ∧ Perform(x)
+"The dancer who is beautiful performed"
+
+Reading 2 (Event-modifying - modifies the dancing):
+∃e(Dance(e) ∧ Agent(e, x) ∧ Beautiful(e))
+"The dancer performed beautifully"
+```
+
+| Adjective Type | Example | Readings |
+|----------------|---------|----------|
+| Physical | tall, short | Intersective only |
+| Manner | graceful, clumsy | Both readings |
+| Aesthetic | beautiful, elegant | Both readings |
+
+### Distributive vs Collective
+
+LOGOS implements Link's Logic of Plurals to handle plural predication:
+
+```
+Input:  "The men slept."
+Output: ∀x(x ∈ men → Sleep(x))  [Distributive]
+"Each man slept individually"
+
+Input:  "The men gathered."
+Output: Gather(men)  [Collective]
+"The men gathered as a group"
+
+Input:  "The men lifted the piano."
+Reading 1: ∀x(x ∈ men → Lift(x, piano))  [Distributive]
+Reading 2: Lift(men, piano)  [Collective]
+```
+
+Verbs are classified in the lexicon:
+
+| Verb Type | Examples | Behavior |
+|-----------|----------|----------|
+| Distributive | sleep, eat, die | Only individual application |
+| Collective | gather, assemble, meet | Only group application |
+| Mixed | lift, carry, push | Both readings |
+
+### Axioms & Entailment
+
+The lexicon encodes meaning postulates that drive semantic inference:
+
+**Noun Entailments:**
+```
+Input:  "John is a bachelor."
+Output: Bachelor(j) ∧ Unmarried(j) ∧ Male(j) ∧ Adult(j)
+```
+
+**Privative Adjectives:**
+```
+Input:  "This is a fake gun."
+Output: Fake(x) ∧ ¬Gun(x)
+"A fake gun is not a gun"
+
+Input:  "This is a former president."
+Output: Former(x) ∧ ¬President(x) ∧ PAST(President(x))
+```
+
+**Verbal Entailment:**
+```
+Input:  "John murdered Mary."
+Output: Murder(j, m) → Kill(j, m) ∧ Intentional(j)
+```
+
+**Hypernyms:**
+```
+Input:  "Every dog barks."
+Output: ∀x(Dog(x) → Bark(x)) ∧ ∀x(Dog(x) → Animal(x))
+```
+
+### Focus Particles
+
+Focus particles like "only", "even", and "just" create alternative semantics:
+
+```
+Input:  "Only John ran."
+Output: Run(j) ∧ ∀x(Run(x) → x = j)
+"John ran, and no one else did"
+
+Input:  "Even John ran."
+Output: Run(j) ∧ UNLIKELY(Run(j))
+"John ran, which was unexpected"
+
+Input:  "Just three cats slept."
+Output: ∃=3x(Cat(x) ∧ Sleep(x))
+"Exactly three cats slept"
+```
+
+### Intensionality
+
+LOGOS distinguishes de dicto (narrow scope) and de re (wide scope) readings for intensional contexts:
+
+```
+Input: "John seeks a unicorn."
+
+De Dicto (narrow scope):
+Seek(j, ^λx.Unicorn(x))
+"John seeks something that would be a unicorn"
+(No specific unicorn need exist)
+
+De Re (wide scope):
+∃x(Unicorn(x) ∧ Seek(j, x))
+"There is a specific unicorn that John seeks"
+(A particular unicorn exists)
+```
+
+Intensional verbs are marked in the lexicon:
+- **Opaque**: seek, want, imagine, dream, pretend
+- **Factive**: know, realize, regret (presuppose truth)
+
 ### Wh-Questions
 
 ```
@@ -641,6 +783,57 @@ Output: ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))
 
 The indefinite "a donkey" receives universal (not existential) force due to DRS accessibility constraints.
 
+### Modal Subordination
+
+LOGOS handles anaphora across modal contexts using Kripke semantics with world arguments:
+
+```
+Input: "A wolf might walk in. It would eat you."
+
+Output:
+◇∃x(Wolf(x) ∧ WalkIn(x, w₁)) ∧ □(w₁ → Eat(x, you, w₁))
+```
+
+The pronoun "it" in the second sentence refers to the hypothetical wolf introduced in the first—even though that wolf may not exist in the actual world.
+
+**How it works:**
+- The modal "might" introduces a possible world w₁
+- The pronoun "it" is resolved within that world
+- The modal "would" keeps the reference in the subordinate context
+
+```
+Input: "John might buy a car. He would drive it to work."
+
+Output:
+◇∃x(Car(x) ∧ Buy(j, x, w₁)) ∧ □(w₁ → Drive(j, x, work, w₁))
+```
+
+### Bridging Anaphora
+
+LOGOS uses ontological knowledge to resolve definite descriptions that lack explicit antecedents:
+
+```
+Input: "I bought a car. The engine smoked."
+
+Output:
+∃x(Car(x) ∧ Buy(i, x)) ∧ ∃y(Engine(y) ∧ PartOf(y, x) ∧ Smoke(y))
+```
+
+The definite "the engine" is resolved via the `PartOf` relation in the ontology—cars have engines.
+
+**Bridging relations:**
+
+| Relation | Example |
+|----------|---------|
+| PartOf | car → engine, house → roof |
+| ContainedIn | room → house, chapter → book |
+| MemberOf | player → team, student → class |
+
+```
+Input: "Mary walked into the room. The chandelier sparkled."
+Output: ∃x(Room(x) ∧ WalkInto(m, x)) ∧ ∃y(Chandelier(y) ∧ In(y, x) ∧ Sparkle(y))
+```
+
 ### Multi-Word Expressions & Idioms
 
 LOGOS recognizes idioms and compiles them to their semantic meaning:
@@ -715,6 +908,287 @@ Let text_box be a new Box of Text with contents "hello".
 ```logos
 Let positive: Int where it > 0 be 5.
 ```
+
+---
+
+## Concurrency
+
+LOGOS provides multiple concurrency models for different use cases.
+
+### Structured Concurrency
+
+For I/O-bound operations, use `Attempt all of the following` for concurrent execution:
+
+```logos
+## Main
+Attempt all of the following:
+    Fetch "https://api.example.com/users".
+    Fetch "https://api.example.com/posts".
+    Fetch "https://api.example.com/comments".
+```
+
+For CPU-bound parallel computation:
+
+```logos
+## Main
+Simultaneously:
+    Process chunk 1.
+    Process chunk 2.
+    Process chunk 3.
+```
+
+### Go-like Channels
+
+LOGOS supports Go-style channels (called Pipes) for CSP-style concurrency:
+
+```logos
+## Main
+Let ch be a new Pipe of Int.
+
+Launch task:
+    Send 42 to ch.
+    Send 100 to ch.
+
+Receive from ch into first.
+Receive from ch into second.
+
+Show first.    # → 42
+Show second.   # → 100
+```
+
+**Channel Operations:**
+
+| Operation | Syntax | Behavior |
+|-----------|--------|----------|
+| Create | `Let ch be a new Pipe of T.` | Unbuffered channel |
+| Send | `Send value to ch.` | Blocks until received |
+| Receive | `Receive from ch into var.` | Blocks until sent |
+| Try Send | `Try to send value to ch.` | Non-blocking |
+| Try Receive | `Try to receive from ch into var.` | Non-blocking |
+
+**Select Statement:**
+
+Wait on multiple channels:
+
+```logos
+## Main
+Let ch1 be a new Pipe of Int.
+Let ch2 be a new Pipe of Text.
+
+Select first of the following:
+    Receive from ch1 into num:
+        Show num.
+    Receive from ch2 into msg:
+        Show msg.
+    After 5 seconds:
+        Show "timeout".
+```
+
+**Task Control:**
+
+```logos
+## Main
+Let worker be launch task:
+    # Long-running work...
+
+Stop worker.    # Cancel the task
+```
+
+### Agent System
+
+LOGOS includes an actor-model agent system for message-passing concurrency:
+
+```logos
+## Main
+Spawn worker as DataProcessor.
+Send "process" to worker.
+Await response from worker into result.
+Show result.
+```
+
+Agents are lightweight, isolated processes that communicate only via messages—no shared state.
+
+---
+
+## Distributed Systems
+
+LOGOS includes a P2P mesh networking layer with native CRDT support.
+
+### P2P Networking
+
+```logos
+## Main
+Listen on "/ip4/0.0.0.0/tcp/8080".
+Connect to "/ip4/192.168.1.5/tcp/8080".
+```
+
+Compiles to production-grade Rust with libp2p, GossipSub, and CRDT merge semantics.
+
+### CRDT Types
+
+CRDTs (Conflict-free Replicated Data Types) guarantee eventual consistency without coordination. LOGOS provides six built-in CRDT types:
+
+**GCounter (Grow-only Counter):**
+```logos
+Let votes be a new shared GCounter.
+Increment votes.
+Let merged be merge(votes, remote_votes).
+```
+
+**PNCounter (Tally - can increment and decrement):**
+```logos
+Let score be a new Tally.
+Increase score by 10.
+Decrease score by 3.
+# Net value: 7
+```
+
+**ORSet (SharedSet - add/remove with bias):**
+```logos
+Let tags be a new SharedSet.
+Add "important" to tags.
+Remove "draft" from tags.
+
+# With conflict resolution bias:
+Let items be a new SharedSet with AddWins.
+Let other be a new SharedSet with RemoveWins.
+```
+
+**RGA (SharedSequence - collaborative text):**
+```logos
+Let doc be a new SharedSequence.
+Append "Hello" to doc.
+Append " World" to doc.
+
+# Or with YATA algorithm:
+Let text be a new CollaborativeSequence using YATA.
+```
+
+**ORMap (SharedMap - key-value CRDT):**
+```logos
+Let config be a new SharedMap.
+Set config["theme"] to "dark".
+Set config["fontSize"] to "14".
+```
+
+**MVRegister (Divergent - conflict resolution):**
+```logos
+Let setting be a new Divergent.
+Set setting to "value1".
+# On conflict, access all concurrent values:
+Let all_values be values of setting.
+Resolve setting with first of all_values.
+```
+
+| CRDT Type | Use Case | Conflict Resolution |
+|-----------|----------|---------------------|
+| GCounter | Vote counts, views | Sum of all replicas |
+| Tally | Scores, balances | Sum with negative support |
+| SharedSet | Tags, memberships | Add-wins or remove-wins |
+| SharedSequence | Collaborative text | Causal ordering |
+| SharedMap | Distributed config | Last-writer-wins per key |
+| Divergent | Settings, flags | Manual resolution |
+
+### GossipSub
+
+Sync CRDTs across the mesh network automatically:
+
+```logos
+## Main
+Let counter be a new shared GCounter.
+Sync counter on "my-topic".
+
+# Updates are automatically published and merged
+Increment counter.
+```
+
+### Persistence
+
+Mount CRDTs to disk for durability across restarts:
+
+```logos
+## Main
+Mount counter at "data/counter.journal".
+Increment counter.
+# Survives restarts via journal replay
+```
+
+The journal is append-only and replayed on startup to reconstruct state.
+
+---
+
+## Security
+
+LOGOS includes mandatory security checks for sensitive operations.
+
+### Runtime Guards
+
+```logos
+## Main
+Check that user is authenticated.
+Check that user is admin.
+
+# Proceeds only if checks pass
+Delete record.
+```
+
+### Capability Checks
+
+```logos
+## Main
+Check that user can publish the document.
+Check that user can delete the record.
+```
+
+### Policy Blocks
+
+Define security rules declaratively:
+
+```logos
+## Policy
+Admin can publish documents.
+Admin can delete records.
+Editor can modify content.
+Viewer can read content.
+```
+
+Security checks are mandatory—the compiler enforces that sensitive operations have guards.
+
+---
+
+## Memory Zones
+
+LOGOS supports arena-based memory allocation for high-performance scenarios.
+
+### Basic Zones
+
+```logos
+## Main
+Inside a new zone called "Scratch":
+    Let temp be [1, 2, 3, 4, 5].
+    Let processed be process(temp).
+    # All allocations freed when zone exits
+```
+
+### Heap Zones with Capacity
+
+```logos
+## Main
+Inside a new zone called "WorkBuffer" with size 1024:
+    # Pre-allocated buffer of 1024 bytes
+    Let data be process_chunk(input).
+```
+
+### Memory-Mapped Zones
+
+```logos
+## Main
+Inside a new zone mapped from "large-file.bin":
+    Let chunk be data at offset 0 with length 4096.
+    Process chunk.
+```
+
+Zones provide deterministic deallocation—all memory in a zone is freed at once when the zone exits, avoiding GC pauses.
 
 ---
 
@@ -934,16 +1408,20 @@ let latex = compile_with_options("All cats sleep.", options).unwrap();
 
 ## Testing
 
-Tests are organized by linguistic complexity across 43 phases:
+Tests are organized by linguistic complexity across 85+ phases:
 
 | Phases | Focus |
 |--------|-------|
-| 1-5 | Core syntax: garden path, polarity, tense, movement |
-| 6-14 | Advanced semantics: degrees, ontology, MWEs |
-| 15-20 | Extended phenomena: negation, plurality, axioms |
-| 21-29 | Code generation: blocks, scoping, types, runtime |
-| 30-38 | Type system: collections, structs, functions, modules |
-| 41-43 | Advanced: event adjectives, DRS, refinement types |
+| 1-5 | Core syntax: garden path, polarity, tense, movement, wh-questions |
+| 6-14 | Advanced semantics: degrees, sorts, ontology, MWEs, ambiguity |
+| 15-20 | Extended phenomena: negation, aspect, plurality, axioms |
+| 21-29 | Code generation: blocks, scoping, types, ownership, runtime |
+| 30-38 | Type system: collections, structs, functions, enums, modules |
+| 41-45 | Formal semantics: event adjectives, DRS, distributivity, intensionality |
+| 46-54 | Systems: agents, networking, CRDTs, security, concurrency |
+| 85 | Memory zones: arena allocation |
+| phase_crdt_* | CRDT variants: serialization, delta, stress, edge cases |
+| phase_kripke | Modal subordination: Kripke semantics |
 
 **End-to-End Tests:**
 - `e2e_collections.rs` - Push, pop, length, slicing
@@ -970,17 +1448,30 @@ cargo test -- --nocapture
 | Term | Definition |
 |------|------------|
 | **Arena Allocation** | Memory allocation strategy where objects are allocated in a contiguous region and freed all at once |
+| **Bridging Anaphora** | Resolution of definite descriptions via world knowledge (e.g., "the engine" after mentioning "a car") |
+| **Collective Predicate** | Predicate applying to groups as wholes ("gather", "meet"), not individuals |
+| **CRDT** | Conflict-free Replicated Data Type - data structures that merge automatically without coordination |
+| **De Dicto / De Re** | Narrow scope (conceptual) vs. wide scope (referential) readings of intensional contexts |
+| **Distributive Predicate** | Predicate applying to individuals separately ("sleep"), not groups |
 | **DRS** | Discourse Representation Structure - formal framework for tracking entities and relations across sentences |
 | **First-Order Logic (FOL)** | Formal system using quantifiers (∀, ∃), predicates, and logical connectives |
+| **Focus Particle** | Words like "only", "even", "just" that invoke alternatives and presuppositions |
+| **GossipSub** | Pub/sub protocol for P2P message propagation used for CRDT synchronization |
+| **Kripke Semantics** | Possible worlds framework for modal logic; used for modal subordination |
 | **Lambda Calculus** | Formal system for function abstraction and application, used for compositional semantics |
+| **Link's Logic of Plurals** | Framework classifying predicates as distributive, collective, or mixed |
+| **Modal Subordination** | Anaphora resolution across modal contexts ("A wolf might come in. It would eat you.") |
 | **MWE** | Multi-Word Expression - phrases that behave as single units ("fire engine", "kick the bucket") |
 | **Neo-Davidsonian** | Event semantics using event variables with thematic roles (Agent, Patient, Theme) |
 | **NPI** | Negative Polarity Item - words like "any" that require negative/downward-entailing contexts |
 | **Parse Forest** | Collection of all valid parse trees for an ambiguous sentence |
+| **Pipe** | Go-style channel for CSP concurrency; typed, unbuffered by default |
+| **Privative Adjective** | Adjective negating the noun ("fake gun" → not a gun) |
 | **Scope Ambiguity** | When quantifiers can be ordered in multiple ways, yielding different meanings |
 | **Symbol Interning** | Storing strings once and referring to them by index for efficiency |
 | **Thematic Role** | Semantic relationship between verb and argument (Agent, Patient, Theme, Goal, etc.) |
 | **Vendler Class** | Aspectual classification: State, Activity, Accomplishment, Achievement, Semelfactive |
+| **Zone** | Memory arena with deterministic deallocation; all contents freed when zone exits |
 
 ---
 
@@ -993,8 +1484,11 @@ LOGOS builds on decades of formal semantics research:
 - **Neo-Davidsonian Event Semantics** (Parsons, 1990) — Thematic roles
 - **Generalized Quantifier Theory** (Barwise & Cooper, 1981) — Scope ambiguity
 - **Vendler Aspectual Classes** (1957) — Tense and aspect composition
+- **Link's Logic of Plurals** (1983) — Distributive vs. collective predication
+- **Kripke Semantics** (1959) — Possible worlds for modal logic
+- **Alternative Semantics** (Rooth, 1985) — Focus particles and alternatives
 
-The test suite includes classic examples from the formal semantics literature: donkey anaphora, garden paths, scope islands, and control theory.
+The test suite includes classic examples from the formal semantics literature: donkey anaphora, garden paths, scope islands, control theory, modal subordination, and bridging.
 
 ---
 

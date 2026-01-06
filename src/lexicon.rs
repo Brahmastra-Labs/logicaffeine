@@ -30,6 +30,7 @@ pub enum Feature {
     Distributive, // "Sleep" - must apply to individuals, not groups
     Weather,      // "Rain", "Snow" - weather verbs with expletive "it"
     Unaccusative, // "The door opens" - intransitive subject is Theme, not Agent
+    IntensionalPredicate, // "Rise", "Change" - takes intensions, not extensions
 
     // Noun Features
     Count,
@@ -70,6 +71,7 @@ impl Feature {
             "Distributive" => Some(Feature::Distributive),
             "Weather" => Some(Feature::Weather),
             "Unaccusative" => Some(Feature::Unaccusative),
+            "IntensionalPredicate" => Some(Feature::IntensionalPredicate),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),

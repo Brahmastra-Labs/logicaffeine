@@ -291,6 +291,7 @@ fn main() {
         performatives,
         mixed_verbs,
         distributive_verbs,
+        intensional_predicates,
     ) = derive_verb_feature_lists(&data.verbs);
 
     generate_is_check(&mut file, "is_ditransitive_verb", &ditransitive_verbs);
@@ -302,6 +303,7 @@ fn main() {
     generate_is_check(&mut file, "is_performative", &performatives);
     generate_is_check(&mut file, "is_mixed_verb", &mixed_verbs);
     generate_is_check(&mut file, "is_distributive_verb", &distributive_verbs);
+    generate_is_check(&mut file, "is_intensional_predicate", &intensional_predicates);
 
     // Generate base verb list from all verb lemmas
     let base_verbs: Vec<String> = data.verbs.iter().map(|v| v.lemma.to_lowercase()).collect();
@@ -470,6 +472,7 @@ fn derive_verb_feature_lists(
     Vec<String>,
     Vec<String>,
     Vec<String>,
+    Vec<String>,
 ) {
     let mut ditransitive = Vec::new();
     let mut subject_control = Vec::new();
@@ -480,6 +483,7 @@ fn derive_verb_feature_lists(
     let mut performative = Vec::new();
     let mut mixed = Vec::new();
     let mut distributive = Vec::new();
+    let mut intensional_predicate = Vec::new();
 
     for verb in verbs {
         let lower = verb.lemma.to_lowercase();
@@ -508,6 +512,30 @@ fn derive_verb_feature_lists(
                 "Performative" => performative.push(lower.clone()),
                 "Mixed" => mixed.push(lower.clone()),
                 "Distributive" => distributive.push(lower.clone()),
+                "IntensionalPredicate" => {
+                    // Include base form and conjugated forms for intensional predicate checks
+                    intensional_predicate.push(lower.clone());
+                    intensional_predicate.push(format!("{}s", lower)); // third person singular
+                    intensional_predicate.push(format!("{}ed", lower)); // past tense (regular)
+                    intensional_predicate.push(format!("{}ing", lower)); // gerund (regular)
+                    // Handle verbs ending in 'e' (change -> changing, not changeing)
+                    if lower.ends_with('e') {
+                        let stem = &lower[..lower.len() - 1];
+                        intensional_predicate.push(format!("{}ing", stem));
+                    }
+                    // Also include irregular forms if present
+                    if let Some(forms) = &verb.forms {
+                        if let Some(past) = &forms.past {
+                            intensional_predicate.push(past.to_lowercase());
+                        }
+                        if let Some(participle) = &forms.participle {
+                            intensional_predicate.push(participle.to_lowercase());
+                        }
+                        if let Some(gerund) = &forms.gerund {
+                            intensional_predicate.push(gerund.to_lowercase());
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -523,6 +551,7 @@ fn derive_verb_feature_lists(
         performative,
         mixed,
         distributive,
+        intensional_predicate,
     )
 }
 

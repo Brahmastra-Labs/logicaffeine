@@ -5466,9 +5466,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }));
                 }
 
+                // Check if verb is an intensional predicate (e.g., "rising", "changing")
+                // Intensional predicates take intensions, not extensions
+                let verb_str = self.interner.resolve(verb).to_lowercase();
+                let subject_term = if lexicon::is_intensional_predicate(&verb_str) {
+                    Term::Intension(subject.noun)
+                } else {
+                    Term::Constant(subject.noun)
+                };
+
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                    args: self.ctx.terms.alloc_slice([subject_term]),
                     world: None,
                 });
 

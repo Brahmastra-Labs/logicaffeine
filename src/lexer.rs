@@ -1735,6 +1735,14 @@ impl<'a> Lexer<'a> {
         lexicon::is_distributive_verb(&lemma.to_lowercase())
     }
 
+    pub fn is_intensional_predicate(lemma: &str) -> bool {
+        lexicon::is_intensional_predicate(&lemma.to_lowercase())
+    }
+
+    pub fn is_opaque_verb(lemma: &str) -> bool {
+        lexicon::is_opaque_verb(&lemma.to_lowercase())
+    }
+
     pub fn is_ditransitive_verb(lemma: &str) -> bool {
         lexicon::is_ditransitive_verb(&lemma.to_lowercase())
     }
