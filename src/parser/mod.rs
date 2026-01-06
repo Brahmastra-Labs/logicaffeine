@@ -2507,8 +2507,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the object being given: "x" or "the data"
         let object = self.parse_imperative_expr()?;
 
-        // Expect "to" preposition
-        if !self.check_preposition_is("to") {
+        // Expect "to" preposition (can be TokenType::To when followed by verb-like word)
+        if !self.check_to_preposition() {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
                 span: self.current_span(),
@@ -2535,7 +2535,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let object = self.parse_condition()?;
 
         // Optional "to" preposition - if not present, default to "show" function
-        let recipient = if self.check_preposition_is("to") {
+        // Note: Use check_to_preposition() to handle both TokenType::To (when followed by verb)
+        // and TokenType::Preposition("to")
+        let recipient = if self.check_to_preposition() {
             self.advance(); // consume "to"
 
             // Phase 10: "Show x to console." or "Show x to the console."
@@ -4248,6 +4250,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.parse_field_access_chain(base)
             }
 
+            // Keywords that can also be used as identifiers in expression context
+            // These are contextual keywords - they have special meaning in specific positions
+            // but can be used as variable names elsewhere
+            TokenType::Both |      // correlative: "both X and Y"
+            TokenType::Either |    // correlative: "either X or Y"
+            TokenType::Combined |  // string concat: "combined with"
+            TokenType::Shared => { // CRDT modifier
+                let sym = token.lexeme;
+                self.advance();
+
+                // Check for function call
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
+            }
+
             // Handle ambiguous tokens that might be identifiers
             TokenType::Ambiguous { primary, alternatives } => {
                 let sym = match &**primary {
@@ -4603,7 +4625,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 57: "add", "remove" can be function names
             TokenType::Add |
             TokenType::Remove |
-            TokenType::First => {
+            TokenType::First |
+            // Correlative conjunctions and other keywords usable as identifiers
+            TokenType::Both |            // "both" (correlative: both X and Y)
+            TokenType::Either |          // "either" (correlative: either X or Y)
+            TokenType::Combined |        // "combined" (string concat: combined with)
+            TokenType::Shared => {       // "shared" (CRDT type modifier)
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();

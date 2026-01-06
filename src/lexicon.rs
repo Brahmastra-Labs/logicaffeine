@@ -25,9 +25,10 @@ pub enum Feature {
     Opaque,      // "I seek a unicorn" (De Dicto/De Re ambiguity)
     Factive,     // "I know that..." (Presupposes truth)
     Performative, // "I promise"
-    Collective,  // "The group gathered"
-    Mixed,       // "Lift" - can be collective or distributive
-    Weather,     // "Rain", "Snow" - weather verbs with expletive "it"
+    Collective,   // "The group gathered"
+    Mixed,        // "Lift" - can be collective or distributive
+    Distributive, // "Sleep" - must apply to individuals, not groups
+    Weather,      // "Rain", "Snow" - weather verbs with expletive "it"
     Unaccusative, // "The door opens" - intransitive subject is Theme, not Agent
 
     // Noun Features
@@ -65,6 +66,8 @@ impl Feature {
             "Factive" => Some(Feature::Factive),
             "Performative" => Some(Feature::Performative),
             "Collective" => Some(Feature::Collective),
+            "Mixed" => Some(Feature::Mixed),
+            "Distributive" => Some(Feature::Distributive),
             "Weather" => Some(Feature::Weather),
             "Unaccusative" => Some(Feature::Unaccusative),
             "Count" => Some(Feature::Count),

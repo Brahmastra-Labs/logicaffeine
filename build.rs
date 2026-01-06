@@ -290,6 +290,7 @@ fn main() {
         collective_verbs,
         performatives,
         mixed_verbs,
+        distributive_verbs,
     ) = derive_verb_feature_lists(&data.verbs);
 
     generate_is_check(&mut file, "is_ditransitive_verb", &ditransitive_verbs);
@@ -300,6 +301,7 @@ fn main() {
     generate_is_check(&mut file, "is_collective_verb", &collective_verbs);
     generate_is_check(&mut file, "is_performative", &performatives);
     generate_is_check(&mut file, "is_mixed_verb", &mixed_verbs);
+    generate_is_check(&mut file, "is_distributive_verb", &distributive_verbs);
 
     // Generate base verb list from all verb lemmas
     let base_verbs: Vec<String> = data.verbs.iter().map(|v| v.lemma.to_lowercase()).collect();
@@ -467,6 +469,7 @@ fn derive_verb_feature_lists(
     Vec<String>,
     Vec<String>,
     Vec<String>,
+    Vec<String>,
 ) {
     let mut ditransitive = Vec::new();
     let mut subject_control = Vec::new();
@@ -476,6 +479,7 @@ fn derive_verb_feature_lists(
     let mut collective = Vec::new();
     let mut performative = Vec::new();
     let mut mixed = Vec::new();
+    let mut distributive = Vec::new();
 
     for verb in verbs {
         let lower = verb.lemma.to_lowercase();
@@ -503,6 +507,7 @@ fn derive_verb_feature_lists(
                 "Collective" => collective.push(lower.clone()),
                 "Performative" => performative.push(lower.clone()),
                 "Mixed" => mixed.push(lower.clone()),
+                "Distributive" => distributive.push(lower.clone()),
                 _ => {}
             }
         }
@@ -517,6 +522,7 @@ fn derive_verb_feature_lists(
         collective,
         performative,
         mixed,
+        distributive,
     )
 }
 

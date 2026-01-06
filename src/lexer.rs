@@ -1731,6 +1731,10 @@ impl<'a> Lexer<'a> {
         lexicon::is_mixed_verb(&lemma.to_lowercase())
     }
 
+    pub fn is_distributive_verb(lemma: &str) -> bool {
+        lexicon::is_distributive_verb(&lemma.to_lowercase())
+    }
+
     pub fn is_ditransitive_verb(lemma: &str) -> bool {
         lexicon::is_ditransitive_verb(&lemma.to_lowercase())
     }
