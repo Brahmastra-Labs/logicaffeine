@@ -58,7 +58,15 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let modal_token = self.peek().kind.clone();
             self.advance();
             has_modal = true;
-            modal_vector = Some(self.token_to_vector(&modal_token));
+            let vector = self.token_to_vector(&modal_token);
+            modal_vector = Some(vector.clone());
+            // Enter modal box in DRS so any new referents are marked as hypothetical
+            // This ensures "A wolf might enter" puts the wolf in a modal scope
+            self.drs.enter_box(crate::drs::BoxType::ModalScope);
+            // Also set modal context on WorldState for cross-sentence tracking
+            // This is used by end_sentence() to mark telescope candidates as modal-sourced
+            let is_epistemic = matches!(vector.flavor, crate::ast::ModalFlavor::Epistemic);
+            self.world_state.enter_modal_context(is_epistemic, vector.force);
         }
 
         if self.check(&TokenType::Not) {
@@ -251,6 +259,11 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Then apply outer modal (e.g., "might")
         if has_modal {
+            // Exit modal box in DRS (matches enter_box above)
+            self.drs.exit_box();
+            // Note: We do NOT exit_modal_context() here because we want the modal flag
+            // to persist until end_sentence() so telescope candidates are marked as modal.
+            // The modal context is cleared by end_sentence() → prior_modal_context.take()
             if let Some(vector) = modal_vector {
                 result = self.ctx.modal(vector, result);
             }

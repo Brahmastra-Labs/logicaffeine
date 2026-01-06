@@ -193,3 +193,55 @@ fn test_tripartite_classification_mutually_exclusive() {
     assert!(!Lexer::is_distributive_verb("lift"));
     assert!(!Lexer::is_collective_verb("lift"));
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// SIGMA OPERATOR VERIFICATION TESTS
+// ═══════════════════════════════════════════════════════════════════
+
+#[test]
+fn verify_sigma_in_definite_plural_output() {
+    let input = "The boys slept.";
+    let readings = compile_forest(input);
+
+    assert_eq!(readings.len(), 1, "Distributive verb should have 1 reading");
+
+    // Verify sigma appears in output (Link's maximal sum operator)
+    assert!(
+        readings[0].contains("σ"),
+        "Definite plural should use sigma operator. Got: {}",
+        readings[0]
+    );
+
+    // Verify distributive marker
+    assert!(
+        readings[0].contains("*"),
+        "Distributive verb should have * operator. Got: {}",
+        readings[0]
+    );
+}
+
+#[test]
+fn verify_collective_vs_distributive_output() {
+    let input = "The boys lifted the piano.";
+    let readings = compile_forest(input);
+
+    println!("=== Parse Forest for: '{}' ===", input);
+    for (i, r) in readings.iter().enumerate() {
+        println!("Reading {}: {}", i + 1, r);
+    }
+
+    assert!(
+        readings.len() >= 2,
+        "Should have 2+ readings. Got: {:?}",
+        readings
+    );
+
+    // Both should have sigma for "the boys"
+    for r in &readings {
+        assert!(
+            r.contains("σ"),
+            "All readings should use sigma. Got: {}",
+            r
+        );
+    }
+}

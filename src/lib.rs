@@ -41,6 +41,7 @@ pub mod cli;
 pub mod verification;
 pub mod runtime_lexicon;
 pub mod semantics;
+pub mod session;
 pub mod registry;
 pub mod scope;
 #[cfg(target_arch = "wasm32")]
@@ -85,6 +86,7 @@ pub use token::{BlockType, Token, TokenType};
 pub use view::{ExprView, NounPhraseView, Resolve, TermView};
 pub use visitor::{Visitor, walk_expr, walk_term, walk_np};
 pub use interpreter::{Interpreter, InterpreterResult, RuntimeValue};
+pub use session::Session;
 
 // ═══════════════════════════════════════════════════════════════════
 // Output Format Configuration

@@ -221,7 +221,18 @@ impl WorldState {
     /// Mark a sentence boundary - collect telescope candidates
     pub fn end_sentence(&mut self) {
         // Collect referents that can telescope from current DRS state
-        self.telescope_candidates = self.drs.get_telescope_candidates();
+        let mut candidates = self.drs.get_telescope_candidates();
+
+        // MODAL BARRIER: If this sentence had a modal, mark ALL its referents as modal-sourced.
+        // This handles "A wolf might enter" where the wolf is introduced BEFORE we see "might".
+        // The wolf should be marked as hypothetical even though it's in the main DRS box.
+        if self.current_modal_context.is_some() {
+            for candidate in &mut candidates {
+                candidate.in_modal_scope = true;
+            }
+        }
+
+        self.telescope_candidates = candidates;
         // Capture modal context for subordination in next sentence
         self.prior_modal_context = self.current_modal_context.take();
         // Mark that we're now in discourse mode (multi-sentence context)
@@ -241,11 +252,32 @@ impl WorldState {
 
     /// Try to resolve a pronoun via telescoping
     pub fn resolve_via_telescope(&mut self, gender: Gender) -> Option<TelescopeCandidate> {
+        // MODAL BARRIER: Check if we can access hypothetical entities
+        // Reality (indicative) cannot see into imagination (modal scope)
+        // Only modal subordination (e.g., "would" following "might") can access modal candidates
+        let can_access_modal = self.in_modal_context();
+
+        #[cfg(debug_assertions)]
+        eprintln!("[TELESCOPE DEBUG] can_access_modal={}, candidates={:?}",
+            can_access_modal,
+            self.telescope_candidates.iter()
+                .map(|c| (c.in_modal_scope, c.gender))
+                .collect::<Vec<_>>()
+        );
+
         // Apply same Gender Accommodation rules as resolve_pronoun:
         // - Exact match (Male=Male, Female=Female, etc)
         // - Unknown referent matches any pronoun (Gender Accommodation)
         // - Unknown pronoun matches any referent
         for candidate in &self.telescope_candidates {
+            // MODAL BARRIER CHECK: Skip hypothetical entities when in reality mode
+            if candidate.in_modal_scope && !can_access_modal {
+                // Wolf in imagination cannot be referenced from reality
+                #[cfg(debug_assertions)]
+                eprintln!("[TELESCOPE DEBUG] BLOCKED modal candidate: {:?}", candidate.gender);
+                continue;
+            }
+
             let gender_match = candidate.gender == gender
                 || candidate.gender == Gender::Unknown  // Gender Accommodation
                 || gender == Gender::Unknown;
@@ -542,10 +574,15 @@ impl Drs {
         let from = &self.boxes[from_box];
 
         // Check target box type - some boxes block outward access
+        // The "accessibility" principle in DRT:
+        // - Reality cannot see into hypotheticals (ModalScope)
+        // - Affirmative cannot see into negative (NegationScope)
+        // - One disjunct cannot see into another (Disjunct)
         if let Some(bt) = target.box_type {
             match bt {
-                BoxType::NegationScope | BoxType::Disjunct => {
+                BoxType::NegationScope | BoxType::Disjunct | BoxType::ModalScope => {
                     // These boxes are NOT accessible from outside
+                    // A wolf in imagination cannot be seen from reality
                     return false;
                 }
                 _ => {}

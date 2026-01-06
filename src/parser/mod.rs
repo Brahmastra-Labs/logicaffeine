@@ -671,7 +671,47 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> ParseResult<ResolvedPronoun> {
-        // Try DRS resolution (scope-aware)
+        // MODAL BARRIER: In discourse mode, try telescope FIRST if prior sentence was modal.
+        // This ensures the modal barrier check runs before we search the swapped DRS.
+        // The DRS contains referents from all prior sentences (merged via swap), but
+        // telescope has modal filtering to block hypothetical entities from reality.
+        if self.world_state.in_discourse_mode() && self.world_state.has_prior_modal_context() {
+            // Only use telescope for cross-sentence reference when prior was modal
+            // Telescope has modal barrier: won't return modal candidates unless we're in modal context
+            if let Some(candidate) = self.world_state.resolve_via_telescope(gender) {
+                return Ok(ResolvedPronoun::Variable(candidate.variable));
+            }
+            // Modal barrier blocked telescope resolution - pronoun can't access hypothetical entities
+            // from the prior modal sentence. Check if there are ANY telescope candidates that
+            // were blocked due to modal scope. If so, this is a modal barrier error.
+            let blocked_candidates: Vec<_> = self.world_state.telescope_candidates()
+                .iter()
+                .filter(|c| c.in_modal_scope)
+                .collect();
+            if !blocked_candidates.is_empty() {
+                // Before returning error, look ahead for modal subordinating verbs (would, could, etc.)
+                // If we see one, this sentence is also modal and can access the hypothetical entity.
+                let has_upcoming_modal = self.has_modal_subordination_ahead();
+                if has_upcoming_modal {
+                    // Modal subordination detected - allow access to the first matching candidate
+                    if let Some(candidate) = blocked_candidates.into_iter().find(|c| {
+                        c.gender == gender || gender == Gender::Unknown || c.gender == Gender::Unknown
+                    }) {
+                        return Ok(ResolvedPronoun::Variable(candidate.variable));
+                    }
+                }
+                // There were candidates but they're all in modal scope - modal barrier blocks access
+                return Err(ParseError {
+                    kind: ParseErrorKind::ScopeViolation(
+                        "Cannot access hypothetical entity from reality. Use modal subordination (e.g., 'would') to continue a hypothetical context.".to_string()
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            // No modal candidates were blocked, continue to check for same-sentence referents
+        }
+
+        // Try DRS resolution (scope-aware) for same-sentence referents
         let current_box = self.drs.current_box_index();
         match self.drs.resolve_pronoun(current_box, gender, number) {
             Ok(sym) => return Ok(ResolvedPronoun::Variable(sym)),
@@ -683,9 +723,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 });
             }
             Err(crate::drs::ScopeError::NoMatchingReferent { gender: g, number: n }) => {
-                // Try telescoping across sentence boundaries
-                if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
-                    return Ok(ResolvedPronoun::Variable(candidate.variable));
+                // Try telescoping across sentence boundaries (if not already tried above)
+                if !self.world_state.has_prior_modal_context() {
+                    if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
+                        return Ok(ResolvedPronoun::Variable(candidate.variable));
+                    }
                 }
 
                 // In discourse mode (multi-sentence context), unresolved pronouns are an error
@@ -7156,6 +7198,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         matches!(self.peek().kind, TokenType::To)
     }
 
+    /// Look ahead in the token stream for modal subordinating verbs (would, could, should, might).
+    /// These verbs allow modal subordination: continuing a hypothetical context from a prior sentence.
+    /// E.g., "A wolf might enter. It would eat you." - "would" subordinates to "might".
+    fn has_modal_subordination_ahead(&self) -> bool {
+        // Modal subordination verbs: would, could, should, might
+        // These allow access to hypothetical entities from prior modal sentences
+        for i in self.current..self.tokens.len() {
+            match &self.tokens[i].kind {
+                TokenType::Would | TokenType::Could | TokenType::Should | TokenType::Might => {
+                    return true;
+                }
+                // Stop looking at sentence boundary
+                TokenType::Period | TokenType::EOF => break,
+                _ => {}
+            }
+        }
+        false
+    }
 
     fn consume_verb(&mut self) -> Symbol {
         let t = self.advance().clone();

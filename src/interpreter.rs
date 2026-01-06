@@ -421,7 +421,11 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Give { .. } => {
+            Stmt::Give { object, recipient } => {
+                let obj_val = self.evaluate_expr(object).await?;
+                if let Expr::Identifier(sym) = recipient {
+                    self.call_function_with_values(*sym, vec![obj_val]).await?;
+                }
                 Ok(ControlFlow::Continue)
             }
 
@@ -431,6 +435,8 @@ impl<'a> Interpreter<'a> {
                     let name = self.interner.resolve(*sym);
                     if name == "show" {
                         self.output.push(obj_val.to_display_string());
+                    } else {
+                        self.call_function_with_values(*sym, vec![obj_val]).await?;
                     }
                 }
                 Ok(ControlFlow::Continue)
@@ -1084,6 +1090,57 @@ impl<'a> Interpreter<'a> {
         // Push new scope and bind parameters
         self.push_scope();
         for ((param_name, _), arg_val) in params.iter().zip(arg_values) {
+            self.define(*param_name, arg_val);
+        }
+
+        // Execute function body
+        let mut return_value = RuntimeValue::Nothing;
+        for stmt in body.iter() {
+            match self.execute_stmt(stmt).await? {
+                ControlFlow::Return(val) => {
+                    return_value = val;
+                    break;
+                }
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+
+        self.pop_scope();
+        Ok(return_value)
+    }
+
+    /// Call a function with pre-evaluated RuntimeValue arguments.
+    /// Used by Give and Show statements where the object is already evaluated.
+    #[async_recursion(?Send)]
+    async fn call_function_with_values(&mut self, function: Symbol, args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
+        let func_name = self.interner.resolve(function);
+
+        // Handle built-in "show"
+        if func_name == "show" {
+            for val in args {
+                self.output.push(val.to_display_string());
+            }
+            return Ok(RuntimeValue::Nothing);
+        }
+
+        // User-defined function lookup
+        let func_data = self.functions.get(&function)
+            .map(|f| (f.params.clone(), f.body))
+            .ok_or_else(|| format!("Unknown function: {}", func_name))?;
+
+        let (params, body) = func_data;
+
+        if args.len() != params.len() {
+            return Err(format!(
+                "Function {} expects {} arguments, got {}",
+                func_name, params.len(), args.len()
+            ));
+        }
+
+        // Push new scope and bind parameters
+        self.push_scope();
+        for ((param_name, _), arg_val) in params.iter().zip(args) {
             self.define(*param_name, arg_val);
         }
 

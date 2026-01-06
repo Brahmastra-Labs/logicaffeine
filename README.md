@@ -26,23 +26,14 @@ LOGOS closes this gap: your specification IS your program.
 | Spec and code diverge | They're the same thing |
 | Logic bugs hide in translation | Logic is explicit and verifiable |
 
-**Why not just use ChatGPT?**
-
-LLMs are probabilistic—they guess. LOGOS is deterministic—it parses. When "every woman loves a man" has two meanings, GPT picks one. LOGOS returns both.
-
 ---
 
 Logicaffeine is a natural language compiler with two modes:
 
 | Mode | Input | Output |
 |------|-------|--------|
-| **Logic** | English sentences | First-Order Logic (∀, ∃, →, ∧) |
 | **Imperative** | English programs | Executable Rust code |
-
-**Logic Mode** — English to First-Order Logic:
-```
-"Every woman loves a man."  →  ∀x(Woman(x) → ∃y(Man(y) ∧ Love(x,y)))
-```
+| **Logic** | English sentences | First-Order Logic (∀, ∃, →, ∧) |
 
 **Imperative Mode** — English to Rust:
 ```logos
@@ -61,7 +52,51 @@ fn main() -> bool {
 }
 ```
 
+**Logic Mode** — English to First-Order Logic:
+```
+"Every woman loves a man."  →  ∀x(Woman(x) → ∃y(Man(y) ∧ Love(x,y)))
+```
+
 The programming language is called **LOGOS**.
+
+**Logicaffeine and LOGOS are in early-access**
+Please use Github issues for bugs/issues/feature-requests.
+
+Important note to developers from the developer:
+
+Yes, it's true that writing code in english is actually quite tedious. Languages have lots of great syntax sugar for good reasons. You might see things that seem silly, for example...
+
+`Set p's x to 5`
+
+You may rightfully think that it would be much simpler to write:
+
+`Set p.x to 5`
+
+Or even better:
+
+`p.x = 5`
+
+So what's the deal? The goal is to start with english, so that someone who doesn't know anything about programming can read and understand and perhaps even write some of their own code. Right now there is a mix of syntax-sugar in some places, and a lack thereof in others. Due to the way the parser works, it is designed for ambiguity, and thus in it's final form the goal would be for ALL of the above examples to compile down to the same AST and parse just fine. Initially, in some places syntax sugar has been used that will be expanded out. The sugar will still sprinkle just fine, but even things like function calls and such ought to be able to be written in english prose.
+
+Perhaps:
+
+`Call func with arguments x and y and z and set the result to x`
+
+Or maybe:
+
+`Set x to the return of func called with arguments x and y and z`
+
+... or maybe both. You get the idea. Because we are doing code-gen to Rust, this can all turn into the same boring code. If you think this is crazy, just wait until you hear about this language called Typescript that "compiles" to Javascript.
+
+**Why Rust?**
+First, I love Rust. Second, Rust has some of the best tooling for bundling to WASM out of the languages I've worked. There are primitives that use OPFS and I've started writing a virtual file system that will enable the distributed types to be able to sync across the browser boundary, and provide a true local-first programming language.
+
+**Should you use LOGOS in production?**
+LOGOS is in early access. It is well tested but I wouldn't yet use it for things that matter. When LOGOS leaves early access it will mark the beginning of it being production ready. The language surface is also not yet stable and subject to change with feedback from users and user studies.
+
+**Why not just use ChatGPT?**
+
+LLMs are probabilistic—they guess. LOGOS is deterministic—it parses. When "every woman loves a man" has two meanings, GPT picks one. LOGOS returns both.
 
 ---
 
@@ -72,16 +107,25 @@ The programming language is called **LOGOS**.
 - [The Grand Challenge: Mergesort](#the-grand-challenge-mergesort)
 - [Beyond Hello World](#beyond-hello-world)
 - [Imperative Mode](#imperative-mode)
+  - [Type System](#type-system)
+  - [Concurrency](#concurrency)
+  - [Distributed Systems](#distributed-systems)
+  - [Security](#security)
+  - [Memory Zones](#memory-zones)
+  - [Static Verification](#static-verification)
 - [Logic Mode](#logic-mode)
   - [Quantifiers](#quantifiers)
   - [Connectives](#connectives)
+  - [Causal Connectives](#causal-connectives)
   - [Modal Operators](#modal-operators)
   - [Tense & Aspect](#tense--aspect)
   - [Comparatives & Superlatives](#comparatives--superlatives)
+  - [Units & Dimensionality](#units--dimensionality)
   - [Event Adjectives](#event-adjectives)
   - [Distributive vs Collective](#distributive-vs-collective)
   - [Axioms & Entailment](#axioms--entailment)
   - [Focus Particles](#focus-particles)
+  - [Morphological Rules](#morphological-rules)
   - [Intensionality](#intensionality)
   - [Wh-Questions](#wh-questions)
   - [Scope Ambiguity](#scope-ambiguity)
@@ -89,21 +133,23 @@ The programming language is called **LOGOS**.
   - [Garden Path Sentences](#garden-path-sentences)
   - [Discourse & Pronouns](#discourse--pronouns)
   - [Modal Subordination](#modal-subordination)
+  - [Sessions & Multi-Turn Discourse](#sessions--multi-turn-discourse)
   - [Bridging Anaphora](#bridging-anaphora)
   - [Multi-Word Expressions](#multi-word-expressions--idioms)
-- [Type System](#type-system)
-- [Concurrency](#concurrency)
-  - [Structured Concurrency](#structured-concurrency)
-  - [Go-like Channels](#go-like-channels)
-  - [Agent System](#agent-system)
-- [Distributed Systems](#distributed-systems)
-  - [P2P Networking](#p2p-networking)
-  - [CRDT Types](#crdt-types)
-  - [GossipSub](#gossipsub)
-  - [Persistence](#persistence)
-- [Security](#security)
-- [Memory Zones](#memory-zones)
-- [Static Verification](#static-verification)
+  - [Category Shift](#category-shift)
+  - [Reciprocals](#reciprocals)
+  - [Ellipsis](#ellipsis)
+  - [Topicalization](#topicalization)
+  - [Passive Voice](#passive-voice)
+  - [Respectively](#respectively)
+  - [Control & Raising Verbs](#control--raising-verbs)
+  - [Presupposition Triggers](#presupposition-triggers)
+  - [Negative Polarity Items](#negative-polarity-items)
+  - [Semantic Sorts & Metaphor](#semantic-sorts--metaphor-detection)
+  - [Counterfactual Conditionals](#counterfactual-conditionals)
+  - [Weather Verbs](#weather-verbs)
+  - [Imperatives](#imperatives)
+  - [Reflexive Binding](#reflexive-binding)
 - [The CLI: largo](#the-cli-largo)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
@@ -281,6 +327,21 @@ Let y: Int be 42.                # Explicit type annotation
 | `Float` | `f64` | `Let pi be 3.14.` |
 | `Seq of T` | `Vec<T>` | `Let items be [1, 2, 3].` |
 
+### Ownership in English
+
+LOGOS maps Rust's ownership model to intuitive English verbs, ensuring memory safety without a garbage collector.
+
+| Keyword | Rust Equivalent | Semantics |
+|---------|-----------------|-----------|
+| `Give` | Move | Transfers ownership; original variable becomes invalid |
+| `Show` | `&T` | Immutable borrow; original remains valid |
+| `Lend` | `&mut T` | Mutable borrow (planned) |
+
+```logos
+Give data to process_function.    # Move semantics
+Show config to display_settings.  # Immutable reference
+```
+
 ### Control Flow
 
 ```logos
@@ -431,6 +492,495 @@ Show area(c).                      # → 75
 Show area(r).                      # → 24
 ```
 
+### Type System
+
+#### Primitives
+
+| Type | Description | Example |
+|------|-------------|---------|
+| `Int` | 64-bit integer | `5`, `-10`, `0` |
+| `Bool` | Boolean | `true`, `false` |
+| `Text` | String | `"hello"` |
+| `Float` | 64-bit float | `3.14` |
+| `Unit` | No value | (implicit) |
+
+#### Collections
+
+```logos
+Let ints: Seq of Int be [1, 2, 3].
+Let texts: Seq of Text be ["a", "b", "c"].
+Let nested: Seq of (Seq of Int) be [[1, 2], [3, 4]].
+```
+
+#### User-Defined Types
+
+**Structs (Product Types):**
+```logos
+## Definition
+A Person has:
+    a name: Text.
+    an age: Int.
+```
+
+**Enums (Sum Types):**
+```logos
+## Definition
+A Result is either:
+    an Ok with value: Int.
+    an Error with message: Text.
+```
+
+#### Generics
+
+```logos
+## Definition
+A Box of [T] has:
+    a contents: T.
+
+## Main
+Let int_box be a new Box of Int with contents 42.
+Let text_box be a new Box of Text with contents "hello".
+```
+
+#### Refinement Types
+
+```logos
+Let positive: Int where it > 0 be 5.
+```
+
+### Concurrency
+
+LOGOS provides multiple concurrency models for different use cases.
+
+#### Structured Concurrency
+
+For I/O-bound operations, use `Attempt all of the following` for concurrent execution:
+
+```logos
+## Main
+Attempt all of the following:
+    Fetch "https://api.example.com/users".
+    Fetch "https://api.example.com/posts".
+    Fetch "https://api.example.com/comments".
+```
+
+For CPU-bound parallel computation:
+
+```logos
+## Main
+Simultaneously:
+    Process chunk 1.
+    Process chunk 2.
+    Process chunk 3.
+```
+
+#### Go-like Channels
+
+LOGOS supports Go-style channels (called Pipes) for CSP-style concurrency:
+
+```logos
+## Main
+Let ch be a new Pipe of Int.
+
+Launch task:
+    Send 42 into ch.
+    Send 100 into ch.
+
+Receive from ch into first.
+Receive from ch into second.
+
+Show first.    # → 42
+Show second.   # → 100
+```
+
+**Channel Operations:**
+
+| Operation | Syntax | Behavior |
+|-----------|--------|----------|
+| Create | `Let ch be a new Pipe of T.` | Unbuffered channel |
+| Send | `Send value into ch.` | Blocks until received |
+| Receive | `Receive from ch into var.` | Blocks until sent |
+| Try Send | `Try to send value into ch.` | Non-blocking |
+| Try Receive | `Try to receive from ch into var.` | Non-blocking |
+
+**Select Statement:**
+
+Wait on multiple channels:
+
+```logos
+## Main
+Let ch1 be a new Pipe of Int.
+Let ch2 be a new Pipe of Text.
+
+Select first of the following:
+    Receive from ch1 into num:
+        Show num.
+    Receive from ch2 into msg:
+        Show msg.
+    After 5 seconds:
+        Show "timeout".
+```
+
+**Task Control:**
+
+```logos
+## Main
+Let worker be launch task:
+    # Long-running work...
+
+Stop worker.    # Cancel the task
+```
+
+#### Agent System
+
+LOGOS includes an actor-model agent system for message-passing concurrency:
+
+```logos
+## Main
+Spawn worker as DataProcessor.
+Send "process" to worker.
+Await response from worker into result.
+Show result.
+```
+
+Agents are lightweight, isolated processes that communicate only via messages—no shared state.
+
+### Distributed Systems
+
+LOGOS includes a P2P mesh networking layer with native CRDT support.
+
+#### P2P Networking
+
+```logos
+## Main
+Listen on "/ip4/0.0.0.0/tcp/8080".
+Connect to "/ip4/192.168.1.5/tcp/8080".
+```
+
+Compiles to production-grade Rust with libp2p, GossipSub, and CRDT merge semantics.
+
+#### CRDT Types
+
+CRDTs (Conflict-free Replicated Data Types) guarantee eventual consistency without coordination. LOGOS provides six built-in CRDT types:
+
+**GCounter (Grow-only Counter):**
+```logos
+Let votes be a new shared GCounter.
+Increment votes.
+Let merged be merge(votes, remote_votes).
+```
+
+**PNCounter (Tally - can increment and decrement):**
+```logos
+Let score be a new Tally.
+Increase score by 10.
+Decrease score by 3.
+# Net value: 7
+```
+
+**ORSet (SharedSet - add/remove with bias):**
+```logos
+Let tags be a new SharedSet.
+Add "important" to tags.
+Remove "draft" from tags.
+
+# With conflict resolution bias:
+Let items be a new SharedSet with AddWins.
+Let other be a new SharedSet with RemoveWins.
+```
+
+**RGA (SharedSequence - collaborative text):**
+```logos
+Let doc be a new SharedSequence.
+Append "Hello" to doc.
+Append " World" to doc.
+
+# Or with YATA algorithm:
+Let text be a new CollaborativeSequence using YATA.
+```
+
+**ORMap (SharedMap - key-value CRDT):**
+```logos
+Let config be a new SharedMap.
+Set config["theme"] to "dark".
+Set config["fontSize"] to "14".
+```
+
+**MVRegister (Divergent - conflict resolution):**
+```logos
+Let setting be a new Divergent.
+Set setting to "value1".
+# On conflict, access all concurrent values:
+Let all_values be values of setting.
+Resolve setting with first of all_values.
+```
+
+| CRDT Type | Use Case | Conflict Resolution |
+|-----------|----------|---------------------|
+| GCounter | Vote counts, views | Sum of all replicas |
+| Tally | Scores, balances | Sum with negative support |
+| SharedSet | Tags, memberships | Add-wins or remove-wins |
+| SharedSequence | Collaborative text | Causal ordering |
+| SharedMap | Distributed config | Last-writer-wins per key |
+| Divergent | Settings, flags | Manual resolution |
+
+#### GossipSub
+
+The `Sync` statement subscribes a CRDT to a GossipSub topic for automatic network synchronization:
+
+```logos
+## Definition
+A Score is Shared and has:
+    a points: ConvergentCount.
+
+## Main
+Let mutable score be a new Score.
+Sync score on "leaderboard".      # Subscribe to topic
+Increase score's points by 10.    # Broadcasts to all peers
+```
+
+**How it works:**
+
+| Step | What Happens |
+|------|--------------|
+| Subscribe | Awaits mesh membership before returning |
+| Background Task | Spawns auto-merge loop for incoming messages |
+| Local Mutation | Broadcasts full state to all topic subscribers |
+| Remote Message | Automatically merged into local state |
+
+Topics are arbitrary strings—use any naming scheme: `"game-scores"`, `"room-123"`, `"player-data"`.
+
+#### Persistence
+
+Mount CRDTs to disk for durability across restarts:
+
+```logos
+## Main
+Mount counter at "data/counter.journal".
+Increment counter.
+# Survives restarts via journal replay
+```
+
+**Journal Format:**
+
+The journal uses a WAL (Write-Ahead Log) approach with two entry types:
+- **Delta** — Incremental changes appended on each mutation
+- **Snapshot** — Full state checkpoint
+
+**Compaction:** After ~1000 deltas, the system writes a snapshot and truncates old entries. This bounds journal size while preserving crash-safety. Replay on startup applies entries in order—snapshots replace state, deltas merge into it.
+
+#### Distributed<T> — Persistence + Network
+
+**The problem:** `Sync` alone stores remote updates in RAM—they're lost on restart.
+
+**The solution:** Combine `Mount` and `Sync` to journal both local AND remote updates:
+
+```logos
+## Definition
+A Game is Shared and has:
+    a players: ConvergentCount.
+
+## Main
+Mount game at "game.journal".   # Disk persistence
+Sync game on "active-games".    # Network sync
+
+Increase game's players by 1.
+# Local changes: RAM → Journal → Network
+# Remote updates: Network → RAM → Journal (crash-safe!)
+```
+
+**Data Flow Comparison:**
+
+| Mode | Local Mutation | Remote Update | Crash-Safe |
+|------|----------------|---------------|------------|
+| `Sync` only | RAM → Network | Network → RAM | No |
+| `Mount` only | RAM → Journal | N/A | Yes |
+| `Mount` + `Sync` | RAM → Journal → Network | Network → RAM → Journal | Yes |
+
+### Security
+
+LOGOS includes a declarative security system with mandatory runtime enforcement.
+
+#### Policy Blocks
+
+Define security rules in `## Policy` blocks using two constructs:
+
+**Predicates** — Boolean conditions on a single entity:
+```logos
+## Policy
+A User is admin if the user's role equals "admin".
+A User is active if the user's status equals "enabled".
+```
+
+**Capabilities** — Permissions involving multiple entities:
+```logos
+## Policy
+A User can publish the Document if:
+    The user is admin, OR
+    The user equals the document's owner.
+
+A User can delete the Record if the user is admin.
+```
+
+#### Complete Example
+
+```logos
+## Definition
+A User has:
+    a role: Text.
+    a status: Text.
+
+A Document has:
+    an owner: User.
+    a title: Text.
+
+## Policy
+A User is admin if the user's role equals "admin".
+A User is active if the user's status equals "enabled".
+
+A User can publish the Document if:
+    The user is admin, OR
+    The user equals the document's owner.
+
+A User can view the Document if the user is active.
+
+## Main
+Let alice be a new User with role "editor" and status "enabled".
+Let doc be a new Document with owner alice and title "Report".
+
+Check that alice can publish doc.  # Passes - alice is owner
+Check that alice can view doc.     # Passes - alice is active
+```
+
+#### Check vs Assert
+
+| Statement | Behavior | Use Case |
+|-----------|----------|----------|
+| `Check that...` | **Mandatory** - never optimized away | Security-critical guards |
+| `Assert that...` | Debug-only - stripped in release | Development assertions |
+
+```logos
+## Main
+Check that user is admin.    # Always enforced, even in release
+Assert that x > 0.           # Only checked in debug builds
+```
+
+Check failures halt execution with a descriptive error including the source location and policy description.
+
+### Memory Zones
+
+LOGOS supports arena-based memory allocation for high-performance scenarios.
+
+#### Basic Zones
+
+```logos
+## Main
+Inside a new zone called "Scratch":
+    Let temp be [1, 2, 3, 4, 5].
+    Let processed be process(temp).
+    # All allocations freed when zone exits
+```
+
+#### Heap Zones with Capacity
+
+```logos
+## Main
+Inside a new zone called "WorkBuffer" with size 1024:
+    # Pre-allocated buffer of 1024 bytes
+    Let data be process_chunk(input).
+```
+
+#### Memory-Mapped Zones
+
+```logos
+## Main
+Inside a new zone mapped from "large-file.bin":
+    Let chunk be data at offset 0 with length 4096.
+    Process chunk.
+```
+
+Zones provide deterministic deallocation—all memory in a zone is freed at once when the zone exits, avoiding GC pauses.
+
+### Static Verification
+
+LOGOS includes optional Z3-based static verification that can prove assertions at compile time. This is a premium feature requiring a Pro, Premium, Lifetime, or Enterprise license.
+
+#### Requirements
+
+**Install Z3** (required for the verification feature):
+
+```bash
+# macOS
+brew install z3
+
+# Ubuntu/Debian
+apt install libz3-dev
+
+# Windows
+# Download from https://github.com/Z3Prover/z3/releases
+```
+
+**Set environment variables** (macOS with Homebrew):
+
+```bash
+export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h
+export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
+export LIBRARY_PATH="/opt/homebrew/lib"
+```
+
+#### Building with Verification
+
+```bash
+# Build with verification support
+cargo build --features verification
+
+# Build CLI with verification
+cargo build --features cli,verification
+```
+
+#### Usage
+
+```bash
+# Verify a project (requires license)
+largo verify --license sub_xxx
+
+# Build with verification
+largo build --verify --license sub_xxx
+
+# Or use environment variable
+export LOGOS_LICENSE=sub_xxx
+largo build --verify
+```
+
+#### What It Verifies
+
+The verifier uses the Z3 SMT solver to check:
+
+- **Tautologies**: Assertions that are always true
+- **Contradictions**: Assertions that can never be true
+- **Integer bounds**: Constraints like `x > 5` given known values
+- **Refinement types**: Values satisfy their declared predicates
+
+When verification fails, you get **Socratic error messages** with counter-examples:
+
+```
+Verification failed.
+You asserted 'x is greater than 10', but x could be 5.
+```
+
+#### License Tiers
+
+| Plan | Verification |
+|------|--------------|
+| Free | No |
+| Supporter | No |
+| Pro | Yes |
+| Premium | Yes |
+| Lifetime | Yes |
+| Enterprise | Yes |
+
+Get a license at [logicaffeine.com/pricing](https://logicaffeine.com/pricing).
+
 ---
 
 ## Logic Mode
@@ -463,7 +1013,18 @@ Output: ∃=3x(Cat(x) ∧ Sleep(x))
 
 Input:  "At least two dogs bark."
 Output: ∃≥2x(Dog(x) ∧ Bark(x))
+
+Input:  "Nobody runs."
+Output: ∀x(Person(x) → ¬Run(x))
+
+Input:  "Nothing matters."
+Output: ∀x(Thing(x) → ¬Matter(x))
+
+Input:  "Dogs bark."
+Output: GEN x(Dog(x), Bark(x))
 ```
+
+**Note on Generics:** "Dogs bark" uses the generic quantifier (GEN), not universal (∀). Generics allow exceptions—"Dogs bark" is true even if some dogs don't bark.
 
 ### Connectives
 
@@ -482,6 +1043,18 @@ Output: Run(j) → Walk(m)
 
 Input:  "John runs if and only if Mary walks."
 Output: Run(j) ↔ Walk(m)
+```
+
+### Causal Connectives
+
+LOGOS handles causal expressions with the "because" connective:
+
+```
+Input:  "John ran because Mary walked."
+Output: Run(j) ∧ Walk(m) ∧ Because(Run(j), Walk(m))
+
+Input:  "The ground is wet because it rained."
+Output: Wet(ground) ∧ Rain() ∧ Because(Wet(ground), Rain())
 ```
 
 ### Modal Operators
@@ -547,6 +1120,27 @@ This enables correct parsing of aspectual compositions:
 - "John was building a house" → progressive of accomplishment
 - "John was knowing the answer" → anomalous (states resist progressive)
 
+**Stative Progressive Anomaly:** Stative verbs (know, love, believe) typically resist progressive aspect because they lack internal temporal structure. LOGOS detects this mismatch—states describe conditions that hold, not ongoing processes.
+
+**Reichenbachian Temporal Structure:**
+
+LOGOS uses Reichenbach's three-point system: Event (E), Reference (R), and Speech (S) time:
+
+```
+Past Perfect:    "John had run."     E < R < S
+Present Perfect: "John has run."    E < R = S
+Future Perfect:  "John will have run." E < S < R
+Simple Past:     "John ran."         E = R < S
+Simple Future:   "John will run."    S < E = R
+```
+
+This enables precise temporal ordering constraints in the output:
+
+```
+Input:  "John had run."
+Output: ∃e(Run(e) ∧ Agent(e, j) ∧ Precedes(e, r) ∧ Precedes(r, S))
+```
+
 ### Comparatives & Superlatives
 
 LOGOS handles gradable adjectives with degree semantics:
@@ -566,6 +1160,53 @@ The system distinguishes:
 - **Comparatives**: "taller than", "more intelligent than"
 - **Superlatives**: "the tallest", "the most intelligent"
 - **Degree modifiers**: "much taller", "slightly faster", "far better"
+
+### Units & Dimensionality
+
+LOGOS supports measure phrases with explicit dimension tracking:
+
+**Dimension Types:**
+
+| Dimension | Units | Examples |
+|-----------|-------|----------|
+| Length | inch, foot, yard, meter, mile | "five feet tall" |
+| Time | second, minute, hour, day, year | "three hours long" |
+| Weight | ounce, pound, gram, kilogram | "ten pounds heavy" |
+| Temperature | degree | "ninety degrees" |
+| Cardinality | child, item, piece | "five children" |
+
+**Measure Phrases:**
+
+```
+Input:  "John is six feet tall."
+Output: Height(j) = Measure(6, Foot)
+
+Input:  "The meeting lasted three hours."
+Output: ∃e(Meeting(e) ∧ Duration(e) = Measure(3, Hour))
+
+Input:  "The box weighs ten pounds."
+Output: Weight(box) = Measure(10, Pound)
+```
+
+**Comparative Measures:**
+
+```
+Input:  "John is two inches taller than Mary."
+Output: Height(j) - Height(m) = Measure(2, Inch)
+
+Input:  "The train arrived five minutes late."
+Output: ∃e(Arrive(e) ∧ Theme(e, train) ∧ Delay(e) = Measure(5, Minute))
+```
+
+**Cardinal Measures:**
+
+```
+Input:  "Five children played."
+Output: ∃=5x(Child(x) ∧ Play(x))
+
+Input:  "Many students attended."
+Output: MANY x(Student(x), Attend(x))
+```
 
 ### Event Adjectives
 
@@ -588,6 +1229,66 @@ Reading 2 (Event-modifying - modifies the dancing):
 | Physical | tall, short | Intersective only |
 | Manner | graceful, clumsy | Both readings |
 | Aesthetic | beautiful, elegant | Both readings |
+
+**Subsective vs Intersective Adjectives:**
+
+Beyond event modification, LOGOS distinguishes intersective from subsective adjectives:
+
+```
+Intersective:  "The red ball"
+Output: Red(x) ∧ Ball(x)
+"Red" applies absolutely to the entity
+
+Subsective:    "The small elephant"
+Output: Small(^Elephant)(x) ∧ Elephant(x)
+"Small" is relative to the comparison class (^Elephant = elephant intension)
+```
+
+| Type | Example | Semantics |
+|------|---------|-----------|
+| Intersective | red, wooden, dead | Adj(x) ∧ N(x) |
+| Subsective | small, large, tall | Adj(^N)(x) ∧ N(x) |
+| Privative | fake, former | Adj(x) ∧ ¬N(x) |
+
+**Full Adjective Taxonomy:**
+
+LOGOS classifies 400+ adjectives across five semantic categories:
+
+| Category | Count | Examples | Behavior |
+|----------|-------|----------|----------|
+| Intersective | ~200 | red, tall, happy, dead, wooden | Absolute property: Adj(x) ∧ N(x) |
+| Subsective | ~20 | small, large, good, bad, big | Comparison class: Adj(^N)(x) ∧ N(x) |
+| Non-Intersective/Privative | ~20 | fake, former, alleged, counterfeit, would-be, imaginary, fictional | Negates noun: Adj(x) ∧ ¬N(x) |
+| EventModifier | ~10 | fast, graceful, skillful, clumsy, elegant, quick | Modifies event, not entity |
+| Weather | ~10 | hot, cold, sunny, humid, windy, rainy, foggy | Predicates of weather conditions |
+
+**EventModifier Adjectives:**
+
+EventModifier adjectives can modify the event rather than the entity:
+
+```
+Input: "The graceful dancer performed."
+
+Reading 1 (Entity-modifying):
+Graceful(x) ∧ Dancer(x) ∧ Perform(x)
+"The dancer who is graceful performed"
+
+Reading 2 (Event-modifying):
+∃e(Perform(e) ∧ Agent(e, x) ∧ Dancer(x) ∧ Graceful(e))
+"The dancer performed gracefully"
+```
+
+**Weather Adjectives:**
+
+Weather adjectives predicate of atmospheric conditions:
+
+```
+Input: "It is cold."
+Output: Cold(weather)
+
+Input: "The day was sunny and humid."
+Output: Sunny(day) ∧ Humid(day)
+```
 
 ### Distributive vs Collective
 
@@ -614,6 +1315,34 @@ Verbs are classified in the lexicon:
 | Distributive | sleep, eat, die | Only individual application |
 | Collective | gather, assemble, meet | Only group application |
 | Mixed | lift, carry, push | Both readings |
+
+**Link's Logic Operators:**
+
+LOGOS uses two formal operators from Link's algebra:
+
+| Operator | Name | Meaning |
+|----------|------|---------|
+| σ (sigma) | Maximal sum | The maximal plural individual satisfying a predicate |
+| * (star) | Distributive marker | Distributes predicate over atomic parts |
+
+```
+Input: "The men who lifted the piano."
+Output: σx(*Man(x) ∧ Lift(x, piano))
+"The maximal sum of men such that each lifted the piano"
+
+Input: "The cats slept."
+Output: *Sleep(σx(Cat(x)))
+"Sleeping distributed over the maximal sum of cats"
+```
+
+**Verb Classification Mechanics:**
+
+The lexer provides predicates for runtime classification:
+- `is_distributive_verb()` — sleep, run, eat, die, think
+- `is_collective_verb()` — gather, meet, assemble, disperse, congregate
+- `is_mixed_verb()` — lift, carry, push, build, write
+
+Mixed verbs generate multiple readings during parse forest construction.
 
 ### Axioms & Entailment
 
@@ -665,6 +1394,52 @@ Output: ∃=3x(Cat(x) ∧ Sleep(x))
 "Exactly three cats slept"
 ```
 
+### Morphological Rules
+
+LOGOS recognizes derivational morphology to connect related word forms:
+
+**Agent Nominals (-er, -or):**
+```
+Input:  "The runner won."
+Output: ∃x∃e(Run(x) ∧ Agent(x) ∧ Win(e) ∧ Theme(e, x))
+"runner" derived from "run" + agentive -er
+```
+
+| Suffix | Meaning | Examples |
+|--------|---------|----------|
+| -er | Agent who V's | runner, teacher, writer, singer |
+| -or | Agent who V's | actor, inventor, sailor, donor |
+
+**Patient Nominals (-ee):**
+```
+Input:  "The trainee learned."
+Output: ∃x∃e(Train(x) ∧ Patient(x) ∧ Learn(e) ∧ Agent(e, x))
+"trainee" derived from "train" + patient -ee
+```
+
+| Suffix | Meaning | Examples |
+|--------|---------|----------|
+| -ee | Patient of V | trainee, employee, addressee, nominee |
+
+**Practitioner Nominals (-ist, -ian):**
+
+| Suffix | Meaning | Examples |
+|--------|---------|----------|
+| -ist | Practitioner of N | scientist, artist, pianist, linguist |
+| -ian | Related to N | musician, mathematician, librarian |
+
+**Derivation Tracking:**
+
+The lexicon records derivational relationships:
+```json
+{
+  "Runner": { "derived_from": "Run", "relation": "Agent" },
+  "Trainee": { "derived_from": "Train", "relation": "Patient" }
+}
+```
+
+This enables inference: "All runners are athletes who run."
+
 ### Intensionality
 
 LOGOS distinguishes de dicto (narrow scope) and de re (wide scope) readings for intensional contexts:
@@ -687,6 +1462,28 @@ Intensional verbs are marked in the lexicon:
 - **Opaque**: seek, want, imagine, dream, pretend
 - **Factive**: know, realize, regret (presuppose truth)
 
+**The Temperature Paradox:**
+
+LOGOS handles intensional predicates like "rising", "changing", and "increasing" that require intensions as arguments:
+
+```
+Input:  "The temperature is ninety."
+Output: Temperature = 90  [Extensional identity]
+
+Input:  "The temperature is rising."
+Output: Rising(^Temperature)  [Uses intension, not value]
+```
+
+Without intensions, substituting "90" for "temperature" would yield `Rising(90)` — absurd. LOGOS prevents this by marking intensional predicates in the lexicon and using the intension (`^Temperature`) rather than the current value.
+
+```
+Input:  "The price is changing."
+Output: Changing(^Price)
+
+Input:  "The speed is increasing."
+Output: Increasing(^Speed)
+```
+
 ### Wh-Questions
 
 ```
@@ -698,6 +1495,16 @@ Output: λx.Love(j, x)
 
 Input:  "Who did John say Mary loves?"
 Output: λx.Say(j, [Love(m, x)])
+```
+
+**Pied-Piping:** The preposition can move with the wh-word:
+
+```
+Input:  "To whom did John talk?"
+Output: λx.Talk(j, x)
+
+Input:  "With what did Mary cut the bread?"
+Output: λx.∃e(Cut(e) ∧ Agent(e, m) ∧ Theme(e, bread) ∧ Instrument(e, x))
 ```
 
 ### Scope Ambiguity
@@ -783,6 +1590,68 @@ Output: ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))
 
 The indefinite "a donkey" receives universal (not existential) force due to DRS accessibility constraints.
 
+**DRS Accessibility Rules:**
+
+Not all antecedents are accessible for pronoun resolution:
+
+```
+Blocked by negation:
+"No farmer owns a donkey. *He is happy."
+→ Error: "he" has no accessible antecedent
+
+Blocked by disjunction:
+"A man or a woman entered. *They left."
+→ Error: disjunctive antecedents create scope islands
+```
+
+However, universal quantifiers can "telescope" their scope across sentences:
+```
+"Every chess game has a winner. He is happy."
+→ ∀x(ChessGame(x) → ∃y(Winner(y, x) ∧ Happy(y)))
+```
+
+**DRS Box Architecture:**
+
+LOGOS uses 8 distinct box types for tracking discourse referent scope:
+
+| Box Type | Created By | Accessibility |
+|----------|-----------|---------------|
+| Main | Top-level clause | Outward to all |
+| ConditionalAntecedent | "if" clause | Into consequent only |
+| ConditionalConsequent | "then" clause | Blocked outward |
+| NegationScope | "not", "no", "never" | Blocked outward |
+| UniversalRestrictor | "every", "all" | Into scope only |
+| UniversalScope | Universal body | Blocked outward |
+| Disjunct | "or" alternatives | Blocked outward |
+| ModalScope | "might", "would" | Into subordinate modals |
+
+**Pronoun Case System:**
+
+LOGOS tracks grammatical case for accurate binding:
+
+| Case | Forms | Usage |
+|------|-------|-------|
+| Subject | he, she, they, I, we | Nominative position |
+| Object | him, her, them, me, us | Accusative position |
+| Possessive | his, her, their, my, our | Genitive position |
+
+```
+Input: "John saw her. She saw him."
+Binding: her → Mary (Object case), She → Mary (Subject case), him → John (Object case)
+```
+
+**Referent Source Tracking:**
+
+Each discourse referent records its introduction source:
+- `MainClause` — Introduced in top-level assertion
+- `ProperName` — Introduced as a named entity
+- `ConditionalAntecedent` — Introduced in "if" clause
+- `UniversalRestrictor` — Introduced in universal's restriction
+- `NegationScope` — Introduced under negation
+- `ModalScope` — Introduced in hypothetical world
+
+This enables precise accessibility computation and meaningful error messages when binding fails.
+
 ### Modal Subordination
 
 LOGOS handles anaphora across modal contexts using Kripke semantics with world arguments:
@@ -806,6 +1675,98 @@ Input: "John might buy a car. He would drive it to work."
 
 Output:
 ◇∃x(Car(x) ∧ Buy(j, x, w₁)) ∧ □(w₁ → Drive(j, x, work, w₁))
+```
+
+**Modal Flavor and Force:**
+
+LOGOS distinguishes modal flavor (semantic domain) and force (quantificational strength):
+
+| Modal | Flavor | Force | Value |
+|-------|--------|-------|-------|
+| must | Epistemic/Deontic | Necessity | 1.0 |
+| will | Epistemic | Necessity | 1.0 |
+| should | Deontic | Weak necessity | 0.8 |
+| would | Root | Conditional | 0.7 |
+| can | Dynamic | Possibility | 0.5 |
+| may | Deontic/Epistemic | Possibility | 0.5 |
+| might | Epistemic | Weak possibility | 0.3 |
+| could | Dynamic | Remote possibility | 0.3 |
+
+**Subordination Chain Rules:**
+
+Modal subordination follows precedence rules:
+
+| Antecedent | Subordinate | Example |
+|------------|-------------|---------|
+| might | would | "A wolf might come. It would attack." |
+| may | would | "A thief may enter. He would steal." |
+| could | would | "John could win. He would celebrate." |
+| can | will | "Mary can help. She will arrive." |
+
+The subordinate modal must have equal or higher force to maintain the hypothetical context.
+
+### Sessions & Multi-Turn Discourse
+
+LOGOS supports session-based evaluation for multi-turn interactions via the `Session` API:
+
+```rust
+use logos::Session;
+
+let mut session = Session::new();
+
+// Turn 1: Introduce entities
+session.eval("The boys lifted the piano.").unwrap();
+// → ∃e(Lift(e) ∧ Agent(e, σBoy) ∧ Theme(e, piano))
+
+// Turn 2: Pronoun resolves to entity from Turn 1
+session.eval("They smiled.").unwrap();
+// → ∃e(Smile(e) ∧ Agent(e, σBoy))
+// "They" resolves to "the boys" from previous turn
+
+// Get accumulated logic with temporal ordering
+let history = session.history();
+// → ... ∧ Precedes(e₁, e₂)
+```
+
+**Key Features:**
+
+| Feature | Description |
+|---------|-------------|
+| Persistent DRS | Discourse referents survive across `eval()` calls |
+| Cross-turn anaphora | "A man entered. He sat." — pronoun resolves across turns |
+| Modal subordination | "A wolf might enter. It would eat you." — works across turns |
+| Temporal ordering | `Precedes(e₁, e₂)` constraints generated automatically |
+| Session history | Full accumulated logic via `session.history()` |
+
+**Session API:**
+
+```rust
+Session::new()              // Create new session
+Session::with_format(fmt)   // Create with output format (Unicode, LaTeX, SimpleFOL)
+session.eval(input)         // Evaluate one sentence, returns transpiled logic
+session.history()           // Get accumulated logic with Precedes relations
+session.turn_count()        // Number of sentences processed
+session.reset()             // Clear state, start fresh
+```
+
+**Modal Scope Barriers:**
+
+Sessions enforce modal accessibility—hypothetical entities cannot leak into reality:
+
+```
+Turn 1: "A wolf might enter."   // Wolf exists in possible world w₁
+Turn 2: "He eats you."          // Indicative mode (reality w₀)
+        ↓
+Error: Pronoun has no accessible antecedent
+```
+
+But modal continuation is allowed:
+
+```
+Turn 1: "A wolf might enter."   // Wolf in w₁
+Turn 2: "It would eat you."     // "would" continues in w₁
+        ↓
+◇∃x(Wolf(x) ∧ Enter(x)) ∧ □(w₁ → Eat(x, you))
 ```
 
 ### Bridging Anaphora
@@ -851,426 +1812,439 @@ Output: ∃e(Arrive(e) ∧ Theme(e, fire_engine))
 
 The MWE pipeline uses a trie-based recognizer to merge multi-word units before parsing, handling compound nouns ("fire engine"), phrasal verbs ("give up"), and idiomatic expressions ("kick the bucket").
 
----
-
-## Type System
-
-### Primitives
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `Int` | 64-bit integer | `5`, `-10`, `0` |
-| `Bool` | Boolean | `true`, `false` |
-| `Text` | String | `"hello"` |
-| `Float` | 64-bit float | `3.14` |
-| `Unit` | No value | (implicit) |
-
-### Collections
-
-```logos
-Let ints: Seq of Int be [1, 2, 3].
-Let texts: Seq of Text be ["a", "b", "c"].
-Let nested: Seq of (Seq of Int) be [[1, 2], [3, 4]].
-```
-
-### User-Defined Types
-
-**Structs (Product Types):**
-```logos
-## Definition
-A Person has:
-    a name: Text.
-    an age: Int.
-```
-
-**Enums (Sum Types):**
-```logos
-## Definition
-A Result is either:
-    an Ok with value: Int.
-    an Error with message: Text.
-```
-
-### Generics
-
-```logos
-## Definition
-A Box of [T] has:
-    a contents: T.
-
-## Main
-Let int_box be a new Box of Int with contents 42.
-Let text_box be a new Box of Text with contents "hello".
-```
-
-### Refinement Types (Planned)
-
-```logos
-Let positive: Int where it > 0 be 5.
-```
-
----
-
-## Concurrency
-
-LOGOS provides multiple concurrency models for different use cases.
-
-### Structured Concurrency
-
-For I/O-bound operations, use `Attempt all of the following` for concurrent execution:
-
-```logos
-## Main
-Attempt all of the following:
-    Fetch "https://api.example.com/users".
-    Fetch "https://api.example.com/posts".
-    Fetch "https://api.example.com/comments".
-```
-
-For CPU-bound parallel computation:
-
-```logos
-## Main
-Simultaneously:
-    Process chunk 1.
-    Process chunk 2.
-    Process chunk 3.
-```
-
-### Go-like Channels
-
-LOGOS supports Go-style channels (called Pipes) for CSP-style concurrency:
-
-```logos
-## Main
-Let ch be a new Pipe of Int.
-
-Launch task:
-    Send 42 to ch.
-    Send 100 to ch.
-
-Receive from ch into first.
-Receive from ch into second.
-
-Show first.    # → 42
-Show second.   # → 100
-```
-
-**Channel Operations:**
-
-| Operation | Syntax | Behavior |
-|-----------|--------|----------|
-| Create | `Let ch be a new Pipe of T.` | Unbuffered channel |
-| Send | `Send value to ch.` | Blocks until received |
-| Receive | `Receive from ch into var.` | Blocks until sent |
-| Try Send | `Try to send value to ch.` | Non-blocking |
-| Try Receive | `Try to receive from ch into var.` | Non-blocking |
-
-**Select Statement:**
-
-Wait on multiple channels:
-
-```logos
-## Main
-Let ch1 be a new Pipe of Int.
-Let ch2 be a new Pipe of Text.
-
-Select first of the following:
-    Receive from ch1 into num:
-        Show num.
-    Receive from ch2 into msg:
-        Show msg.
-    After 5 seconds:
-        Show "timeout".
-```
-
-**Task Control:**
-
-```logos
-## Main
-Let worker be launch task:
-    # Long-running work...
-
-Stop worker.    # Cancel the task
-```
-
-### Agent System
-
-LOGOS includes an actor-model agent system for message-passing concurrency:
-
-```logos
-## Main
-Spawn worker as DataProcessor.
-Send "process" to worker.
-Await response from worker into result.
-Show result.
-```
-
-Agents are lightweight, isolated processes that communicate only via messages—no shared state.
-
----
-
-## Distributed Systems
-
-LOGOS includes a P2P mesh networking layer with native CRDT support.
-
-### P2P Networking
-
-```logos
-## Main
-Listen on "/ip4/0.0.0.0/tcp/8080".
-Connect to "/ip4/192.168.1.5/tcp/8080".
-```
-
-Compiles to production-grade Rust with libp2p, GossipSub, and CRDT merge semantics.
-
-### CRDT Types
-
-CRDTs (Conflict-free Replicated Data Types) guarantee eventual consistency without coordination. LOGOS provides six built-in CRDT types:
-
-**GCounter (Grow-only Counter):**
-```logos
-Let votes be a new shared GCounter.
-Increment votes.
-Let merged be merge(votes, remote_votes).
-```
-
-**PNCounter (Tally - can increment and decrement):**
-```logos
-Let score be a new Tally.
-Increase score by 10.
-Decrease score by 3.
-# Net value: 7
-```
-
-**ORSet (SharedSet - add/remove with bias):**
-```logos
-Let tags be a new SharedSet.
-Add "important" to tags.
-Remove "draft" from tags.
-
-# With conflict resolution bias:
-Let items be a new SharedSet with AddWins.
-Let other be a new SharedSet with RemoveWins.
-```
-
-**RGA (SharedSequence - collaborative text):**
-```logos
-Let doc be a new SharedSequence.
-Append "Hello" to doc.
-Append " World" to doc.
-
-# Or with YATA algorithm:
-Let text be a new CollaborativeSequence using YATA.
-```
-
-**ORMap (SharedMap - key-value CRDT):**
-```logos
-Let config be a new SharedMap.
-Set config["theme"] to "dark".
-Set config["fontSize"] to "14".
-```
-
-**MVRegister (Divergent - conflict resolution):**
-```logos
-Let setting be a new Divergent.
-Set setting to "value1".
-# On conflict, access all concurrent values:
-Let all_values be values of setting.
-Resolve setting with first of all_values.
-```
-
-| CRDT Type | Use Case | Conflict Resolution |
-|-----------|----------|---------------------|
-| GCounter | Vote counts, views | Sum of all replicas |
-| Tally | Scores, balances | Sum with negative support |
-| SharedSet | Tags, memberships | Add-wins or remove-wins |
-| SharedSequence | Collaborative text | Causal ordering |
-| SharedMap | Distributed config | Last-writer-wins per key |
-| Divergent | Settings, flags | Manual resolution |
-
-### GossipSub
-
-Sync CRDTs across the mesh network automatically:
-
-```logos
-## Main
-Let counter be a new shared GCounter.
-Sync counter on "my-topic".
-
-# Updates are automatically published and merged
-Increment counter.
-```
-
-### Persistence
-
-Mount CRDTs to disk for durability across restarts:
-
-```logos
-## Main
-Mount counter at "data/counter.journal".
-Increment counter.
-# Survives restarts via journal replay
-```
-
-The journal is append-only and replayed on startup to reconstruct state.
-
----
-
-## Security
-
-LOGOS includes mandatory security checks for sensitive operations.
-
-### Runtime Guards
-
-```logos
-## Main
-Check that user is authenticated.
-Check that user is admin.
-
-# Proceeds only if checks pass
-Delete record.
-```
-
-### Capability Checks
-
-```logos
-## Main
-Check that user can publish the document.
-Check that user can delete the record.
-```
-
-### Policy Blocks
-
-Define security rules declaratively:
-
-```logos
-## Policy
-Admin can publish documents.
-Admin can delete records.
-Editor can modify content.
-Viewer can read content.
-```
-
-Security checks are mandatory—the compiler enforces that sensitive operations have guards.
-
----
-
-## Memory Zones
-
-LOGOS supports arena-based memory allocation for high-performance scenarios.
-
-### Basic Zones
-
-```logos
-## Main
-Inside a new zone called "Scratch":
-    Let temp be [1, 2, 3, 4, 5].
-    Let processed be process(temp).
-    # All allocations freed when zone exits
-```
-
-### Heap Zones with Capacity
-
-```logos
-## Main
-Inside a new zone called "WorkBuffer" with size 1024:
-    # Pre-allocated buffer of 1024 bytes
-    Let data be process_chunk(input).
-```
-
-### Memory-Mapped Zones
-
-```logos
-## Main
-Inside a new zone mapped from "large-file.bin":
-    Let chunk be data at offset 0 with length 4096.
-    Process chunk.
-```
-
-Zones provide deterministic deallocation—all memory in a zone is freed at once when the zone exits, avoiding GC pauses.
-
----
-
-## Static Verification
-
-LOGOS includes optional Z3-based static verification that can prove assertions at compile time. This is a premium feature requiring a Pro, Premium, Lifetime, or Enterprise license.
-
-### Requirements
-
-**Install Z3** (required for the verification feature):
-
-```bash
-# macOS
-brew install z3
-
-# Ubuntu/Debian
-apt install libz3-dev
-
-# Windows
-# Download from https://github.com/Z3Prover/z3/releases
-```
-
-**Set environment variables** (macOS with Homebrew):
-
-```bash
-export Z3_SYS_Z3_HEADER=/opt/homebrew/include/z3.h
-export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
-export LIBRARY_PATH="/opt/homebrew/lib"
-```
-
-### Building with Verification
-
-```bash
-# Build with verification support
-cargo build --features verification
-
-# Build CLI with verification
-cargo build --features cli,verification
-```
-
-### Usage
-
-```bash
-# Verify a project (requires license)
-largo verify --license sub_xxx
-
-# Build with verification
-largo build --verify --license sub_xxx
-
-# Or use environment variable
-export LOGOS_LICENSE=sub_xxx
-largo build --verify
-```
-
-### What It Verifies
-
-The verifier uses the Z3 SMT solver to check:
-
-- **Tautologies**: Assertions that are always true
-- **Contradictions**: Assertions that can never be true
-- **Integer bounds**: Constraints like `x > 5` given known values
-- **Refinement types**: Values satisfy their declared predicates
-
-When verification fails, you get **Socratic error messages** with counter-examples:
+**Particle Movement:** Phrasal verb particles can be distanced from the verb:
 
 ```
-Verification failed.
-You asserted 'x is greater than 10', but x could be 5.
+Input:  "John gave the idea up."
+Output: GiveUp(j, idea)
+
+Input:  "Mary picked her friend up."
+Output: ∃e(PickUp(e) ∧ Agent(e, m) ∧ Theme(e, friend))
 ```
 
-### License Tiers
+Both "gave up the idea" and "gave the idea up" produce the same semantics.
 
-| Plan | Verification |
-|------|--------------|
-| Free | No |
-| Supporter | No |
-| Pro | Yes |
-| Premium | Yes |
-| Lifetime | Yes |
-| Enterprise | Yes |
+**Phrasal Verb Equivalence Mapping:**
 
-Get a license at [logicaffeine.com/pricing](https://logicaffeine.com/pricing).
+The lexicon maps 17+ phrasal verbs to their semantic equivalents:
+
+| Phrasal Verb | Semantic Equivalent | Vendler Class |
+|--------------|---------------------|---------------|
+| give up | Surrender | Achievement |
+| break down | Malfunction | Achievement |
+| turn on | Activate | Achievement |
+| turn off | Deactivate | Achievement |
+| pick up | Collect | Achievement |
+| put down | Place | Achievement |
+| take off | Depart | Achievement |
+| bring up | Mention | Achievement |
+| find out | Discover | Achievement |
+| work out | Solve | Accomplishment |
+| carry out | Execute | Accomplishment |
+| look up | Search | Activity |
+| look after | Care | Activity |
+| run into | Encounter | Achievement |
+| come across | Find | Achievement |
+| get along | Cooperate | Activity |
+| put up with | Tolerate | State |
+
+**Trie-Based Recognition:**
+
+The MWE pipeline uses a trie (prefix tree) for efficient recognition:
+
+1. **Tokenize** — Split input into tokens
+2. **Trie lookup** — Match multi-token sequences
+3. **Merge** — Replace matched sequences with single compound token
+4. **Parse** — Process merged token stream
+
+This enables O(n) recognition regardless of MWE dictionary size.
+
+### Category Shift
+
+LOGOS handles noun-to-verb conversions (denominal verbs):
+
+```
+Input:  "The committee tabled the discussion."
+Output: ∃e(Table(e) ∧ Agent(e, committee) ∧ Theme(e, discussion))
+
+Input:  "John googled the answer."
+Output: ∃e(Google(e) ∧ Agent(e, j) ∧ Theme(e, answer))
+```
+
+The system recognizes when nouns are used as verbs and applies appropriate event semantics.
+
+### Reciprocals
+
+LOGOS expands reciprocal constructions into bidirectional predication:
+
+```
+Input:  "John and Mary love each other."
+Output: Love(j, m) ∧ Love(m, j)
+
+Input:  "John and Mary saw each other."
+Output: See(j, m) ∧ See(m, j)
+```
+
+The reciprocal "each other" is never left unexpanded—it always produces symmetric predication.
+
+### Ellipsis
+
+LOGOS reconstructs elided material in three types of ellipsis:
+
+**VP Ellipsis:**
+```
+Input:  "John runs. Mary does too."
+Output: Run(j) ∧ Run(m)
+
+Input:  "John can swim. Mary can too."
+Output: ◇Swim(j) ∧ ◇Swim(m)
+
+Input:  "John runs. Mary does not."
+Output: Run(j) ∧ ¬Run(m)
+```
+
+**Gapping:**
+```
+Input:  "John ate an apple, and Mary a banana."
+Output: Eat(j, apple) ∧ Eat(m, banana)
+
+Input:  "John ran yesterday, and Mary today."
+Output: ∃e₁(Run(e₁) ∧ Agent(e₁, j) ∧ Time(e₁, yesterday)) ∧
+        ∃e₂(Run(e₂) ∧ Agent(e₂, m) ∧ Time(e₂, today))
+```
+
+**Ditransitive Gapping:**
+```
+Input:  "John gave Mary a book, and Sue a pen."
+Output: Give(j, m, book) ∧ Give(j, s, pen)
+
+Input:  "John walked to the park, and Mary to the school."
+Output: ∃e₁(Walk(e₁) ∧ Agent(e₁, j) ∧ Goal(e₁, park)) ∧
+        ∃e₂(Walk(e₂) ∧ Agent(e₂, m) ∧ Goal(e₂, school))
+```
+
+Gapping reconstructs the elided verb from the antecedent clause, with temporal modifiers replaced rather than copied.
+
+**PP Gapping:**
+```
+Input:  "John spoke to Mary, and Bill to Sue."
+Output: ∃e₁(Speak(e₁) ∧ Agent(e₁, j) ∧ Goal(e₁, m)) ∧
+        ∃e₂(Speak(e₂) ∧ Agent(e₂, b) ∧ Goal(e₂, s))
+
+Input:  "John put the book on the table, and Mary the pen on the desk."
+Output: ∃e₁(Put(e₁) ∧ Agent(e₁, j) ∧ Theme(e₁, book) ∧ Location(e₁, table)) ∧
+        ∃e₂(Put(e₂) ∧ Agent(e₂, m) ∧ Theme(e₂, pen) ∧ Location(e₂, desk))
+```
+
+**Gapping Reconstruction Mechanics:**
+
+LOGOS uses template-based reconstruction with role preservation:
+
+1. **Parse antecedent** — Extract verb and thematic role structure
+2. **Identify remnants** — Match remaining NPs/PPs to roles
+3. **Reconstruct** — Apply antecedent template with new role fillers
+4. **Override temporals** — Temporal adverbs replace rather than copy
+
+| Role Type | Behavior |
+|-----------|----------|
+| Agent | Replaced by remnant subject |
+| Theme/Patient | Replaced by remnant object |
+| Goal/Location | Replaced by remnant PP |
+| Temporal | Replaced (not copied) |
+| Manner | Copied from antecedent |
+
+**Sluicing:**
+```
+Input:  "Someone left. I know who."
+Output: ∃x(Leave(x)) ∧ Know(speaker, λy.Leave(y))
+
+Input:  "John ate something. I know what."
+Output: ∃x(Eat(j, x)) ∧ Know(speaker, λy.Eat(j, y))
+```
+
+### Topicalization
+
+LOGOS handles filler-gap dependencies where the object moves to sentence-initial position:
+
+```
+Input:  "The apple, John ate."
+Output: ∃e(Eat(e) ∧ Agent(e, j) ∧ Theme(e, apple))
+
+Input:  "The red apple, John ate."
+Output: ∃e(Eat(e) ∧ Agent(e, j) ∧ Theme(e, x)) ∧ Apple(x) ∧ Red(x)
+
+Input:  "A book, Mary read."
+Output: ∃x∃e(Book(x) ∧ Read(e) ∧ Agent(e, m) ∧ Theme(e, x))
+```
+
+The topicalized constituent is correctly identified as the object (Theme) despite appearing before the subject.
+
+### Passive Voice
+
+LOGOS handles passive constructions with proper thematic role reassignment:
+
+```
+Input:  "The apple was eaten."
+Output: ∃e(Eat(e) ∧ Theme(e, apple))
+
+Input:  "The apple was eaten by John."
+Output: ∃e(Eat(e) ∧ Agent(e, j) ∧ Theme(e, apple))
+
+Input:  "The apple would have been being eaten."
+Output: □(Perf(Prog(∃e(Eat(e) ∧ Theme(e, apple)))))
+```
+
+In passive voice:
+- The grammatical subject becomes the Theme (patient)
+- The optional "by"-phrase provides the Agent
+- Complex aspect chains are preserved
+
+### Respectively
+
+The "respectively" adverb triggers pairwise conjunction of coordinated lists:
+
+```
+Input:  "John and Mary saw Tom and Jerry respectively."
+Output: ∃e₁(See(e₁) ∧ Agent(e₁, j) ∧ Theme(e₁, t)) ∧
+        ∃e₂(See(e₂) ∧ Agent(e₂, m) ∧ Theme(e₂, jerry))
+
+Input:  "Alice, Bob, and Carol love Dave, Eve, and Frank respectively."
+Output: Love(a, d) ∧ Love(b, e) ∧ Love(c, f)
+```
+
+**Length mismatch produces a semantic error:**
+```
+Input:  "John and Mary saw Tom respectively."
+Error:  "Respectively requires equal-length lists (2 subjects, 1 object)"
+```
+
+### Control & Raising Verbs
+
+LOGOS handles control and raising constructions with proper argument sharing:
+
+**Subject Control** — The matrix subject controls the embedded clause subject:
+```
+Input:  "John wants to leave."
+Output: Want(j, [Leave(j)])
+"John wants [PRO to leave], where PRO = John"
+
+Input:  "John tried to swim."
+Output: Try(j, [Swim(j)])
+```
+
+**Object Control** — The matrix object controls the embedded clause subject:
+```
+Input:  "John persuaded Mary to leave."
+Output: Persuade(j, m, [Leave(m)])
+"John persuaded Mary [PRO to leave], where PRO = Mary"
+
+Input:  "John told Mary to run."
+Output: Tell(j, m, [Run(m)])
+```
+
+**Raising** — The embedded subject "raises" to matrix subject position:
+```
+Input:  "John seems to sleep."
+Output: Seem([Sleep(j)])
+"[John to sleep] seems" — John is semantically the sleeper
+```
+
+### Presupposition Triggers
+
+LOGOS detects presupposition triggers and marks presupposed content:
+
+**Change-of-state verbs:**
+```
+Input:  "John stopped smoking."
+Output: Stop(j, Smoke) ∧ PRESUPPOSE(PAST(Smoke(j)))
+"John stopped smoking" presupposes "John used to smoke"
+
+Input:  "Mary continued running."
+Output: Continue(m, Run) ∧ PRESUPPOSE(PROG(Run(m)))
+```
+
+**Factive verbs:**
+```
+Input:  "John regrets leaving."
+Output: Regret(j, Leave) ∧ PRESUPPOSE(Leave(j))
+"Regret" presupposes the truth of its complement
+
+Input:  "Mary realized that John left."
+Output: Realize(m, [Leave(j)]) ∧ PRESUPPOSE(Leave(j))
+```
+
+| Trigger Type | Examples | Presupposition |
+|--------------|----------|----------------|
+| Change-of-state | stop, start, continue | Prior state held |
+| Factive | know, regret, realize | Complement is true |
+| Iterative | again, return | Event occurred before |
+
+### Negative Polarity Items
+
+LOGOS correctly interprets "any" based on its licensing context:
+
+**NPI "any" in negative contexts (existential):**
+```
+Input:  "Not any dogs run."
+Output: ¬∃x(Dog(x) ∧ Run(x))
+"any" → existential under negation
+
+Input:  "No one saw anything."
+Output: ∀x(Person(x) → ¬∃y(Saw(x, y)))
+```
+
+**Free-choice "any" in positive contexts (universal):**
+```
+Input:  "Any dog runs."
+Output: ∀x(Dog(x) → Run(x))
+"any" → universal in positive context
+
+Input:  "If any dog barks, John runs."
+Output: ∀x((Dog(x) ∧ Bark(x)) → Run(j))
+"any" → universal in conditional antecedent
+```
+
+The system tracks negative depth to determine when NPIs like "any", "anything", and "anyone" are licensed.
+
+### Semantic Sorts & Metaphor Detection
+
+LOGOS assigns semantic sorts to entities and detects metaphor via sort violations.
+
+**Full Sort Hierarchy:**
+
+LOGOS uses a 9-sort ontology with 500+ classified nouns:
+
+| Sort | Examples | Count |
+|------|----------|-------|
+| Human | John, Mary, doctor, farmer, teacher, student | ~100 |
+| Animal | dog, cat, bird, horse, whale, spider | ~80 |
+| Physical | table, rock, apple, car, book, chair | ~150 |
+| Abstract | time, love, freedom, justice, beauty | ~60 |
+| Celestial | sun, moon, star, planet, galaxy | ~15 |
+| Value | money, price, cost, wealth, debt | ~20 |
+| Place | park, room, city, country, ocean | ~40 |
+| Event | party, meeting, war, concert, game | ~30 |
+| Group | team, committee, family, crowd, herd | ~25 |
+
+**Animacy Features:**
+
+Beyond sorts, LOGOS tracks animacy for selectional restrictions:
+
+| Feature | Examples | Behavior |
+|---------|----------|----------|
+| Animate | person, dog, bird | Can be Agent of volitional verbs |
+| Inanimate | rock, table, book | Cannot "want", "think", etc. |
+
+```
+Input:  "The rock thinks."
+Output: SortViolation: "think" requires Animate subject
+```
+
+**Predicate Sort Requirements:**
+
+Predicates specify required sorts for their arguments:
+
+| Predicate | Required Sort | Violation Example |
+|-----------|---------------|-------------------|
+| happy, sad, angry | Animate | *"The table is happy" |
+| think, believe, remember | Animate | *"The rock believes" |
+| melt, evaporate | Physical | *"Love melts" (metaphor) |
+| shine, orbit | Celestial/Physical | "The sun shines" ✓ |
+
+**Literal predication (sorts compatible):**
+```
+Input:  "John is a man."
+Output: Man(j)
+Human/Human — no metaphor
+
+Input:  "The king is bald."
+Output: Bald(king)
+Human/Property — no metaphor
+```
+
+**Metaphor detection (sort violation):**
+```
+Input:  "Juliet is the sun."
+Output: Metaphor(j ≈ sun)
+Human/Celestial mismatch triggers metaphor
+
+Input:  "Time is money."
+Output: Metaphor(time ≈ money)
+Abstract/Value mismatch triggers metaphor
+```
+
+### Counterfactual Conditionals
+
+LOGOS distinguishes indicative from counterfactual conditionals via subjunctive mood:
+
+**Indicative conditional:**
+```
+Input:  "If John runs, Mary walks."
+Output: Run(j) → Walk(m)
+```
+
+**Counterfactual conditional:**
+```
+Input:  "If John were a bird, he would fly."
+Output: □(Bird(j) →_CF Fly(j))
+"were" + "would" triggers counterfactual reading
+
+Input:  "If Mary had left, John would have stayed."
+Output: □(Leave(m) →_CF Stay(j))
+"had" + "would have" triggers counterfactual
+```
+
+Counterfactuals are marked with the counterfactual conditional operator (→_CF) to distinguish them from material implication.
+
+### Weather Verbs
+
+LOGOS handles impersonal weather constructions where "it" is an expletive (non-referential):
+
+```
+Input:  "It rains."
+Output: Rain()
+No argument — "it" is expletive
+
+Input:  "It is snowing."
+Output: PROG(Snow())
+
+Input:  "It will thunder."
+Output: FUT(Thunder())
+```
+
+Weather verbs are marked in the lexicon and take no true subject—the "it" is purely syntactic.
+
+### Imperatives
+
+Imperatives have an implicit addressee as subject:
+
+```
+Input:  "Run!"
+Output: Run(addressee)
+
+Input:  "Close the door."
+Output: ∃e(Close(e) ∧ Agent(e, addressee) ∧ Theme(e, door))
+```
+
+The addressee is a deictic element bound to the hearer in context.
+
+### Reflexive Binding
+
+LOGOS handles reflexive pronouns with proper binding constraints:
+
+```
+Input:  "John saw himself."
+Output: See(j, j)
+Reflexive "himself" bound to subject
+
+Input:  "Mary hurt herself."
+Output: Hurt(m, m)
+
+Input:  "The men helped themselves."
+Output: ∀x(x ∈ men → Help(x, x))
+```
+
+Reflexives must be bound within their local domain (Binding Principle A).
 
 ---
 
@@ -1327,6 +2301,17 @@ pub fn compile_to_dir(input: &str, output: &Path) -> Result<(), CompileError>
 
 // Output Formats
 pub fn compile_with_options(input: &str, opts: CompileOptions) -> Result<String, ParseError>
+
+// Session (Multi-Turn Discourse)
+pub struct Session { ... }
+impl Session {
+    pub fn new() -> Self
+    pub fn with_format(format: OutputFormat) -> Self
+    pub fn eval(&mut self, input: &str) -> Result<String, ParseError>
+    pub fn history(&self) -> String
+    pub fn turn_count(&self) -> usize
+    pub fn reset(&mut self)
+}
 ```
 
 ### Output Formats
@@ -1394,6 +2379,7 @@ let latex = compile_with_options("All cats sleep.", options).unwrap();
 | `compile.rs` | End-to-end compilation orchestration |
 | `lambda.rs` | Scope enumeration via λ-calculus |
 | `drs.rs` | Discourse Representation Structures |
+| `session.rs` | Multi-turn evaluation with persistent DRS |
 | `logos_core/` | Runtime library for generated code |
 
 ### Design Highlights
@@ -1452,6 +2438,7 @@ cargo test -- --nocapture
 | **Collective Predicate** | Predicate applying to groups as wholes ("gather", "meet"), not individuals |
 | **CRDT** | Conflict-free Replicated Data Type - data structures that merge automatically without coordination |
 | **De Dicto / De Re** | Narrow scope (conceptual) vs. wide scope (referential) readings of intensional contexts |
+| **Distributed<T>** | CRDT wrapper combining persistence AND network sync; journals both local and remote updates |
 | **Distributive Predicate** | Predicate applying to individuals separately ("sleep"), not groups |
 | **DRS** | Discourse Representation Structure - formal framework for tracking entities and relations across sentences |
 | **First-Order Logic (FOL)** | Formal system using quantifiers (∀, ∃), predicates, and logical connectives |
