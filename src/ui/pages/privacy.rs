@@ -50,61 +50,6 @@ const LEGAL_STYLE: &str = r#"
     align-items: center;
     gap: 6px;
 }
-
-/* Mobile touch target optimizations */
-@media (max-width: 768px) {
-    .legal-content {
-        padding: 24px 16px 40px;
-    }
-
-    .legal-content-inner {
-        padding: 24px;
-    }
-
-    .legal-footer {
-        padding: 20px 16px;
-    }
-
-    .legal-footer a {
-        min-height: 44px;
-        display: inline-flex;
-        align-items: center;
-        padding: 8px 12px;
-        margin: 0 4px;
-        -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-    }
-
-    .github-link {
-        min-height: 44px;
-        padding: 8px 12px;
-    }
-}
-
-@media (max-width: 480px) {
-    .legal-content {
-        padding: 16px 12px 32px;
-    }
-
-    .legal-content-inner {
-        padding: 16px;
-        border-radius: 12px;
-    }
-
-    .legal-footer {
-        flex-direction: column;
-        gap: 8px;
-    }
-
-    .legal-footer span:not(:first-child) {
-        display: none;
-    }
-
-    .legal-footer a {
-        width: 100%;
-        justify-content: center;
-    }
-}
 "#;
 
 #[component]

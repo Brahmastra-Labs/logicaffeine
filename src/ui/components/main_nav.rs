@@ -4,12 +4,10 @@
 //! - Logo and brand name
 //! - Navigation links with active underline indicator
 //! - GitHub icon and CTA buttons
-//! - Responsive design with hamburger menu and slide-out drawer on mobile
+//! - Responsive design
 
 use dioxus::prelude::*;
 use crate::ui::router::Route;
-use super::hamburger_menu::{HamburgerMenu, HAMBURGER_MENU_STYLES};
-use super::nav_drawer::NavDrawer;
 
 /// Embedded logo SVG
 const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
@@ -22,7 +20,7 @@ pub struct NavItem {
 }
 
 /// Which page is currently active
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Default)]
 pub enum ActivePage {
     #[default]
     Guide,
@@ -213,34 +211,19 @@ const MAIN_NAV_STYLE: &str = r#"
     fill: currentColor;
 }
 
-/* Safe area insets for notched devices */
-@supports (padding: env(safe-area-inset-top)) {
-    .main-nav {
-        padding-top: env(safe-area-inset-top);
-    }
-    .main-nav-inner {
-        padding-left: max(var(--spacing-xl), env(safe-area-inset-left));
-        padding-right: max(var(--spacing-xl), env(safe-area-inset-right));
-    }
-}
-
-/* Responsive - tablet breakpoint */
+/* Responsive */
 @media (max-width: 980px) {
+    .main-nav-links {
+        display: none;
+    }
     .main-nav-brand-text {
         display: none;
     }
 }
 
-/* Responsive - mobile breakpoint: hide nav links, show hamburger */
 @media (max-width: 640px) {
     .main-nav-inner {
         padding: var(--spacing-md) var(--spacing-lg);
-    }
-    .main-nav-links {
-        display: none;
-    }
-    .main-nav-cta {
-        display: none;
     }
     .main-nav-btn {
         padding: var(--spacing-sm) var(--spacing-md);
@@ -262,22 +245,8 @@ pub fn MainNav(
     #[props(default = true)]
     show_nav_links: bool,
 ) -> Element {
-    // State for mobile nav drawer
-    let mut nav_drawer_open = use_signal(|| false);
-
-    // Toggle handler for hamburger menu
-    let toggle_drawer = move |_| {
-        nav_drawer_open.toggle();
-    };
-
-    // Close handler for nav drawer
-    let close_drawer = move |_| {
-        nav_drawer_open.set(false);
-    };
-
     rsx! {
         style { "{MAIN_NAV_STYLE}" }
-        style { "{HAMBURGER_MENU_STYLES}" }
 
         header { class: "main-nav",
             div { class: "main-nav-inner",
@@ -299,7 +268,7 @@ pub fn MainNav(
                     }
                 }
 
-                // Navigation links with active underline (desktop only)
+                // Navigation links with active underline
                 if show_nav_links {
                     nav { class: "main-nav-links",
                         Link {
@@ -330,7 +299,7 @@ pub fn MainNav(
                     }
                 }
 
-                // CTA buttons (desktop only)
+                // CTA buttons
                 div { class: "main-nav-cta",
                     // GitHub button
                     a {
@@ -360,100 +329,7 @@ pub fn MainNav(
                         }
                     }
                 }
-
-                // Hamburger menu (mobile only, shown at ≤640px)
-                HamburgerMenu {
-                    is_open: nav_drawer_open,
-                    on_toggle: toggle_drawer,
-                }
             }
         }
-
-        // Mobile navigation drawer
-        NavDrawer {
-            is_open: nav_drawer_open,
-            on_close: close_drawer,
-            active: active,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_main_nav_style_has_mobile_breakpoint() {
-        assert!(MAIN_NAV_STYLE.contains("@media (max-width: 640px)"));
-    }
-
-    #[test]
-    fn test_main_nav_hides_nav_links_on_mobile() {
-        assert!(MAIN_NAV_STYLE.contains(".main-nav-links {\n        display: none;\n    }"));
-    }
-
-    #[test]
-    fn test_main_nav_hides_cta_on_mobile() {
-        assert!(MAIN_NAV_STYLE.contains(".main-nav-cta {\n        display: none;\n    }"));
-    }
-
-    #[test]
-    fn test_main_nav_brand_text_hidden_on_tablet() {
-        assert!(MAIN_NAV_STYLE.contains("@media (max-width: 980px)"));
-        assert!(MAIN_NAV_STYLE.contains(".main-nav-brand-text {\n        display: none;\n    }"));
-    }
-
-    #[test]
-    fn test_active_page_from_route_landing() {
-        assert_eq!(ActivePage::from_route(&Route::Landing {}), ActivePage::Other);
-    }
-
-    #[test]
-    fn test_active_page_from_route_guide() {
-        assert_eq!(ActivePage::from_route(&Route::Guide {}), ActivePage::Guide);
-    }
-
-    #[test]
-    fn test_active_page_from_route_learn() {
-        assert_eq!(ActivePage::from_route(&Route::Learn {}), ActivePage::Learn);
-    }
-
-    #[test]
-    fn test_active_page_from_route_studio() {
-        assert_eq!(ActivePage::from_route(&Route::Studio {}), ActivePage::Studio);
-    }
-
-    #[test]
-    fn test_active_page_from_route_pricing() {
-        assert_eq!(ActivePage::from_route(&Route::Pricing {}), ActivePage::Pricing);
-    }
-
-    #[test]
-    fn test_active_page_from_route_profile() {
-        assert_eq!(ActivePage::from_route(&Route::Profile {}), ActivePage::Profile);
-    }
-
-    #[test]
-    fn test_main_nav_has_safe_area_support() {
-        assert!(
-            MAIN_NAV_STYLE.contains("@supports (padding: env(safe-area-inset-top))"),
-            "Should use @supports for safe area inset detection"
-        );
-        assert!(
-            MAIN_NAV_STYLE.contains("padding-top: env(safe-area-inset-top)"),
-            "Should add safe area top padding for notched devices"
-        );
-    }
-
-    #[test]
-    fn test_main_nav_inner_safe_area_padding() {
-        assert!(
-            MAIN_NAV_STYLE.contains("env(safe-area-inset-left)"),
-            "Should account for left safe area inset"
-        );
-        assert!(
-            MAIN_NAV_STYLE.contains("env(safe-area-inset-right)"),
-            "Should account for right safe area inset"
-        );
     }
 }

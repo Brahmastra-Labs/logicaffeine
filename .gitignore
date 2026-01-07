@@ -22,6 +22,3 @@ node_modules/
 # Environment
 .env
 .env.local
-
-# AI Orchestration
-.zenflow/

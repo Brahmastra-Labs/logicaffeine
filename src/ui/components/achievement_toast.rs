@@ -124,29 +124,6 @@ const ACHIEVEMENT_STYLE: &str = r#"
     0% { transform: translateY(-50px) rotate(0deg); opacity: 1; }
     100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
 }
-
-/* Reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-    .achievement-overlay {
-        animation: none;
-    }
-    .achievement-card {
-        animation: none;
-        opacity: 1;
-        transform: scale(1);
-    }
-    .achievement-icon {
-        animation: none;
-        transform: scale(1);
-    }
-    .particles,
-    .particle {
-        display: none;
-    }
-    .achievement-dismiss:hover {
-        transform: none;
-    }
-}
 "#;
 
 #[component]

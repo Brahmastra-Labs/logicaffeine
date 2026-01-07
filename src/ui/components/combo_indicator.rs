@@ -71,23 +71,6 @@ const COMBO_STYLE: &str = r#"
     position: relative;
     display: inline-flex;
 }
-
-/* Reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-    .combo-record {
-        animation: none;
-        opacity: 1;
-        transform: translateX(-50%) translateY(0) scale(1);
-    }
-    .combo-indicator {
-        animation: none;
-        transform: scale(1);
-    }
-    .flame {
-        animation: none;
-        transform: translateY(0) scale(1);
-    }
-}
 "#;
 
 #[component]
