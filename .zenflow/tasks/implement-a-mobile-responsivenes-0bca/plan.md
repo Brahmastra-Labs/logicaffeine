@@ -93,6 +93,7 @@
 - `cargo test -- --skip e2e` ✓ (all tests pass)
 
 ### [ ] Task 1.4: Test Learn Page Mobile Tabs
+<!-- chat-id: 171322b3-ab5d-4a8c-bc2a-52fdb78e509b -->
 **File**: `tests/` (if UI tests exist) or manual testing
 
 Verification checklist:
