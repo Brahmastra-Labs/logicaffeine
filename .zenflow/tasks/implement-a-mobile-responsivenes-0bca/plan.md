@@ -236,18 +236,48 @@
 
 **Manual Testing**: Check pricing page at 320px, 480px, 768px, 1024px viewports
 
-### [ ] Task 2.3: Add Mobile Breakpoints to Lesson Page
+### [x] Task 2.3: Add Mobile Breakpoints to Lesson Page
 <!-- chat-id: d77d30be-4fee-419a-be5e-a60d8f30ad4a -->
 **File**: `src/ui/pages/lesson.rs`
 
-1. Add media queries for MD (768px) and XS (480px) breakpoints
-2. Ensure lesson content is readable on mobile
-3. Stack any multi-column layouts on small screens
+**Completed**: Added comprehensive mobile breakpoints using MD (768px) and XS (480px):
+
+1. **Tablet breakpoint (768px)**:
+   - Header stacks vertically with full-width progress bar
+   - Breadcrumb wraps with smaller font
+   - Problem card padding reduced
+   - Problem sentence uses smaller heading font
+   - Choice buttons get 48px min-height touch targets
+   - Action row stacks vertically with full-width buttons
+   - Submit/Next buttons appear first (order: 0), Hint button second (order: 1)
+   - Textbook navigation stacks vertically with 48px touch targets
+   - Combo row repositioned from absolute to static for proper flow
+   - Test summary and result items get reduced padding
+
+2. **Small phone breakpoint (480px)**:
+   - Header padding reduced further
+   - Breadcrumb uses caption font with tighter gaps
+   - Mode badge uses smaller padding and 10px font
+   - Problem card uses compact padding (16px 14px)
+   - Problem prompt and sentence use smaller fonts
+   - Multiple choice buttons use compact styling
+   - Feedback boxes use caption font
+   - Complete message uses smaller heading
+   - Textbook card uses compact layout
+   - Example items and explanations get smaller fonts
+   - Result items stack vertically for better readability
+   - Reading items use smaller font and padding
+
+3. **Touch optimization**:
+   - All buttons (choice-btn, hint-btn, submit-btn, next-btn, textbook-nav-btn) get 48px min-height
+   - Added `-webkit-tap-highlight-color: transparent` for clean touch feel
+   - Added `touch-action: manipulation` for responsive touch
 
 **Verification**:
-```bash
-cargo build --features cli
-```
+- `cargo build --features cli` ✓
+- `cargo test -- --skip e2e` ✓ (all tests pass)
+
+**Manual Testing**: Check lesson page at 320px, 480px, 768px, 1024px viewports
 
 ### [x] Task 2.4: Add Mobile Breakpoints to Profile Page
 <!-- chat-id: 7507b03b-e8db-4160-8563-c8fab845ec62 -->
@@ -279,6 +309,7 @@ cargo build --features cli
 **Manual Testing**: Check profile page at 320px, 480px, 768px, 1024px viewports
 
 ### [ ] Task 2.5: Standardize Workspace Page Breakpoints
+<!-- chat-id: 7dd750d2-e35f-4530-8016-19a4e2e5a99f -->
 **File**: `src/ui/pages/workspace.rs`
 
 1. Add tablet breakpoints (768px)
@@ -295,6 +326,7 @@ cargo build --features cli
 ## Phase 3: Navigation Enhancement
 
 ### [ ] Task 3.1: Create Hamburger Menu Component
+<!-- chat-id: 23133bb7-a154-423f-807b-70a6425d71c5 -->
 **File**: `src/ui/components/hamburger_menu.rs` (new file)
 
 1. Create `HamburgerMenu` component with open/close state
@@ -308,6 +340,7 @@ cargo build --features cli
 ```
 
 ### [ ] Task 3.2: Create Mobile Navigation Drawer
+<!-- chat-id: bdde0b2e-bdf6-475b-91a7-83c20ec40a3d -->
 **File**: `src/ui/components/nav_drawer.rs` (new file)
 
 1. Slide-out navigation drawer component
