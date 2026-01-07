@@ -645,15 +645,88 @@ html { scroll-behavior: smooth; }
   color: var(--color-accent-blue);
 }
 
-@media (max-width: 980px) {
-  .hero-grid { grid-template-columns: 1fr; }
-  .demo-body { grid-template-columns: 1fr; }
-  .demo-col + .demo-col { border-left: none; border-top: 1px solid rgba(255,255,255,0.06); }
-  .grid3 { grid-template-columns: 1fr; }
-  .grid2 { grid-template-columns: 1fr; }
-  .h-title { font-size: var(--font-display-lg); }
+/* MD breakpoint (768px) - Additional mobile adjustments */
+@media (max-width: 768px) {
   .step-arrow { display: none; }
   .steps { flex-direction: column; }
+
+  /* Container padding adjustment for mobile */
+  .container { padding: 0 var(--spacing-md, 16px); }
+
+  /* Hero adjustments */
+  .hero { padding: 64px 0 24px; }
+  .hero-ctas { flex-direction: column; gap: var(--spacing-sm, 8px); }
+  .hero-ctas .btn { width: 100%; text-align: center; }
+
+  /* Footer stacks vertically */
+  .footer-row { flex-direction: column; text-align: center; gap: var(--spacing-md, 16px); }
+
+  /* Hello demo section */
+  .hello-demo { flex-direction: column; gap: var(--spacing-md, 16px); }
+  .hello-arrow { transform: rotate(90deg); }
+  .hello-code, .hello-result { max-width: 100%; min-width: 0; }
+
+  /* Steps adjustments */
+  .step { max-width: 100%; min-width: 0; }
+}
+
+/* XS breakpoint (480px) - Small phones */
+@media (max-width: 480px) {
+  /* Further reduce hero title size */
+  .h-title {
+    font-size: var(--font-heading-xl, 32px);
+    letter-spacing: -1px;
+  }
+
+  /* Reduce hero subtitle */
+  .h-sub { font-size: var(--font-body-md, 14px); }
+
+  /* Smaller section titles */
+  .section-title { font-size: var(--font-heading-md, 24px); }
+
+  /* Tighter container padding */
+  .container { padding: 0 var(--spacing-sm, 12px); }
+
+  /* Section padding reduction */
+  .section { padding: 48px 0; }
+
+  /* Badge text size */
+  .badge { font-size: var(--font-caption-sm, 11px); padding: 8px 10px; }
+
+  /* KPI pills wrap better */
+  .kpi { gap: 8px; }
+  .kpi .pill { font-size: var(--font-caption-sm, 11px); padding: 4px 8px; }
+
+  /* Tech stack badges */
+  .tech-stack { gap: 6px; }
+  .tech-badge { font-size: 10px; padding: 4px 8px; }
+
+  /* Demo panel adjustments */
+  .demo-col { padding: 12px; min-height: 180px; }
+  .demo-head { padding: 10px var(--spacing-md, 16px); }
+  .demo-foot { padding: 10px var(--spacing-md, 16px); font-size: var(--font-caption-sm, 11px); }
+  .code { font-size: var(--font-caption-sm, 11px); }
+
+  /* Card padding */
+  .card { padding: 14px; }
+  .card h3 { font-size: var(--font-body-sm, 13px); }
+  .card p { font-size: var(--font-caption-md, 12px); }
+  .icon { width: 36px; height: 36px; }
+
+  /* FAQ items */
+  .faq-item { padding: var(--spacing-md, 16px); }
+  .faq-q { font-size: var(--font-body-md, 14px); }
+  .faq-a { font-size: var(--font-caption-md, 12px); }
+
+  /* Step sizing */
+  .step { padding: var(--spacing-md, 16px); }
+  .step-num { width: 40px; height: 40px; font-size: var(--font-body-lg, 16px); }
+  .step h3 { font-size: var(--font-body-md, 14px); }
+  .step p { font-size: var(--font-caption-md, 12px); }
+
+  /* Hello code section */
+  .hello-code .code { padding: var(--spacing-md, 16px); font-size: var(--font-caption-md, 12px); }
+  .terminal { padding: var(--spacing-md, 16px); font-size: var(--font-caption-md, 12px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

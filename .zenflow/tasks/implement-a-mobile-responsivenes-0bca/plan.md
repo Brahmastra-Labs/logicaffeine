@@ -152,19 +152,48 @@
 
 ## Phase 2: Standardize Breakpoints Site-Wide
 
-### [ ] Task 2.1: Standardize Landing Page Breakpoints
+### [x] Task 2.1: Standardize Landing Page Breakpoints
 <!-- chat-id: f4c0495a-beca-40eb-bd70-1e7b39b19c2f -->
 **File**: `src/ui/pages/landing.rs`
 
-1. Replace custom breakpoints (700px, 980px) with standard ones from `responsive.rs` (480px, 768px, 1024px)
-2. Add XS breakpoint (480px) handling for small phones
-3. Ensure hero section, feature grids, and CTAs work at 320px width
+**Completed**: Standardized all breakpoints to use MD (768px) and XS (480px) from `responsive.rs`:
+
+1. **Replaced custom 980px breakpoint** → Standard 768px (MD) for main tablet/mobile transition
+   - Hero grid stacks vertically
+   - Demo body columns stack
+   - Feature grids (.grid2, .grid3) become single column
+   - Step arrows hidden, steps stack vertically
+
+2. **Replaced custom 700px breakpoint** → Standard 768px for compare table
+   - Compare table hides last two columns (Rust, Python) at 768px
+   - Further simplifies to just LOGOS + one comparison at 480px
+
+3. **Added comprehensive XS (480px) breakpoint** for small phones:
+   - Reduced hero title size (`--font-heading-xl`)
+   - Reduced hero subtitle size
+   - Smaller section titles
+   - Tighter container padding (12px)
+   - Reduced section padding (48px)
+   - Smaller badge and pill text
+   - Compact tech-stack badges
+   - Smaller demo panel content and code
+   - Compact cards with smaller icons
+   - Smaller FAQ items
+   - Compact step cards
+
+4. **Added MD (768px) mobile adjustments**:
+   - Container padding reduced (16px)
+   - Hero CTAs stack vertically with full-width buttons
+   - Footer stacks vertically
+   - Hello demo section stacks with rotated arrow
+   - Steps become full-width
+
+5. **Removed duplicated 980px media query block** (was defined twice in original)
 
 **Verification**:
-```bash
-cargo build --features cli
-```
-Manual: Check landing page at 320px, 480px, 768px, 1024px viewports
+- `cargo build --features cli` ✓
+
+**Manual Testing**: Check landing page at 320px, 480px, 768px, 1024px viewports
 
 ### [ ] Task 2.2: Standardize Pricing Page Breakpoints
 **File**: `src/ui/pages/pricing.rs`
