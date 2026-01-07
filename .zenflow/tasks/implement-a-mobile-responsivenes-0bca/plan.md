@@ -498,6 +498,7 @@
 ## Phase 4: Polish & Optimization
 
 ### [ ] Task 4.1: Audit All Touch Targets Site-Wide
+<!-- chat-id: debf368b-fed9-4dac-bf84-fd71771d7f6f -->
 **Files**: All pages in `src/ui/pages/`
 
 1. Check all buttons, links, and interactive elements

@@ -177,11 +177,18 @@ const NAV_DRAWER_STYLES: &str = r#"
 }
 
 .nav-drawer-link-icon {
-    font-size: 20px;
-    width: 24px;
+    width: 20px;
+    height: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
+}
+
+.nav-drawer-link-icon svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
 }
 
 /* Drawer footer with secondary actions */
@@ -263,7 +270,6 @@ const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
 #[derive(Clone)]
 struct NavDrawerItem {
     label: &'static str,
-    icon: &'static str,
     route: Route,
     page: ActivePage,
 }
@@ -273,41 +279,137 @@ fn get_nav_items() -> Vec<NavDrawerItem> {
     vec![
         NavDrawerItem {
             label: "Guide",
-            icon: "📖",
             route: Route::Guide {},
             page: ActivePage::Guide,
         },
         NavDrawerItem {
             label: "Learn",
-            icon: "🎓",
             route: Route::Learn {},
             page: ActivePage::Learn,
         },
         NavDrawerItem {
             label: "Studio",
-            icon: "🔧",
             route: Route::Studio {},
             page: ActivePage::Studio,
         },
         NavDrawerItem {
             label: "Roadmap",
-            icon: "🗺️",
             route: Route::Roadmap {},
             page: ActivePage::Roadmap,
         },
         NavDrawerItem {
             label: "Pricing",
-            icon: "💰",
             route: Route::Pricing {},
             page: ActivePage::Pricing,
         },
         NavDrawerItem {
             label: "Profile",
-            icon: "👤",
             route: Route::Profile {},
             page: ActivePage::Profile,
         },
     ]
+}
+
+/// Render SVG icon for a navigation page
+fn nav_icon(page: ActivePage) -> Element {
+    match page {
+        ActivePage::Guide => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                // Book icon
+                path { d: "M4 19.5A2.5 2.5 0 0 1 6.5 17H20" }
+                path { d: "M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" }
+            }
+        },
+        ActivePage::Learn => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                // Graduation cap icon
+                path { d: "M22 10v6M2 10l10-5 10 5-10 5z" }
+                path { d: "M6 12v5c3 3 9 3 12 0v-5" }
+            }
+        },
+        ActivePage::Studio => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                // Terminal/code icon
+                polyline { points: "4 17 10 11 4 5" }
+                line { x1: "12", y1: "19", x2: "20", y2: "19" }
+            }
+        },
+        ActivePage::Roadmap => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                // Map icon
+                polygon { points: "1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" }
+                line { x1: "8", y1: "2", x2: "8", y2: "18" }
+                line { x1: "16", y1: "6", x2: "16", y2: "22" }
+            }
+        },
+        ActivePage::Pricing => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                // Tag/price icon
+                path { d: "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" }
+                line { x1: "7", y1: "7", x2: "7.01", y2: "7" }
+            }
+        },
+        ActivePage::Profile => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                // User icon
+                path { d: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" }
+                circle { cx: "12", cy: "7", r: "4" }
+            }
+        },
+        _ => rsx! {
+            svg {
+                xmlns: "http://www.w3.org/2000/svg",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                // Circle placeholder
+                circle { cx: "12", cy: "12", r: "10" }
+            }
+        },
+    }
 }
 
 /// Mobile navigation drawer component
@@ -412,7 +514,7 @@ pub fn NavDrawer(
                         to: item.route.clone(),
                         class: if active == item.page { "nav-drawer-link active" } else { "nav-drawer-link" },
                         onclick: handle_link_click,
-                        span { class: "nav-drawer-link-icon", "{item.icon}" }
+                        span { class: "nav-drawer-link-icon", {nav_icon(item.page)} }
                         "{item.label}"
                     }
                 }
@@ -532,12 +634,10 @@ mod tests {
     }
 
     #[test]
-    fn test_nav_items_have_icons() {
-        let items = get_nav_items();
-
-        for item in items {
-            assert!(!item.icon.is_empty(), "Nav item {} should have an icon", item.label);
-        }
+    fn test_nav_drawer_icon_svg_styles() {
+        // Verify SVG icon styling in the nav drawer
+        assert!(NAV_DRAWER_STYLES.contains(".nav-drawer-link-icon svg"));
+        assert!(NAV_DRAWER_STYLES.contains("stroke: currentColor"));
     }
 
     #[test]
