@@ -1,12 +1,55 @@
 use std::fmt::Write;
 
-use crate::ast::{LogicExpr, NounPhrase, Term};
+use crate::ast::{LogicExpr, NounPhrase, Term, QuantifierKind};
 use crate::ast::logic::NumberKind;
 use crate::formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, SimpleFOLFormatter, UnicodeFormatter};
-use crate::intern::Interner;
+use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
 use crate::token::TokenType;
 use crate::{OutputFormat, TranspileContext};
+
+/// Collect event variables from NeoEvents with suppress_existential=true
+/// Returns unique event variables (coordinated weather verbs share the same var)
+fn collect_suppress_existential_events<'a>(expr: &LogicExpr<'a>) -> Vec<Symbol> {
+    let mut events = Vec::new();
+    collect_suppress_existential_events_inner(expr, &mut events);
+    // Deduplicate - coordinated weather verbs share the same event variable
+    // Symbol is Copy so we can use a simple O(n^2) dedup
+    let mut unique = Vec::new();
+    for e in events {
+        if !unique.iter().any(|x| *x == e) {
+            unique.push(e);
+        }
+    }
+    unique
+}
+
+fn collect_suppress_existential_events_inner<'a>(expr: &LogicExpr<'a>, events: &mut Vec<Symbol>) {
+    match expr {
+        LogicExpr::NeoEvent(data) => {
+            if data.suppress_existential {
+                events.push(data.event_var);
+            }
+        }
+        LogicExpr::BinaryOp { left, right, .. } => {
+            collect_suppress_existential_events_inner(left, events);
+            collect_suppress_existential_events_inner(right, events);
+        }
+        LogicExpr::UnaryOp { operand, .. } => {
+            collect_suppress_existential_events_inner(operand, events);
+        }
+        LogicExpr::Temporal { body, .. } => {
+            collect_suppress_existential_events_inner(body, events);
+        }
+        LogicExpr::Aspectual { body, .. } => {
+            collect_suppress_existential_events_inner(body, events);
+        }
+        LogicExpr::Modal { operand, .. } => {
+            collect_suppress_existential_events_inner(operand, events);
+        }
+        _ => {}
+    }
+}
 
 pub fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
@@ -321,6 +364,22 @@ impl<'a> LogicExpr<'a> {
                 let mut r = String::new();
                 left.write_logic(&mut l, registry, interner, fmt)?;
                 right.write_logic(&mut r, registry, interner, fmt)?;
+
+                // For conditionals (If), check if there are suppress_existential events
+                // that need universal quantification (DRS semantics for generic conditionals)
+                if matches!(op, TokenType::If) {
+                    let events = collect_suppress_existential_events(self);
+                    if !events.is_empty() {
+                        // Wrap with universal quantifiers for each event variable
+                        let mut result = fmt.binary_op(op, &l, &r);
+                        for event_var in events.into_iter().rev() {
+                            let var_str = interner.resolve(event_var);
+                            result = fmt.quantifier(&QuantifierKind::Universal, var_str, &result);
+                        }
+                        return write!(w, "{}", result);
+                    }
+                }
+
                 write!(w, "{}", fmt.binary_op(op, &l, &r))
             }
 

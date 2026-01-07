@@ -3,7 +3,8 @@ use super::modal::ModalParsing;
 use super::noun::NounParsing;
 use super::{NegativeScopeMode, ParseResult, Parser};
 use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, Term, ThematicRole};
-use crate::context::Number;
+use crate::drs::{Gender, Number};
+use crate::drs::ReferentSource;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
@@ -81,6 +82,13 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     fn parse_quantified(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
         let quantifier_token = self.previous().kind.clone();
         let var_name = self.next_var_name();
+
+        // Track if we're inside a "No" quantifier - referents introduced here
+        // are inaccessible for cross-sentence anaphora
+        let was_in_negative_quantifier = self.in_negative_quantifier;
+        if matches!(quantifier_token, TokenType::No) {
+            self.in_negative_quantifier = true;
+        }
 
         let subject_pred = self.parse_restriction(var_name)?;
 
@@ -218,6 +226,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 }
                 self.donkey_bindings.clear();
 
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(result);
 
             } else {
@@ -303,6 +312,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 self.donkey_bindings.clear();
 
                 // Wrap the entire quantifier in the modal
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
                     vector,
                     operand: result,
@@ -370,6 +380,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     _ => QuantifierKind::Universal,
                 };
 
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
                     variable: var_name,
@@ -433,6 +444,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 _ => QuantifierKind::Universal,
             };
 
+            self.in_negative_quantifier = was_in_negative_quantifier;
             return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                 kind,
                 variable: var_name,
@@ -452,11 +464,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     if let Some(donkey_var) = self.resolve_donkey_pronoun(gender) {
                         args.push(Term::Variable(donkey_var));
                     } else {
-                        let unknown = self.interner.intern("?");
-                        let resolved = self
-                            .resolve_pronoun(gender, Number::Singular)
-                            .unwrap_or(unknown);
-                        args.push(Term::Constant(resolved));
+                        let resolved = self.resolve_pronoun(gender, Number::Singular)?;
+                        let term = match resolved {
+                            super::ResolvedPronoun::Variable(s) => Term::Variable(s),
+                            super::ResolvedPronoun::Constant(s) => Term::Constant(s),
+                        };
+                        args.push(term);
                     }
                 }
             } else if self.check_npi_object() {
@@ -526,6 +539,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     _ => QuantifierKind::Universal,
                 };
 
+                self.in_negative_quantifier = was_in_negative_quantifier;
                 return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                     kind,
                     variable: var_name,
@@ -552,6 +566,21 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 if let Some(obj_q) = obj_quantifier {
                     let obj_var = self.next_var_name();
+
+                    // Introduce object referent in DRS for cross-sentence anaphora (telescoping)
+                    // BUT: If inside "No X" quantifier, mark with NegationScope to block accessibility
+                    let obj_gender = Self::infer_noun_gender(self.interner.resolve(object.noun));
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    if self.in_negative_quantifier {
+                        self.drs.introduce_referent_with_source(obj_var, object.noun, obj_gender, obj_number, ReferentSource::NegationScope);
+                    } else {
+                        self.drs.introduce_referent(obj_var, object.noun, obj_gender, obj_number);
+                    }
+
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
@@ -652,6 +681,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         }),
                     };
 
+                    self.in_negative_quantifier = was_in_negative_quantifier;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: subj_kind,
                         variable: var_name,
@@ -776,6 +806,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
             self.donkey_bindings.clear();
 
+            self.in_negative_quantifier = was_in_negative_quantifier;
             return Ok(result);
         }
 
@@ -906,6 +937,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
         self.donkey_bindings.clear();
 
+        self.in_negative_quantifier = was_in_negative_quantifier;
         Ok(result)
     }
 
@@ -1257,6 +1289,20 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             Some(Definiteness::Indefinite) => {
                 let var = self.next_var_name();
 
+                // Introduce referent into DRS for cross-sentence anaphora
+                // If inside a "No" quantifier, mark as NegationScope (inaccessible)
+                let gender = Self::infer_noun_gender(self.interner.resolve(noun));
+                let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
+                    Number::Plural
+                } else {
+                    Number::Singular
+                };
+                if self.in_negative_quantifier {
+                    self.drs.introduce_referent_with_source(var, noun, gender, number, ReferentSource::NegationScope);
+                } else {
+                    self.drs.introduce_referent(var, noun, gender, number);
+                }
+
                 let mut restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
@@ -1330,6 +1376,11 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         })
                         .unwrap_or(false);
 
+                    // Introduce definite plural referent to DRS for cross-sentence pronoun resolution
+                    // E.g., "The dogs ran. They barked." - "they" refers to "dogs"
+                    let gender = Gender::Unknown;  // Plural entities have unknown gender
+                    self.drs.introduce_referent(singular_sym, singular_sym, gender, Number::Plural);
+
                     if is_collective {
                         Ok(substituted)
                     } else {
@@ -1382,34 +1433,40 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     }
 
                     // Bridging anaphora: check if this noun is a part of a previously mentioned whole
-                    if let Some(ref mut ctx) = self.context {
-                        // Use full name for symbol comparison (matches discourse context storage)
-                        let our_symbol = crate::transpile::capitalize_first(&noun_str);
-                        let has_prior_antecedent = ctx.resolve_definite(&noun_str)
-                            .map(|e| e.symbol != our_symbol)
-                            .unwrap_or(false);
+                    // E.g., "I bought a car. The engine smoked." - engine is part of car
+                    let has_prior_antecedent = self.drs.resolve_definite(
+                        self.drs.current_box_index(),
+                        noun
+                    ).is_some();
 
-                        if !has_prior_antecedent {
-                            let bridging_matches = ctx.resolve_bridging(&noun_str);
-                            if let Some((entity, _whole_name)) = bridging_matches.first() {
-                                let whole_sym = self.interner.intern(&entity.symbol);
-                                let part_of_sym = self.interner.intern("PartOf");
-                                let part_of_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
-                                    name: part_of_sym,
-                                    args: self.ctx.terms.alloc_slice([
-                                        Term::Variable(x),
-                                        Term::Constant(whole_sym),
-                                    ]),
-                                    world: None,
-                                });
-                                restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
-                                    left: restriction,
-                                    op: TokenType::And,
-                                    right: part_of_pred,
-                                });
-                            }
+                    if !has_prior_antecedent {
+                        if let Some((whole_var, _whole_name)) = self.drs.resolve_bridging(self.interner, noun) {
+                            let part_of_sym = self.interner.intern("PartOf");
+                            let part_of_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: part_of_sym,
+                                args: self.ctx.terms.alloc_slice([
+                                    Term::Variable(x),
+                                    Term::Constant(whole_var),
+                                ]),
+                                world: None,
+                            });
+                            restriction = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: restriction,
+                                op: TokenType::And,
+                                right: part_of_pred,
+                            });
                         }
                     }
+
+                    // Introduce definite referent to DRS for cross-sentence pronoun resolution
+                    // E.g., "The engine smoked. It broke." - "it" refers to "engine"
+                    let gender = Self::infer_noun_gender(self.interner.resolve(noun));
+                    let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    self.drs.introduce_referent(x, noun, gender, number);
 
                     let mut y_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,
@@ -1572,6 +1629,21 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         match definiteness {
             Some(Definiteness::Indefinite) => {
                 let var = self.next_var_name();
+
+                // Introduce referent into DRS for cross-sentence anaphora
+                // If inside a "No" quantifier, mark as NegationScope (inaccessible)
+                let gender = Self::infer_noun_gender(self.interner.resolve(noun));
+                let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
+                    Number::Plural
+                } else {
+                    Number::Singular
+                };
+                if self.in_negative_quantifier {
+                    self.drs.introduce_referent_with_source(var, noun, gender, number, ReferentSource::NegationScope);
+                } else {
+                    self.drs.introduce_referent(var, noun, gender, number);
+                }
+
                 let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: noun,
                     args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
@@ -1803,6 +1875,16 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     suppress_existential: data.suppress_existential,
                     world: None,
                 }))))
+            }
+            // Recurse into nested quantifiers to substitute constants in their bodies
+            LogicExpr::Quantifier { kind, variable, body, island_id } => {
+                let new_body = self.substitute_constant_with_var(body, constant_name, var_name)?;
+                Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    kind: *kind,
+                    variable: *variable,
+                    body: new_body,
+                    island_id: *island_id,
+                }))
             }
             _ => Ok(expr),
         }

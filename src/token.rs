@@ -1,4 +1,4 @@
-use crate::context::{Case, Gender, Number};
+use crate::drs::{Case, Gender, Number};
 use crate::intern::Symbol;
 use crate::lexicon::{Aspect, Definiteness, Time, VerbClass};
 

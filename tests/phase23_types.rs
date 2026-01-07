@@ -184,7 +184,8 @@ fn discovery_pass_ignores_non_definition_blocks() {
 // Step 3: Integration Tests - Parser with TypeRegistry
 // =============================================================================
 
-use logos::{Parser, DiscourseContext, Arena};
+use logos::{Parser, Arena};
+use logos::drs::WorldState;
 use logos::arena_ctx::AstContext;
 use logos::ast::NounPhrase;
 
@@ -196,7 +197,7 @@ fn parser_has_type_registry() {
     let mut registry = TypeRegistry::new();
     registry.register(stack, TypeDef::Generic { param_count: 1 });
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -214,7 +215,7 @@ fn parser_has_type_registry() {
         &pp_arena,
     );
 
-    let parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, registry);
+    let parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
     assert!(parser.is_generic_type(stack), "Parser should know Stack is generic");
 }
 
@@ -223,7 +224,7 @@ fn parser_without_registry_returns_false() {
     let mut interner = Interner::new();
     let stack = interner.intern("Stack");
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena = Arena::new();
@@ -241,7 +242,7 @@ fn parser_without_registry_returns_false() {
         &pp_arena,
     );
 
-    let parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, TypeRegistry::default());
     assert!(!parser.is_generic_type(stack), "Without registry, nothing is generic");
 }
 
@@ -262,7 +263,7 @@ fn possessive_still_works_without_type() {
     let mut interner = Interner::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
     let np_arena: Arena<NounPhrase> = Arena::new();
@@ -280,7 +281,7 @@ fn possessive_still_works_without_type() {
         &pp_arena,
     );
 
-    let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, registry);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
 
     // This should parse successfully with possessor
     use logos::parser::NounParsing;

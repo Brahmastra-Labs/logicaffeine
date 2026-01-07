@@ -22,8 +22,8 @@ use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::ast::stmt::ReadSource;
-use crate::context::{Case, DiscourseContext, Entity, Gender, Number};
-use crate::drs::{Drs, BoxType};
+use crate::drs::{Case, Gender, Number};
+use crate::drs::{Drs, BoxType, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::{Interner, Symbol, SymbolEq};
 use crate::lexer::Lexer;
@@ -75,6 +75,15 @@ pub enum ModalPreference {
     Epistemic,
     /// Deontic readings: can=Permission (narrow scope, deontic domain)
     Deontic,
+}
+
+/// Result of pronoun resolution: either a bound variable or a constant
+#[derive(Debug, Clone, Copy)]
+pub enum ResolvedPronoun {
+    /// Bound variable from DRS or telescope (use Term::Variable)
+    Variable(Symbol),
+    /// Constant (deictic or proper name) (use Term::Constant)
+    Constant(Symbol),
 }
 
 #[derive(Clone)]
@@ -132,7 +141,6 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) current: usize,
     pub(super) var_counter: usize,
     pub(super) pending_time: Option<Time>,
-    pub(super) context: Option<&'ctx mut DiscourseContext>,
     /// Donkey bindings: (noun, var, is_donkey_used, wide_scope_negation)
     /// The 4th field tracks if this binding's existential needs negation wrapping (for "lacks" scope)
     pub(super) donkey_bindings: Vec<(Symbol, Symbol, bool, bool)>,
@@ -150,103 +158,23 @@ pub struct Parser<'a, 'ctx, 'int> {
     pub(super) mode: ParserMode,
     pub(super) type_registry: Option<TypeRegistry>,
     pub(super) event_reading_mode: bool,
+    /// Internal DRS for sentence-level scope tracking (swapped with WorldState's DRS)
     pub(super) drs: Drs,
     pub(super) negative_scope_mode: NegativeScopeMode,
     pub(super) modal_preference: ModalPreference,
+    /// WorldState for discourse-level parsing (DRS persists across sentences)
+    pub(super) world_state: &'ctx mut WorldState,
+    /// Track when inside "No X" quantifier (referents are inaccessible for cross-sentence anaphora)
+    pub(super) in_negative_quantifier: bool,
 }
 
 impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// Create a parser with WorldState for discourse-level parsing.
+    /// WorldState is REQUIRED - there is no "single sentence mode".
+    /// A single sentence is just a discourse of length 1.
     pub fn new(
         tokens: Vec<Token>,
-        interner: &'int mut Interner,
-        ctx: AstContext<'a>,
-    ) -> Self {
-        Parser {
-            tokens,
-            current: 0,
-            var_counter: 0,
-            pending_time: None,
-            context: None,
-            donkey_bindings: Vec::new(),
-            interner,
-            ctx,
-            current_island: 0,
-            pp_attach_to_noun: false,
-            filler_gap: None,
-            negative_depth: 0,
-            discourse_event_var: None,
-            last_event_template: None,
-            noun_priority_mode: false,
-            collective_mode: false,
-            pending_cardinal: None,
-            mode: ParserMode::Declarative,
-            type_registry: None,
-            event_reading_mode: false,
-            drs: Drs::new(),
-            negative_scope_mode: NegativeScopeMode::default(),
-            modal_preference: ModalPreference::default(),
-        }
-    }
-
-    pub fn set_noun_priority_mode(&mut self, mode: bool) {
-        self.noun_priority_mode = mode;
-    }
-
-    pub fn set_collective_mode(&mut self, mode: bool) {
-        self.collective_mode = mode;
-    }
-
-    pub fn set_event_reading_mode(&mut self, mode: bool) {
-        self.event_reading_mode = mode;
-    }
-
-    pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
-        self.negative_scope_mode = mode;
-    }
-
-    pub fn set_modal_preference(&mut self, pref: ModalPreference) {
-        self.modal_preference = pref;
-    }
-
-    pub fn with_context(
-        tokens: Vec<Token>,
-        context: &'ctx mut DiscourseContext,
-        interner: &'int mut Interner,
-        ctx: AstContext<'a>,
-    ) -> Self {
-        Parser {
-            tokens,
-            current: 0,
-            var_counter: 0,
-            pending_time: None,
-            context: Some(context),
-            donkey_bindings: Vec::new(),
-            interner,
-            ctx,
-            current_island: 0,
-            pp_attach_to_noun: false,
-            filler_gap: None,
-            negative_depth: 0,
-            discourse_event_var: None,
-            last_event_template: None,
-            noun_priority_mode: false,
-            collective_mode: false,
-            pending_cardinal: None,
-            mode: ParserMode::Declarative,
-            type_registry: None,
-            event_reading_mode: false,
-            drs: Drs::new(),
-            negative_scope_mode: NegativeScopeMode::default(),
-            modal_preference: ModalPreference::default(),
-        }
-    }
-
-    /// Create a parser with type registry for two-pass compilation.
-    /// The type registry enables disambiguation of "Stack of Integers" (generic)
-    /// vs "Owner of House" (possessive).
-    pub fn with_types(
-        tokens: Vec<Token>,
-        context: &'ctx mut DiscourseContext,
+        world_state: &'ctx mut WorldState,
         interner: &'int mut Interner,
         ctx: AstContext<'a>,
         types: TypeRegistry,
@@ -256,7 +184,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             current: 0,
             var_counter: 0,
             pending_time: None,
-            context: Some(context),
             donkey_bindings: Vec::new(),
             interner,
             ctx,
@@ -272,14 +199,38 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             mode: ParserMode::Declarative,
             type_registry: Some(types),
             event_reading_mode: false,
-            drs: Drs::new(),
+            drs: Drs::new(), // Internal DRS for sentence-level scope tracking
             negative_scope_mode: NegativeScopeMode::default(),
             modal_preference: ModalPreference::default(),
+            world_state,
+            in_negative_quantifier: false,
         }
     }
 
     pub fn set_discourse_event_var(&mut self, var: Symbol) {
         self.discourse_event_var = Some(var);
+    }
+
+    /// Get mutable reference to the active DRS (from WorldState).
+    pub fn drs_mut(&mut self) -> &mut Drs {
+        &mut self.world_state.drs
+    }
+
+    /// Get immutable reference to the active DRS (from WorldState).
+    pub fn drs_ref(&self) -> &Drs {
+        &self.world_state.drs
+    }
+
+    /// Swap DRS between Parser and WorldState.
+    /// Call at start of parsing to get the accumulated DRS from WorldState.
+    /// Call at end of parsing to save the updated DRS back to WorldState.
+    pub fn swap_drs_with_world_state(&mut self) {
+        std::mem::swap(&mut self.drs, &mut self.world_state.drs);
+    }
+
+    /// WorldState is always present (no "single sentence mode")
+    pub fn has_world_state(&self) -> bool {
+        true
     }
 
     pub fn mode(&self) -> ParserMode {
@@ -653,6 +604,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.pp_attach_to_noun = attach_to_noun;
     }
 
+    pub fn set_noun_priority_mode(&mut self, mode: bool) {
+        self.noun_priority_mode = mode;
+    }
+
+    pub fn set_collective_mode(&mut self, mode: bool) {
+        self.collective_mode = mode;
+    }
+
+    pub fn set_event_reading_mode(&mut self, mode: bool) {
+        self.event_reading_mode = mode;
+    }
+
+    pub fn set_negative_scope_mode(&mut self, mode: NegativeScopeMode) {
+        self.negative_scope_mode = mode;
+    }
+
+    pub fn set_modal_preference(&mut self, pref: ModalPreference) {
+        self.modal_preference = pref;
+    }
+
     fn checkpoint(&self) -> ParserCheckpoint {
         ParserCheckpoint {
             pos: self.current,
@@ -699,25 +670,93 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    fn register_entity(&mut self, symbol: &str, noun_class: &str, gender: Gender, number: Number) {
-        use crate::context::OwnershipState;
-        if let Some(ref mut ctx) = self.context {
-            ctx.register(Entity {
-                symbol: symbol.to_string(),
-                gender,
-                number,
-                noun_class: noun_class.to_string(),
-                ownership: OwnershipState::Owned,
-            });
+    fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> ParseResult<ResolvedPronoun> {
+        // MODAL BARRIER: In discourse mode, try telescope FIRST if prior sentence was modal.
+        // This ensures the modal barrier check runs before we search the swapped DRS.
+        // The DRS contains referents from all prior sentences (merged via swap), but
+        // telescope has modal filtering to block hypothetical entities from reality.
+        if self.world_state.in_discourse_mode() && self.world_state.has_prior_modal_context() {
+            // Only use telescope for cross-sentence reference when prior was modal
+            // Telescope has modal barrier: won't return modal candidates unless we're in modal context
+            if let Some(candidate) = self.world_state.resolve_via_telescope(gender) {
+                return Ok(ResolvedPronoun::Variable(candidate.variable));
+            }
+            // Modal barrier blocked telescope resolution - pronoun can't access hypothetical entities
+            // from the prior modal sentence. Check if there are ANY telescope candidates that
+            // were blocked due to modal scope. If so, this is a modal barrier error.
+            let blocked_candidates: Vec<_> = self.world_state.telescope_candidates()
+                .iter()
+                .filter(|c| c.in_modal_scope)
+                .collect();
+            if !blocked_candidates.is_empty() {
+                // Before returning error, look ahead for modal subordinating verbs (would, could, etc.)
+                // If we see one, this sentence is also modal and can access the hypothetical entity.
+                let has_upcoming_modal = self.has_modal_subordination_ahead();
+                if has_upcoming_modal {
+                    // Modal subordination detected - allow access to the first matching candidate
+                    if let Some(candidate) = blocked_candidates.into_iter().find(|c| {
+                        c.gender == gender || gender == Gender::Unknown || c.gender == Gender::Unknown
+                    }) {
+                        return Ok(ResolvedPronoun::Variable(candidate.variable));
+                    }
+                }
+                // There were candidates but they're all in modal scope - modal barrier blocks access
+                return Err(ParseError {
+                    kind: ParseErrorKind::ScopeViolation(
+                        "Cannot access hypothetical entity from reality. Use modal subordination (e.g., 'would') to continue a hypothetical context.".to_string()
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            // No modal candidates were blocked, continue to check for same-sentence referents
         }
-    }
 
-    fn resolve_pronoun(&mut self, gender: Gender, number: Number) -> Option<Symbol> {
-        self.context
-            .as_ref()
-            .and_then(|ctx| ctx.resolve_pronoun(gender, number))
-            .map(|e| e.symbol.clone())
-            .map(|s| self.interner.intern(&s))
+        // Try DRS resolution (scope-aware) for same-sentence referents
+        let current_box = self.drs.current_box_index();
+        match self.drs.resolve_pronoun(current_box, gender, number) {
+            Ok(sym) => return Ok(ResolvedPronoun::Variable(sym)),
+            Err(crate::drs::ScopeError::InaccessibleReferent { reason, .. }) => {
+                // Hard error: referent exists but is trapped in inaccessible scope
+                return Err(ParseError {
+                    kind: ParseErrorKind::ScopeViolation(reason),
+                    span: self.current_span(),
+                });
+            }
+            Err(crate::drs::ScopeError::NoMatchingReferent { gender: g, number: n }) => {
+                // Try telescoping across sentence boundaries (if not already tried above)
+                if !self.world_state.has_prior_modal_context() {
+                    if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
+                        return Ok(ResolvedPronoun::Variable(candidate.variable));
+                    }
+                }
+
+                // In discourse mode (multi-sentence context), unresolved pronouns are an error
+                if self.world_state.in_discourse_mode() {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnresolvedPronoun {
+                            gender: g,
+                            number: n,
+                        },
+                        span: self.current_span(),
+                    });
+                }
+
+                // No prior referent - introduce deictic referent (pointing to someone in the world)
+                // This handles sentences like "She told him a story" without prior discourse
+                let deictic_name = match (g, n) {
+                    (Gender::Male, Number::Singular) => "Him",
+                    (Gender::Female, Number::Singular) => "Her",
+                    (Gender::Neuter, Number::Singular) => "It",
+                    (Gender::Male, Number::Plural) | (Gender::Female, Number::Plural) => "Them",
+                    (Gender::Neuter, Number::Plural) => "Them",
+                    (Gender::Unknown, _) => "Someone",
+                };
+                let sym = self.interner.intern(deictic_name);
+                // Introduce the deictic referent to DRS for potential later reference
+                self.drs.introduce_referent(sym, sym, g, n);
+                return Ok(ResolvedPronoun::Constant(sym));
+            }
+        }
     }
 
     fn resolve_donkey_pronoun(&mut self, gender: Gender) -> Option<Symbol> {
@@ -738,6 +777,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Gender::Female
         } else if lexicon::is_male_noun(&lower) {
             Gender::Male
+        } else if lexicon::is_neuter_noun(&lower) {
+            Gender::Neuter
         } else {
             Gender::Unknown
         }
@@ -1579,19 +1620,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         // Parse address expression
                         let address = self.parse_imperative_expr()?;
 
-                        // Bind in ScopeStack if context available
-                        if let Some(ctx) = self.context.as_mut() {
-                            use crate::context::{Entity, Gender, Number, OwnershipState};
-                            let var_name = self.interner.resolve(var).to_string();
-                            ctx.register(Entity {
-                                symbol: var_name.clone(),
-                                gender: Gender::Neuter,
-                                number: Number::Singular,
-                                noun_class: var_name,
-                                ownership: OwnershipState::Owned,
-                            });
-                        }
-
                         return Ok(Stmt::LetPeerAgent { var, address });
                     }
                 }
@@ -1620,18 +1648,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Parse element type
                 let element_type = self.expect_identifier()?;
 
-                // Register variable in scope
-                if let Some(ctx) = self.context.as_mut() {
-                    use crate::context::{Entity, Gender, Number, OwnershipState};
-                    let var_name = self.interner.resolve(var).to_string();
-                    ctx.register(Entity {
-                        symbol: var_name.clone(),
-                        gender: Gender::Neuter,
-                        number: Number::Singular,
-                        noun_class: "Pipe".to_string(),
-                        ownership: OwnershipState::Owned,
-                    });
-                }
+                // Variable registration now handled by DRS
 
                 return Ok(Stmt::CreatePipe { var, element_type, capacity: None });
             }
@@ -1708,18 +1725,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        // Bind in ScopeStack if context available
-        if let Some(ctx) = self.context.as_mut() {
-            use crate::context::{Entity, Gender, Number, OwnershipState};
-            let var_name = self.interner.resolve(var).to_string();
-            ctx.register(Entity {
-                symbol: var_name.clone(),
-                gender: Gender::Neuter,
-                number: Number::Singular,
-                noun_class: var_name,
-                ownership: OwnershipState::Owned,
-            });
-        }
+        // Register variable in WorldState's DRS with Owned state for ownership tracking
+        self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
 
         Ok(Stmt::Let { var, ty, value, mutable })
     }
@@ -2537,15 +2544,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn parse_give_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        use crate::context::OwnershipState;
-
         self.advance(); // consume "Give"
 
         // Parse the object being given: "x" or "the data"
         let object = self.parse_imperative_expr()?;
 
-        // Expect "to" preposition
-        if !self.check_preposition_is("to") {
+        // Expect "to" preposition (can be TokenType::To when followed by verb-like word)
+        if !self.check_to_preposition() {
             return Err(ParseError {
                 kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
                 span: self.current_span(),
@@ -2556,20 +2561,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse the recipient: "processor" or "the console"
         let recipient = self.parse_imperative_expr()?;
 
-        // CRITICAL: Mark the object as Moved in the ownership tracker
-        if let Expr::Identifier(sym) = *object {
-            if let Some(ctx) = self.context.as_mut() {
-                let name = self.interner.resolve(sym);
-                ctx.set_ownership(name, OwnershipState::Moved);
-            }
+        // Mark variable as Moved after Give
+        if let Expr::Identifier(sym) = object {
+            self.world_state.set_ownership_by_var(*sym, crate::drs::OwnershipState::Moved);
         }
 
         Ok(Stmt::Give { object, recipient })
     }
 
     fn parse_show_statement(&mut self) -> ParseResult<Stmt<'a>> {
-        use crate::context::OwnershipState;
-
         self.advance(); // consume "Show"
 
         // Parse the object being shown - use parse_condition to support
@@ -2577,7 +2577,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let object = self.parse_condition()?;
 
         // Optional "to" preposition - if not present, default to "show" function
-        let recipient = if self.check_preposition_is("to") {
+        // Note: Use check_to_preposition() to handle both TokenType::To (when followed by verb)
+        // and TokenType::Preposition("to")
+        let recipient = if self.check_to_preposition() {
             self.advance(); // consume "to"
 
             // Phase 10: "Show x to console." or "Show x to the console."
@@ -2599,12 +2601,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.ctx.alloc_imperative_expr(Expr::Identifier(show_sym))
         };
 
-        // Mark the object as Borrowed (NOT Moved - still accessible)
-        if let Expr::Identifier(sym) = *object {
-            if let Some(ctx) = self.context.as_mut() {
-                let name = self.interner.resolve(sym);
-                ctx.set_ownership(name, OwnershipState::Borrowed);
-            }
+        // Mark variable as Borrowed after Show
+        if let Expr::Identifier(sym) = object {
+            self.world_state.set_ownership_by_var(*sym, crate::drs::OwnershipState::Borrowed);
         }
 
         Ok(Stmt::Show { object, recipient })
@@ -4293,6 +4292,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.parse_field_access_chain(base)
             }
 
+            // Keywords that can also be used as identifiers in expression context
+            // These are contextual keywords - they have special meaning in specific positions
+            // but can be used as variable names elsewhere
+            TokenType::Both |      // correlative: "both X and Y"
+            TokenType::Either |    // correlative: "either X or Y"
+            TokenType::Combined |  // string concat: "combined with"
+            TokenType::Shared => { // CRDT modifier
+                let sym = token.lexeme;
+                self.advance();
+
+                // Check for function call
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
+            }
+
             // Handle ambiguous tokens that might be identifiers
             TokenType::Ambiguous { primary, alternatives } => {
                 let sym = match &**primary {
@@ -4592,16 +4611,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(());
         }
 
-        use crate::context::OwnershipState;
-        let name = self.interner.resolve(sym);
-
-        // Check for Use-After-Move on variables we're tracking
-        let ownership = self.context.as_ref()
-            .and_then(|ctx| ctx.get_ownership(name));
-
-        if ownership == Some(OwnershipState::Moved) {
+        // Check if variable has been moved
+        if let Some(crate::drs::OwnershipState::Moved) = self.world_state.get_ownership_by_var(sym) {
             return Err(ParseError {
-                kind: ParseErrorKind::UseAfterMove { name: name.to_string() },
+                kind: ParseErrorKind::UseAfterMove {
+                    name: self.interner.resolve(sym).to_string()
+                },
                 span: self.current_span(),
             });
         }
@@ -4652,7 +4667,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 57: "add", "remove" can be function names
             TokenType::Add |
             TokenType::Remove |
-            TokenType::First => {
+            TokenType::First |
+            // Correlative conjunctions and other keywords usable as identifiers
+            TokenType::Both |            // "both" (correlative: both X and Y)
+            TokenType::Either |          // "either" (correlative: either X or Y)
+            TokenType::Combined |        // "combined" (string concat: combined with)
+            TokenType::Shared => {       // "shared" (CRDT type modifier)
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -4792,7 +4812,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
@@ -4820,18 +4840,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Handle deictic pronouns that don't need discourse resolution
             let resolved = if token_text.eq_ignore_ascii_case("i") {
-                self.interner.intern("Speaker")
+                ResolvedPronoun::Constant(self.interner.intern("Speaker"))
             } else if token_text.eq_ignore_ascii_case("you") {
-                self.interner.intern("Addressee")
+                ResolvedPronoun::Constant(self.interner.intern("Addressee"))
             } else {
                 // Try discourse resolution for anaphoric pronouns
-                let unknown = self.interner.intern("?");
-                self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                self.resolve_pronoun(gender, number)?
             };
 
             // Check for performative: "I promise that..." or "I promise to..."
             if self.check_performative() {
                 if let TokenType::Performative(act) = self.advance().kind.clone() {
+                    let sym = match resolved {
+                        ResolvedPronoun::Variable(s) | ResolvedPronoun::Constant(s) => s,
+                    };
                     // Check for infinitive complement: "I promise to come"
                     if self.check(&TokenType::To) {
                         self.advance(); // consume "to"
@@ -4841,12 +4863,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                             let content = self.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: infinitive_verb,
-                                args: self.ctx.terms.alloc_slice([Term::Constant(resolved)]),
+                                args: self.ctx.terms.alloc_slice([Term::Constant(sym)]),
                                 world: None,
                             });
 
                             return Ok(self.ctx.exprs.alloc(LogicExpr::SpeechAct {
-                                performer: resolved,
+                                performer: sym,
                                 act_type: act,
                                 content,
                             }));
@@ -4859,7 +4881,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
                     let content = self.parse_sentence()?;
                     return Ok(self.ctx.exprs.alloc(LogicExpr::SpeechAct {
-                        performer: resolved,
+                        performer: sym,
                         act_type: act,
                         content,
                     }));
@@ -4867,7 +4889,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             // Continue parsing verb phrase with resolved subject
-            return self.parse_predicate_with_subject(resolved);
+            // Use as_var=true for bound variables, as_var=false for constants
+            return match resolved {
+                ResolvedPronoun::Variable(sym) => self.parse_predicate_with_subject_as_var(sym),
+                ResolvedPronoun::Constant(sym) => self.parse_predicate_with_subject(sym),
+            };
         }
 
         // Consume "both" correlative marker if present: "both X and Y"
@@ -4875,6 +4901,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let _had_both = self.match_token(&[TokenType::Both]);
 
         let subject = self.parse_noun_phrase(true)?;
+
+        // Introduce subject NP to DRS for cross-sentence pronoun resolution (accommodation)
+        // This allows "A man walked. He fell." to work
+        // Use noun as both variable and noun_class (like proper names) so pronouns resolve to it
+        // NOTE: Definite NPs are NOT introduced here - they go through wrap_with_definiteness
+        // where bridging anaphora can link them to prior wholes (e.g., "I bought a car. The engine smoked.")
+        if subject.definiteness == Some(Definiteness::Indefinite)
+            || subject.definiteness == Some(Definiteness::Distal) {
+            let gender = Self::infer_noun_gender(self.interner.resolve(subject.noun));
+            let number = if Self::is_plural_noun(self.interner.resolve(subject.noun)) {
+                Number::Plural
+            } else {
+                Number::Singular
+            };
+            // Use noun as variable so pronoun resolution returns the noun name
+            self.drs.introduce_referent(subject.noun, subject.noun, gender, number);
+        }
 
         // Handle plural subjects: "John and Mary verb"
         if self.check(&TokenType::And) {
@@ -4919,15 +4962,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                     if let Some((gender, number)) = pronoun_features {
                         p.advance(); // consume pronoun
-                        let unknown = p.interner.intern("?");
-                        let resolved = p.resolve_pronoun(gender, number).unwrap_or(unknown);
+                        let resolved = p.resolve_pronoun(gender, number)?;
+                        let resolved_term = match resolved {
+                            ResolvedPronoun::Variable(s) => Term::Variable(s),
+                            ResolvedPronoun::Constant(s) => Term::Constant(s),
+                        };
 
                         if p.check_verb() {
                             let verb = p.consume_verb();
                             let predicate = p.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: verb,
                                 args: p.ctx.terms.alloc_slice([
-                                    Term::Constant(resolved),
+                                    resolved_term,
                                     Term::Constant(subject.noun),
                                 ]),
                                 world: None,
@@ -5462,9 +5508,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }));
                 }
 
+                // Check if verb is an intensional predicate (e.g., "rising", "changing")
+                // Intensional predicates take intensions, not extensions
+                let verb_str = self.interner.resolve(verb).to_lowercase();
+                let subject_term = if lexicon::is_intensional_predicate(&verb_str) {
+                    Term::Intension(subject.noun)
+                } else {
+                    Term::Constant(subject.noun)
+                };
+
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
-                    args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
+                    args: self.ctx.terms.alloc_slice([subject_term]),
                     world: None,
                 });
 
@@ -5765,7 +5820,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -5914,7 +5969,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let suppress_existential = self.drs.in_conditional_antecedent();
                             if suppress_existential {
                                 let event_class = self.interner.intern("Event");
-                                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                             }
                             let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var,
@@ -5934,7 +5989,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             let suppress_existential2 = self.drs.in_conditional_antecedent();
                             if suppress_existential2 {
                                 let event_class = self.interner.intern("Event");
-                                self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                                self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
                             }
                             let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                 event_var: know_event_var,
@@ -5991,7 +6046,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                 }
 
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
@@ -6297,7 +6352,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let reconstructed = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
@@ -6318,7 +6373,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential2 = self.drs.in_conditional_antecedent();
                         if suppress_existential2 {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var: know_event_var,
@@ -6348,7 +6403,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(know_event_var, event_class, crate::context::Gender::Neuter);
+                    self.drs.introduce_referent(know_event_var, event_class, Gender::Neuter, Number::Singular);
                 }
                 let know_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var: know_event_var,
@@ -6386,9 +6441,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             } else if self.check_pronoun() {
                 let token = self.advance().clone();
                 if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    let resolved = self.resolve_pronoun(gender, number)
-                        .unwrap_or(unknown);
-                    let term = Term::Constant(resolved);
+                    let resolved = self.resolve_pronoun(gender, number)?;
+                    let term = match resolved {
+                        ResolvedPronoun::Variable(s) => Term::Variable(s),
+                        ResolvedPronoun::Constant(s) => Term::Constant(s),
+                    };
                     object_term = Some(term.clone());
                     args.push(term);
 
@@ -6404,18 +6461,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             } else if self.check_quantifier() || self.check_article() {
                 // Quantified object: "John loves every woman" or "John saw a dog"
-                let obj_quantifier = if self.check_quantifier() {
-                    Some(self.advance().kind.clone())
+                let (obj_quantifier, was_definite_article) = if self.check_quantifier() {
+                    (Some(self.advance().kind.clone()), false)
                 } else {
                     let art = self.advance().kind.clone();
                     if let TokenType::Article(def) = art {
                         if def == Definiteness::Indefinite {
-                            Some(TokenType::Some)
+                            (Some(TokenType::Some), false)
                         } else {
-                            None
+                            (None, true)  // Was a definite article
                         }
                     } else {
-                        None
+                        (None, false)
                     }
                 };
 
@@ -6450,14 +6507,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let intension_term = Term::Intension(object_np.noun);
 
                         // Register intensional entity for anaphora resolution
-                        let noun_str = self.interner.resolve(object_np.noun).to_string();
-                        let first_char = noun_str.chars().next().unwrap_or('X');
-                        if first_char.is_alphabetic() {
-                            // Use full noun name with ^ prefix for intensional terms
-                            let symbol = format!("^{}", crate::transpile::capitalize_first(&noun_str));
-                            self.register_entity(&symbol, &noun_str, Gender::Neuter, Number::Singular);
-                        }
-
                         let event_var = self.get_event_var();
                         let mut modifiers = self.collect_adverbs();
                         let effective_time = self.pending_time.take().unwrap_or(verb_time);
@@ -6476,7 +6525,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let suppress_existential = self.drs.in_conditional_antecedent();
                         if suppress_existential {
                             let event_class = self.interner.intern("Event");
-                            self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                            self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                         }
                         let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                             event_var,
@@ -6491,6 +6540,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     }
 
                     let obj_var = self.next_var_name();
+
+                    // Introduce object referent in DRS for cross-sentence anaphora
+                    let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                    let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
+                    self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
                         args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
@@ -6535,7 +6594,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -6583,13 +6642,31 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         }),
                     };
 
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    // Wrap object with its quantifier
+                    let obj_quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: obj_kind,
                         variable: obj_var,
                         body: obj_body,
                         island_id: self.current_island,
-                    }));
+                    });
+
+                    // Now wrap the SUBJECT (don't skip it with early return!)
+                    return self.wrap_with_definiteness_full(&subject, obj_quantified);
                 } else {
+                    // Definite object NP (e.g., "the house")
+                    // Introduce to DRS for cross-sentence bridging anaphora
+                    // E.g., "John entered the house. The door was open." - door bridges to house
+                    // Note: was_definite_article is true because the article was consumed before parse_noun_phrase
+                    if was_definite_article {
+                        let obj_gender = Self::infer_noun_gender(self.interner.resolve(object_np.noun));
+                        let obj_number = if Self::is_plural_noun(self.interner.resolve(object_np.noun)) {
+                            Number::Plural
+                        } else {
+                            Number::Singular
+                        };
+                        self.drs.introduce_referent(object_np.noun, object_np.noun, obj_gender, obj_number);
+                    }
+
                     let term = self.noun_phrase_to_term(&object_np);
                     object_term = Some(term.clone());
                     args.push(term);
@@ -6626,7 +6703,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let suppress_existential = self.drs.in_conditional_antecedent();
                     if suppress_existential {
                         let event_class = self.interner.intern("Event");
-                        self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                     }
                     let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                         event_var,
@@ -6669,7 +6746,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
                     let event_class = self.interner.intern("Event");
-                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                    self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
                 }
                 let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                     event_var,
@@ -6810,9 +6887,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 } else if self.check_pronoun() {
                     let token = self.advance().clone();
                     if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                        let resolved = self.resolve_pronoun(gender, number)
-                            .unwrap_or(unknown);
-                        Term::Constant(resolved)
+                        let resolved = self.resolve_pronoun(gender, number)?;
+                        match resolved {
+                            ResolvedPronoun::Variable(s) => Term::Variable(s),
+                            ResolvedPronoun::Constant(s) => Term::Constant(s),
+                        }
                     } else {
                         continue;
                     }
@@ -6912,7 +6991,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let suppress_existential = self.drs.in_conditional_antecedent();
             if suppress_existential {
                 let event_class = self.interner.intern("Event");
-                self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
+                self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
             }
             let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                 event_var,
@@ -7119,6 +7198,24 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         matches!(self.peek().kind, TokenType::To)
     }
 
+    /// Look ahead in the token stream for modal subordinating verbs (would, could, should, might).
+    /// These verbs allow modal subordination: continuing a hypothetical context from a prior sentence.
+    /// E.g., "A wolf might enter. It would eat you." - "would" subordinates to "might".
+    fn has_modal_subordination_ahead(&self) -> bool {
+        // Modal subordination verbs: would, could, should, might
+        // These allow access to hypothetical entities from prior modal sentences
+        for i in self.current..self.tokens.len() {
+            match &self.tokens[i].kind {
+                TokenType::Would | TokenType::Could | TokenType::Should | TokenType::Might => {
+                    return true;
+                }
+                // Stop looking at sentence boundary
+                TokenType::Period | TokenType::EOF => break,
+                _ => {}
+            }
+        }
+        false
+    }
 
     fn consume_verb(&mut self) -> Symbol {
         let t = self.advance().clone();
@@ -7397,40 +7494,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Phase 35: Allow numeric literals as content words (e.g., "equal to 42")
             TokenType::Number(s) => Ok(s),
             TokenType::ProperName(s) => {
-                let s_str = self.interner.resolve(s);
-
-                // In imperative mode, reject unknown or moved entities
+                // In imperative mode, proper names are variable references that must be defined
                 if self.mode == ParserMode::Imperative {
-                    use crate::context::OwnershipState;
-
-                    let is_known = self.context.as_ref()
-                        .map(|ctx| ctx.has_entity_by_noun_class(s_str))
-                        .unwrap_or(false);
-
-                    if !is_known {
+                    if !self.drs.has_referent_by_variable(s) {
                         return Err(ParseError {
-                            kind: ParseErrorKind::UndefinedVariable { name: s_str.to_string() },
-                            span: self.current_span(),
+                            kind: ParseErrorKind::UndefinedVariable {
+                                name: self.interner.resolve(s).to_string()
+                            },
+                            span: t.span,
                         });
                     }
-
-                    // Check for use-after-move
-                    let ownership = self.context.as_ref()
-                        .and_then(|ctx| ctx.get_ownership(s_str));
-
-                    if ownership == Some(OwnershipState::Moved) {
-                        return Err(ParseError {
-                            kind: ParseErrorKind::UseAfterMove { name: s_str.to_string() },
-                            span: self.current_span(),
-                        });
-                    }
+                    return Ok(s);
                 }
 
+                // Declarative mode: auto-register proper names as entities
+                let s_str = self.interner.resolve(s);
                 let gender = Self::infer_gender(s_str);
-                // Use full name as symbol for consistent output in Full mode
-                let symbol_str = crate::transpile::capitalize_first(s_str);
-                let noun_class = s_str.to_string();
-                self.register_entity(&symbol_str, &noun_class, gender, Number::Singular);
+
+                // Register in DRS for cross-sentence anaphora resolution
+                self.drs.introduce_proper_name(s, s, gender);
+
                 Ok(s)
             }
             TokenType::Verb { lemma, .. } => Ok(lemma),
@@ -7438,7 +7521,25 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 match *primary {
                     TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::NonIntersectiveAdjective(s) => Ok(s),
                     TokenType::Verb { lemma, .. } => Ok(lemma),
-                    TokenType::ProperName(s) => Ok(s),
+                    TokenType::ProperName(s) => {
+                        // In imperative mode, proper names must be defined
+                        if self.mode == ParserMode::Imperative {
+                            if !self.drs.has_referent_by_variable(s) {
+                                return Err(ParseError {
+                                    kind: ParseErrorKind::UndefinedVariable {
+                                        name: self.interner.resolve(s).to_string()
+                                    },
+                                    span: t.span,
+                                });
+                            }
+                            return Ok(s);
+                        }
+                        // Register proper name in DRS for ambiguous tokens too
+                        let s_str = self.interner.resolve(s);
+                        let gender = Self::infer_gender(s_str);
+                        self.drs.introduce_proper_name(s, s, gender);
+                        Ok(s)
+                    }
                     _ => Err(ParseError {
                         kind: ParseErrorKind::ExpectedContentWord { found: *primary },
                         span: self.current_span(),

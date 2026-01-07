@@ -2,7 +2,7 @@ use super::clause::ClauseParsing;
 use super::noun::NounParsing;
 use super::{ParseResult, Parser};
 use crate::ast::{AspectOperator, LogicExpr, ModalDomain, ModalFlavor, ModalVector, NeoEventData, ThematicRole, VoiceOperator, Term};
-use crate::context::TimeRelation;
+use crate::drs::TimeRelation;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexicon::{Time, Aspect};
@@ -17,13 +17,21 @@ pub trait ModalParsing<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_modal(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        use crate::drs::BoxType;
+
         let vector = self.token_to_vector(&self.previous().kind.clone());
+
+        // Enter modal box in parser's DRS (not world_state - that's swapped at sentence boundaries)
+        self.drs.enter_box(BoxType::ModalScope);
 
         if self.check(&TokenType::That) {
             self.advance();
         }
 
         let content = self.parse_sentence()?;
+
+        // Exit modal box
+        self.drs.exit_box();
 
         Ok(self.ctx.exprs.alloc(LogicExpr::Modal {
             vector,
@@ -50,7 +58,15 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let modal_token = self.peek().kind.clone();
             self.advance();
             has_modal = true;
-            modal_vector = Some(self.token_to_vector(&modal_token));
+            let vector = self.token_to_vector(&modal_token);
+            modal_vector = Some(vector.clone());
+            // Enter modal box in DRS so any new referents are marked as hypothetical
+            // This ensures "A wolf might enter" puts the wolf in a modal scope
+            self.drs.enter_box(crate::drs::BoxType::ModalScope);
+            // Also set modal context on WorldState for cross-sentence tracking
+            // This is used by end_sentence() to mark telescope candidates as modal-sourced
+            let is_epistemic = matches!(vector.flavor, crate::ast::ModalFlavor::Epistemic);
+            self.world_state.enter_modal_context(is_epistemic, vector.force);
         }
 
         if self.check(&TokenType::Not) {
@@ -98,10 +114,8 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance();
             has_perfect = true;
             // "had" = past perfect: R < S (past reference time)
-            if let Some(ref mut context) = self.context {
-                let r_var = context.next_reference_time();
-                context.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
-            }
+            let r_var = self.world_state.next_reference_time();
+            self.world_state.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
         }
 
         if self.check_content_word() {
@@ -205,29 +219,30 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         if has_perfect {
             result = self.ctx.aspectual(AspectOperator::Perfect, result);
-            if let Some(ref mut context) = self.context {
-                // Check pending_time to set up reference time for tense
-                if let Some(pending) = self.pending_time.take() {
-                    match pending {
-                        Time::Future => {
-                            let r_var = context.next_reference_time();
-                            context.add_time_constraint("S".to_string(), TimeRelation::Precedes, r_var);
-                        }
-                        Time::Past => {
-                            // Past tense with perfect (should be handled by "had" already, but as fallback)
-                            if context.current_reference_time() == "S" {
-                                let r_var = context.next_reference_time();
-                                context.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
-                            }
-                        }
-                        _ => {}
+
+            // Check pending_time to set up reference time for tense
+            if let Some(pending) = self.pending_time.take() {
+                match pending {
+                    Time::Future => {
+                        // Future perfect: S < R
+                        let r_var = self.world_state.next_reference_time();
+                        self.world_state.add_time_constraint("S".to_string(), TimeRelation::Precedes, r_var);
                     }
+                    Time::Past => {
+                        // Past perfect fallback (if not already set by "had")
+                        if self.world_state.current_reference_time() == "S" {
+                            let r_var = self.world_state.next_reference_time();
+                            self.world_state.add_time_constraint(r_var, TimeRelation::Precedes, "S".to_string());
+                        }
+                    }
+                    _ => {}
                 }
-                // Perfect: E < R
-                let e_var = format!("e{}", context.event_history().len().max(1));
-                let r_var = context.current_reference_time();
-                context.add_time_constraint(e_var, TimeRelation::Precedes, r_var);
             }
+
+            // Perfect: E < R (event before reference)
+            let e_var = format!("e{}", self.world_state.event_history().len().max(1));
+            let r_var = self.world_state.current_reference_time();
+            self.world_state.add_time_constraint(e_var, TimeRelation::Precedes, r_var);
         }
 
         if has_negation {
@@ -244,6 +259,11 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         // Then apply outer modal (e.g., "might")
         if has_modal {
+            // Exit modal box in DRS (matches enter_box above)
+            self.drs.exit_box();
+            // Note: We do NOT exit_modal_context() here because we want the modal flag
+            // to persist until end_sentence() so telescope candidates are marked as modal.
+            // The modal context is cleared by end_sentence() → prior_modal_context.take()
             if let Some(vector) = modal_vector {
                 result = self.ctx.modal(vector, result);
             }

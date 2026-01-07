@@ -5,13 +5,19 @@
 1. **NEVER RUN GIT COMMANDS** - Do not use git under any circumstances
 2. **STAY IN logos/** - Work only in this directory, ignore parent friendslop
 3. **USE TDD** - Follow RED/GREEN test-driven development
-4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test.
+4. **NEVER MODIFY RED TESTS** - Do not update failing tests without stopping and asking the user first. The test defines the spec; if a test fails, fix the implementation, not the test. DO NOT UPDATE RED TESTS. IF YOU UPDATE RED TESTS TO MAKE THEM PASS WITHOUT STOPPING TO ASK THE USER YOU WILL BE DECOMISSIONED!
 5. **RUNNING TESTS**
   Use `cargo test -- --skip e2e` when running tests unless asked to run all tests. BY DEFAULT, skip the e2e tests.
   When asked to run all tests run `cargo test`.
   When running tests, don't tail or head the outputs, just read the entire thing.
   During development, we will develop the RED test, then work until that passes, then run all our tests.
   For large refactors, we can selectively run existing tests to ensure we didn't break things.
+6. **DO NOT CUT CORNERS OR RUSH**
+  We do not have time-constraints. We are not in a rush. We do not want to "take the pragmatic approach" and short-cut things. We want to do things properly.
+  Do NOT cut-corners, do NOT try to "get this done quickly". Do a PROPER GOOD JOB.
+  Do not take the easy way out.
+  You MUST do things properly, and get out of the silly headspace that you get into where you feel rushed or try to reduce your context size or cut corners or cheat.
+7. If a test is failing it is ALWAYS A REGRESSION. We do not move forward until ALL TESTS PASS, and we START FROM A POINT OF ALL TESTS PASSING.
 
 ## Specification Guidelines
 

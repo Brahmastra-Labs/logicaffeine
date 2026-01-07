@@ -15,7 +15,6 @@ pub mod diagnostic;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod sourcemap;
 pub mod content;
-pub mod context;
 pub mod debug;
 pub mod drs;
 pub mod error;
@@ -42,6 +41,7 @@ pub mod cli;
 pub mod verification;
 pub mod runtime_lexicon;
 pub mod semantics;
+pub mod session;
 pub mod registry;
 pub mod scope;
 #[cfg(target_arch = "wasm32")]
@@ -72,7 +72,7 @@ pub use compile::copy_logos_core;
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
-pub use context::{DiscourseContext, OwnershipState, TimeConstraint, TimeRelation};
+pub use drs::{TimeConstraint, TimeRelation, WorldState, Gender, Number, Case, OwnershipState};
 pub use error::{ParseError, ParseErrorKind, socratic_explanation};
 pub use debug::{DebugWorld, DisplayWith, WithInterner};
 pub use formatter::{KripkeFormatter, LatexFormatter, LogicFormatter, UnicodeFormatter};
@@ -86,6 +86,7 @@ pub use token::{BlockType, Token, TokenType};
 pub use view::{ExprView, NounPhraseView, Resolve, TermView};
 pub use visitor::{Visitor, walk_expr, walk_term, walk_np};
 pub use interpreter::{Interpreter, InterpreterResult, RuntimeValue};
+pub use session::Session;
 
 // ═══════════════════════════════════════════════════════════════════
 // Output Format Configuration
@@ -188,8 +189,8 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
 
@@ -204,40 +205,60 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
     let mut registry = SymbolRegistry::new();
     let main_output = ast.transpile(&mut registry, &interner, options.format);
 
-    let constraints = discourse.time_constraints();
+    // Append Reichenbach temporal constraints
+    let constraints = world_state.time_constraints();
     if constraints.is_empty() {
         Ok(main_output)
     } else {
         let constraint_strs: Vec<String> = constraints.iter().map(|c| {
             match c.relation {
-                TimeRelation::Precedes => format!("Precedes({}, {})", c.left, c.right),
-                TimeRelation::Equals => format!("{}={}", c.left, c.right),
+                drs::TimeRelation::Precedes => format!("Precedes({}, {})", c.left, c.right),
+                drs::TimeRelation::Equals => format!("{}={}", c.left, c.right),
             }
         }).collect();
         Ok(format!("{} ∧ {}", main_output, constraint_strs.join(" ∧ ")))
     }
 }
 
-pub fn compile_with_context(input: &str, ctx: &mut DiscourseContext) -> Result<String, ParseError> {
-    compile_with_context_options(input, ctx, CompileOptions::default())
+pub fn compile_with_world_state(input: &str, world_state: &mut drs::WorldState) -> Result<String, ParseError> {
+    compile_with_world_state_options(input, world_state, CompileOptions::default())
 }
 
-pub fn compile_with_context_options(
+pub fn compile_with_world_state_options(
     input: &str,
-    ctx: &mut DiscourseContext,
+    world_state: &mut drs::WorldState,
     options: CompileOptions,
 ) -> Result<String, ParseError> {
     let mut interner = Interner::new();
-    let mut lexer = Lexer::new(input, &mut interner);
+    compile_with_world_state_interner_options(input, world_state, &mut interner, options)
+}
+
+/// Compile with shared WorldState AND Interner for proper cross-sentence discourse.
+/// Use this when you need pronouns to resolve across multiple sentences.
+pub fn compile_with_discourse(
+    input: &str,
+    world_state: &mut drs::WorldState,
+    interner: &mut Interner,
+) -> Result<String, ParseError> {
+    compile_with_world_state_interner_options(input, world_state, interner, CompileOptions::default())
+}
+
+pub fn compile_with_world_state_interner_options(
+    input: &str,
+    world_state: &mut drs::WorldState,
+    interner: &mut Interner,
+    options: CompileOptions,
+) -> Result<String, ParseError> {
+    let mut lexer = Lexer::new(input, interner);
     let tokens = lexer.tokenize();
 
     // Apply MWE collapsing
     let mwe_trie = mwe::build_mwe_trie();
-    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, interner);
 
     // Pass 1: Discovery - scan for type definitions
     let type_registry = {
-        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, interner);
         discovery.run()
     };
 
@@ -258,11 +279,33 @@ pub fn compile_with_context_options(
     );
 
     // Pass 2: Parse with type context
-    let mut parser = Parser::with_types(tokens, ctx, &mut interner, ast_ctx, type_registry);
+    let mut parser = Parser::new(tokens, world_state, interner, ast_ctx, type_registry);
+    // Swap DRS from WorldState into Parser at start
+    parser.swap_drs_with_world_state();
     let ast = parser.parse()?;
-    let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
+    // Swap DRS back to WorldState at end
+    parser.swap_drs_with_world_state();
+    let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, interner);
+
+    // Mark sentence boundary for telescoping support
+    world_state.end_sentence();
+
     let mut registry = SymbolRegistry::new();
-    Ok(ast.transpile(&mut registry, &interner, options.format))
+    let main_output = ast.transpile(&mut registry, interner, options.format);
+
+    // Append Reichenbach temporal constraints
+    let constraints = world_state.time_constraints();
+    if constraints.is_empty() {
+        Ok(main_output)
+    } else {
+        let constraint_strs: Vec<String> = constraints.iter().map(|c| {
+            match c.relation {
+                drs::TimeRelation::Precedes => format!("Precedes({}, {})", c.left, c.right),
+                drs::TimeRelation::Equals => format!("{}={}", c.left, c.right),
+            }
+        }).collect();
+        Ok(format!("{} ∧ {}", main_output, constraint_strs.join(" ∧ ")))
+    }
 }
 
 pub fn compile_discourse(sentences: &[&str]) -> Result<String, ParseError> {
@@ -271,13 +314,13 @@ pub fn compile_discourse(sentences: &[&str]) -> Result<String, ParseError> {
 
 pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOptions) -> Result<String, ParseError> {
     let mut interner = Interner::new();
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = drs::WorldState::new();
     let mut results = Vec::new();
     let mut registry = SymbolRegistry::new();
     let mwe_trie = mwe::build_mwe_trie();
 
     for sentence in sentences {
-        let event_var_name = ctx.next_event_var();
+        let event_var_name = world_state.next_event_var();
         let event_var_symbol = interner.intern(&event_var_name);
 
         let mut lexer = Lexer::new(sentence, &mut interner);
@@ -308,15 +351,23 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
             &pp_arena,
         );
 
-        // Pass 2: Parse with type context
-        let mut parser = Parser::with_types(tokens, &mut ctx, &mut interner, ast_ctx, type_registry);
+        // Pass 2: Parse with WorldState (DRS persists across sentences)
+        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
         parser.set_discourse_event_var(event_var_symbol);
+        // Swap DRS from WorldState into Parser at start
+        parser.swap_drs_with_world_state();
         let ast = parser.parse()?;
+        // Swap DRS back to WorldState at end
+        parser.swap_drs_with_world_state();
+
+        // Mark sentence boundary - collect telescope candidates for cross-sentence anaphora
+        world_state.end_sentence();
+
         let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
         results.push(ast.transpile(&mut registry, &interner, options.format));
     }
 
-    let event_history = ctx.event_history();
+    let event_history = world_state.event_history();
     let mut precedes = Vec::new();
     for i in 0..event_history.len().saturating_sub(1) {
         precedes.push(format!("Precedes({}, {})", event_history[i], event_history[i + 1]));
@@ -370,8 +421,8 @@ pub fn compile_all_scopes_with_options(input: &str, options: CompileOptions) -> 
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
     let ast = parser.parse()?;
 
     let scope_arena = Arena::new();
@@ -437,8 +488,8 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens.clone(), &mut discourse, &mut interner, ctx, type_registry.clone());
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ctx, type_registry.clone());
     let ast = parser.parse()?;
     let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
     let mut registry = SymbolRegistry::new();
@@ -470,8 +521,8 @@ pub fn compile_ambiguous_with_options(input: &str, options: CompileOptions) -> R
             &pp_arena2,
         );
 
-        let mut discourse2 = DiscourseContext::new();
-        let mut parser2 = Parser::with_types(tokens, &mut discourse2, &mut interner, ctx2, type_registry);
+        let mut world_state2 = drs::WorldState::new();
+        let mut parser2 = Parser::new(tokens, &mut world_state2, &mut interner, ctx2, type_registry);
         parser2.set_pp_attachment_mode(true);
         let ast2 = parser2.parse()?;
         let ast2 = semantics::apply_axioms(ast2, ctx2.exprs, ctx2.terms, &mut interner);
@@ -604,8 +655,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
         );
 
         // Pass 2: Parse with type context
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_noun_priority_mode(false);
 
         if let Ok(ast) = parser.parse() {
@@ -639,8 +690,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_noun_priority_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -677,8 +728,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_pp_attachment_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -715,8 +766,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_collective_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -750,8 +801,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_event_reading_mode(true);
 
         if let Ok(ast) = parser.parse() {
@@ -790,8 +841,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
 
         if let Ok(ast) = parser.parse() {
@@ -829,8 +880,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_modal_preference(parser::ModalPreference::Epistemic);
 
         if let Ok(ast) = parser.parse() {
@@ -868,8 +919,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry.clone());
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry.clone());
         parser.set_modal_preference(parser::ModalPreference::Deontic);
 
         if let Ok(ast) = parser.parse() {
@@ -909,8 +960,8 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
             &pp_arena,
         );
 
-        let mut discourse_ctx = context::DiscourseContext::new();
-        let mut parser = Parser::with_types(tokens.clone(), &mut discourse_ctx, &mut interner, ast_ctx, type_registry);
+        let mut world_state = drs::WorldState::new();
+        let mut parser = Parser::new(tokens.clone(), &mut world_state, &mut interner, ast_ctx, type_registry);
         parser.set_negative_scope_mode(parser::NegativeScopeMode::Wide);
         parser.set_modal_preference(parser::ModalPreference::Deontic);
 
@@ -1203,8 +1254,8 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
     );
 
     // Pass 2: Parse with type context
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(lex_tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(lex_tokens, &mut world_state, &mut interner, ctx, type_registry);
 
     match parser.parse() {
         Ok(ast) => {
@@ -1297,8 +1348,8 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     );
 
     // Pass 2: Parse with type context (imperative mode)
-    let mut discourse = DiscourseContext::new();
-    let mut parser = Parser::with_types(tokens, &mut discourse, &mut interner, ctx, type_registry);
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
 
     match parser.parse_program() {
         Ok(stmts) => {
@@ -1833,10 +1884,10 @@ mod tests {
 
     #[test]
     fn discourse_basic_pronoun_he() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        let _r1 = compile_with_context("John ran.", &mut ctx).unwrap();
-        let r2 = compile_with_context("He stopped.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let mut interner = Interner::new();
+        let _r1 = compile_with_discourse("John ran.", &mut world_state, &mut interner).unwrap();
+        let r2 = compile_with_discourse("He stopped.", &mut world_state, &mut interner).unwrap();
         assert!(
             r2.contains("J"),
             "He should resolve to John (J): got '{}'",
@@ -1846,10 +1897,10 @@ mod tests {
 
     #[test]
     fn discourse_basic_pronoun_she() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        let _r1 = compile_with_context("Mary ran.", &mut ctx).unwrap();
-        let r2 = compile_with_context("She stopped.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let mut interner = Interner::new();
+        let _r1 = compile_with_discourse("Mary ran.", &mut world_state, &mut interner).unwrap();
+        let r2 = compile_with_discourse("She stopped.", &mut world_state, &mut interner).unwrap();
         assert!(
             r2.contains("M"),
             "She should resolve to Mary (M): got '{}'",
@@ -1859,10 +1910,10 @@ mod tests {
 
     #[test]
     fn discourse_multiple_entities() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("John saw Mary.", &mut ctx).unwrap();
-        let result = compile_with_context("He loves her.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let mut interner = Interner::new();
+        compile_with_discourse("John saw Mary.", &mut world_state, &mut interner).unwrap();
+        let result = compile_with_discourse("He loves her.", &mut world_state, &mut interner).unwrap();
         assert!(
             (result.contains("Agent(e, John)") && result.contains("Theme(e, Mary)"))
                 || result.contains("(John, Mary)")
@@ -1874,10 +1925,10 @@ mod tests {
 
     #[test]
     fn discourse_definite_reference() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("A dog barked.", &mut ctx).unwrap();
-        let result = compile_with_context("The dog ran.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let mut interner = Interner::new();
+        compile_with_discourse("A dog barked.", &mut world_state, &mut interner).unwrap();
+        let result = compile_with_discourse("The dog ran.", &mut world_state, &mut interner).unwrap();
         assert!(
             !result.contains("D2"),
             "The dog should refer to same entity, not D2: got '{}'",
@@ -1887,10 +1938,11 @@ mod tests {
 
     #[test]
     fn discourse_plural_pronoun_they() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("The dogs ran.", &mut ctx).unwrap();
-        let result = compile_with_context("They barked.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let mut interner = Interner::new();
+        // "The dogs" as opening sentence - global accommodation introduces referent
+        compile_with_discourse("The dogs ran.", &mut world_state, &mut interner).unwrap();
+        let result = compile_with_discourse("They barked.", &mut world_state, &mut interner).unwrap();
         assert!(
             result.contains("D"),
             "They should resolve to dogs: got '{}'",
@@ -1900,10 +1952,10 @@ mod tests {
 
     #[test]
     fn discourse_object_pronoun_him() {
-        use crate::context::DiscourseContext;
-        let mut ctx = DiscourseContext::new();
-        compile_with_context("John entered.", &mut ctx).unwrap();
-        let result = compile_with_context("Mary saw him.", &mut ctx).unwrap();
+        let mut world_state = drs::WorldState::new();
+        let mut interner = Interner::new();
+        compile_with_discourse("John entered.", &mut world_state, &mut interner).unwrap();
+        let result = compile_with_discourse("Mary saw him.", &mut world_state, &mut interner).unwrap();
         assert!(
             (result.contains("Agent(e, Mary)") && result.contains("Theme(e, John)"))
                 || result.contains("(Mary, John)"),
@@ -2104,4 +2156,5 @@ mod tests {
             result
         );
     }
+
 }

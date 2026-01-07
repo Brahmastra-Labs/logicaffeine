@@ -42,9 +42,11 @@ macro_rules! assert_snapshot {
 #[macro_export]
 macro_rules! parse {
     ($input:expr) => {{
-        use $crate::{Arena, AstContext, LogicExpr, Interner, Lexer, NounPhrase, Parser, Resolve, Symbol, Term, ThematicRole};
+        use $crate::{Arena, AstContext, LogicExpr, Interner, Lexer, NounPhrase, Parser, Resolve, Symbol, Term, ThematicRole, WorldState};
+        use $crate::analysis::TypeRegistry;
 
         let interner: &'static mut Interner = Box::leak(Box::new(Interner::new()));
+        let world_state: &'static mut WorldState = Box::leak(Box::new(WorldState::new()));
         let expr_arena: &'static Arena<LogicExpr> = Box::leak(Box::new(Arena::new()));
         let term_arena: &'static Arena<Term> = Box::leak(Box::new(Arena::new()));
         let np_arena: &'static Arena<NounPhrase> = Box::leak(Box::new(Arena::new()));
@@ -64,7 +66,8 @@ macro_rules! parse {
         let mut lexer = Lexer::new($input, interner);
         let tokens = lexer.tokenize();
 
-        let mut parser = Parser::new(tokens, interner, ctx);
+        let type_registry = TypeRegistry::default();
+        let mut parser = Parser::new(tokens, world_state, interner, ctx, type_registry);
 
         let ast = parser.parse().unwrap();
         ast.resolve(interner)

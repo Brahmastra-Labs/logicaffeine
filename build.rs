@@ -41,7 +41,7 @@ struct RefactoredLexiconData {
     #[serde(default)]
     axioms: Option<AxiomData>,
     #[serde(default)]
-    agentive_nouns: HashMap<String, String>,
+    morphological_rules: Vec<MorphologicalRule>,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +89,22 @@ struct NounDefinition {
     features: Vec<String>,
     #[serde(default)]
     sort: Option<String>,
+    #[serde(default)]
+    derivation: Option<NounDerivation>,
+}
+
+#[derive(Deserialize, Default)]
+struct NounDerivation {
+    root: String,
+    pos: String,
+    relation: String,
+}
+
+#[derive(Deserialize)]
+struct MorphologicalRule {
+    suffix: String,
+    base_pos: String,
+    relation: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -274,6 +290,8 @@ fn main() {
         collective_verbs,
         performatives,
         mixed_verbs,
+        distributive_verbs,
+        intensional_predicates,
     ) = derive_verb_feature_lists(&data.verbs);
 
     generate_is_check(&mut file, "is_ditransitive_verb", &ditransitive_verbs);
@@ -284,6 +302,8 @@ fn main() {
     generate_is_check(&mut file, "is_collective_verb", &collective_verbs);
     generate_is_check(&mut file, "is_performative", &performatives);
     generate_is_check(&mut file, "is_mixed_verb", &mixed_verbs);
+    generate_is_check(&mut file, "is_distributive_verb", &distributive_verbs);
+    generate_is_check(&mut file, "is_intensional_predicate", &intensional_predicates);
 
     // Generate base verb list from all verb lemmas
     let base_verbs: Vec<String> = data.verbs.iter().map(|v| v.lemma.to_lowercase()).collect();
@@ -299,17 +319,15 @@ fn main() {
     generate_is_check(&mut file, "is_gradable_adjective", &gradable);
     generate_is_check(&mut file, "is_event_modifier_adjective", &event_modifier);
 
-    // Generate agentive noun lookup (dancer -> Dance)
-    generate_lookup_agentive_noun(&mut file, &data.agentive_nouns);
-
     // Derive noun lists from features
-    let (common_nouns, male_names, female_names, male_nouns, female_nouns) =
+    let (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns) =
         derive_noun_lists(&data.nouns);
     generate_is_check(&mut file, "is_common_noun", &common_nouns);
     generate_is_check(&mut file, "is_male_name", &male_names);
     generate_is_check(&mut file, "is_female_name", &female_names);
     generate_is_check(&mut file, "is_male_noun", &male_nouns);
     generate_is_check(&mut file, "is_female_noun", &female_nouns);
+    generate_is_check(&mut file, "is_neuter_noun", &neuter_nouns);
 
     // Generate verb class lookup from verb definitions
     let (state_verbs, activity_verbs, accomplishment_verbs, achievement_verbs, semelfactive_verbs) =
@@ -359,6 +377,12 @@ fn main() {
 
     // Generate canonical mapping lookup for synonyms/antonyms
     generate_canonical_mapping(&mut file, &data.verbs);
+
+    // Generate morphological rules for derivational morphology
+    generate_morphological_rules(&mut file, &data.morphological_rules);
+
+    // Generate noun derivation lookups (replaces agentive_nouns)
+    generate_lookup_noun_derivation(&mut file, &data.nouns);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -447,6 +471,8 @@ fn derive_verb_feature_lists(
     Vec<String>,
     Vec<String>,
     Vec<String>,
+    Vec<String>,
+    Vec<String>,
 ) {
     let mut ditransitive = Vec::new();
     let mut subject_control = Vec::new();
@@ -456,6 +482,8 @@ fn derive_verb_feature_lists(
     let mut collective = Vec::new();
     let mut performative = Vec::new();
     let mut mixed = Vec::new();
+    let mut distributive = Vec::new();
+    let mut intensional_predicate = Vec::new();
 
     for verb in verbs {
         let lower = verb.lemma.to_lowercase();
@@ -483,6 +511,31 @@ fn derive_verb_feature_lists(
                 "Collective" => collective.push(lower.clone()),
                 "Performative" => performative.push(lower.clone()),
                 "Mixed" => mixed.push(lower.clone()),
+                "Distributive" => distributive.push(lower.clone()),
+                "IntensionalPredicate" => {
+                    // Include base form and conjugated forms for intensional predicate checks
+                    intensional_predicate.push(lower.clone());
+                    intensional_predicate.push(format!("{}s", lower)); // third person singular
+                    intensional_predicate.push(format!("{}ed", lower)); // past tense (regular)
+                    intensional_predicate.push(format!("{}ing", lower)); // gerund (regular)
+                    // Handle verbs ending in 'e' (change -> changing, not changeing)
+                    if lower.ends_with('e') {
+                        let stem = &lower[..lower.len() - 1];
+                        intensional_predicate.push(format!("{}ing", stem));
+                    }
+                    // Also include irregular forms if present
+                    if let Some(forms) = &verb.forms {
+                        if let Some(past) = &forms.past {
+                            intensional_predicate.push(past.to_lowercase());
+                        }
+                        if let Some(participle) = &forms.participle {
+                            intensional_predicate.push(participle.to_lowercase());
+                        }
+                        if let Some(gerund) = &forms.gerund {
+                            intensional_predicate.push(gerund.to_lowercase());
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -497,6 +550,8 @@ fn derive_verb_feature_lists(
         collective,
         performative,
         mixed,
+        distributive,
+        intensional_predicate,
     )
 }
 
@@ -553,18 +608,20 @@ fn derive_adjective_lists(
 
 fn derive_noun_lists(
     nouns: &[NounDefinition],
-) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut common_nouns = Vec::new();
     let mut male_names = Vec::new();
     let mut female_names = Vec::new();
     let mut male_nouns = Vec::new();
     let mut female_nouns = Vec::new();
+    let mut neuter_nouns = Vec::new();
 
     for noun in nouns {
         let lower = noun.lemma.to_lowercase();
         let is_proper = noun.features.iter().any(|f| f == "Proper");
         let is_masculine = noun.features.iter().any(|f| f == "Masculine");
         let is_feminine = noun.features.iter().any(|f| f == "Feminine");
+        let is_neuter = noun.features.iter().any(|f| f == "Neuter");
 
         if is_proper {
             if is_masculine {
@@ -581,10 +638,13 @@ fn derive_noun_lists(
             if is_feminine {
                 female_nouns.push(lower.clone());
             }
+            if is_neuter {
+                neuter_nouns.push(lower.clone());
+            }
         }
     }
 
-    (common_nouns, male_names, female_names, male_nouns, female_nouns)
+    (common_nouns, male_names, female_names, male_nouns, female_nouns, neuter_nouns)
 }
 
 fn derive_irregular_plurals(nouns: &[NounDefinition]) -> HashMap<String, String> {
@@ -675,19 +735,19 @@ fn generate_lookup_keyword(file: &mut fs::File, keywords: &HashMap<String, Strin
 
 fn format_pronoun_token(p: &PronounEntry) -> String {
     let gender = match p.gender.as_str() {
-        "Male" => "crate::context::Gender::Male",
-        "Female" => "crate::context::Gender::Female",
-        "Neuter" => "crate::context::Gender::Neuter",
-        _ => "crate::context::Gender::Unknown",
+        "Male" => "crate::drs::Gender::Male",
+        "Female" => "crate::drs::Gender::Female",
+        "Neuter" => "crate::drs::Gender::Neuter",
+        _ => "crate::drs::Gender::Unknown",
     };
     let number = match p.number.as_str() {
-        "Singular" => "crate::context::Number::Singular",
-        _ => "crate::context::Number::Plural",
+        "Singular" => "crate::drs::Number::Singular",
+        _ => "crate::drs::Number::Plural",
     };
     let case = match p.case.as_str() {
-        "Subject" => "crate::context::Case::Subject",
-        "Possessive" => "crate::context::Case::Possessive",
-        _ => "crate::context::Case::Object",
+        "Subject" => "crate::drs::Case::Subject",
+        "Possessive" => "crate::drs::Case::Possessive",
+        _ => "crate::drs::Case::Object",
     };
     format!(
         "crate::token::TokenType::Pronoun {{ gender: {}, number: {}, case: {} }}",
@@ -1263,28 +1323,6 @@ fn generate_lookup_phrasal_verb(file: &mut fs::File, phrasal_verbs: &HashMap<Str
     writeln!(file, "}}\n").unwrap();
 }
 
-fn generate_lookup_agentive_noun(file: &mut fs::File, agentive_nouns: &HashMap<String, String>) {
-    writeln!(
-        file,
-        "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance)"
-    )
-    .unwrap();
-    writeln!(
-        file,
-        "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{"
-    )
-    .unwrap();
-    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
-
-    for (noun, verb) in agentive_nouns {
-        writeln!(file, "        \"{}\" => Some(\"{}\"),", noun, verb).unwrap();
-    }
-
-    writeln!(file, "        _ => None,").unwrap();
-    writeln!(file, "    }}").unwrap();
-    writeln!(file, "}}\n").unwrap();
-}
-
 fn generate_lookup_sort(file: &mut fs::File, nouns: &[NounDefinition]) {
     writeln!(
         file,
@@ -1517,6 +1555,105 @@ fn generate_canonical_mapping(file: &mut fs::File, verbs: &[VerbDefinition]) {
                 ant.to_lowercase(),
                 lemma
             ).unwrap();
+        }
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Morphological Rules Generation
+// ═══════════════════════════════════════════════════════════════════
+
+fn generate_morphological_rules(file: &mut fs::File, rules: &[MorphologicalRule]) {
+    // Generate MorphRule struct
+    writeln!(file, "/// Morphological derivation rule from lexicon.").unwrap();
+    writeln!(file, "#[derive(Debug, Clone, Copy)]").unwrap();
+    writeln!(file, "pub struct MorphRule {{").unwrap();
+    writeln!(file, "    pub suffix: &'static str,").unwrap();
+    writeln!(file, "    pub base_pos: &'static str,").unwrap();
+    writeln!(file, "    pub relation: &'static str,").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate get_morphological_rules function
+    writeln!(file, "/// Get morphological derivation rules from lexicon.").unwrap();
+    writeln!(file, "pub fn get_morphological_rules() -> &'static [MorphRule] {{").unwrap();
+    writeln!(file, "    &[").unwrap();
+
+    for rule in rules {
+        writeln!(
+            file,
+            "        MorphRule {{ suffix: \"{}\", base_pos: \"{}\", relation: \"{}\" }},",
+            rule.suffix, rule.base_pos, rule.relation
+        )
+        .unwrap();
+    }
+
+    writeln!(file, "    ]").unwrap();
+    writeln!(file, "}}").unwrap();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Noun Derivation Lookup Generation
+// ═══════════════════════════════════════════════════════════════════
+
+fn generate_lookup_noun_derivation(file: &mut fs::File, nouns: &[NounDefinition]) {
+    writeln!(file, "/// Lookup the derivation info for a noun (e.g., dancer -> (Dance, Verb, Agent))").unwrap();
+    writeln!(file, "/// Returns (root, pos, relation) if the noun has a derivation.").unwrap();
+    writeln!(file, "pub fn lookup_noun_derivation(word: &str) -> Option<(&'static str, &'static str, &'static str)> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for noun in nouns {
+        if let Some(ref deriv) = noun.derivation {
+            writeln!(
+                file,
+                "        \"{}\" => Some((\"{}\", \"{}\", \"{}\")),",
+                noun.lemma.to_lowercase(),
+                deriv.root,
+                deriv.pos,
+                deriv.relation
+            )
+            .unwrap();
+        }
+    }
+
+    writeln!(file, "        _ => None,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Also generate a simple check for whether a noun is agentive (derived from a verb)
+    writeln!(file, "/// Check if a noun is agentive (derived from a verb with Agent relation).").unwrap();
+    writeln!(file, "pub fn is_agentive_noun(word: &str) -> bool {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for noun in nouns {
+        if let Some(ref deriv) = noun.derivation {
+            if deriv.pos == "Verb" && deriv.relation == "Agent" {
+                writeln!(file, "        \"{}\" => true,", noun.lemma.to_lowercase()).unwrap();
+            }
+        }
+    }
+
+    writeln!(file, "        _ => false,").unwrap();
+    writeln!(file, "    }}").unwrap();
+    writeln!(file, "}}").unwrap();
+    writeln!(file).unwrap();
+
+    // Generate lookup_agentive_noun for backward compatibility
+    writeln!(file, "/// Lookup the base verb for an agentive noun (e.g., dancer -> Dance).").unwrap();
+    writeln!(file, "/// This is for backward compatibility with existing code.").unwrap();
+    writeln!(file, "pub fn lookup_agentive_noun(word: &str) -> Option<&'static str> {{").unwrap();
+    writeln!(file, "    match word.to_lowercase().as_str() {{").unwrap();
+
+    for noun in nouns {
+        if let Some(ref deriv) = noun.derivation {
+            if deriv.pos == "Verb" && deriv.relation == "Agent" {
+                writeln!(file, "        \"{}\" => Some(\"{}\"),", noun.lemma.to_lowercase(), deriv.root).unwrap();
+            }
         }
     }
 

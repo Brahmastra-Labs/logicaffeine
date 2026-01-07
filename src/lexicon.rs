@@ -25,10 +25,12 @@ pub enum Feature {
     Opaque,      // "I seek a unicorn" (De Dicto/De Re ambiguity)
     Factive,     // "I know that..." (Presupposes truth)
     Performative, // "I promise"
-    Collective,  // "The group gathered"
-    Mixed,       // "Lift" - can be collective or distributive
-    Weather,     // "Rain", "Snow" - weather verbs with expletive "it"
+    Collective,   // "The group gathered"
+    Mixed,        // "Lift" - can be collective or distributive
+    Distributive, // "Sleep" - must apply to individuals, not groups
+    Weather,      // "Rain", "Snow" - weather verbs with expletive "it"
     Unaccusative, // "The door opens" - intransitive subject is Theme, not Agent
+    IntensionalPredicate, // "Rise", "Change" - takes intensions, not extensions
 
     // Noun Features
     Count,
@@ -65,8 +67,11 @@ impl Feature {
             "Factive" => Some(Feature::Factive),
             "Performative" => Some(Feature::Performative),
             "Collective" => Some(Feature::Collective),
+            "Mixed" => Some(Feature::Mixed),
+            "Distributive" => Some(Feature::Distributive),
             "Weather" => Some(Feature::Weather),
             "Unaccusative" => Some(Feature::Unaccusative),
+            "IntensionalPredicate" => Some(Feature::IntensionalPredicate),
             "Count" => Some(Feature::Count),
             "Mass" => Some(Feature::Mass),
             "Proper" => Some(Feature::Proper),
@@ -388,6 +393,99 @@ impl Default for Lexicon {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Result of smart word analysis for derivational morphology
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WordAnalysis {
+    /// A dictionary entry (exact match or derived plural)
+    Noun(NounMetadata),
+    /// A word derived via morphological rules (agentive nouns like "blogger")
+    DerivedNoun {
+        lemma: String,
+        number: Number,
+    },
+}
+
+/// Smart word analysis with derivational morphology support.
+///
+/// Three-step resolution:
+/// 1. **Exact Match** - Check if word exists in lexicon (handles irregulars like "mice")
+/// 2. **Plural Derivation** - Strip 's'/'es' and check if stem exists (farmers → farmer)
+/// 3. **Morphological Rules** - Apply suffix rules for unknown agentive nouns
+pub fn analyze_word(word: &str) -> Option<WordAnalysis> {
+    let lower = word.to_lowercase();
+
+    // 1. EXACT MATCH (Fast Path)
+    // Handles explicit entries like "farmer", "mice", "children"
+    if let Some(meta) = lookup_noun_db(&lower) {
+        return Some(WordAnalysis::Noun(meta));
+    }
+
+    // 2. PLURAL DERIVATION (Smart Path)
+    // "farmers" → stem "farmer" → lookup
+    if lower.ends_with('s') && lower.len() > 2 {
+        // Try simple 's' stripping: "farmers" -> "farmer"
+        let stem = &lower[..lower.len() - 1];
+        if let Some(meta) = lookup_noun_db(stem) {
+            // Found the singular base - return as plural
+            return Some(WordAnalysis::Noun(NounMetadata {
+                lemma: meta.lemma,
+                number: Number::Plural,
+                features: meta.features,
+            }));
+        }
+
+        // Try 'es' stripping: "boxes" -> "box", "churches" -> "church"
+        if lower.ends_with("es") && lower.len() > 3 {
+            let stem_es = &lower[..lower.len() - 2];
+            if let Some(meta) = lookup_noun_db(stem_es) {
+                return Some(WordAnalysis::Noun(NounMetadata {
+                    lemma: meta.lemma,
+                    number: Number::Plural,
+                    features: meta.features,
+                }));
+            }
+        }
+
+        // Try 'ies' -> 'y': "cities" -> "city"
+        if lower.ends_with("ies") && lower.len() > 4 {
+            let stem_ies = format!("{}y", &lower[..lower.len() - 3]);
+            if let Some(meta) = lookup_noun_db(&stem_ies) {
+                return Some(WordAnalysis::Noun(NounMetadata {
+                    lemma: meta.lemma,
+                    number: Number::Plural,
+                    features: meta.features,
+                }));
+            }
+        }
+    }
+
+    // 3. MORPHOLOGICAL RULES (Data-driven from lexicon.json)
+    // Handle agentive nouns like "blogger", "vlogger" even if not in lexicon
+    for rule in get_morphological_rules() {
+        // Check plural form first (e.g., "vloggers" -> "vlogger" -> rule match)
+        let (is_plural, check_word) = if lower.ends_with('s') && !rule.suffix.ends_with('s') {
+            (true, &lower[..lower.len() - 1])
+        } else {
+            (false, lower.as_str())
+        };
+
+        if check_word.ends_with(rule.suffix) {
+            return Some(WordAnalysis::DerivedNoun {
+                lemma: check_word.to_string(),
+                number: if is_plural { Number::Plural } else { Number::Singular },
+            });
+        }
+    }
+
+    None
+}
+
+/// Check if a word is a known common noun or derivable from one.
+/// This is used for sentence-initial capitalization disambiguation.
+pub fn is_derivable_noun(word: &str) -> bool {
+    analyze_word(word).is_some()
 }
 
 #[cfg(test)]

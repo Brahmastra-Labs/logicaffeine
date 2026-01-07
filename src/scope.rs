@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::context::OwnershipState;
+use crate::drs::OwnershipState;
 
 #[derive(Debug, Clone)]
 pub struct ScopeEntry {

@@ -3,7 +3,7 @@ use logos::assert_snapshot;
 use logos::parse;
 use logos::token::TokenType;
 use logos::view::{ExprView, TermView};
-use logos::{compile, compile_all_scopes, compile_with_context, compile_discourse, compile_ambiguous};
+use logos::{compile, compile_all_scopes, compile_with_world_state, compile_with_discourse, compile_discourse, compile_ambiguous, Interner};
 
 fn has_modifier(modifiers: &[&str], name: &str) -> bool {
     modifiers.iter().any(|m| m.eq_ignore_ascii_case(name))
@@ -1384,11 +1384,12 @@ fn parsing_center_embedded_relative() {
 
 #[test]
 fn discourse_three_sentence_pronoun_chain() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("John entered.", &mut ctx).unwrap();
-    compile_with_context("He saw Mary.", &mut ctx).unwrap();
-    let r3 = compile_with_context("She greeted him.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("John entered.", &mut world_state, &mut interner).unwrap();
+    compile_with_discourse("He saw Mary.", &mut world_state, &mut interner).unwrap();
+    let r3 = compile_with_discourse("She greeted him.", &mut world_state, &mut interner).unwrap();
     assert!(
         r3.contains("M") || r3.contains("J"),
         "Three-sentence chain should resolve pronouns: got '{}'",
@@ -1398,11 +1399,12 @@ fn discourse_three_sentence_pronoun_chain() {
 
 #[test]
 fn discourse_multiple_same_gender_entities() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("John ran.", &mut ctx).unwrap();
-    compile_with_context("Bob walked.", &mut ctx).unwrap();
-    let r3 = compile_with_context("He stopped.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("John ran.", &mut world_state, &mut interner).unwrap();
+    compile_with_discourse("Bob walked.", &mut world_state, &mut interner).unwrap();
+    let r3 = compile_with_discourse("He stopped.", &mut world_state, &mut interner).unwrap();
     assert!(
         r3.contains("B") || r3.contains("J"),
         "Same-gender resolution should pick an entity: got '{}'",
@@ -1412,10 +1414,11 @@ fn discourse_multiple_same_gender_entities() {
 
 #[test]
 fn discourse_plural_coordination_they() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("John and Mary arrived.", &mut ctx).unwrap();
-    let r2 = compile_with_context("They smiled.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("John and Mary arrived.", &mut world_state, &mut interner).unwrap();
+    let r2 = compile_with_discourse("They smiled.", &mut world_state, &mut interner).unwrap();
     assert!(
         r2.contains("J") || r2.contains("M") || r2.contains("⊕") || r2.contains("Smile"),
         "Plural 'they' should resolve: got '{}'",
@@ -1425,11 +1428,12 @@ fn discourse_plural_coordination_they() {
 
 #[test]
 fn discourse_definite_coreference_chain() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("A dog barked.", &mut ctx).unwrap();
-    compile_with_context("The dog ran.", &mut ctx).unwrap();
-    let r3 = compile_with_context("The dog slept.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("A dog barked.", &mut world_state, &mut interner).unwrap();
+    compile_with_discourse("The dog ran.", &mut world_state, &mut interner).unwrap();
+    let r3 = compile_with_discourse("The dog slept.", &mut world_state, &mut interner).unwrap();
     assert!(
         r3.contains("D(") || r3.contains("Dog") || r3.contains("Sleep"),
         "Definite reference chain should work: got '{}'",
@@ -1453,10 +1457,11 @@ fn discourse_batch_three_sentences() {
 
 #[test]
 fn discourse_gender_agreement() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("Mary ran.", &mut ctx).unwrap();
-    let r2 = compile_with_context("She stopped.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("Mary ran.", &mut world_state, &mut interner).unwrap();
+    let r2 = compile_with_discourse("She stopped.", &mut world_state, &mut interner).unwrap();
     assert!(
         r2.contains("M"),
         "She should resolve to Mary: got '{}'",
@@ -1466,11 +1471,12 @@ fn discourse_gender_agreement() {
 
 #[test]
 fn discourse_object_pronoun_resolution() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("John entered.", &mut ctx).unwrap();
-    compile_with_context("Mary saw him.", &mut ctx).unwrap();
-    let r3 = compile_with_context("She greeted him.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("John entered.", &mut world_state, &mut interner).unwrap();
+    compile_with_discourse("Mary saw him.", &mut world_state, &mut interner).unwrap();
+    let r3 = compile_with_discourse("She greeted him.", &mut world_state, &mut interner).unwrap();
     assert!(
         r3.contains("M") || r3.contains("J"),
         "Object pronouns should resolve: got '{}'",
@@ -1480,10 +1486,11 @@ fn discourse_object_pronoun_resolution() {
 
 #[test]
 fn discourse_indefinite_introduces_entity() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("A cat appeared.", &mut ctx).unwrap();
-    let r2 = compile_with_context("It meowed.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("A cat appeared.", &mut world_state, &mut interner).unwrap();
+    let r2 = compile_with_discourse("It meowed.", &mut world_state, &mut interner).unwrap();
     assert!(
         r2.contains("C") || r2.contains("Meow"),
         "Indefinite should introduce entity for 'it': got '{}'",
@@ -1783,10 +1790,11 @@ fn biconditional_complex() {
 
 #[test]
 fn discourse_reflexive_anaphora_chain() {
-    use logos::context::DiscourseContext;
-    let mut ctx = DiscourseContext::new();
-    compile_with_context("John saw himself.", &mut ctx).unwrap();
-    let r2 = compile_with_context("He smiled.", &mut ctx).unwrap();
+    use logos::drs::WorldState;
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    compile_with_discourse("John saw himself.", &mut world_state, &mut interner).unwrap();
+    let r2 = compile_with_discourse("He smiled.", &mut world_state, &mut interner).unwrap();
     assert!(
         r2.contains("J") || r2.contains("Smile"),
         "He should resolve to John: got '{}'",

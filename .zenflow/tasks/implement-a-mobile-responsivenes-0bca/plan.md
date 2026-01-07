@@ -249,17 +249,34 @@
 cargo build --features cli
 ```
 
-### [ ] Task 2.4: Add Mobile Breakpoints to Profile Page
+### [x] Task 2.4: Add Mobile Breakpoints to Profile Page
+<!-- chat-id: 7507b03b-e8db-4160-8563-c8fab845ec62 -->
 **File**: `src/ui/pages/profile.rs`
 
-1. Add responsive breakpoints if missing
-2. Ensure form inputs and buttons meet touch target requirements
-3. Stack layouts appropriately on mobile
+**Completed**: Added comprehensive mobile breakpoints using MD (768px) and XS (480px):
+
+1. **Tablet breakpoint (768px)**:
+   - Hero section: reduced padding, smaller avatar (80px), smaller fonts
+   - Stats grid: 2-column layout with reduced padding and smaller font sizes
+   - Section titles: reduced font size
+   - Achievement grid: smaller columns (100px min), smaller badges with touch targets (44px min-height)
+   - Added `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation` for touch UX
+
+2. **Small phone breakpoint (480px)**:
+   - Hero: compact padding (12px), smaller avatar (64px), smallest fonts
+   - Stats: single column layout with horizontal card design (label left, value right)
+   - Section titles and progress cards: compact styling
+   - Achievement grid: 2-column fixed layout with minimal padding
+   - Empty state: reduced padding and font size
+
+3. **Touch target compliance**:
+   - Achievement badges meet 44px minimum touch target
+   - Tap highlight disabled for cleaner touch feedback
 
 **Verification**:
-```bash
-cargo build --features cli
-```
+- `cargo build --features cli` ✓
+
+**Manual Testing**: Check profile page at 320px, 480px, 768px, 1024px viewports
 
 ### [ ] Task 2.5: Standardize Workspace Page Breakpoints
 **File**: `src/ui/pages/workspace.rs`

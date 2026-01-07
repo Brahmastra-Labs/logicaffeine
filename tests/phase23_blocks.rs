@@ -61,7 +61,7 @@ fn if_block_parses() {
     let source = "## Main\nIf x equals 5:\n    Return true.\nReturn false.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -82,7 +82,7 @@ fn if_block_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -99,7 +99,7 @@ fn nested_if_blocks_parse() {
     let source = "## Main\nIf x equals 5:\n    If y equals 10:\n        Return 1.\n    Return 0.\nReturn 99.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -120,7 +120,7 @@ fn nested_if_blocks_parse() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -147,7 +147,7 @@ fn while_block_parses() {
     let source = "## Main\nLet x be 0.\nWhile x equals 5:\n    Set x to 10.\nReturn x.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -168,7 +168,7 @@ fn while_block_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -198,7 +198,7 @@ fn if_else_block_parses() {
     let source = "## Main\nIf x equals 5:\n    Return true.\nOtherwise:\n    Return false.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -219,7 +219,7 @@ fn if_else_block_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -252,7 +252,7 @@ fn call_statement_parses() {
     let source = "## Main\nCall process with data.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = logos::drs::WorldState::new();
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -273,7 +273,7 @@ fn call_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();

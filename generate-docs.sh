@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# LOGICAFFEINE 1.0 - AAA Documentation Generator
-# Generates comprehensive markdown documentation for the English-to-First-Order-Logic transpiler
+# LOGICAFFEINE 1.0 - Master Documentation Generator
+# Generates comprehensive markdown documentation for the LOGOS System.
 
 OUTPUT_FILE="LOGOS_DOCUMENTATION.md"
 
@@ -10,408 +10,96 @@ echo "Generating comprehensive LOGICAFFEINE documentation..."
 # ==============================================================================
 # HEADER & TABLE OF CONTENTS
 # ==============================================================================
-cat > "$OUTPUT_FILE" << 'EOF'
-# LOGICAFFEINE 1.0 - Complete Source Documentation
+catalyst > "$OUTPUT_FILE" << 'EOF'
+# LOGICAFFEINE 1.0 - System Documentation
 
-An English-to-First-Order-Logic transpiler with modal operators, temporal logic, and semantic analysis.
-
-**Technology Stack:**
-- Rust (core transpiler)
-- Dioxus 0.6 (web UI with Router)
-- Bumpalo (arena allocation)
-- WASM (browser deployment)
-
----
-
-## Acknowledgments & History
-
-Logicaffeine stands on the shoulders of giants. This project draws deep inspiration from **LogiCola**, the legendary logic tutorial software created by **Harry J. Gensler** at John Carroll University. For decades, LogiCola helped students worldwide master symbolic logic through interactive exercises and immediate feedback.
-
-The creator of Logicaffeine first encountered LogiCola as a college student, and it sparked a lasting passion for formal logic and natural language processing. The pedagogical brilliance of Gensler's approach—breaking complex logical concepts into digestible, interactive exercises—directly influenced Logicaffeine's curriculum design.
-
-While early prototypes referenced LogiCola's exercise format (LogiCola 3.0), **Logicaffeine 1.0** is a complete reimagining: a modern English-to-First-Order-Logic transpiler built from the ground up in Rust, featuring Montague semantics, Neo-Davidsonian event structures, and parse forest ambiguity resolution. The programming language component is called **LOGOS**.
-
-We honor LogiCola's legacy while charting a new course—extending beyond tutorial software into a full formal semantics engine capable of translating natural English into rigorous logical notation.
-
----
+# **Logicaffeine** is a hybrid platform combining a rigorous English-to-First-Order-Logic transpiler (**Logical Core**) with an imperative programming language (**Imperative Layer**) and a gamified learning environment (**Frontend**).
 
 ## Table of Contents
 
-### Overview
-1. [Architecture Overview](#architecture-overview)
+### I. System Overview
+1. [Architecture & Pipelines](#architecture-overview)
+2. [Grammar Rules & Patterns](#grammar-rules)
+3. [Project Statistics](#statistics)
 
-### Grammar & Semantics
-2. [Grammar Rules](#grammar-rules)
-   - [Sentence Patterns](#sentence-patterns)
-   - [Quantifiers & Scope](#quantifier-scope)
-   - [Modal & Temporal Operators](#modal-operators)
-   - [Linguistic Phenomena](#linguistic-phenomena)
-   - [Output Examples](#output-examples)
-3. [Glossary](#glossary)
+### II. Logical Core (Declarative)
+4. [Lexicon & Tokenization](#lexicon-data)
+5. [Parser & AST](#parser--ast)
+6. [Semantics (Lambda/DRT)](#semantic-analysis)
+7. [Transpilation (FOL/Kripke)](#transpilation)
 
-### Test Coverage
-4. [Integration Tests](#integration-tests)
-    - [Phase 1: Garden Path](#phase-1-garden-path)
-    - [Phase 2: Polarity Items](#phase-2-polarity-items)
-    - [Phase 3: Tense & Aspect](#phase-3-tense--aspect)
-    - [Phase 4: Movement & Reciprocals](#phase-4-movement--reciprocals)
-    - [Phase 5: Wh-Movement](#phase-5-wh-movement)
-    - [Phase 6: Complex Tense](#phase-6-complex-tense)
-    - [Phase 7: Intensional Semantics](#phase-7-intensional-semantics)
-    - [Phase 8: Degrees & Comparatives](#phase-8-degrees--comparatives)
-    - [Phase 8.5: Zone System](#phase-85-zone-system)
-    - [Phase 9: Noun/Verb Conversion](#phase-9-nounverb-conversion)
-    - [Phase 9.5: Structured Concurrency](#phase-95-structured-concurrency)
-    - [Phase 10: Ellipsis & Sluicing](#phase-10-ellipsis--sluicing)
-    - [Phase 11: Sorts & Metaphor](#phase-11-sorts--metaphor)
-    - [Phase 12: Parse Forest](#phase-12-parse-forest)
-    - [Phase 13: Multi-Word Expressions](#phase-13-mwe)
-    - [Phase 14: Ontology & Bridging](#phase-14-ontology)
-    - [Phase 15: Negation & Polarity](#phase-15-negation--polarity)
-    - [Phase 16: Aspect Stack](#phase-16-aspect-stack)
-    - [Phase 17: Comparatives & Superlatives](#phase-17-comparatives--superlatives)
-    - [Phase 18: Plurality](#phase-18-plurality)
-    - [Phase 19: Group Plurals](#phase-19-group-plurals)
-    - [Phase 20: Axiom Layer](#phase-20-axiom-layer)
-    - [Phase 21: Block Structure & Imperative](#phase-21-block-headers)
-    - [Phase 22: Identity, Scope & Resolution](#phase-22-identity-scope)
-    - [Phase 23: Type System & Statements](#phase-23-type-system)
-    - [Phase 24: Code Generation](#phase-24-code-generation)
-    - [Phase 25: Assertions & Smoke Tests](#phase-25-assertions)
-    - [Phase 26: End-to-End Pipeline](#phase-26-end-to-end)
-    - [Phase 27: Guards](#phase-27-guards)
-    - [Phase 28: Precedence](#phase-28-precedence)
-    - [Phase 29: Runtime Injection](#phase-29-runtime-injection)
-    - [Phase 30: Collections & Iteration](#phase-30-collections--iteration)
-    - [Phase 31: User-Defined Types](#phase-31-user-defined-types)
-    - [Phase 32: Function Definitions & Inference](#phase-32-function-definitions--inference)
-    - [Phase 33: Sum Types & Pattern Matching](#phase-33-sum-types--pattern-matching)
-    - [Phase 34: User-Defined Generics](#phase-34-user-defined-generics)
-    - [Phase 35: The Proof Bridge](#phase-35-the-proof-bridge)
-    - [Phase 36: Module System](#phase-36-module-system)
-    - [Phase 37: Project Manifest & Build Tool](#phase-37-project-manifest--build-tool)
-    - [Phase 38: Standard Library (IO & System)](#phase-38-standard-library-io--system)
-    - [Phase 41: Event Adjectives](#phase-41-event-adjectives)
-    - [Phase 42: Discourse Representation Structures](#phase-42-discourse-representation-structures)
-    - [Phase 42b: Z3 Static Verification](#phase-42b-z3-static-verification)
-    - [Phase 42c: Refinement Verification](#phase-42c-refinement-verification)
-    - [Phase 43: Type Safety & Collections](#phase-43-type-safety--collections)
-    - [Phase 46: Agents](#phase-46-agents)
-    - [Phase 48: Network Primitives](#phase-48-network-primitives)
-    - [Phase 49: CRDT](#phase-49-crdt)
-    - [Phase 50: Security Policies](#phase-50-security-policies)
-    - [Phase 51: P2P Mesh Networking](#phase-51-p2p-mesh-networking)
-    - [Phase 52: The Sync](#phase-52-the-sync)
-    - [Phase 54: Go-like Concurrency](#phase-54-go-like-concurrency)
-    - [Phase Kripke: Modal Semantics](#phase-kripke-modal-semantics-with-possible-worlds)
-    - [Phase Privation Modal: Scope Matrix](#phase-privation-modal-modal--negation-scope-matrix)
-    - [End-to-End Tests](#end-to-end-tests)
-5. [Statistics](#statistics)
+### III. Imperative Layer (Executable)
+8. [Compiler & Codegen](#code-generation)
+9. [Type System & Analysis](#type-analysis)
+10. [Runtime & Standard Lib](#logos-core-runtime)
+11. [Verification (Z3)](#logos-verification-crate)
 
-### Source Code
-6. [Lexicon Data](#lexicon-data)
-7. [Lexer & Tokenization](#lexer--tokenization)
-8. [Parser & AST](#parser--ast) (Dual-AST: logic.rs + stmt.rs)
-9. [Transpilation](#transpilation)
-10. [Semantic Analysis](#semantic-analysis)
-11. [Type Analysis](#type-analysis) (analysis/ module)
-12. [Code Generation](#code-generation) (codegen.rs, compile.rs, scope.rs)
-13. [Public API](#public-api)
-14. [Linguistic Data](#linguistic-data)
-15. [Memory Management](#memory-management)
-16. [Error Handling](#error-handling)
-17. [Gamification](#gamification) (achievements, progress, SRS)
-18. [Web Application](#web-application)
-    - [Pages](#pages): Home, Workspace, Pricing, Learn, Lesson
-    - [Components](#components): ChatDisplay, InputArea
-    - [Router](#router): Client-side navigation
-19. [Problem Generator](#problem-generator)
-    - [Curriculum Structure](#curriculum-structure)
-    - [Runtime Lexicon](#runtime-lexicon)
-    - [Generator Engine](#generator-engine)
-    - [Grader](#grader)
-20. [Logos Core Runtime](#logos-core-runtime)
-21. [Examples](#examples)
+### IV. Frontend & Application
+12. [Web Application (Dioxus)](#web-application)
+13. [Problem Generator](#problem-generator)
+14. [Gamification](#gamification)
 
-### Appendix
-22. [Metadata](#metadata)
+### V. Reference
+15. [Test Suite](#integration-tests)
+16. [Public API](#public-api)
 
 ---
 
 ## Architecture Overview
 
-LOGICAFFEINE implements a compiler pipeline for natural language to formal logic translation, with support for **structural ambiguity** via parse forests.
+LOGICAFFEINE consists of two primary compilation pipelines sharing a common frontend (Lexer).
 
+### 1. The Logical Pipeline (English -> Logic)
+Translates natural language into formal notation (FOL, LaTeX, Kripke). Handles ambiguity, scope, and semantics.
+
+### 2. The Imperative Pipeline (English -> Rust)
+Compiles controlled English into executable Rust code. Handles type checking, memory safety, and concurrency.
+
+```mermaid
+graph TD
+    A[Input English] --> B(Lexer Tokens);
+    B --> C{Parser AST};
+    C --> D{Parser Modes};
+    D -- Logical Mode --> E[Parse Forest];
+    E --> F[Lambda Calculus];
+    F --> G[DRT];
+    G --> H[Kripke Lowering];
+    H --> I[Output Generation];
+    D -- Imperative Mode --> J[Stmt AST];
+    J --> K[Type Analysis];
+    K --> L[Verification Z3];
+    L --> M[Code Generation Rust];
+
+    subgraph Logical Pipeline
+        E; F; G; H; I;
+    end
+    subgraph Imperative Pipeline
+        J; K; L; M;
+    end
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           LOGICAFFEINE 1.0 Pipeline                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌───────────┐    ┌───────┐  │
-│   │  Input  │───▶│  Lexer  │───▶│ Parser  │───▶│ Transpile │───▶│Output │  │
-│   │ English │    │         │    │         │    │           │    │ FOL   │  │
-│   └─────────┘    └────┬────┘    └────┬────┘    └─────┬─────┘    └───────┘  │
-│                       │              │               │                      │
-│                       ▼              ▼               ▼                      │
-│                  ┌─────────┐    ┌─────────┐    ┌───────────┐               │
-│                  │ Tokens  │    │  Parse  │    │ Vec<AST>  │               │
-│                  └─────────┘    │  Forest │    │ (multiple │               │
-│                                 └─────────┘    │ readings) │               │
-│                                      │         └───────────┘               │
-│                                      ▼                                      │
-│                              ┌───────────────┐                              │
-│                              │    Lambda     │                              │
-│                              │   Calculus    │                              │
-│                              │  (Semantics)  │                              │
-│                              └───────────────┘                              │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
 
-**Data Flow:**
-1. **Lexer** (`lexer.rs`, `token.rs`): Tokenizes English input using dictionary-based classification
-2. **Parser** (`parser/`, `ast.rs`): Builds Arena-based AST via recursive descent; returns **parse forest** for ambiguous inputs
-3. **Semantics** (`lambda.rs`, `context.rs`): Lambda calculus for compositional meaning
-4. **Transpiler** (`transpile.rs`, `formatter.rs`): Generates Unicode, LaTeX, SimpleFOL, or Kripke logical notation
+### Key Technical Features
 
-**Key Design Decisions:**
-- **Arena allocation** (`bumpalo`) for zero-copy AST nodes with `Copy` semantics
-- **Boxed AST variants** - Large variants boxed to reduce Expr size (112→32 bytes)
-- **AstContext** - Unified arena access struct for ergonomic allocation
-- **Visitor pattern** - walk_expr/walk_term for clean AST traversal
-- **RAII checkpoints** - ParserCheckpoint for automatic backtracking cleanup
-- **ParserGuard** - RAII guard with Deref/DerefMut for transparent parser access and automatic rollback
-- **Fluent builders** - Type-safe expression construction with inline builders on AstContext
-- **Semantic token sets** - Const arrays (WH_WORDS, MODALS) for declarative token matching via check_any()
-- **Zero-alloc transpile** - write_to/write_logic methods avoid String allocation
-- **Parse forest** output via `compile_ambiguous()` for structurally ambiguous sentences
-- **Neo-Davidsonian event semantics** with thematic roles (Agent, Patient, Theme, etc.)
-- **Control theory** (Chomsky) - raising verbs, control verbs, PRO binding
-- **Generic quantifiers** (`Gen x`) for law-like generalizations ("Birds fly")
-- **Mereology/Plurals** with Sigma operator (σ) and Distributive wrapper (*)
-- **Presupposition & Focus** semantics (Strawson, Rooth)
-- **Gapping/ellipsis** support via backtracking and verb recovery
-- Symbol interning for efficient string comparisons
-- Discourse context tracking for pronoun resolution
-- Socratic error messages for educational feedback
-- **Span tracking** - Source positions on tokens for rich error diagnostics with display_with_source()
-- **Snapshot testing** - Golden master tests via assert_snapshot! macro (UPDATE_SNAPSHOTS=1 to regenerate)
-- **Typo suggestions** - Zero-dependency Levenshtein distance for 'did you mean?' error messages
-- **ANSI styling** - Compiler-style colored terminal output for errors
-- **Reciprocals** - "each other" expands to bidirectional predicate conjunction
-- **Polarity sensitivity** - Context-aware "any" interpretation (NPI vs free choice)
-- **Garden path reanalysis** - Reduced relative clause detection with backtracking
-- **Aspect chains** - Perfect/progressive/passive/modal stacking in verb groups
-- **Voice operator** - Passive voice handling integrated with event semantics
-- **Vendler classes (Aktionsart)** - Lexical aspect classification: State, Activity, Accomplishment, Achievement, Semelfactive
-- **Zero-derivation** - Nouns dynamically coerced to verbs via morphological heuristics; consonant cluster recovery for silent-e lemmas
-- **VP Ellipsis reconstruction** - EventTemplate stores verb + non-agent roles; try_parse_ellipsis() detects auxiliary + terminator pattern and rebuilds NeoEvent with new subject
-- **Sluicing reconstruction** - Wh-word at sentence boundary triggers reconstruction from last_event_template; contraction expansion in lexer enables "don't know who" parsing
-- **Verb-first classification** - Polysemous words (love, ring) classified as verbs first; parser accepts verbs in noun positions via consume_content_word()
-- **Parse forest** - compile_forest() returns Vec<String> of all valid readings for ambiguous sentences
-- **MAX_FOREST_READINGS** (12) - Limits parse forest size to prevent exponential blowup
-- **noun_priority_mode** - Parser flag for lexical ambiguity forking; prefers noun interpretation for Ambiguous tokens
-- **Sort system** - Ontological type hierarchy (Human⊂Animate⊂Physical) for semantic compatibility and metaphor detection
-- **MWE Pipeline** - Post-tokenization trie-based collapsing of multi-word expressions (compound nouns, idioms, phrasal verbs)
-- **Bridging Anaphora** - Part-whole inference for definite NPs without direct antecedent via ontology lookup
-- **Copula Adjective Preference** - After copula, simple-aspect Verbs with Adjective alternatives prefer adjective reading
-- **Content Word Classifiers** - Heuristic disambiguation via is_noun_like(), is_verb_like(), is_adjective_like()
-- **NPI Licensing** - Negative Polarity Items (any, ever, anything) require licensing context; "no/nobody/nothing" are inherently negative quantifiers
-- **Collective/Distributive ambiguity** - Mixed verbs (lift, carry) fork parse forest for plural subjects; collective verbs (gather, meet) force group reading; distributive verbs force individual reading
-- **Distributive Expr** - Expr::Distributive wraps predicates for \`*\` operator transpilation
-- **GroupQuantifier** - Expr::GroupQuantifier for cardinal indefinites with collective readings; outputs Group(g) ∧ Count(g, n) ∧ ∀x(Member(x, g) → R(x)) structure
-- **Axiom Layer** - Post-parse AST transformation via apply_axioms(); expands predicates using meaning postulates from lexicon (analytic entailments, privatives, hypernyms, verb entailments)
-- **Problem Generator** - Template-based exercise generation with {ProperName}, {Noun}, {Verb}, {Adjective} slots; runtime lexicon queries with constraint filtering; morphological modifiers (:Plural, :Past)
-- **Semantic Grading** - Answer comparison via Unicode normalization, AST parsing, and structural equivalence; handles commutativity of ∧/∨; partial credit scoring
-- **Curriculum Embedding** - Filesystem-based curriculum (assets/curriculum/) embedded at compile time via include_dir; JSON schemas for eras, modules, exercises
-- **Catch-all 404 Route** - NotFound variant with /:..route pattern prevents router panics on invalid URLs
-- **Refinement Types** - \`Type where predicate\` syntax with RefinementContext tracking; debug_assert!() enforcement at Let binding and Set mutation
-- **Zone System** - Region-based memory with Heap (bumpalo arena) and Mapped (memmap2 file) variants; escape analysis enforces Hotel California rule; O(1) alloc/bulk dealloc
-- **Diagnostic Bridge** - Rustc JSON parsing with SourceMap for error translation; E0382→"Cannot use X after giving it away"; Socratic explanations instead of raw compiler errors
-- **Structured Concurrency** - \`Attempt all:\` for async I/O (tokio::join!); \`Simultaneously:\` for parallel CPU (rayon::join or thread::spawn); Let bindings destructure to tuples
-- **Z3 Static Verification** - Smart Full Mapping: Int/Bool direct, Object uninterpreted sort, Predicates/Modals/Temporals → Apply; \`compile_to_rust_verified()\` opt-in; graceful degradation for complex linguistic constructs
-- **CRDT types** - GCounter (grow-only), LWWRegister (last-write-wins) for distributed state; \`Shared\` modifier generates Merge impl
-- **Policy-based security** - Predicate definitions (is_admin), capability checks (can_publish), Check statement for mandatory enforcement
-- **Check vs Assert** - Check never optimized out (security); Assert becomes debug_assert (logic)
-- **libp2p Mesh** - QUIC-first transport with TCP fallback, Noise encryption, Yamux multiplexing, mDNS peer discovery
-- **Bincode Wire Protocol** - LogosWire trait for serialize/deserialize; /logos/mesh/1.0.0 protocol with 16MB max message size
-- **Network Statements** - Listen on, Connect to, Send to remote, Let x be a PeerAgent at
-- **Synced<T> Wrapper** - Auto-publishes on mutation, auto-merges on receive; \`Sync x on "topic"\` binds CRDT to GossipSub topic
-- **Cross-Platform VFS** - Vfs trait with conditional Send+Sync; NativeVfs (tokio::fs) vs OpfsVfs (OPFS API); PlatformVfs alias for unified access
-- **Go-like Concurrency** - Pipe<T> bounded channels (PipeSender/PipeReceiver split), TaskHandle<T> with abort/is_finished, spawn() for green threads, Select statement (tokio::select!), check_preemption() for cooperative yields
-- **Kripke Semantics (Deep Mode)** - Modal lowering pass transforms surface modal operators (□, ◇) into explicit possible world quantification; OutputFormat::Kripke produces `∃w1(Accessible_Alethic(w0, w1) ∧ P(x, w1))` for alethic possibility; compile_kripke() and compile_forest_with_options() with Kripke format; accessibility predicates distinguish alethic/deontic/epistemic modalities
-- **Privation × Modal Matrix** - Privative verbs (lacks, missing) with polysemous modals (can/may) generate 4 readings: 2 modal types (Alethic ◇/Deontic P) × 2 scope types (Partial ∃y(K(y)∧¬H) / Total ¬∃y(K(y)∧H)); NegativeScopeMode controls negation placement; ModalPreference forces modal flavor; simple_readings deduplicates since SimpleFOL strips modals
+**Core Engine:**
+- **Zero-Copy AST:** `bumpalo` arena allocation for high-performance AST manipulation.
+- **Dual AST:** `ast::logic` (Declarative) and `ast::stmt` (Imperative) sharing common `Term` structures.
+- **Parse Forest:** Handles structural ambiguity (PP-attachment, scope) by producing all valid readings.
+- **Lexical Priority:** Verb-first disambiguation with safety nets for Noun/Verb polysemy ("Time flies").
 
-**Quantifier Kinds:**
-| Kind | Symbol | Example | Meaning |
-|------|--------|---------|---------|
-| Universal | ∀ | "All birds fly" | Every individual |
-| Existential | ∃ | "Some bird flies" | At least one |
-| Generic | Gen | "Birds fly" | Characteristic/law-like |
-| Negative | ¬∃ | "No birds swim" | None |
-| Many | MANY | "Many dogs bark" | Significantly many |
-| Most | MOST | "Most birds fly" | More than half |
-| Few | FEW | "Few cats swim" | Small number |
+**Logical Features:**
+- **Neo-Davidsonian Events:** `∃e(Kick(e) ∧ Agent(e,j))` semantics.
+- **Montague Semantics:** Compositional lambda calculus.
+- **Generalized Quantifiers:** `MANY`, `MOST`, `FEW` alongside `∀`, `∃`.
+- **Intensionality:** De Re/De Dicto distinction for opaque verbs (`seek`, `want`).
 
-**Scope Enumeration Complexity:**
-| Scenario | Formula | Example |
-|----------|---------|---------|
-| Naive | n! | 3 quantifiers → 6 readings |
-| With Islands | Π(k_i!) | 4 quantifiers (2+2) → 4 readings |
-| + Intensionality | Π(k_i!) × 2^m | m opaque verbs add binary choice |
-
-**Vendler Classes (Aktionsart):**
-| Class | Features | Example Verbs | Meaning |
-|-------|----------|---------------|---------|
-| State | +static, +durative, -telic | know, love, exist | No change, extends in time |
-| Activity | -static, +durative, -telic | run, swim, drive | Dynamic, no endpoint |
-| Accomplishment | -static, +durative, +telic | build, draw, write | Dynamic with endpoint |
-| Achievement | -static, -durative, +telic | win, find, die | Instantaneous change |
-| Semelfactive | -static, -durative, -telic | knock, cough, blink | Single punctual event |
-
-**Verb Plurality Classes:**
-| Class | Example Verbs | Plural Subject Behavior |
-|-------|---------------|------------------------|
-| Collective | gather, meet, disperse | Group reading only |
-| Distributive | sleep, run, die | Individual reading only |
-| Mixed | lift, carry, surround | Ambiguous - forks readings |
-
-**Word Classification Priority:**
-| Word | In Verbs | In disambiguation_not_verbs | In Nouns | In Adjectives | Result |
-|------|----------|----------------------------|----------|---------------|--------|
-| love | ✓ | ✗ | ✓ | ✗ | Verb (parser handles noun positions) |
-| ring | ✓ | ✓ | ✓ | ✗ | Noun (disambiguation + noun check) |
-| bus  | ✓ | ✓ | ✓ | ✗ | Noun (disambiguation + noun check) |
-| fake | ✓ | ✓ | ✗ | ✗ | Adjective (disambiguation, not noun) |
-| open | ✓ | ✗ | ✗ | ✓ | Ambiguous{Verb, [Adj]} (copula prefers Adj) |
-
-**Lexical Ambiguity (Phase 12):**
-| Pattern | Example | Readings |
-|---------|---------|----------|
-| Noun/Verb | "I saw her duck" | duck=bird vs duck=action |
-| Verb/Adjective | "The door is open" | open=Adj (copula preference) vs open=Verb |
-| Possessive Pronoun | "her book" vs "saw her" | possessive determiner vs object pronoun |
-| PP Attachment | "man with telescope" | VP attachment (instrument) vs NP attachment (modifier) |
-
-**Sort Hierarchy (Phase 11):**
-| Sort | Parent | Examples |
-|------|--------|----------|
-| Human | Animate | John, Mary, Juliet |
-| Animate | Physical | dog, cat, bird |
-| Celestial | - | Sun, Moon, stars |
-| Abstract | - | Time, Justice, Love |
-| Physical | - | Rock, Table, Book |
-| Value | - | Money, Gold |
-
-**Aspect Operators:**
-| Operator | Symbol | Example | Meaning |
-|----------|--------|---------|---------|
-| Progressive | Prog | "is running" | Ongoing action |
-| Perfect | Perf | "has eaten" | Completed with relevance |
-| Habitual | HAB | "John runs" (present activity) | Characteristic behavior |
-| Iterative | ITER | "kept knocking" | Repeated semelfactive |
-
-**Plural Semantics (Link-style Mereology):**
-| Feature | Syntax | Output | Meaning |
-|---------|--------|--------|---------|
-| Sigma operator | "The dogs" | σx.Dog(x) | Maximal sum of all dogs |
-| Collective verb | "The dogs gathered" | P(G(σD)) | Group action |
-| Distributive verb | "The dogs barked" | *P(B(σD)) | Each individual acted |
-| Coordination | "John and Mary met" | P(M2(J ⊕ M)) | Sum of individuals |
-
-**Event Semantics (Neo-Davidsonian):**
-| Role | Example | Output |
-|------|---------|--------|
-| Agent | "John kicked the ball" | ∃e(Kick(e) ∧ Agent(e,j) ∧ Theme(e,b)) |
-| Theme | "The ball was kicked" | ∃e(Kick(e) ∧ Theme(e,b)) |
-| Recipient | "John gave Mary a book" | ∃e(Give(e) ∧ Agent(e,j) ∧ Recipient(e,m) ∧ Theme(e,b)) |
-| Instrument | "with a hammer" | Instrument(e,h) |
-
-**Ditransitive Verbs:**
-| Verb | Example | Roles |
-|------|---------|-------|
-| give | "John gave Mary a book" | Agent, Recipient, Theme |
-| send | "Mary sent John a letter" | Agent, Recipient, Theme |
-| tell | "She told him a story" | Agent, Recipient, Theme |
-
-**Causal Relations:**
-| Type | Example | Output |
-|------|---------|--------|
-| Because | "John fell because he slipped" | Cause(Slip(j), Fall(j)) |
-
-**Deixis (Demonstratives):**
-| Type | Words | Predicate |
-|------|-------|-----------|
-| Proximal | this, these | Proximal(x) |
-| Distal | that, those | Distal(x) |
-
-**Gerunds:**
-| Position | Example | Output |
-|----------|---------|--------|
-| Subject | "Running is healthy" | Healthy(Running) |
-| Object | "John loves swimming" | Love(j, Swimming) |
-
-**Mass Nouns:**
-| Measure | Example | Output |
-|---------|---------|--------|
-| Much | "much water" | Measure(x, Much) ∧ Water(x) |
-| Little | "little time" | Measure(x, Little) ∧ Time(x) |
-
-**Control Theory (Chomsky):**
-| Type | Example | Structure |
-|------|---------|-----------|
-| Subject Control | "John wants to leave" | Want(j, PRO_j leave) |
-| Object Control | "John persuaded Mary to go" | Persuade(j, m, PRO_m go) |
-| Raising | "John seems to be happy" | Seem(Happy(j)) |
-
-**Adjective Types:**
-| Type | Example | Output | Semantics |
-|------|---------|--------|-----------|
-| Intersective | "a red ball" | R(x) ∧ B(x) | Independent predicates |
-| Subsective | "a small elephant" | S(x, ^E) ∧ E(x) | Relative to noun class |
-| Non-Intersective | "a fake gun" | Fake(Gun) | Modifies concept |
-
-**Measurement Semantics (Phase 8):**
-| Dimension | Example | Output |
-|-----------|---------|--------|
-| Length | "5 meters long" | Value(5, meters, Length) |
-| Temperature | "98.6 degrees" | Value(98.6, degrees, Temperature) |
-| Cardinality | "aleph_0" | Value(aleph_0, ∅, Cardinality) |
-| Comparative | "2 inches taller" | Taller(j, m, Value(2, inches)) |
-
-**Compound Identifiers:**
-| Pattern | Example | Output |
-|---------|---------|--------|
-| noun + label | "set A" | set_A |
-| noun + proper | "King John" | King_John |
-| noun + letter | "function F" | function_F |
-
-**Zero-Derivation (Phase 9):**
-| Pattern | Example | Output |
-|---------|---------|--------|
-| noun→verb (past) | "tabled the motion" | Table(committee, motion) |
-| noun→verb (past) | "emailed him" | Email(she, him) |
-| noun→verb (past) | "googled the answer" | Google(j, answer) |
-| noun→verb (modal) | "should table" | Modal(Should, Table(x, motion)) |
-
-**VP Ellipsis (Phase 10a):**
-| Pattern | Example | Output |
-|---------|---------|--------|
-| does too | "John runs. Mary does too." | Run(j) ∧ Run(m) |
-| modal too | "John can swim. Mary can too." | ◇Swim(j) ∧ ◇Swim(m) |
-| does not | "John runs. Mary does not." | Run(j) ∧ ¬Run(m) |
-| with object | "John eats an apple. Mary does too." | Eat(j,apple) ∧ Eat(m,apple) |
-
-**Sluicing (Phase 10b):**
-| Pattern | Example | Output |
-|---------|---------|--------|
-| who sluicing | "Someone left. I know who." | ∃x(Leave(x)) ∧ Know(I, ?y[Leave(y)]) |
-| what sluicing | "John ate something. I know what." | ∃x(Eat(j,x)) ∧ Know(I, ?y[Eat(j,y)]) |
-| negation | "Someone called. I don't know who." | ∃x(Call(x)) ∧ ¬Know(I, ?y[Call(y)]) |
-| wonder | "Someone ran. I wonder who." | ∃x(Run(x)) ∧ Wonder(I, ?y[Run(y)]) |
+**Imperative Features:**
+- **Ownership System:** Linear types modeled on Rust ownership (Move/Borrow).
+- **Refinement Types:** `Let x: Int where x > 0` validated by Z3 or runtime checks.
+- **Concurrency:** Structured concurrency (`Simultaneously:`) and Go-like channels (`Pipe`).
+- **CRDTs:** Built-in `GCounter`, `LWWRegister` for distributed state.
+- **Mesh Networking:** P2P primitives (`Listen`, `Connect`, `Send`) via libp2p.
 
 ---
-
 EOF
 
 # ==============================================================================
@@ -436,11 +124,12 @@ add_file() {
         cat >> "$OUTPUT_FILE" << SECTION_END
 ### $title
 
-**File:** \`$file_path\`
+**File:** 
+$file_path
 
 $description
 
-\`\`\`$lang
+```$lang
 SECTION_END
         cat "$file_path" >> "$OUTPUT_FILE"
         echo "" >> "$OUTPUT_FILE"
@@ -467,7 +156,8 @@ add_test_description() {
         cat >> "$OUTPUT_FILE" << SECTION_END
 #### $title
 
-**File:** \`$file_path\`
+**File:** 
+$file_path
 
 $description
 
@@ -490,13 +180,11 @@ count_lines_in() {
     done
     echo $total
 }
-# GRAMMAR RULES (inline with Parser section)
-# ==============================================================================
+
+# GRAMMAR RULES
 cat >> "$OUTPUT_FILE" << 'EOF'
 
 ## Grammar Rules
-
-LOGICAFFEINE parses English sentences according to the following grammar patterns:
 
 ### Sentence Patterns
 
@@ -505,36 +193,10 @@ LOGICAFFEINE parses English sentences according to the following grammar pattern
 | Universal | "All cats are mammals" | ∀x(Cat(x) → Mammal(x)) |
 | Existential | "Some dogs bark" | ∃x(Dog(x) ∧ Bark(x)) |
 | Generic | "Birds fly" | Gen x(Bird(x) → Fly(x)) |
-| Singular | "Socrates is mortal" | Mortal(socrates) |
-| Negative | "No fish fly" | ¬∃x(Fish(x) ∧ Fly(x)) |
-| Conditional | "If it rains, the ground is wet" | Rain → Wet(ground) |
-| Gapping | "John ate an apple, and Mary, a pear" | Ate(john, apple) ∧ Ate(mary, pear) |
-| Plural Collective | "The dogs gathered" | P(G(σD)) |
-| Plural Distributive | "The dogs barked" | *P(B(σD)) |
-| Coordination | "John and Mary met" | P(M2(J ⊕ M)) |
-| Subject Control | "John wants to leave" | Want(j, Leave(PRO_j)) |
-| Object Control | "John persuaded Mary to go" | Persuade(j, m, Go(PRO_m)) |
-| Raising | "John seems to be happy" | Seem(Happy(j)) |
-| Focus | "Only John ran" | Only(j, Ran(j)) |
-| Presupposition | "John stopped smoking" | Smoke(j)_presup ∧ ¬Smoke(j) |
-| Counterfactual | "If John had run, he would have won" | □→(Run(j), Win(j)) |
-| Comparative | "John is taller than Mary" | Taller(j, m) |
-| Ditransitive | "John gave Mary a book" | ∃e(Give(e) ∧ Agent(e,j) ∧ Recipient(e,m) ∧ Theme(e,b)) |
-| Causal | "John fell because he slipped" | Cause(Slip(j), Fall(j)) |
-| Gerund Subject | "Running is healthy" | Healthy(Running) |
-| Gerund Object | "John loves swimming" | Love(j, Swimming) |
-| Deixis Proximal | "This cat meows" | ∃x(Proximal(x) ∧ Cat(x) ∧ Meow(x)) |
-| Deixis Distal | "That dog barks" | ∃x(Distal(x) ∧ Dog(x) ∧ Bark(x)) |
-| Mass Noun | "Much water flows" | ∃x(Measure(x, Much) ∧ Water(x) ∧ Flow(x)) |
-| Reciprocal | "They love each other" | Love(x,y) ∧ Love(y,x) |
-| NPI Any | "No one has any books" | ¬∃x∃y(Person(x) ∧ Book(y) ∧ Has(x,y)) |
-| Free Choice Any | "Any book works" | ∀x(Book(x) → Works(x)) |
-| Garden Path | "The horse raced past the barn fell" | ∃x(Horse(x) ∧ RacedPast(x,barn) ∧ Fell(x)) |
-| Perfect Aspect | "John has eaten" | Perf(Eat(j)) |
-| Progressive | "John is eating" | Prog(Eat(j)) |
-| Passive Voice | "The ball was kicked" | ∃e(Kick(e) ∧ Theme(e,ball)) |
-| Contact Clause | "The cat the dog chased ran" | ∃x(Cat(x) ∧ ∃y(Dog(y) ∧ Chase(y,x)) ∧ Run(x)) |
-| Stacked Relatives | "Every book that John read that Mary wrote" | ∀x((Book(x) ∧ Read(j,x) ∧ Wrote(m,x)) → ...) |
+| Imperative | "Let x be 5." | let x = 5; |
+| Conditional | "If x > 0: Return x." | if x > 0 { return x; } |
+| Network | "Send msg to peer." | peer.send(msg).await; |
+| Concurrency | "Launch a task to fn." | tokio::spawn(fn()); |
 
 ### Quantifier Kinds
 
@@ -545,1402 +207,23 @@ LOGICAFFEINE parses English sentences according to the following grammar pattern
 | Generic | Bare plural ("birds") | Gen | Law-like/characteristic |
 | Negative | "no", "none" | ¬∃ | True for none |
 
-### Quantifier Scope
-
-- Nested quantifiers resolve left-to-right by default
-- "Every student read some book" → ∀x(Student(x) → ∃y(Book(y) ∧ Read(x,y)))
-- Scope can be disambiguated via context
-
-### Structural Ambiguity
-
-Sentences with multiple valid parses return all readings via `compile_ambiguous()`:
-
-| Sentence | Reading 1 | Reading 2 |
-|----------|-----------|-----------|
-| "I saw the man with the telescope" | See(i, man, with:telescope) | See(i, man) ∧ Has(man, telescope) |
-
-**PP-Attachment:** Prepositional phrases can attach to VP (instrument) or NP (modifier).
-
-### Modal Operators
-
-| Operator | Symbol | Meaning |
-|----------|--------|---------|
-| Necessity | □ | "must", "necessarily" |
-| Possibility | ◇ | "can", "possibly", "might" |
-| Obligation | O | "ought", "should" |
-| Permission | P | "may" (deontic) |
-
-**Output Formats:**
-| Format | Example ("John can fly") | Notes |
-|--------|--------------------------|-------|
-| Simple | `Fly(John)` | Modals stripped, simple predicates |
-| Full | `◇_{0.5} ∃e(Fly(e) ∧ Agent(e, John))` | Modal + event semantics |
-| LaTeX | `\Diamond_{0.5} \exists e(Fly(e) \land Agent(e, John))` | Typesetting format |
-| Deep (Kripke) | `∃w1(Accessible_Alethic(w0, w1) ∧ ∃e(Fly(e, w1) ∧ Agent(e, John, w1)))` | Explicit world quantification |
-
-**Kripke Accessibility Relations:**
-| Modal Type | Accessibility Predicate | Example Verb |
-|------------|------------------------|--------------|
-| Alethic | Accessible_Alethic(w0, w1) | can, must |
-| Deontic | Accessible_Deontic(w0, w1) | should, may (permission) |
-| Epistemic | Accessible_Epistemic(w0, w1) | might, could (uncertainty) |
-
-### Temporal Operators
-
-| Operator | Symbol | Meaning |
-|----------|--------|---------|
-| Future | F | "will" |
-| Past | P | "did", past tense |
-| Always | G | "always" |
-| Sometimes | F | "sometimes" |
-
-### Linguistic Phenomena
-
-LOGICAFFEINE supports the following linguistic constructs:
-
-### Quantification
-- Universal: "all", "every", "each", "any"
-- Existential: "some", "a", "an", "there exists"
-- Generic: bare plurals ("birds", "dogs") - law-like generalizations
-- Negative: "no", "none", "not any"
-
-### Plurals & Mereology (Link-style)
-- Sigma operator (σ): maximal sum - "the dogs" → σx.Dog(x)
-- Collective verbs: "gather", "meet", "assemble", "disperse" - no distributive wrapper
-- Distributive verbs: most verbs - wrapped with * operator
-- Group formation (⊕): "John and Mary" → J ⊕ M
-
-### Event Semantics (Neo-Davidsonian)
-- Event variables: ∃e(Kick(e) ∧ Agent(e,j) ∧ Theme(e,b))
-- Thematic roles: Agent, Patient, Theme, Goal, Source, Recipient, Instrument, Location, Time, Manner
-- Adverbial modification: Manner(e, quickly)
-
-### Control Theory (Chomsky)
-- Subject control: "want", "try", "promise" - PRO bound to subject
-- Object control: "persuade", "force", "convince" - PRO bound to object
-- Raising: "seem", "appear" - no PRO, subject raises
-
-### Presupposition (Strawson)
-- Factive triggers: "know", "regret", "realize"
-- Aspectual triggers: "stop", "start", "continue" (require gerund complement)
-  - "John stopped smoking." → presupposition: John was smoking
-  - "John stopped." → no presupposition (simple past tense verb)
-- Definite descriptions: presuppose existence
-
-### Focus (Rooth)
-- Focus particles: "only", "even", "just"
-- Alternative semantics: focus introduces alternatives
-
-### Connectives
-- Conjunction: "and", "but", "yet"
-- Disjunction: "or", "either...or"
-- Implication: "if...then", "implies", "only if"
-- Biconditional: "if and only if", "iff"
-
-### Modality
-- Alethic: "necessarily", "possibly", "must", "can"
-- Deontic: "ought", "should", "may", "permitted"
-- Epistemic: "knows", "believes"
-
-### Anaphora
-- Pronouns: "he", "she", "it", "they"
-- Reflexives: "himself", "herself", "itself"
-- Demonstratives: "this", "that"
-
-### Relative Clauses
-- Restrictive: "the man who runs"
-- Non-restrictive: "John, who is tall"
-- Stacked relatives: "the book that John read that Mary wrote" - multiple relative clauses on single head noun
-
-### Presupposition Triggers
-- Definite descriptions: "the king of France"
-- Factive verbs: "knows that", "regrets that"
-- Change of state: "stopped", "began" (gerund complement required)
-  - Triggered: "stopped smoking" → presupposes was smoking
-  - Not triggered: "stopped" alone → simple verb, no presupposition
-
-### Ellipsis & Gapping
-- Gapping: "John ate an apple, and Mary, a pear" (verb elided in second conjunct)
-- VP Ellipsis: "John ran and Mary did too"
-- Sluicing: "Someone left, but I don't know who"
-
-### Structural Ambiguity
-- PP-attachment: "I saw the man with the telescope" (VP vs NP attachment)
-- Quantifier scope: "Every boy loves some girl" (wide vs narrow scope)
-- Coordination: "old men and women" (old men + women vs old men + old women)
-
-### Deixis (Demonstratives)
-- Proximal: "this", "these" → Proximal(x) predicate
-- Distal: "that", "those" → Distal(x) predicate
-- Spatial reference relative to speaker position
-
-### Ditransitive Verbs
-- Double object construction: "give X Y", "send X Y", "tell X Y"
-- Recipient thematic role for indirect object
-- Three-argument event: Agent, Recipient, Theme
-
-### Gerunds
-- Gerund as subject: "Running is fun" → predicate applied to nominalized verb
-- Gerund as object: "I love swimming" → verb as theme argument
-- -ing form functioning as noun phrase
-
-### Causal Connectives
-- "because" introduces causal relation: Cause(antecedent, consequent)
-- Antecedent is the cause, consequent is the effect
-- Order: "X because Y" → Cause(Y, X)
-
-### Mass Nouns
-- "much" + noun → Measure(x, Much) ∧ Noun(x)
-- "little" + noun → Measure(x, Little) ∧ Noun(x)
-- Quantity expressions for uncountable nouns
-
-### Reciprocals
-- Pattern: "each other" with plural subject
-- Expansion: P(x,y) ∧ P(y,x) for all pairs in the group
-- Example: "John and Mary love each other" → Love(j,m) ∧ Love(m,j)
-
-### Polarity Items
-- NPI "any": Licensed by negation, questions, conditionals → existential
-- Free choice "any": Universal interpretation in positive contexts
-- Context tracking via negation depth in parser
-- Example: "No one has any books" (NPI) vs "Any book will do" (free choice)
-
-### Garden Path Sentences
-- Reduced relative clauses: "The horse raced past the barn fell"
-- Initially parsed as main verb, triggers reanalysis
-- Backtracking to reduced relative interpretation
-- Parser uses try_reduced_relative_interpretation()
-
-### Vendler Classes (Aktionsart)
-- State: +static, +durative, -telic (know, love) - no progressive allowed
-- Activity: -static, +durative, -telic (run, swim) - present tense → Habitual
-- Accomplishment: -static, +durative, +telic (build, write) - present tense → Habitual
-- Achievement: -static, -durative, +telic (win, die) - present tense → Habitual
-- Semelfactive: -static, -durative, -telic (knock, blink) - progressive → Iterative
-
-### Aspect System
-- Progressive: -ing form (is/was running) → Prog(φ)
-- Perfect: have/has/had + past participle → Perf(φ)
-- Habitual: present tense non-stative → HAB(φ)
-- Iterative: semelfactive + progressive → ITER(φ)
-- Passive: been + past participle → Voice(Passive, φ)
-- Chains: Modal + Perfect + Passive + Progressive stacking
-- Example: "would have been being eaten" → chains all four
-
-### Contact Clauses
-- Reduced relatives without overt relativizer: "The cat the dog chased ran"
-- Pattern: NP + NP + Verb triggers contact clause interpretation
-- Equivalent to: "The cat [that] the dog chased ran"
-- Parser uses is_contact_clause_pattern() lookahead
-
-### Intensionality (De Re / De Dicto)
-- De Re: Object exists in actual world, quantifier scopes wide
-- De Dicto: Object described intensionally, quantifier scopes narrow
-- Opaque verbs: "seek", "want", "believe", "need", "fear"
-- Montague up-arrow (^): Marks intension of predicate
-- Example: "John seeks a unicorn"
-  - De Re: ∃x(Unicorn(x) ∧ Seek(j, x)) - specific unicorn exists
-  - De Dicto: Seek(j, ^Unicorn) - seeking unicorn-concept
-
-### Scope Islands
-- Island boundaries: conjunctions (if/and/or), relative clauses
-- Quantifiers cannot scope out of their island
-- Reduces exponential scope ambiguity to manageable product of factorials
-- Example: "Every man runs AND some dog barks" → 1! × 1! = 1 reading (no cross-island scoping)
-
-### Adjective Semantics
-- Intersective: Property independent of noun - "red ball" → R(x) ∧ B(x)
-- Subsective: Property relative to noun class - "small elephant" → S(x, ^E) ∧ E(x)
-- Non-Intersective: Modifies concept - "fake gun" → Fake(Gun)
-- Gradable: Allows comparison - "taller", "tallest"
-- Montague up-arrow (^): Marks intension of noun for subsective context
-
-### Generalized Quantifiers
-- Beyond ∀/∃: MANY, MOST, FEW with cardinality semantics
-- MANY x(P(x) ∧ Q(x)) - significantly many P's are Q's
-- MOST x(P(x) → Q(x)) - more than half of P's are Q's
-- FEW x(P(x) ∧ Q(x)) - small number of P's are Q's
-
-### Zero-Derivation (Noun→Verb Conversion)
-- English allows nouns to be used as verbs without morphological marking
-- Pattern detection: Past tense "-ed" suffix on non-lexicon words
-- Morphological recovery: Silent-e restoration via consonant cluster heuristics
-- Example: "table" (noun) → "tabled" (verb) → "Table(x, y)"
-- Handles: tabled, emailed, googled, skyped, friended, texted, etc.
-
-### VP Ellipsis (Anaphoric Reconstruction)
-- Elided VP reconstructed from discourse antecedent
-- Pattern: Subject + Auxiliary + (not)? + Terminator (too/also/.)
-- Template stores: verb + non-agent thematic roles + modifiers
-- Reconstruction: New subject as Agent, preserve Theme/Goal/etc.
-- Modal preservation: "can too" → same modal on reconstructed VP
-- Negation: "does not" → negated reconstruction
-- Examples: "John runs. Mary does too." → Run(j) ∧ Run(m)
-
-### Sluicing (Wh-Ellipsis)
-- Elided wh-clause reconstructed from discourse antecedent
-- Pattern: Embedding verb + wh-word + terminator (period/comma/EOF)
-- Template stores: verb + thematic roles from antecedent clause
-- Reconstruction: wh-variable fills Agent (who) or Theme (what) slot
-- Negation support: "I don't know who" via contraction expansion
-- Embedding verbs: know, wonder (Opaque feature)
-- Examples: "Someone left. I know who." → ∃x(Leave(x)) ∧ Know(I, ?y[Leave(y)])
-
-### Degree Semantics (Phase 8)
-- Comparative with measure: "2 inches taller" → Taller(j, m, 2 inches)
-- Absolute measurement: "5 meters long" → Long(rope, 5 meters)
-- Symbolic numbers: aleph_0, omega for infinite cardinals
-- Dimension tracking: Length, Time, Weight, Temperature, Cardinality
-- NumberKind types: Real(f64), Integer(i64), Symbolic(Symbol)
-- Term::Value stores numeric value with optional unit and dimension
-
-### Topicalization (Object Fronting)
-- Pattern: "NP, Subject Verb" → fronted NP is object (Theme)
-- Example: "The apple, John ate." → Eat(j, apple)
-- Adjective preservation: "The red apple, John ate." keeps Red(x) ∧ Apple(x)
-- Pronoun subject handling: "The book, he read."
-- Implementation: parser/mod.rs lines 401-473, uses wrap_with_definiteness_full()
-
-### Long-Distance Dependencies (Wh-Movement)
-- Filler-Gap binding across clause boundaries
-- Example: "Who did John say Mary loves?" → λx.Say(j, Loves(m, x))
-- Parser field: filler_gap: Option<Symbol> in Parser struct
-- Persists through recursive clause parsing for embedded extractions
-- Pied-piping: "To whom did John give the book?" fronts P+wh together
-
-### Sentential Complements (Embedded Clauses)
-- Verbs like "say", "believe", "think" take clausal arguments
-- Represented as Term::Proposition wrapping the embedded Expr
-- Example: "John said Mary runs" → Say(j, [Run(m)])
-- Bracket notation [expr] distinguishes from conjunction
-- Supports wh-extraction across clause boundaries
-- Communication verbs: say, tell, report, announce
-- Propositional attitude verbs: believe, think, know, doubt
-
-### Reichenbach Temporal Semantics
-- Three-point temporal model: Event (E), Reference (R), Speech (S)
-- Past: R < S (reference before speech)
-- Future: S < R (speech before reference)
-- Perfect: E < R (event before reference)
-- Past Perfect: E < R < S ("had run")
-- Future Perfect: E < R, S < R ("will have run")
-- Present Perfect: E < R, R = S ("has run")
-- Output uses Precedes(x, y) predicates for explicit temporal ordering
-
-### Multi-Word Expressions (Phase 13)
-- Compound nouns: "fire engine" → FireEngine (merged single token)
-- Idioms: "kicked the bucket" → Die (semantic replacement)
-- Phrasal verbs: "gave up" → Surrender
-- Trie-based pattern matching for efficient MWE detection
-- Tense inheritance: "kicked the bucket" inherits past tense from "kicked"
-- Post-tokenization pipeline: apply_mwe_pipeline() collapses multi-token sequences
-
-### Bridging Anaphora (Phase 14)
-- Part-whole inference for definite NPs without direct antecedent
-- Example: "I bought a car. The engine smoked." → PartOf(engine, car)
-- Ontology lookup: find_bridging_wholes() returns possible whole objects
-- Ambiguous bridging handled via parse forest forking
-- Sort compatibility checking for semantic validation
-
-### Metaphor Detection (Phase 14)
-- Sort violations trigger Metaphor wrapper
-- Example: "The rock was happy" → Metaphor(Happy(rock))
-- Predicate sort requirements checked via ontology module
-- Compatible sorts pass without Metaphor wrapping
-- Example: "John was happy" → Happy(j) (no metaphor - Human compatible with mental predicates)
-
-### Negation & Polarity Items (Phase 15)
-- Free choice "any": "Any cat hunts" → ∀x(Cat(x) → Hunt(x))
-- NPI "any" with negation: "did not see any X" → ¬∃x(X(x) ∧ See(...,x))
-- Negative quantifiers: nobody, nothing, no one → ∀x(R(x) → ¬P(x))
-- Scope: "Not all birds fly" → ¬∀ (negation scopes over universal)
-- Temporal NPIs: "never" → inherent negation, "ever" → requires licensor
-- NPI licensing by "no": "No dog saw anything" licenses existential in object
-
-### Output Examples
-
-#### Unicode Output
-
-**Input:** "All humans are mortal"
-**Output:** `∀x(Human(x) → Mortal(x))`
-
-**Input:** "Birds fly" (Generic)
-**Output:** `Gen x(Bird(x) → Fly(x))`
-
-**Input:** "Socrates is human and Socrates is mortal"
-**Output:** `Human(socrates) ∧ Mortal(socrates)`
-
-**Input:** "John ate an apple, and Mary, a pear" (Gapping)
-**Output:** `Ate(john, apple) ∧ Ate(mary, pear)`
-
-**Input:** "Necessarily, if something is a bachelor then it is unmarried"
-**Output:** `□∀x(Bachelor(x) → Unmarried(x))`
-
-### Plural Output (Mereology)
-
-**Input:** "The dogs gathered" (Collective)
-**Output:** `P(G(σD))`
-
-**Input:** "The dogs barked" (Distributive)
-**Output:** `*P(B(σD))`
-
-**Input:** "John and Mary met" (Coordination)
-**Output:** `P(M2(J ⊕ M))`
-
-### Event Semantics Output
-
-**Input:** "John kicked the ball"
-**Output:** `∃e(Kick(e) ∧ Agent(e,j) ∧ Theme(e,b))`
-
-### Control Output
-
-**Input:** "John wants to leave"
-**Output:** `Want(j, Leave(PRO_j))`
-
-**Input:** "John seems to be happy"
-**Output:** `Seem(Happy(j))`
-
-### Focus & Presupposition Output
-
-**Input:** "Only John ran"
-**Output:** `Only(j, Ran(j))`
-
-**Input:** "John stopped smoking"
-**Output:** `Stop(j, Smoke(j))` with presupposition: `Smoke(j)`
-
-### Ambiguous Output (compile_ambiguous)
-
-**Input:** "I saw the man with the telescope"
-**Output (Reading 1 - VP attachment):** `See(i, man, with:telescope)`
-**Output (Reading 2 - NP attachment):** `See(i, man) ∧ Has(man, telescope)`
-
-### LaTeX Output
-
-**Input:** "All humans are mortal"
-**Output:** `\forall x(Human(x) \rightarrow Mortal(x))`
-
-**Input:** "Birds fly" (Generic)
-**Output:** `\text{Gen } x(Bird(x) \rightarrow Fly(x))`
-
-**Input:** "Some cat loves every dog"
-**Output:** `\exists x(Cat(x) \land \forall y(Dog(y) \rightarrow Loves(x,y)))`
-
-### Kripke/Deep Output
-
-Deep mode applies Kripke lowering to transform surface modal operators into explicit possible world quantification with accessibility predicates.
-
-**Input:** "John can fly" (Alethic possibility)
-**Output:** `∃w1(Accessible_Alethic(w0, w1) ∧ ∃e(Fly(e, w1) ∧ Agent(e, John, w1)))`
-
-**Input:** "John should study" (Deontic obligation)
-**Output:** `∀w1(Accessible_Deontic(w0, w1) → ∃e(Study(e, w1) ∧ Agent(e, John, w1)))`
-
-**Input:** "John must run" (Alethic necessity)
-**Output:** `∀w1(Accessible_Alethic(w0, w1) → ∃e(Run(e, w1) ∧ Agent(e, John, w1)))`
-
-**Input:** "All dogs sleep" (Non-modal at actual world)
-**Output:** `∀x(Dog(x, w0) → ∃e(Sleep(e, w0) ∧ Agent(e, x, w0)))`
-
-### Ditransitive Output
-
-**Input:** "John gave Mary a book"
-**Output:** `∃e(Give(e) ∧ Agent(e, j) ∧ Recipient(e, m) ∧ Theme(e, b))`
-
-**Input:** "She sent him a letter"
-**Output:** `∃e(Send(e) ∧ Agent(e, s) ∧ Recipient(e, h) ∧ Theme(e, l))`
-
-### Causal Output
-
-**Input:** "John fell because he slipped"
-**Output:** `Cause(Slip(j), Fall(j))`
-
-**Input:** "The plant died because it lacked water"
-**Output:** `Cause(Lack(p, w), Die(p))`
-
-### Gerund Output
-
-**Input:** "Running is healthy"
-**Output:** `Healthy(Running)`
-
-**Input:** "John loves swimming"
-**Output:** `Love(j, Swimming)`
-
-### Deixis Output
-
-**Input:** "This dog barks"
-**Output:** `∃x(Proximal(x) ∧ Dog(x) ∧ Bark(x))`
-
-**Input:** "Those cats meow"
-**Output:** `∃x(Distal(x) ∧ Cat(x) ∧ Meow(x))`
-
-### Mass Noun Output
-
-**Input:** "Much water flows"
-**Output:** `∃x(Measure(x, Much) ∧ Water(x) ∧ Flow(x))`
-
-**Input:** "Little time remains"
-**Output:** `∃x(Measure(x, Little) ∧ Time(x) ∧ Remain(x))`
-
-### Reciprocal Output
-
-**Input:** "John and Mary love each other"
-**Output:** `Love(j, m) ∧ Love(m, j)`
-
-**Input:** "They saw each other"
-**Output:** `See(x, y) ∧ See(y, x)`
-
-### Polarity Output
-
-**Input:** "No one has any books" (NPI)
-**Output:** `¬∃x(Person(x) ∧ ∃y(Book(y) ∧ Has(x, y)))`
-
-**Input:** "Any book works" (Free Choice)
-**Output:** `∀x(Book(x) → Works(x))`
-
-### Garden Path Output
-
-**Input:** "The horse raced past the barn fell"
-**Output:** `∃x(Horse(x) ∧ RacedPast(x, barn) ∧ Fell(x))`
-
-### Aspect Output
-
-**Input:** "John is running" (Progressive)
-**Output:** `Prog(∃e(Run(e) ∧ Agent(e, j)))`
-
-**Input:** "John has eaten" (Perfect)
-**Output:** `Perf(∃e(Eat(e) ∧ Agent(e, j)))`
-
-**Input:** "The ball was kicked" (Passive)
-**Output:** `∃e(Kick(e) ∧ Theme(e, ball))`
-
-**Input:** "John was running" (Past Progressive)
-**Output:** `Past(Prog(∃e(Run(e) ∧ Agent(e, j))))`
-
-### Vendler/Aktionsart Output
-
-**Input:** "John runs" (Activity, Present)
-**Output:** `HAB(∃e(Run(e) ∧ Agent(e, j)))`
-
-**Input:** "John knows Mary" (State, Present)
-**Output:** `∃e(Know(e) ∧ Agent(e, j) ∧ Theme(e, m))` (no Habitual wrapper)
-
-**Input:** "John is knocking" (Semelfactive, Progressive)
-**Output:** `ITER(∃e(Knock(e) ∧ Agent(e, j)))`
-
-**Input:** "John built a house" (Accomplishment, Past)
-**Output:** `Past(∃e(Build(e) ∧ Agent(e, j) ∧ Theme(e, h)))`
-
-**Input:** "John won" (Achievement, Past)
-**Output:** `Past(∃e(Win(e) ∧ Agent(e, j)))`
-
-### Intensional Readings (De Re / De Dicto)
-
-**Input:** "John seeks a unicorn"
-**Output (De Re):** `∃x(Unicorn(x) ∧ ∃e(Seek(e) ∧ Agent(e, j) ∧ Theme(e, x)))`
-**Output (De Dicto):** `∃e(Seek(e) ∧ Agent(e, j) ∧ Theme(e, ^Unicorn))`
-
-**Input:** "Mary needs a doctor"
-**Output (De Re):** `∃x(Doctor(x) ∧ Need(m, x))` - specific doctor
-**Output (De Dicto):** `Need(m, ^Doctor)` - any doctor
-
-**Input:** "John believes a spy exists"
-**Output (De Re):** `∃x(Spy(x) ∧ Believe(j, Exists(x)))` - specific spy
-**Output (De Dicto):** `Believe(j, ∃x(Spy(x)))` - belief in existence
-
-### Adjective Output
-
-**Input:** "A small elephant ran." (Subsective)
-**Output:** `∃x(S(x, ^E) ∧ E(x) ∧ ∃e(Run(e) ∧ Agent(e, x)))`
-
-**Input:** "A red ball rolled." (Intersective)
-**Output:** `∃x(R(x) ∧ B(x) ∧ ∃e(Roll(e) ∧ Agent(e, x)))`
-
-**Input:** "A large mouse ran." (Subsective)
-**Output:** `∃x(L(x, ^M) ∧ M(x) ∧ ∃e(Run(e) ∧ Agent(e, x)))`
-
-### Generalized Quantifier Output
-
-**Input:** "Many dogs bark."
-**Output:** `MANY x(D(x) ∧ B(x))`
-
-**Input:** "Most birds fly."
-**Output:** `MOST x(B(x) ∧ F(x))`
-
-**Input:** "Few cats swim."
-**Output:** `FEW x(C(x) ∧ S(x))`
-
-### Measurement Output (Phase 8)
-
-**Input:** "John is 2 inches taller than Mary."
-**Output:** `Taller(j, m, 2 inches)`
-
-**Input:** "The rope is 5 meters long."
-**Output:** `Long(rope, 5 meters)`
-
-**Input:** "Set A has cardinality aleph_0."
-**Output:** `Cardinality(A, aleph_0)`
-
-**Input:** "The temperature is 98.6 degrees."
-**Output:** `Temperature(t, 98.6 degrees)`
-
-### Zero-Derivation Output (Phase 9)
-
-**Input:** "The committee tabled the discussion."
-**Output:** `∃e(Table(e) ∧ Agent(e, committee) ∧ Theme(e, discussion))`
-
-**Input:** "She emailed him."
-**Output:** `∃e(Email(e) ∧ Agent(e, she) ∧ Theme(e, him))`
-
-**Input:** "John googled the answer."
-**Output:** `∃e(Google(e) ∧ Agent(e, j) ∧ Theme(e, answer))`
-
-### VP Ellipsis Output (Phase 10a)
-
-**Input:** "John runs. Mary does too."
-**Output:** `Run(j) ∧ Run(m)`
-
-**Input:** "John can swim. Mary can too."
-**Output:** `◇Swim(j) ∧ ◇Swim(m)`
-
-**Input:** "John runs. Mary does not."
-**Output:** `Run(j) ∧ ¬Run(m)`
-
-**Input:** "John eats an apple. Mary does too."
-**Output:** `∃e(Eat(e) ∧ Agent(e,j) ∧ Theme(e,apple)) ∧ ∃e(Eat(e) ∧ Agent(e,m) ∧ Theme(e,apple))`
-
-### Sluicing Output (Phase 10b)
-
-**Input:** "Someone left. I know who."
-**Output:** `∃x(Leave(x)) ∧ Know(I, Question(y, Leave(y)))`
-
-**Input:** "John ate something. I know what."
-**Output:** `∃x(Eat(j,x)) ∧ Know(I, Question(y, Eat(j,y)))`
-
-**Input:** "Someone called. I don't know who."
-**Output:** `∃x(Call(x)) ∧ ¬Know(I, Question(y, Call(y)))`
-
-**Input:** "Someone ran. I wonder who."
-**Output:** `∃x(Run(x)) ∧ Wonder(I, Question(y, Run(y)))`
-
-### Topicalization Output
-
-**Input:** "The apple, John ate."
-**Output:** `∃x(((Apple(x) ∧ ∀y((Apple(y) → y = x))) ∧ Eat(J, x)))`
-
-**Input:** "The red apple, John ate."
-**Output:** `∃x(((Red(x) ∧ Apple(x) ∧ ∀y((...) → y = x))) ∧ Eat(J, x)))`
-
-**Input:** "A book, Mary read."
-**Output:** `∃x((Book(x) ∧ Read(M, x)))` - indefinite topic
-
-### Long-Distance Wh-Movement Output
-
-**Input:** "Who did John say Mary loves?"
-**Output:** `λx.Say(J, Love(M, x))` - gap filled in embedded clause
-
-**Input:** "To whom did John give the book?"
-**Output:** `λx.Give(J, book, x)` - pied-piped preposition
-
-### Embedded Clause (Sentential Complement) Output
-
-**Input:** "John said Mary runs."
-**Output:** `Say(J, [Run(M)])` - embedded clause as argument with bracket notation
-
-**Input:** "Who did John say Mary loves?"
-**Output:** `λx.Past(Say(J, [Love(M, x)]))` - gap filled in embedded Proposition
-
-**Input:** "John believes Mary won."
-**Output:** `Believe(J, [Past(Win(M))])` - propositional attitude with clause argument
-
-### Reichenbach Temporal Output
-
-**Input:** "John had run." (Past Perfect)
-**Output:** `Precedes(e, r) ∧ Precedes(r, S) ∧ Run(e, j)` - E < R < S
-
-**Input:** "John will have run." (Future Perfect)
-**Output:** `Precedes(S, r) ∧ Precedes(e, r) ∧ Run(e, j)` - S < R, E < R
-
-**Input:** "John has run." (Present Perfect)
-**Output:** `Precedes(e, r) ∧ Run(e, j)` - E < R (R = S implicit)
-
----
-
-## Glossary
-
-### First-Order Logic Terms
-
-| Term | Definition |
-|------|------------|
-| **Predicate** | A property or relation: P(x), Loves(x,y) |
-| **Quantifier** | Binds variables: ∀ (universal), ∃ (existential), Gen (generic) |
-| **Generic Quantifier** | Law-like generalization over a kind: "Birds fly" → Gen x(Bird(x) → Fly(x)) |
-| **Variable** | A placeholder: x, y, z |
-| **Constant** | A named individual: socrates, fido |
-| **Connective** | Logical operators: ∧ (and), ∨ (or), → (implies), ↔ (iff), ¬ (not) |
-| **Formula** | A well-formed logical expression |
-| **Scope** | The extent of a quantifier's binding |
-| **Free Variable** | A variable not bound by any quantifier |
-| **Bound Variable** | A variable within a quantifier's scope |
-
-### Modal Logic Terms
-
-| Term | Definition |
-|------|------------|
-| **Necessity (□)** | True in all possible worlds |
-| **Possibility (◇)** | True in at least one possible world |
-| **Alethic** | Concerning truth and necessity |
-| **Deontic** | Concerning obligation and permission |
-| **Epistemic** | Concerning knowledge and belief |
-
-### Linguistic Terms
-
-| Term | Definition |
-|------|------------|
-| **Noun Phrase** | A noun with modifiers: "the tall man" |
-| **Verb Phrase** | A verb with complements: "loves Mary" |
-| **Relative Clause** | A clause modifying a noun: "who runs" |
-| **Anaphora** | Reference to a previous expression |
-| **Definiteness** | Whether a noun is specific: "the" vs "a" |
-| **Aspect** | Temporal structure of events |
-| **Thematic Role** | Semantic role: agent, patient, theme |
-| **Gapping** | Ellipsis of a verb in coordination: "John ate an apple, and Mary, a pear" |
-| **PP-Attachment** | Where a prepositional phrase attaches: VP (instrument) or NP (modifier) |
-| **Bare Plural** | Plural noun without determiner: "birds" (triggers generic reading) |
-| **Collective Verb** | Verb requiring group action: "gather", "meet", "disperse" |
-| **Distributive Verb** | Verb applying to each individual: "bark", "run", "sleep" |
-| **Mereology** | Theory of parts and wholes; used for plural semantics |
-| **Thematic Role** | Semantic role in event: Agent, Patient, Theme, Goal, etc. |
-| **Control Verb** | Verb where embedded subject is controlled: "want", "try" |
-| **Raising Verb** | Verb where subject raises from embedded clause: "seem" |
-| **PRO** | Silent pronoun in infinitival clauses bound by controller |
-| **Presupposition** | Background assumption triggered by certain expressions |
-| **Focus Particle** | Word highlighting alternatives: "only", "even", "just" |
-| **Counterfactual** | Conditional contrary to fact: "if...had...would" |
-| **Deixis** | Contextual reference: "this/that" (proximal/distal), "here/there", "now/then" |
-| **Ditransitive Verb** | Verb taking two objects: "give", "send", "tell" (Agent, Recipient, Theme) |
-| **Gerund** | Verb form functioning as noun: "Running is fun", "I love swimming" |
-| **Causal Connective** | Word linking cause to effect: "because" → Cause(antecedent, consequent) |
-| **Mass Noun** | Uncountable noun: "water", "rice", "information" (quantified by "much"/"little") |
-| **Reciprocal** | Bidirectional relation with "each other": P(x,y) ∧ P(y,x) |
-| **NPI (Negative Polarity Item)** | Words like "any" requiring negative context for existential reading |
-| **Free Choice Any** | Universal "any" in positive contexts: ∀x |
-| **Garden Path** | Sentence requiring structural reanalysis due to initial misparse |
-| **Reduced Relative** | Relative clause without "who/that": "the man seen" = "the man who was seen" |
-| **Perfect Aspect** | Completed action with current relevance: "has eaten" → Perf(φ) |
-| **Progressive Aspect** | Ongoing action: "is eating" → Prog(φ) |
-| **Habitual Aspect** | Present tense activity/accomplishment/achievement interpretation: "runs" → HAB(Run(x)) |
-| **Iterative Aspect** | Progressive semelfactive producing repeated event: "is knocking" → ITER(Knock) |
-| **Aspect Chain** | Stacked aspect operators: modal + perfect + passive + progressive |
-| **Contact Clause** | Relative clause without overt "who/that": "the man I saw" = "the man that I saw" |
-| **Vendler Class** | Lexical aspect category: State, Activity, Accomplishment, Achievement, Semelfactive |
-| **Stative** | Verb class feature (+static): no change over time (know, love, exist) |
-| **Durative** | Verb class feature (+durative): extends over time (run, build) vs punctual (win, knock) |
-| **Telic** | Verb class feature (+telic): has natural endpoint (build, win) vs atelic (run, know) |
-| **Semelfactive** | Punctual, atelic verb class: single events (knock, blink, cough) |
-| **Aktionsart** | German term for lexical aspect; verb-inherent temporal properties (synonym: Vendler class) |
-| **Subsective Adjective** | Adjective whose meaning depends on noun class: "small" relative to elephants vs mice |
-| **Intersective Adjective** | Adjective forming independent predicate: "red" applies regardless of noun |
-| **Non-Intersective Adjective** | Adjective modifying the noun concept itself: "fake gun" |
-| **Generalized Quantifier** | Quantifiers beyond ∀/∃: MANY, MOST, FEW with cardinality semantics |
-| **Degree Phrase** | Measure expression modifying comparison: "2 inches" in "2 inches taller" |
-| **Absolute Measurement** | Direct dimension attribution: "5 meters long" |
-| **Symbolic Number** | Mathematical constant: aleph_0, omega for infinite cardinals |
-| **Compound Identifier** | Noun followed by proper name or single letter label: "set A" → set_A |
-| **Zero-Derivation** | Conversion of a word from one category to another without morphological change: "table" (noun) → "table" (verb) |
-| **VP Ellipsis** | Omission of a verb phrase that is recoverable from context: "John runs. Mary does too." = Mary runs |
-| **Sluicing** | Ellipsis of a wh-clause recoverable from context: "Someone left. I know who." = I know who left |
-| **Privative Verb** | Verb expressing absence or lack: "lacks", "missing", "without" → canonical negation of base verb |
-| **NegativeScopeMode** | Parser mode controlling negation placement: Narrow (∃y(K(y) ∧ ¬H(x,y))) vs Wide (¬∃y(K(y) ∧ H(x,y))) |
-| **ModalPreference** | Parser mode for polysemous modals: Default, Epistemic, Deontic, Alethic |
-| **Partial Scope** | Privation reading where entity lacks SOME instance: ∃y(Key(y) ∧ ¬Have(x,y)) |
-| **Total Scope** | Privation reading where entity has NO instances: ¬∃y(Key(y) ∧ Have(x,y)) |
-| **Polysemous Modal** | Modal verb with multiple interpretations: "can" → Alethic (ability) or Deontic (permission) |
-
-### Implementation Terms
-
-| Term | Definition |
-|------|------------|
-| **Token** | A classified unit from the lexer |
-| **Lexeme** | The actual text of a token |
-| **AST** | Abstract Syntax Tree (arena-allocated with Copy semantics) |
-| **Parse Forest** | Multiple AST trees for ambiguous sentences; returned by compile_ambiguous() |
-| **Recursive Descent** | Top-down parsing strategy with backtracking for ellipsis |
-| **Precedence** | Operator binding strength |
-| **Interning** | Storing strings once, referencing by ID |
-| **Arena Allocation** | Batch memory allocation via bumpalo; enables Copy AST nodes |
-| **Beta Reduction** | Lambda calculus substitution |
-| **Backtracking** | Parser technique for handling gapping by rewinding and retrying |
-| **Sigma (σ)** | Term constructor for maximal sum of a predicate: σx.Dog(x) |
-| **Distributive (*)** | Expression wrapper for distributive readings over plurals |
-| **Group (⊕)** | Term constructor for sum of individuals: J ⊕ M |
-| **NeoEvent** | Expression with event variable and thematic role assignments |
-| **Control** | Expression for control/raising verb structures |
-| **ThematicRole** | Enum: Agent, Patient, Theme, Goal, Source, Recipient, Instrument, Location, Time, Manner |
-| **Recipient** | Thematic role for indirect object in ditransitive verbs |
-| **Causal** | Expression variant representing cause-effect relationships: Cause(antecedent, consequent) |
-| **MeasureKind** | Enum for quantity expressions: Much, Little (used with mass nouns) |
-| **AstContext** | Unified struct holding all arena allocators for AST construction |
-| **ParserCheckpoint** | RAII struct for parser backtracking with automatic restore |
-| **ParserGuard** | RAII struct with Deref for transparent parser access; auto-restores on drop unless commit() called |
-| **Visitor** | Trait for traversing AST nodes without manual recursion |
-| **Fluent builders** | Inline methods on AstContext (binary, unary, quantifier, temporal, aspectual, modal) for ergonomic AST construction |
-| **Semantic token sets** | Const arrays (WH_WORDS, MODALS) grouping related tokens for check_any() matching |
-| **Zero-alloc transpile** | Output methods using Write trait to avoid String allocation |
-| **Span** | Byte range (start, end) for source location tracking on tokens |
-| **display_with_source()** | Renders ParseError with line numbers and underline markers pointing to error location |
-| **assert_snapshot!** | Macro for golden master testing; compares output against stored snapshots in tests/snapshots/ |
-| **Levenshtein distance** | Edit distance algorithm for finding similar words; used for 'did you mean?' suggestions |
-| **find_similar()** | Finds closest vocabulary match within threshold for typo correction |
-| **Style** | ANSI color wrapper with red(), blue(), cyan(), green(), bold_red() methods |
-| **VoiceOperator** | Enum for voice handling in AST: Passive variant |
-| **VerbClass** | Enum for Vendler categories: State, Activity, Accomplishment, Achievement, Semelfactive |
-| **VerbEntry** | Struct with lemma, time, aspect, and class fields for verb dictionary entries |
-| **is_stative()** | VerbClass method returning true for State class |
-| **is_durative()** | VerbClass method returning true for State, Activity, Accomplishment |
-| **is_telic()** | VerbClass method returning true for Accomplishment, Achievement |
-| **is_negative_context()** | Parser method tracking negation depth for NPI licensing |
-| **is_followed_by_gerund()** | Parser helper checking if presupposition trigger is followed by gerund; prevents false presupposition on bare "stopped" |
-| **parse_aspect_chain()** | Parser method handling complex verb group stacking |
-| **parse_aspect_chain_with_term()** | Parser method for aspect chains with variable subjects (used in relative clause + modal combinations) |
-| **Stacked Relatives** | Multiple relative clauses modifying same head noun: "the book that X read that Y wrote" |
-| **try_reduced_relative_interpretation()** | Parser method for garden path reanalysis |
-| **is_contact_clause_pattern()** | Parser lookahead for NP+NP+Verb contact clause detection |
-| **Island** | Scope boundary preventing quantifier extraction: if/and/or clauses |
-| **island_id** | u32 field on Quantifier identifying its scope island |
-| **enumerate_scopings()** | Function returning ScopeIterator over all quantifier scope readings |
-| **ScopeIterator** | Lazy iterator implementing ExactSizeIterator for scope readings |
-| **group_by_island()** | Groups quantifiers by island_id to constrain permutations |
-| **De Re** | "Of the thing" - object exists, quantifier scopes wide |
-| **De Dicto** | "Of the word" - intensional reading, quantifier scopes narrow |
-| **Opaque Verb** | Verb creating intensional context: seek, want, believe, need, fear |
-| **is_opaque_verb()** | Function checking if a verb creates an opaque context |
-| **Intension (^)** | Montague up-arrow marking concept/property vs individual |
-| **Term::Intension** | Term variant for intensional predicates: ^Unicorn |
-| **Expr::Intensional** | Expression wrapper for opaque verb contexts |
-| **substitute_respecting_opacity()** | Substitution that blocks inside intensional contexts |
-| **enumerate_intensional_readings()** | Generates de re and de dicto readings for opaque verb sentences |
-| **IntensionalContext** | Struct tracking opaque verb, quantifier variable, and restrictor |
-| **compile_all_scopes()** | Public API returning all scope + intensionality readings |
-| **Topicalization** | Object fronting with comma intonation break: "NP, Subject Verb" pattern |
-| **filler_gap** | Parser field (Option<Symbol>) tracking wh-filler for long-distance dependencies |
-| **Long-Distance Dependency** | Extraction across clause boundaries: "Who did John say Mary loves?" |
-| **Pied-Piping** | P+wh fronting: "To whom" instead of "Who...to" |
-| **wrap_with_definiteness_full()** | NounPhrase wrapper preserving adjectives during topicalization |
-| **Phase 4 Movement Tests** | tests/phase4_movement.rs: topicalization, adjective preservation, pronoun subjects |
-| **Term::Proposition** | Term variant wrapping embedded Expr for sentential complements |
-| **Sentential Complement** | Clause serving as argument: "John said [Mary runs]" |
-| **Bracket Notation [expr]** | Transpilation format for embedded clauses to distinguish from conjunction |
-| **Phase 5 Wh-Movement Tests** | tests/phase5_wh_movement.rs: long-distance extraction, embedded clauses, double embedding |
-| **Reichenbach Semantics** | Three-point temporal model with E (event), R (reference), S (speech) |
-| **Event Point (E)** | When the event occurs in Reichenbach model |
-| **Reference Point (R)** | Temporal vantage point for viewing event |
-| **Speech Point (S)** | Time of utterance |
-| **Precedes(x, y)** | Temporal ordering predicate: x before y |
-| **Phase 6 Complex Tense Tests** | tests/phase6_complex_tense.rs: Reichenbach E/R/S temporal constraints |
-| **is_subsective()** | Generated function checking if adjective is subsective (relative to class) |
-| **QuantifierKind::Many** | AST variant for generalized "many" quantifier |
-| **QuantifierKind::Most** | AST variant for generalized "most" quantifier |
-| **QuantifierKind::Few** | AST variant for generalized "few" quantifier |
-| **Term::Intension** | Term variant for Montague up-arrow notation (^Noun) in subsective contexts |
-| **Dimension** | Enum for measurement categories: Length, Time, Weight, Temperature, Cardinality |
-| **NumberKind** | Enum for numeric types: Real(f64), Integer(i64), Symbolic(Symbol) |
-| **Term::Value** | Term variant storing numeric value with optional unit Symbol and Dimension |
-| **Comparative.difference** | Optional field for measure phrase in comparative expressions |
-| **TokenType::Number** | Token variant storing numeric literal as interned Symbol |
-| **parse_measure()** | Parser method for measure phrase expressions |
-| **Phase 8 Degree Tests** | tests/phase8_degrees.rs: numeric measurement and degree semantics |
-| **check_proper_name_or_label()** | Parser helper detecting proper names or single uppercase letter labels for compound identifier parsing |
-| **Passive Agent Extraction** | Pattern matching "by X" after passive "been" to identify the semantic agent in passive constructions |
-| **Consonant Cluster Heuristic** | Morphological rule: vowel + consonant + l/r at word end suggests silent-e lemma recovery (tabl → table) |
-| **Phase 9 Zero-Derivation Tests** | tests/phase9_conversion.rs: noun→verb conversion with silent-e recovery |
-| **EventTemplate** | Struct storing verb + non-agent thematic roles + modifiers for VP ellipsis reconstruction |
-| **Phase 10a VP Ellipsis Tests** | tests/phase10_ellipsis.rs: VP ellipsis with does too, modal too, negation, and objects |
-| **Contraction Expansion** | Lexer splits negative contractions: don't→do+not, won't→will+not, can't→cannot |
-| **Phase 10b Sluicing Tests** | tests/phase10b_sluicing.rs: sluicing with who/what, negation, embedding verbs |
-| **Verb-First Priority** | Classification order: verbs checked before nouns in lexer. Parser safety net via consume_content_word() accepts Verb tokens in noun positions. |
-| **disambiguation_not_verbs** | Lexicon list of words that should NOT be classified as verbs despite having verb forms (ring, bus). Returns Noun if also in nouns list. |
-| **Polysemy Resolution** | Handling words with multiple parts of speech. Verb-first + parser safety net enables "I love you" and "Love is real" from same token type. |
-| **compile_forest()** | Phase 12 API returning Vec<String> of all valid parse readings for ambiguous sentences. |
-| **compile_forest_with_options()** | Extended API accepting CompileOptions for format control; generates readings in SimpleFOL, Unicode, or Kripke format. |
-| **CompileResult** | Struct returned by compile_for_ui() with readings (Unicode), simple_readings (deduplicated SimpleFOL), kripke_readings (Kripke). |
-| **simple_readings** | Deduplicated SimpleFOL readings in CompileResult; collapses modal variants since SimpleFOL strips modals. |
-| **set_negative_scope_mode()** | Parser method to configure privation scope: Narrow (¬ inside ∃) or Wide (¬ outside ∃). |
-| **set_modal_preference()** | Parser method to force modal interpretation: Default, Epistemic, Deontic, or Alethic. |
-| **MAX_FOREST_READINGS** | Constant (12) limiting parse forest size to prevent exponential blowup. |
-| **noun_priority_mode** | Parser flag that prefers noun interpretation for Ambiguous tokens; used for lexical ambiguity forking. |
-| **TokenType::Ambiguous** | Token variant with primary interpretation and alternatives Vec for polysemous words (duck, bear, love). |
-| **Sort** | Phase 11 ontological type category: Human, Animate, Celestial, Abstract, Physical, Value. |
-| **lookup_sort()** | Returns Sort for proper names; used for semantic type checking. |
-| **is_compatible_with()** | Sort method checking type subsumption (Human⊂Animate⊂Physical). |
-| **Lexical Ambiguity** | Words with multiple parts of speech requiring parse forest (e.g., "duck" as Noun or Verb). |
-| **Structural Ambiguity** | Syntactic attachment ambiguity (PP attachment, coordination scope) handled via pp_attachment_mode. |
-| **MweTrie** | Trie data structure for multi-word expression pattern storage and efficient longest-match lookup. |
-| **apply_mwe_pipeline()** | Post-tokenization function that collapses multi-token MWE sequences into single tokens. |
-| **build_mwe_trie()** | Creates default MWE vocabulary trie with compound nouns, idioms, and phrasal verbs. |
-| **find_bridging_wholes()** | Ontology function returning possible whole objects for a given part noun (e.g., "engine" → ["car", "plane"]). |
-| **check_sort_compatibility()** | Validates predicate-subject sort match; returns true if compatible or no requirement exists. |
-| **PartOf** | Term relation representing part-whole relationship in bridging anaphora (e.g., PartOf(engine, car)). |
-| **Bridging Anaphora** | Pragmatic inference linking a definite NP to an antecedent's part (e.g., "a car... the engine" → engine is part of car). |
-| **Copula Adjective Preference** | Parser heuristic: after copula (is/was), simple-aspect Verbs with Adjective alternative prefer Adjective reading. |
-| **is_adjective_like()** | Lexer heuristic checking if word could be an adjective for ambiguity detection. |
-| **is_noun_like()** | Lexer heuristic checking if word could be a noun for ambiguity detection. |
-| **is_verb_like()** | Lexer heuristic checking if word could be a verb for disambiguation. |
-| **NPI (Negative Polarity Item)** | Words like "any", "ever", "anything" that require negative context for existential interpretation. |
-| **Free Choice Any** | "Any" in affirmative contexts producing universal quantification: "Any cat hunts" → ∀x. |
-| **Negative Quantifier** | Inherently negative quantifiers (nobody, nothing, no one) that produce ∀x(R(x) → ¬P(x)). |
-| **NPI Licensing** | Process by which negative context triggers existential interpretation of NPIs. |
-
----
+### Imperative Statements
+
+| Statement | Syntax | Semantics |
+|-----------|--------|-----------|
+| Let | `Let [mut] x [: Type] be expr.` | Variable declaration |
+| Set | `Set x to expr.` | Mutation |
+| If | `If condition: ... Otherwise: ...` | Control flow |
+| While | `While condition: ...` | Loop |
+| Call | `Call f with x.` | Function invocation |
+| Check | `Check that P.` | Mandatory security assertion |
+| Assert | `Assert that P.` | Debug assertion |
+| Give | `Give x to f.` | Ownership move |
+| Show | `Show x to f.` | Immutable borrow |
 
 EOF
-
-# TESTS (descriptions only, no source code)
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Integration Tests
-
-Comprehensive test suite validating parsing and transpilation across 15 linguistic phases.
-
-**Location:** `tests/`
-
-EOF
-
-# Phase 1
-add_test_description "tests/phase1_garden_path.rs" \
-    "Phase 1: Garden Path" \
-    "Garden path sentences requiring structural reanalysis. Parser detects reduced relatives via backtracking when initial parse leaves unparsed tokens." \
-    "\"The horse raced past the barn fell.\" → ∃x(Horse(x) ∧ RacedPast(x, barn) ∧ Fell(x))"
-
-# Phase 2
-add_test_description "tests/phase2_polarity.rs" \
-    "Phase 2: Polarity Items" \
-    "Negative Polarity Items (NPIs). 'any' is existential in negative/conditional contexts, universal in positive contexts. Parser tracks negative_depth for NPI licensing." \
-    "\"Not any dogs run.\" → ¬∃x(D(x) ∧ R(x)) vs \"Any dog runs.\" → ∀x(D(x) → R(x))"
-
-# Phase 3
-add_test_description "tests/phase3_time.rs" \
-    "Phase 3: Temporal Logic" \
-    "Reichenbach temporal semantics with Event (E), Reference (R), and Speech (S) points. Tests simple tense, perfect aspect, and temporal anchoring." \
-    "\"John had run.\" (past perfect) → Precedes(e, r) ∧ Precedes(r, S)"
-
-add_test_description "tests/phase3_aspect.rs" \
-    "Phase 3: Aspect & Aktionsart" \
-    "Vendler aspectual classes (State/Activity/Accomplishment/Achievement/Semelfactive) and grammatical aspect interaction. Habitual for present-tense activities." \
-    "\"John is knocking.\" (semelfactive+prog) → ITER(Knock(j))"
-
-# Phase 4
-add_test_description "tests/phase4_movement.rs" \
-    "Phase 4: Topicalization" \
-    "Filler-gap dependencies and object fronting. Tests NP-fronting with adjective preservation and pronoun subjects." \
-    "\"The apple, John ate.\" → Eat(J, apple) with fronted Theme"
-
-add_test_description "tests/phase4_reciprocals.rs" \
-    "Phase 4: Reciprocals" \
-    "Reciprocal 'each other' expands to bidirectional predicate conjunction for plural subjects." \
-    "\"John and Mary love each other.\" → Love(j,m) ∧ Love(m,j)"
-
-# Phase 5
-add_test_description "tests/phase5_wh_movement.rs" \
-    "Phase 5: Wh-Movement" \
-    "Long-distance wh-dependencies across embedded clauses. Filler-gap binding through subordinate clauses with Term::Proposition wrapping." \
-    "\"Who did John say Mary loves?\" → λx.Say(J, [Love(M, x)])"
-
-# Phase 6
-add_test_description "tests/phase6_complex_tense.rs" \
-    "Phase 6: Complex Tense" \
-    "Reichenbach temporal constraints with explicit E/R/S point relations. Verifies Precedes() predicate output." \
-    "Past perfect: E < R < S; Future perfect: S < R, E < R"
-
-# Phase 7
-add_test_description "tests/phase7_semantics.rs" \
-    "Phase 7: Intensional Semantics" \
-    "Subsective adjectives (S(x, ^E) format) and generalized quantifiers (MANY, MOST, FEW with cardinality semantics)." \
-    "\"A small elephant ran.\" → ∃x(S(x, ^E) ∧ E(x) ∧ Run(x))"
-
-# Phase 8
-add_test_description "tests/phase8_degrees.rs" \
-    "Phase 8: Degrees & Comparatives" \
-    "Numeric measurements and degree semantics. Tests comparatives with measure phrases, absolute measurements, and symbolic cardinality." \
-    "\"John is 2 inches taller than Mary.\" → Taller(j, m, 2 inches)"
-
-# Phase 8.5 & 8.6
-add_test_description "tests/phase85_zones.rs" \
-    "Phase 8.5 & 8.6: Zone System" \
-    "Region-based memory management. Heap zones via bumpalo (Inside a zone called X of size N KB/MB:), memory-mapped files (mapped from 'file.bin'), escape analysis for 'Hotel California' rule (values cannot escape zones), O(1) allocation and bulk deallocation." \
-    "Inside a zone called \"Scratch\" of size 2 MB: Let x be 5. → Zone::new_heap(2097152)"
-
-# Phase 9
-add_test_description "tests/phase9_conversion.rs" \
-    "Phase 9: Noun/Verb Conversion" \
-    "Zero-derivation (noun→verb): tabled, emailed, googled. Morphological heuristics for silent-e lemma recovery." \
-    "\"The committee tabled the motion.\" → Table(committee, motion)"
-
-# Phase 9.5
-add_test_description "tests/phase9_structured_concurrency.rs" \
-    "Phase 9.5: Structured Concurrency" \
-    "Concurrent and parallel execution blocks. 'Attempt all of the following:' generates tokio::join! (async, I/O-bound). 'Simultaneously:' generates rayon::join (CPU-bound, 2 tasks) or thread::spawn (3+ tasks). Let bindings destructure into tuples." \
-    "Simultaneously: Let a be 1. Let b be 2. → let (a, b) = rayon::join(|| 1, || 2);"
-
-# Phase 10
-add_test_description "tests/phase10_ellipsis.rs" \
-    "Phase 10a: VP Ellipsis" \
-    "VP ellipsis reconstruction via EventTemplate. Handles 'does too', modal ellipsis, negative ellipsis, and ellipsis with objects." \
-    "\"John runs. Mary does too.\" → Run(j) ∧ Run(m)"
-
-add_test_description "tests/phase10b_sluicing.rs" \
-    "Phase 10b: Sluicing" \
-    "Sluicing reconstruction: wh-words at sentence boundary after embedding verbs. Handles contractions (don't know who)." \
-    "\"Someone left. I know who.\" → ∃x(Leave(x)) ∧ Know(I, ?y[Leave(y)])"
-
-# Phase 11
-add_test_description "tests/phase11_sorts.rs" \
-    "Phase 11: Ontological Sorts" \
-    "Sort system with type hierarchy (Human⊂Animate⊂Physical). Sort compatibility checking for semantic validation." \
-    "Sort::Human.is_compatible_with(Sort::Animate) → true"
-
-add_test_description "tests/phase11_metaphor.rs" \
-    "Phase 11: Metaphor Detection" \
-    "Metaphor detection via sort violations. Distinguishes literal copula from metaphorical assertions." \
-    "\"The king is bald.\" → literal; \"Juliet is the sun.\" → sort violation → metaphor"
-
-# Phase 12
-add_test_description "tests/phase12_ambiguity.rs" \
-    "Phase 12: Parse Forest" \
-    "Lexical and structural ambiguity handling. compile_forest() returns Vec of all valid readings for ambiguous sentences." \
-    "\"I saw her duck.\" → 2 readings (duck=Noun vs duck=Verb)"
-
-# Phase 13
-add_test_description "tests/phase13_mwe.rs" \
-    "Phase 13: Multi-Word Expressions" \
-    "MWE processing: compound nouns (fire engine → FireEngine), idioms (kicked the bucket → Die), phrasal verbs (gave up → Surrender). Trie-based pipeline collapses multi-token sequences into single semantic units." \
-    "\"John kicked the bucket.\" → Die(j)"
-
-# Phase 14
-add_test_description "tests/phase14_ontology.rs" \
-    "Phase 14: Ontology & Bridging" \
-    "Bridging anaphora for part-whole inference (PartOf relation). Metaphor detection via sort violations. Sort compatibility checking for predicates." \
-    "\"I bought a car. The engine smoked.\" → PartOf(engine, car)"
-
-# Phase 15
-add_test_description "tests/phase15_negation.rs" \
-    "Phase 15: Negation & Polarity" \
-    "NPI processing: free choice 'any' (universal), NPI 'any' with negation (existential), negative quantifiers (nobody/nothing/no one), temporal NPIs (never/ever), scope interactions. Licensing determines existential vs universal interpretation." \
-    "\"Any cat hunts.\" → ∀x(Cat(x) → Hunt(x)); \"John did not see any cat.\" → ¬∃x(Cat(x) ∧ See(j,x))"
-
-# Phase 16
-add_test_description "tests/phase16_aspect.rs" \
-    "Phase 16: Aspect Stack" \
-    "Complex aspect operator combinations: Perfect+Progressive, Perfect+Passive, Modal+Perfect+Progressive. Tests proper operator nesting without conflation (e.g., Perfect+Progressive should NOT imply Passive)." \
-    "\"John has been eating apples.\" → Perf(Prog(Eat(j, apples)))"
-
-# Phase 17
-add_test_description "tests/phase17_degrees.rs" \
-    "Phase 17: Comparatives & Superlatives" \
-    "Extended degree semantics: comparatives with measure phrases, clausal comparative ellipsis, and superlatives with domain restriction. Superlatives expand to universal quantification over the comparison class." \
-    "\"John climbed the highest mountain.\" → ∀x((Mountain(x) ∧ x ≠ m) → Higher(m, x))"
-
-# Phase 18
-add_test_description "tests/phase18_plurality.rs" \
-    "Phase 18: Plurality" \
-    "Collective vs distributive verb semantics. Mixed verbs fork readings for plural subjects (lifted → collective OR distributive). Collective verbs (gathered) force group reading. Distributive verbs (slept) force individual reading." \
-    "\"The boys lifted the piano.\" → Collective: Lift(σB, piano) OR Distributive: *Lift(σB, piano)"
-
-# Phase 19
-add_test_description "tests/phase19_group_plurals.rs" \
-    "Phase 19: Group Plurals" \
-    "Group existential quantification for cardinal indefinites with collective readings. Cardinal + mixed verb forks into distributive (∃=n) and collective (Group/Count/Member) readings. Collective verbs force group reading." \
-    "\"Two boys lifted a rock.\" → Collective: ∃g(Group(g) ∧ Count(g, 2) ∧ ∀x(Member(x, g) → B(x)) ∧ Lift(g, rock))"
-
-# Phase 20
-add_test_description "tests/phase20_axioms.rs" \
-    "Phase 20: Axiom Layer" \
-    "Semantic axiom expansion for meaning postulates. Bachelor→Unmarried∧Male∧Adult, privative adjectives (fake→¬N∧Resembles(^N)), verb entailments (murder→kill), and hypernym chains (dog→animal→mammal). Pipeline position: Parser→Axioms→Pragmatics." \
-    "\"John is a bachelor.\" → B(J) ∧ Unmarried(J) ∧ Male(J) ∧ Adult(J)"
-
-# Phase 21: Block Structure & Imperative Syntax
-add_test_description "tests/phase21_block_headers.rs" \
-    "Phase 21: Block Headers" \
-    "Parsing ## Main and other block headers that trigger imperative mode. Block headers mark the transition from declarative logic to executable code." \
-    "\"## Main\" triggers imperative parsing mode"
-
-add_test_description "tests/phase21_imperative_verbs.rs" \
-    "Phase 21: Imperative Verbs" \
-    "Let/Set/Return statement parsing in imperative blocks. Let binds values, Set mutates, Return exits functions." \
-    "\"Let x be 5.\" → let x = 5;"
-
-add_test_description "tests/phase21_ownership.rs" \
-    "Phase 21: Ownership" \
-    "Rust-style ownership semantics via natural language verbs. Give performs moves, Show performs immutable borrows. Tracks owned/moved/borrowed states." \
-    "\"Give x to f.\" → f(x) // x is moved"
-
-# Phase 22: Identity & Scope
-add_test_description "tests/phase22_equals.rs" \
-    "Phase 22: Equality" \
-    "Identity predicates and equality relations. Handles 'is equal to', 'is identical to', and numeric equality." \
-    "\"x is equal to y\" → x = y"
-
-add_test_description "tests/phase22_index.rs" \
-    "Phase 22: Indexing" \
-    "Array and collection indexing operations. Supports numeric indices and slice syntax." \
-    "\"the third element of xs\" → xs[2]"
-
-add_test_description "tests/phase22_is_rejection.rs" \
-    "Phase 22: Is-Rejection" \
-    "Filtering non-predicate uses of 'is' copula in imperative context. Distinguishes identity from predication." \
-    "\"x is large\" vs \"x is 5\""
-
-add_test_description "tests/phase22_resolution.rs" \
-    "Phase 22: Resolution" \
-    "Anaphora and reference resolution in imperative blocks. Resolves pronouns and definite descriptions to bound variables." \
-    "\"Let x be 5. Return it.\" → it resolves to x"
-
-add_test_description "tests/phase22_scope.rs" \
-    "Phase 22: Scope" \
-    "Variable scope and quantifier interactions in imperative code. Handles block scoping and shadowing." \
-    "Block-level variable scoping"
-
-# Phase 23: Type System & Statements
-add_test_description "tests/phase23_blocks.rs" \
-    "Phase 23: Blocks" \
-    "Indentation-based block structure parsing. Python-style significant whitespace with Colon/Indent/Dedent tokens." \
-    "Indent → block body → Dedent"
-
-add_test_description "tests/phase23_parsing.rs" \
-    "Phase 23: Parsing" \
-    "Parser internals and mode switching between declarative and imperative modes. Tests ParserMode enum." \
-    "Declarative mode ↔ Imperative mode"
-
-add_test_description "tests/phase23_stmt.rs" \
-    "Phase 23: Statements" \
-    "Stmt enum variants: Let, Set, Call, If, While, Return, Assert, Give, Show. The imperative AST types." \
-    "Stmt::Let { name, value }"
-
-add_test_description "tests/phase23_tokens.rs" \
-    "Phase 23: Tokens" \
-    "Token type verification for imperative constructs. Tests Give, Show, Let, Set, Return, Assert token recognition." \
-    "TokenType::Give, TokenType::Show"
-
-add_test_description "tests/phase23_types.rs" \
-    "Phase 23: Types" \
-    "TypeRegistry and DiscoveryPass for two-pass compilation. First pass discovers type definitions, second pass resolves references." \
-    "## Definition blocks → TypeRegistry"
-
-# Phase 24: Code Generation
-add_test_description "tests/phase24_codegen.rs" \
-    "Phase 24: Code Generation" \
-    "Rust code emission for literals and expressions. Converts imperative AST to valid Rust source code." \
-    "Stmt → fn main() { ... }"
-
-add_test_description "tests/phase24_wired_types.rs" \
-    "Phase 24: Pipeline Wiring" \
-    "Two-pass compilation pipeline integration. DiscoveryPass runs before parser to build TypeRegistry. Parser uses registry for type vs predicate disambiguation." \
-    "Stack of Integers → Generic type when Stack is defined"
-
-add_test_description "tests/phase25_type_expr.rs" \
-    "Phase 25: Type Expressions" \
-    "Type annotations for Let statements. Supports primitives (Int→i64, Nat→u64, Text→String), generics (List of Int→Vec<i64>), multi-param generics (Result of Int and Text), nested generics, and mutable bindings." \
-    "Let x: Int be 5. → let x: i64 = 5;"
-
-# Phase 25: Assertions (separate from smoke tests)
-add_test_description "tests/phase25_assertions.rs" \
-    "Phase 25: Assertions" \
-    "Logic kernel assertions via Assert statements. Bridges imperative code to declarative verification using debug_assert! macros." \
-    "\"Assert that x is positive.\" → debug_assert!(x > 0)"
-
-add_test_description "tests/phase25_smoke_tests.rs" \
-    "Phase 25: Smoke Tests" \
-    "Aspirational tests for advanced linguistic phenomena. Covers scopal adverbs (almost/barely wrapping events), negation scope ambiguity, donkey anaphora, intensional identity, performatives, distanced phrasal verbs, and double focus operators. Some tests expected to fail until features implemented." \
-    "\"John almost killed Mary.\" → Almost(∃e(Kill(e) ∧ Agent(e, J) ∧ Theme(e, M)))"
-
-# Phase 26-28: Advanced Pipeline
-add_test_description "tests/phase26_e2e.rs" \
-    "Phase 26: End-to-End" \
-    "Full pipeline tests: English → AST → Rust code. Tests compile_to_rust output for complete programs." \
-    "English source → executable Rust"
-
-add_test_description "tests/phase27_guards.rs" \
-    "Phase 27: Guards" \
-    "Guard clauses and conditional patterns. Handles 'if' conditions and pattern guards in function definitions." \
-    "\"If x is negative, return 0.\" → guard clause"
-
-add_test_description "tests/phase28_precedence.rs" \
-    "Phase 28: Precedence" \
-    "Operator precedence and associativity. Ensures correct parsing of complex expressions with mixed operators." \
-    "a + b * c → a + (b * c)"
-
-add_test_description "tests/phase29_runtime.rs" \
-    "Phase 29: Runtime Injection" \
-    "Embeds logos_core/ runtime into compiled programs. Type aliases (Nat, Int, Real, Text, Bool, Unit) and IO functions (show, read_line) per Spec §10.5 and §10.6.1." \
-    "use logos_core::prelude::*; // Auto-injected"
-
-add_test_description "tests/phase30_iteration.rs" \
-    "Phase 30: Collections & Iteration" \
-    "Seq<T> generic type, list literals [1, 2, 3], repeat loops (for x in list:), range syntax (from N to M), and Showable trait. Mode-dependent 'in' keyword handling." \
-    "Repeat for x in [1, 2, 3]: → for x in vec![1, 2, 3]"
-
-add_test_description "tests/phase31_structs.rs" \
-    "Phase 31: User-Defined Types" \
-    "Struct definitions with encapsulation. Syntax: 'A TypeName has: a [public] field, which is Type.' Constructor generation (new Type), field access (var's field), field mutations (Set var's field to value), and visibility modifiers (pub/private fields)." \
-    "A Point has: a public x, which is Int."
-
-add_test_description "tests/phase32_functions.rs" \
-    "Phase 32: Function Definitions & Inference" \
-    "User-defined functions with ## To [verb] syntax. Call expression syntax f(x, y) for use in expressions, return type inference from body, and dual call syntax (Call f with x. for statements, f(x) for expressions)." \
-    "## To add (a: Int) and (b: Int): → fn add(a: i64, b: i64) -> i64"
-
-add_test_description "tests/phase33_enums.rs" \
-    "Phase 33: Sum Types & Pattern Matching" \
-    "Algebraic data types with 'A Type is either:' syntax. Variant constructors with optional payloads (A Circle with radius value.), pattern matching via 'Inspect expr:' with match arms, and field bindings in patterns (When Circle (radius: r):)." \
-    "A Shape is either: A Circle with a radius, which is Int."
-
-add_test_description "tests/phase34_generics.rs" \
-    "Phase 34: User-Defined Generics" \
-    "Generic type parameters with 'of [T]' syntax. Single-param (A Box of [T] has:), multi-param (A Pair of [A] and [B] has:), generic enums (A Maybe of [T] is either:), and turbofish instantiation (new Box of Int → Box::<i64>::default())." \
-    "A Box of [T] has: a value, which is T."
-
-add_test_description "tests/phase35_proofs.rs" \
-    "Phase 35: The Proof Bridge" \
-    "Proof assertions with 'Trust that P because \"reason\".' syntax. Generates debug_assert! with justification comment. Includes variable 'a' disambiguation, number literals in propositions, irregular comparatives (less/more/better/worse), and because-string lookahead guards." \
-    "Trust that n is greater than 0 because \"precondition\"."
-
-add_test_description "tests/phase35_respectively.rs" \
-    "Phase 35: Respectively Coordination" \
-    "Pairwise coordination with 'respectively' adverb. Matches coordinated subjects with coordinated objects pairwise (John and Mary saw Tom and Jane respectively → See(J,T) ∧ See(M,J)). Includes RespectivelyLengthMismatch error for mismatched counts, dual code paths for pronoun and noun phrase subjects." \
-    "John and Mary saw Tom and Jane respectively."
-
-add_test_description "tests/phase36_modules.rs" \
-    "Phase 36: Module System" \
-    "Multi-file projects with Use statements. Import syntax (Use Math.), module discovery, and cross-file type/function resolution." \
-    "Use Math."
-
-add_test_description "tests/phase37_cli.rs" \
-    "Phase 37: Project Manifest & Build Tool" \
-    "CLI build system with Largo.toml manifest. Commands: largo new <name>, largo build [--release], largo run, largo check. Manifest parsing with [package] and [dependencies] sections, project discovery via find_project_root()." \
-    "largo new my_game && largo build"
-
-add_test_description "tests/phase38_stdlib.rs" \
-    "Phase 38: Standard Library (IO & System)" \
-    "Native function bindings with 'To native fn -> Type' syntax. Standard library modules: File (read/write), Time (now/sleep), Random (randomInt/randomFloat), Env (get/args). Wrapper generation for logos_core Rust functions." \
-    "## To native read (path: Text) -> Result of Text and Text"
-
-add_test_description "tests/phase41_event_adjectives.rs" \
-    "Phase 41: Event Adjectives" \
-    "Event-modifying adjectives with agentive nouns. Dual readings: intersective (B(O) ∧ D(O)) and event-modifying (∃e((D(e) ∧ A(e,O)) ∧ B(e))). Lexicon Feature::EventModifier for beautiful/graceful/skillful. Agentive noun mappings (dancer→Dance)." \
-    "Olga is a beautiful dancer. → Intersective + Event readings"
-
-add_test_description "tests/phase42_drs.rs" \
-    "Phase 42: Discourse Representation Structures" \
-    "Implements Kamp's DRT for donkey anaphora. Indefinites in conditional antecedents and universal restrictors get UNIVERSAL (not existential) force. Tests binding accessibility across scope boundaries." \
-    "Every farmer who owns a donkey beats it. → ∀x∀y((Farmer(x) ∧ Donkey(y) ∧ Own(x,y)) → Beat(x,y))"
-
-add_test_description "tests/phase_verification.rs" \
-    "Phase 42b: Z3 Static Verification" \
-    "Z3 SMT solver tests for static verification. Tests tautology/contradiction checking, integer bounds (>, <, ==), and LicensePlan access control. Verifier uses validity check: P is valid iff NOT(P) is UNSAT. Requires verification feature." \
-    "Assert x > 5 (with x = 10) → Z3 proves valid"
-
-add_test_description "tests/phase_verification_refinement.rs" \
-    "Phase 42c: Refinement Verification" \
-    "Static verification of refinement type constraints. Tests valid/invalid literals (-5 rejected for 'it > 0'), variable tracking through Let bindings, compound predicates (it > 0 and it < 100), boundary conditions (>= 0 allows 0), and comparison operators (>, <, >=, <=, ==). verify_with_binding() proves constraints." \
-    "Let x: Int where it > 0 be -5. → Verification failed: refinement predicate not satisfied"
-
-add_test_description "tests/phase43_type_check.rs" \
-    "Phase 43B: Type Checking" \
-    "Static type checking for LOGOS. Detects type mismatches between annotations and literals. TypeMismatch error reports expected vs found types." \
-    "Let x: Int be \"hello\". → Error: TypeMismatch { expected: Int, found: Text }"
-
-add_test_description "tests/phase43_refinement.rs" \
-    "Phase 43C: Refinement Types" \
-    "Refinement types with predicate constraints. Parser handles 'Type where predicate' syntax. Codegen generates debug_assert!() checks at Let bindings and re-emits on Set mutations. RefinementContext tracks constraints across scopes for mutation enforcement." \
-    "Let x: Int where x > 0 be 5. → let x: i64 = 5; debug_assert!((x > 0));"
-
-add_test_description "tests/phase43_collections.rs" \
-    "Phase 43D: Collection Operations" \
-    "Stack-like collection operations for LOGOS. Push/Pop statements, length/copy expressions, 1-based indexing with 'at', slice syntax with 'through'. Runtime helpers logos_index() and logos_index_mut()." \
-    "Push 4 to items. Pop from items into x. length of items. items at 2. items 1 through 3."
-
-# Phase 46: Agents
-add_test_description "tests/phase46_agents.rs" \
-    "Phase 46: Agent System" \
-    "Autonomous agent definitions with goals and behaviors. Agent blocks define reactive entities that respond to events." \
-    "## Agent called Greeter: When receiving a Message: Respond with greeting."
-
-# Phase 48: Network Primitives
-add_test_description "tests/phase48_network.rs" \
-    "Phase 48: Network Primitives" \
-    "Low-level networking operations. File chunking with FileSipper, FileManifest for resumable transfers, SHA256 chunk verification." \
-    "Fetch from url. Send data to endpoint."
-
-# Phase 49: CRDT
-add_test_description "tests/phase49_crdt.rs" \
-    "Phase 49: CRDT (Conflict-free Replicated Data Types)" \
-    "Distributed state synchronization without conflicts. Shared structs with ConvergentCount (GCounter) and LastWriteWins of T (LWWRegister) field types. Merge trait with commutative, associative, idempotent properties. Increase statement for counter operations." \
-    "## Shared Counter { count: ConvergentCount, name: LastWriteWins of Text } → impl Merge with per-field merge"
-
-# Phase 50: Security
-add_test_description "tests/phase50_security.rs" \
-    "Phase 50: Policy-based Security" \
-    "Declarative security policies with predicates and capabilities. Predicate definitions (is admin if role equals 'admin'), capability definitions (can publish Document if...), Check statement for mandatory runtime enforcement (never optimized), Assert for debug-only. Logical composition with AND/OR." \
-    "## Policy { A User is admin if the user's role equals 'admin'. } Check that user is admin."
-
-# Phase 51: Networking
-add_test_description "tests/phase51_mesh.rs" \
-    "Phase 51: P2P Mesh Networking" \
-    "Distributed peer-to-peer networking with libp2p. Listen statement binds to multiaddr, Connect to dials remote peer, PeerAgent represents remote endpoint, Send to transmits Portable messages. QUIC-first transport with TCP fallback, Noise encryption, mDNS discovery." \
-    "Listen on '/ip4/0.0.0.0/tcp/8000'. Connect to remote_addr. Let peer be a PeerAgent at addr. Send msg to peer."
-
-# Phase 52: The Sync
-add_test_description "tests/phase52_sync.rs" \
-    "Phase 52: The Sync (GossipSub)" \
-    "Automatic CRDT synchronization over GossipSub. Sync binds a CRDT variable to a pub/sub topic for auto-replication. Synced<T> wrapper auto-publishes on mutation, auto-merges on receive." \
-    "Let mutable c be a new Counter. Sync c on \"room\". Increase c's clicks by 5."
-
-# Phase 54: Go-like Concurrency
-add_test_description "tests/phase54_concurrency.rs" \
-    "Phase 54: Go-like Concurrency" \
-    "Green threads and channel primitives. 'Launch a task to fn' generates tokio::spawn. 'Let ch be a Pipe of T' creates mpsc::channel. 'Send x into ch' for tx.send(). 'Receive x from ch' for rx.recv(). 'Await the first of:' generates tokio::select!. 'Stop handle' for handle.abort(). Non-blocking Try variants." \
-    "Launch a task to worker. Let ch be a Pipe of Int. Send 42 into ch."
-
-# Phase Kripke: Modal Semantics with Possible Worlds
-add_test_description "tests/phase_kripke.rs" \
-    "Phase Kripke: Modal Semantics with Possible Worlds" \
-    "Kripke semantics lowering pass transforms surface modal operators (□, ◇) into explicit possible world quantification. OutputFormat::Kripke produces formulas with world arguments on predicates and accessibility relations. compile_kripke() API for direct Kripke output. Distinguishes alethic (can/must), deontic (should/may), and epistemic (might/could) accessibility predicates. Non-modal sentences get actual world w0 argument." \
-    "'John can fly' → ∃w1(Accessible_Alethic(w0, w1) ∧ Fly(e, w1) ∧ Agent(e, John, w1))"
-
-# Phase Privation Modal: Modal × Negation Interpretation Matrix
-add_test_description "tests/phase_privation_modal.rs" \
-    "Phase Privation Modal: Modal × Negation Scope Matrix" \
-    "Tests 4-way ambiguity when privative verbs (lacks, missing) combine with polysemous modals (can/may). Matrix: 2 modal types (Alethic ◇ = physical possibility, Deontic P = permission) × 2 scope types (Partial = ∃y(Key(y) ∧ ¬Have(x,y)), Total = ¬∃y(Key(y) ∧ Have(x,y))). NegativeScopeMode::Wide defers negation for total privation. ModalPreference::Deontic forces permission reading. compile_forest() generates all 4 interpretations. SimpleFOL deduplicates to 2 (Partial vs Total) since modals strip." \
-    "'No user who lacks a key can enter' → 4 readings: Alethic+Partial, Alethic+Total, Deontic+Partial, Deontic+Total"
-
-# End-to-End Tests
-add_test_description "tests/e2e_collections.rs" \
-    "E2E: Collections" \
-    "Runtime verification of collection operations: list literals [1, 2, 3], Push/Pop, length, 1-based indexing with 'item X of', and slicing with 'through'. Tests actual execution output." \
-    "Let items be [1, 2, 3]. Push 4 to items. Let v be item 2 of items."
-
-add_test_description "tests/e2e_comparisons.rs" \
-    "E2E: Comparisons" \
-    "Runtime verification of comparison operators: equals (is), not equals (is not), less than (<), greater than (>), at most (<=), at least (>=). Both English and symbolic forms." \
-    "If x is less than 10. If x > 5. If x is at most n."
-
-add_test_description "tests/e2e_control_flow.rs" \
-    "E2E: Control Flow" \
-    "Runtime verification of control flow: If/Then/Otherwise conditionals, While loops with conditions, Return statements, nested control structures." \
-    "If x > 0: Return true. Otherwise: Return false. While i <= n: Set i to i + 1."
-
-add_test_description "tests/e2e_edge_cases.rs" \
-    "E2E: Edge Cases" \
-    "Boundary condition tests: empty collections, zero values, single-element operations, edge indices, integer overflow guards." \
-    "Edge cases for robustness testing"
-
-add_test_description "tests/e2e_enums.rs" \
-    "E2E: Enums" \
-    "Runtime verification of sum types: enum instantiation with 'a new Variant', field access, pattern matching with Inspect statement." \
-    "Let shape be a new Circle with radius 5. Inspect shape: Circle: ... Square: ..."
-
-add_test_description "tests/e2e_expressions.rs" \
-    "E2E: Expressions" \
-    "Runtime verification of expressions: arithmetic (+, -, *, /), Boolean operations, operator precedence, parenthesized grouping." \
-    "Let result be (a + b) * c. Let flag be x > 0 and y < 10."
-
-add_test_description "tests/e2e_functions.rs" \
-    "E2E: Functions" \
-    "Runtime verification of function definitions and calls: typed parameters, return types, recursive calls, multi-parameter functions." \
-    "## To Double (n: Int) -> Int: Return n * 2. Let x be Double(5)."
-
-add_test_description "tests/e2e_integration.rs" \
-    "E2E: Integration" \
-    "Multi-function programs testing cross-function calls, shared state, complex control flow across function boundaries." \
-    "Complex programs with multiple interacting functions"
-
-add_test_description "tests/e2e_iteration.rs" \
-    "E2E: Iteration" \
-    "Runtime verification of loops: Repeat/For each iteration, While loops with index variables, collection iteration patterns." \
-    "Repeat for each item in items: ... While i <= n: ..."
-
-add_test_description "tests/e2e_logical.rs" \
-    "E2E: Logical Operators" \
-    "Runtime verification of Boolean logic: AND (and/&&), OR (or/||), NOT (not), compound conditions, short-circuit evaluation." \
-    "If a and b: ... If x or y: ... If not flag: ..."
-
-add_test_description "tests/e2e_structs.rs" \
-    "E2E: Structs" \
-    "Runtime verification of product types: struct instantiation with 'a new Type', field access with possessive (point's x), field mutation with Set." \
-    "Let p be a new Point with x 10 and y 20. Set p's x to 15."
-
-add_test_description "tests/e2e_types.rs" \
-    "E2E: Types" \
-    "Runtime verification of type system: type annotations (Let x: Int), type coercion rules, generic type instantiation." \
-    "Let x: Int be 5. Let items: Seq of Int be a new Seq of Int."
-
-add_test_description "tests/e2e_variables.rs" \
-    "E2E: Variables" \
-    "Runtime verification of variable operations: Let bindings, Set mutation, scoping rules, shadowing behavior." \
-    "Let x be 5. Set x to 10. Let x be 20. (shadowing)"
-
-add_test_description "tests/e2e_crdt.rs" \
-    "E2E: CRDT Runtime" \
-    "Runtime verification of CRDT operations: GCounter increment, LWWRegister updates, struct-level and field-level merge operations." \
-    "Increase counter's count. Merge replica1 with replica2."
-
-add_test_description "tests/e2e_policy.rs" \
-    "E2E: Policy Enforcement" \
-    "Runtime verification of security policies: predicate evaluation, capability checks, Check statement failure behavior with meaningful error messages." \
-    "Check that user can publish the document. → RuntimeError: Security check failed"
-
-add_test_description "tests/e2e_mesh.rs" \
-    "E2E: Mesh Networking" \
-    "Runtime verification of P2P mesh: node connection, message exchange, peer discovery." \
-    "Listen, Connect, Send messages between peers."
-
-add_test_description "tests/e2e_refinement.rs" \
-    "E2E: Refinement Types" \
-    "Runtime verification of refinement type constraints and debug_assert enforcement." \
-    "Let x: Int where x > 0 be 5."
-
-add_test_description "tests/e2e_zones.rs" \
-    "E2E: Zone Memory" \
-    "Runtime verification of zone-based memory: allocation, bulk deallocation, escape prevention." \
-    "Inside a zone: allocate and use memory."
-
-add_test_description "tests/e2e_sets.rs" \
-    "E2E: Set Collection" \
-    "Runtime verification of Set operations: creation with 'new Set of T', Add/Remove statements, contains check, deduplication, union/intersection algebra, iteration, length." \
-    "Let s be a new Set of Int. Add 1 to s. If s contains 1: Show found."
-
-add_test_description "tests/e2e_tuples.rs" \
-    "E2E: Tuple Type" \
-    "Runtime verification of heterogeneous tuples: creation with (a, b, c) syntax, dual access via brackets t[1] and natural language 'item 1 of t', length, mixed types (Int, Text, Float), arithmetic on elements." \
-    "Let t be (42, hello, 5.9). Show t[1]. Show item 2 of t."
-
-add_test_description "tests/e2e_maps.rs" \
-    "E2E: Map Collection" \
-    "Runtime verification of Map operations: creation with 'new Map of K to V', key-value access via 'item key of map', mutation with Set, multiple keys, key overwriting." \
-    "Let prices be a new Map of Text to Int. Set item iron of prices to 100."
-
-# Other tests
-add_test_description "tests/phase10_io.rs" \
-    "Phase 10: I/O Operations" \
-    "Input/output operations for LOGOS programs." \
-    "Read from file. Write to output."
-
-add_test_description "tests/phase_ownership.rs" \
-    "Ownership Analysis" \
-    "Rust-style ownership tracking: moves, borrows, lifetimes." \
-    "Give x to f. Show x to g."
-
-add_test_description "tests/phase_totality.rs" \
-    "Totality Analysis" \
-    "Function totality checking for termination guarantees." \
-    "Verify recursive functions terminate."
-
-add_test_description "tests/phase_lexer_refactor.rs" \
-    "Lexer Refactoring Tests" \
-    "Tests for lexer improvements and edge cases." \
-    "Lexer stress tests and edge cases."
 
 # STATISTICS
-# ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Statistics
 
@@ -2074,44 +357,16 @@ echo "Total Rust lines: $TOTAL_LINES" >> "$OUTPUT_FILE"
 echo '```' >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
 
-echo "### File Counts" >> "$OUTPUT_FILE"
-echo '```' >> "$OUTPUT_FILE"
-SRC_FILES=$(find src -name "*.rs" 2>/dev/null | wc -l | tr -d ' ')
-TEST_FILES=$(find tests -name "*.rs" 2>/dev/null | wc -l | tr -d ' ')
-echo "Source files: $SRC_FILES" >> "$OUTPUT_FILE"
-echo "Test files:   $TEST_FILES" >> "$OUTPUT_FILE"
-echo '```' >> "$OUTPUT_FILE"
-
 
 # ==============================================================================
-# LEXICON DATA (FIRST - Reference for all code)
+# LEXICON DATA
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Lexicon Data
 
 The lexicon defines all vocabulary entries that drive the lexer and parser behavior.
-
-**File:** `assets/lexicon.json`
-
-**Contents:**
-- **Keywords** (44 entries): quantifiers, connectives, modals
-- **Pronouns** (9 entries): with gender/number/case features
-- **Verbs** (252 entries): lemma, Vendler class, irregular forms, features (Ditransitive, SubjectControl, ObjectControl, Raising, Opaque, Factive, Performative, Collective)
-- **Nouns** (113 entries): lemma, plural forms, features (Proper, Masculine, Feminine)
-- **Adjectives** (65 entries): lemma, features (Intersective, NonIntersective, Gradable)
-- **Closed classes**: prepositions, adverbs, scopal/temporal adverbs
-- **Morphology rules**: needs_e_ing, needs_e_ed, stemming_exceptions
-
-```json
 EOF
-cat "assets/lexicon.json" >> "$OUTPUT_FILE"
-echo "" >> "$OUTPUT_FILE"
-cat >> "$OUTPUT_FILE" << 'EOF'
-```
-
----
-
-EOF
+add_file "assets/lexicon.json" "Lexicon JSON" "Core vocabulary definition."
 
 # ==============================================================================
 # LEXER & TOKENIZATION
@@ -2119,19 +374,11 @@ EOF
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Lexer & Tokenization
 
-The lexer transforms English text into a stream of classified tokens using dictionary lookups and heuristic fallbacks for unknown words.
-
-**Location:** `src/token.rs`, `src/lexer.rs`
-
+Transforms text into classified tokens.
 EOF
 
-add_file "src/token.rs" \
-    "Token Definitions" \
-    "Token type taxonomy including quantifiers, modal operators, connectives (Because for causal), pronouns, prepositions, demonstratives (This/That/These/Those), Reciprocal (each other), and performatives. Supports presupposition triggers, focus particles, and measure words (MeasureKind: Much/Little). Number(Symbol) stores numeric literals as interned strings for prover-ready symbolic math. Includes semantic token sets (WH_WORDS, MODALS) as const arrays for pattern matching. Span struct (start/end byte positions) for source location tracking. **Phase 12:** TokenType::Ambiguous { primary: Box<TokenType>, alternatives: Vec<TokenType> } for polysemous words that have multiple valid interpretations (e.g., 'duck' as Noun or Verb)."
-
-add_file "src/lexer.rs" \
-    "Lexer Implementation" \
-    "Dictionary-based tokenization with heuristic word classification. **Verb-First Priority:** Word classification checks verbs before nouns (lines 573-594), enabling the parser safety net where consume_content_word() accepts Verb tokens in noun positions. Disambiguation: words in disambiguation_not_verbs that are also common nouns return Noun; otherwise Adjective. **Verb/Adjective Ambiguity:** Extended ambiguity detection to include Verb AND Adjective overlap (e.g., 'open'); returns TokenType::Ambiguous{Verb, [Adj]} for words that can be either. **Content Word Classifiers:** Heuristic helpers is_noun_like(), is_verb_like(), is_adjective_like() for disambiguating unknown words. **Capitalized Article Disambiguation:** Sentence-initial 'A'/'An' uses lookahead heuristics: followed by logical keyword (if, and, or) → ProperName; followed by verb (not gerund) → ProperName; followed by noun/adjective or lowercase word → Article(Indefinite). Examples: 'A dog ran.' → Article; 'A if B.' → ProperName; 'A red ball.' → Article. Handles contractions, punctuation, unknown word fallbacks, gerund detection (-ing forms as nouns), and mass noun quantifiers (much/little). Enhanced number recognition with word_to_number() for spelled-out numerals and lookahead for compound numbers (twenty five, two and a half). Returns Number(Symbol) tokens for prover-ready symbolic math. UTF-8 safe byte position tracking via char_indices() for span generation. **Contraction Expansion:** Negative contractions split to separate tokens: don't→do+not, doesn't→does+not, didn't→did+not, won't→will+not, can't→cannot. Uses skip_count for character skipping after expansion."
+add_file "src/token.rs" "Token Definitions" "Token enum and types."
+add_file "src/lexer.rs" "Lexer Implementation" "Tokenization logic and classification."
 
 # ==============================================================================
 # PARSER & AST
@@ -2139,63 +386,30 @@ add_file "src/lexer.rs" \
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Parser & AST
 
-The parser builds an Abstract Syntax Tree from the token stream using recursive descent with operator precedence handling. The AST is split into two modules: declarative logic expressions and imperative statements.
-
-**Location:** `src/ast/` (module), `src/parser/`
-
+Recursive descent parser supporting both Logic and Imperative modes.
 EOF
 
-add_file "src/ast/mod.rs" \
-    "AST Module" \
-    "Module exports for the dual-AST architecture. Re-exports logic.rs (declarative) and stmt.rs (imperative) types."
+add_file "src/ast/mod.rs" "AST Module" "AST re-exports."
+add_file "src/ast/logic.rs" "Logic AST" "Declarative expressions (Predicate, Quantifier)."
+add_file "src/ast/stmt.rs" "Statement AST" "Imperative statements (Let, Set, If)."
+add_file "src/parser/mod.rs" "Parser Core" "Parser struct and entry points."
+add_file "src/parser/clause.rs" "Clause Parsing" "Sentence structure handling."
+add_file "src/parser/quantifier.rs" "Quantifier Parsing" "Quantifier handling."
+add_file "src/parser/verb.rs" "Verb Parsing" "Verb phrase handling."
+add_file "src/parser/noun.rs" "Noun Parsing" "Noun phrase handling."
 
-add_file "src/ast/logic.rs" \
-    "Logic AST (Declarative)" \
-    "Arena-allocated AST with Copy semantics for first-order logic. Boxed large variants (CategoricalData, RelationData, NeoEventData) reduce Expr size from 112 to 32 bytes. Includes compile-time size assertions. **Expression types:** Predicate, Identity, Quantifier (with Generic and island_id for scope constraints), Modal, Temporal, Aspectual, NeoEvent (thematic roles), Event, Control (raising/control verbs), Presupposition, Focus, SpeechAct, Imperative, Comparative (with difference field for measure phrases), Superlative, Counterfactual, Distributive, Scopal, TemporalAnchor, Causal, Intensional (opaque verb wrapper). **Term types:** Constants, Variables, Functions, Sigma, Group, Possessed, Intension (Montague up-arrow ^P for de dicto), Proposition (sentential complement), Value (numeric with kind/unit/dimension). **Intensionality Support:** Term::Intension(Symbol) for de dicto readings; Expr::Intensional { operator, content } for opaque verb contexts. **Sentential Complements:** Term::Proposition(&Expr) wraps embedded clauses as term arguments for verbs like 'say', 'believe', 'think'. Transpiles to bracket notation [expr]. **Scope Tracking:** Expr::Quantifier.island_id: u32 identifies scope boundaries for constraining quantifier movement. **Degree Semantics (Phase 8):** Dimension enum (Length, Time, Weight, Temperature, Cardinality) for measurement categories. NumberKind enum (Real, Integer, Symbolic) for prover-ready numeric types. Term::Value stores numeric value with optional unit Symbol and Dimension. Expr::Comparative.difference field holds optional measure phrase ('2 inches' in 'taller'). ThematicRole enum: Agent, Patient, Theme, Goal, Source, Recipient, Instrument, Location, Time, Manner. VoiceOperator enum (Passive) for voice handling. AspectOperator enum (Progressive, Perfect, Habitual, Iterative) for grammatical aspect. Habitual for present-tense non-stative verbs; Iterative for progressive semelfactives."
+# ==============================================================================
+# SEMANTICS
+# ==============================================================================
+cat >> "$OUTPUT_FILE" << 'EOF'
+## Semantic Analysis
 
-add_file "src/ast/stmt.rs" \
-    "Statement AST (Imperative)" \
-    "Imperative AST for executable code blocks. **Stmt enum variants:** Let (variable binding), Set (mutation), Call (function invocation), If (conditional with then/else blocks), While (loops), Return (with optional value), Assert (bridge to logic kernel - embeds Expr for verification), Give (ownership transfer/move semantics), Show (immutable borrow). **Expr enum (imperative):** Literal (Number, Text, Boolean, Nothing), Identifier, BinaryOp (arithmetic and comparison), Call, Index, Slice. **BinaryOpKind:** Add, Subtract, Multiply, Divide, Eq, NotEq, Lt, Gt, LtEq, GtEq. The Assert statement connects imperative code to the declarative logic kernel, enabling runtime verification via debug_assert! macros in generated Rust."
+Lambda calculus and discourse representation.
+EOF
 
-add_file "src/parser/mod.rs" \
-    "Parser Core" \
-    "Core Parser struct with token stream, cursor, and context management. **Topicalization:** Detects 'NP + Comma' pattern at sentence start (lines 401-473), stores fronted NP, injects as object with adjective preservation via wrap_with_definiteness_full(). Handles pronoun subjects ('The book, he read.') and full NP subjects ('The apple, John ate.'). **Filler-Gap:** filler_gap: Option<Symbol> field tracks wh-fillers across clause boundaries for long-distance dependencies in relative clauses and wh-questions. **Garden Path Optimization:** Skips reanalysis when auxiliary is present (pending_time.is_some()) since auxiliaries disambiguate structure. ParserGuard RAII struct with guard()/commit() pattern and Deref for transparent parser access with automatic rollback. Entry point for recursive descent parsing. **VP Ellipsis Support:** EventTemplate struct stores verb + non-agent thematic roles + modifiers. capture_event_template() extracts template at NeoEvent creation. last_event_template field persists template for cross-sentence reconstruction. **Phase 12 Parse Forest:** noun_priority_mode: bool field enables lexical ambiguity forking. set_noun_priority_mode() toggles noun-first interpretation for Ambiguous tokens. check_pronoun() respects noun_priority_mode for possessive pronoun handling ('her' as determiner vs object). **Copula Adjective Preference:** After copula (is/was/are/were), simple-aspect Verbs with Adjective alternative prefer Adjective reading via prefer_adjective check (lines 870-884). E.g., 'The door is open' → Adjective(open) rather than Verb. **NPI Handling (Phase 15):** check_npi_quantifier() detects anything/anyone/nobody/nothing; check_npi_object() handles NPI objects in negative contexts; check_temporal_npi() handles ever/never; parse_npi_quantified() produces appropriate quantifier structure based on licensing."
-
-add_file "src/parser/clause.rs" \
-    "ClauseParsing Trait" \
-    "Extension trait for sentence-level parsing: conditionals (if/then), conjunctions (and/or/but), relative clauses (who/that/which), gapped clauses (ellipsis via verb borrowing), counterfactual antecedents/consequents. Handles complete clause detection and verb extraction. **VP Ellipsis:** try_parse_ellipsis() detects pattern: Subject + Auxiliary (does/do/can/could/would/may/must/should) + (not)? + Terminator (too/also/period/EOF). Reconstructs NeoEvent with new Agent but preserves verb and non-agent roles from last_event_template. Applies modal wrapper and negation as needed."
-
-add_file "src/parser/quantifier.rs" \
-    "QuantifierParsing Trait" \
-    "Extension trait for quantified expressions: universal (all/every/each), existential (some/a/an), generic (bare plurals), negative (no/none). Handles restrictions, verb phrase parsing for restrictions, definiteness wrapping (with adjectives and PPs), donkey anaphora binding, PP placeholder substitution, and stacked relative clauses ('the book that John read that Mary wrote')."
-
-add_file "src/parser/verb.rs" \
-    "VerbParsing Trait" \
-    "Extension trait for predicate parsing: subject-verb agreement, aspect chains (progressive/perfect/passive), control structures (want to, try to, seem to), plural subject coordination, thematic role assignment for Neo-Davidsonian events, ditransitive verbs (give/send/tell with Recipient role). **Embedded Clauses:** When filler_gap is set and a verb follows a noun phrase, wraps subordinate clause in Term::Proposition and passes as argument. Enables 'Who did John say Mary loves?' with structure Say(J, [Love(M, x)]). **Do-Support:** Handles do/does/did + (not)? + verb patterns for emphasis and negation. **Sluicing:** Detects wh-word at sentence boundary after embedding verbs (know, wonder); reconstructs event from last_event_template with wh-variable as Agent (who) or Theme (what); wraps in Expr::Question."
-
-add_file "src/parser/noun.rs" \
-    "NounParsing Trait" \
-    "Extension trait for noun phrase parsing: articles, intersective/non-intersective adjectives (with compound interning), proper names, possessives ('s and 'of' forms), and PP attachment. Includes check_proper_name_or_label() for compound identifiers (set_A, function_F). Registers definite NPs for anaphora with gender/number inference. Provides parse_noun_phrase_for_relative() for relative clause contexts. Converts NounPhrase to Term for predicate arguments."
-
-add_file "src/parser/question.rs" \
-    "QuestionParsing Trait" \
-    "Extension trait for interrogatives: wh-questions (who/what/where/when/why/how), pied-piping prepositions, yes/no questions with auxiliary inversion, modal-to-vector conversion for question semantics."
-
-add_file "src/parser/modal.rs" \
-    "ModalParsing Trait" \
-    "Extension trait for modal expressions: necessity/possibility (must/can/might/would/should/cannot), aspect chains (parse_aspect_chain() and parse_aspect_chain_with_term() for perfect/progressive/passive/modal stacking with constant or variable subjects), modal vector construction (domain + force). **Passive Agent Extraction:** Detects 'by X' after passive 'been' to extract agent argument for proper thematic role assignment. **NeoEvent Output:** Creates Expr::NeoEvent with thematic roles for consistent event semantics; adds tense modifiers from pending_time. All modals route through aspect chain parsing for uniform handling of negation and auxiliaries."
-
-add_file "src/parser/pragmatics.rs" \
-    "PragmaticsParsing Trait" \
-    "Extension trait for pragmatic phenomena: focus particles (only/even/just), measure expressions (much/little), presupposition triggers (factive verbs, aspectual verbs with gerund complement check via is_followed_by_gerund()), scopal adverbs, comparatives (taller than with optional difference measure phrase), superlatives (tallest). parse_measure() handles numeric measurement phrases and routes to comparative parsing when degree expressions are detected."
-
-add_file "src/parser/common.rs" \
-    "Parser Constants" \
-    "Shared constants for parser modules. COPULAS array defines copular verbs (is/are/was/were) for pattern matching."
-
-add_file "src/parser/tests.rs" \
-    "Parser Unit Tests" \
-    "Unit tests for parser internals: ParserGuard RAII behavior (guard_restores_all_fields_on_drop), check_any() semantic token matching. Tests verify checkpoint/restore mechanics and token set operations."
+add_file "src/lambda.rs" "Lambda Calculus" "Compositional semantics."
+add_file "src/drs.rs" "DRS" "Discourse Representation Structures."
+add_file "src/context.rs" "Context" "Discourse context."
 
 # ==============================================================================
 # TRANSPILATION
@@ -2203,532 +417,62 @@ add_file "src/parser/tests.rs" \
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Transpilation
 
-The transpiler converts the AST into formal logical notation, supporting both Unicode mathematical symbols and LaTeX output.
-
-**Location:** `src/transpile.rs`, `src/formatter.rs`, `src/registry.rs`
-
+Converting Logic AST to string representations.
 EOF
 
-add_file "src/transpile.rs" \
-    "Code Generation" \
-    "Converts AST to logical notation. Implements symbolic substitution, quantifier formatting, output mode selection (Unicode/LaTeX), Recipient thematic role rendering, and Causal expression transpilation. Term::Value output formats numeric values (Real/Integer/Symbolic) with optional unit strings. Comparative.difference renders measure phrases in degree expressions. Includes write_to() and write_logic() methods for zero-allocation output to any std::fmt::Write target."
-
-add_file "src/formatter.rs" \
-    "Output Formatting" \
-    "LatexFormatter, UnicodeFormatter, and LogicFormatter traits. Handles symbol sanitization and operator rendering for clean output."
-
-add_file "src/registry.rs" \
-    "Symbol Registry" \
-    "Maps interned symbols to readable output strings. Manages predicate and constant naming conventions."
+add_file "src/transpile.rs" "Transpiler" "AST -> String conversion."
+add_file "src/formatter.rs" "Formatter" "Output formatting."
 
 # ==============================================================================
-# SEMANTIC ANALYSIS
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Semantic Analysis
-
-Advanced semantic computation using lambda calculus for compositional meaning construction.
-
-**Location:** `src/lambda.rs`, `src/context.rs`, `src/view.rs`
-
-EOF
-
-add_file "src/lambda.rs" \
-    "Lambda Calculus" \
-    "Lambda calculus core with Montague-style compositional semantics. Features: Lambda abstraction, application, and beta reduction. **Quantifier Scope Enumeration** via enumerate_scopings() returning lazy ScopeIterator. **Complexity:** Factorial O(n!) worst-case, optimized by Island constraints to Π(k_i!). **Island Constraints:** Scope boundaries (if/and/or) prevent cross-island quantifier movement. **Intensionality (De Re/De Dicto):** enumerate_intensional_readings() for opaque verbs (seek, want, believe, need, fear). **Opacity-Respecting Substitution:** substitute_respecting_opacity() blocks substitution inside intensional contexts. **Montague Up-Arrow:** Term::Intension(^P) for de dicto readings."
-
-add_file "src/context.rs" \
-    "Discourse Context" \
-    "Entity registration and resolution for anaphora. Tracks gender, number, and case attributes for pronoun binding."
-
-add_file "src/drs.rs" \
-    "Discourse Representation Structures" \
-    "Kamp's DRT implementation for donkey anaphora and accessibility. **ReferentSource** tracks where variables are introduced (MainClause, ConditionalAntecedent, UniversalRestrictor, NegationScope). **BoxType** represents DRS boxes (Main, ConditionalAntecedent/Consequent, NegationScope, UniversalRestrictor/Scope, Disjunct). **Referent** stores variable info with noun_class, gender, source, and used_by_pronoun flag. **DrsBox** contains universe of referents with parent pointer. **Drs** manages box stack and provides introduce_referent(), resolve_pronoun(), find_accessible_referent() methods."
-
-add_file "src/view.rs" \
-    "AST Views & Resolution" \
-    "ExprView (including Causal variant), TermView, NounPhraseView types for AST traversal. Symbol resolution and display utilities."
-
-add_file "src/semantics/mod.rs" \
-    "Semantics Module" \
-    "Entry point for semantic axiom layer. Includes generated axiom_data and exports apply_axioms()."
-
-add_file "src/semantics/axioms.rs" \
-    "Axiom Expansion" \
-    "AST transformation for meaning postulates. Handles noun entailments (bachelor→unmarried), hypernyms (dog→animal), privative adjectives (fake→¬N∧Resembles), and verb entailments (murder→kill)."
-
-add_file "src/semantics/kripke.rs" \
-    "Kripke Modal Lowering" \
-    "Transforms surface modal operators (□, ◇) into explicit possible world quantification. apply_kripke_lowering() rewrites Modal nodes into Quantifier nodes with accessibility predicates. Predicates gain world arguments (P(x) → P(x, w)). Distinguishes Accessible_Alethic, Accessible_Deontic, and Accessible_Epistemic based on modal domain. Non-modal formulas receive actual world w0 argument. Integrates with OutputFormat::Kripke for Deep mode in UI."
-
-# ==============================================================================
-# TYPE ANALYSIS (TWO-PASS COMPILATION)
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Type Analysis
-
-Two-pass compilation infrastructure for type discovery and resolution.
-
-**Location:** `src/analysis/`
-
-EOF
-
-add_file "src/analysis/mod.rs" \
-    "Analysis Module" \
-    "Entry point for type analysis. Re-exports TypeRegistry and DiscoveryPass for two-pass compilation."
-
-add_file "src/analysis/registry.rs" \
-    "Type Registry" \
-    "TypeRegistry struct for tracking type definitions. TypeDef enum with variants: Generic (type parameters), Struct (record types), Enum (sum types). register_type() adds definitions; resolve_type() looks up by name. Supports the Adjective System where adjectives become type parameters."
-
-add_file "src/analysis/discovery.rs" \
-    "Discovery Pass" \
-    "First pass of two-pass compilation. DiscoveryPass scans source for ## Definition blocks to populate TypeRegistry before full parsing. Enables forward references and mutual recursion in type definitions. Extracts type names, parameters, and kind (struct/enum) from definition headers."
-
-add_file "src/analysis/dependencies.rs" \
-    "Module Dependency Scanner" \
-    "Phase 36 hyperlink-based module system. **Dependency** struct stores alias, uri, and source positions. **scan_dependencies()** parses the Abstract (first paragraph after module header) for Markdown links [Alias](URI). Supports file: scheme for local paths and logos: scheme for standard library. Scanning stops at first empty line or code block header (##)."
-
-add_file "src/analysis/escape.rs" \
-    "Escape Analysis" \
-    "Phase 8.5: Zone safety enforcement. EscapeChecker tracks variable zone depths and detects escape violations (return from zone, assignment to outer variable). Socratic error messages explain Hotel California rule. Falls back to Rust's borrow checker for complex patterns."
-
-add_file "src/analysis/policy.rs" \
-    "Policy Analysis" \
-    "PolicyRegistry for storing predicate and capability definitions. PolicyCondition enum for rule composition: FieldEquals, FieldBool, Predicate, ObjectFieldEquals, Or, And. PredicateDef and CapabilityDef structs. Integrated with DiscoveryPass for ## Policy block scanning."
-
-add_file "src/analysis/ownership.rs" \
-    "Ownership Analysis (Phase 45)" \
-    "Control-flow-aware ownership tracking. Move detection in branches, use-after-move errors, Give/Show semantics. OwnershipState tracks Live/Moved/MaybeValid states per variable. Merges states at control flow joins."
-
-# ==============================================================================
-# CODE GENERATION
+# CODE GENERATION (IMPERATIVE)
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Code Generation
 
-Rust code emission from imperative AST.
-
-**Location:** `src/codegen.rs`, `src/compile.rs`, `src/scope.rs`
-
+Converting Imperative AST to Rust.
 EOF
 
-add_file "src/codegen.rs" \
-    "Rust Code Generation" \
-    "Converts imperative Stmt AST to valid Rust source code. codegen_program() emits complete program with main(). codegen_stmt() handles each Stmt variant: Let→let binding, Set→assignment, Call→function call, If→if/else, While→while loop, Return→return, Assert→debug_assert!, Give→move semantics, Show→borrow. RefinementContext tracks 'Type where predicate' constraints; emit_refinement_check() generates debug_assert!() at Let and on Set mutations. Uses String buffer for zero-dependency output."
-
-add_file "src/compile.rs" \
-    "Compilation Orchestration" \
-    "High-level compilation pipeline. compile_to_rust() coordinates lexer→parser→codegen for imperative programs. compile_to_rust_verified() adds Z3 verification pass for Assert statements (requires verification feature). Manages parser mode switching between declarative and imperative contexts. Handles ## Main and ## Definition block routing."
-
-add_file "src/scope.rs" \
-    "Scope Management" \
-    "Variable scope tracking for imperative blocks. ScopeStack manages nested lexical scopes with push/pop. resolve_identifier() finds variable bindings respecting shadowing. Tracks ownership state (owned/moved/borrowed) for each binding."
-
-add_file "src/cli.rs" \
-    "CLI Interface" \
-    "Command-line interface for LOGOS build tool. Implements largo new/init/build/run/check commands via clap. Feature-gated behind 'cli' feature flag."
-
-add_file "src/project/mod.rs" \
-    "Project Module" \
-    "Infrastructure for multi-file LOGOS projects (Phase 36/37/39). Provides module loading from URI schemes (file:, logos:, https:), caching, standard library embedding, manifests, build orchestration, and package registry client."
-
-add_file "src/project/loader.rs" \
-    "Module Loader" \
-    "Phase 36 module loader. Handles resolution from URI schemes: file: (local filesystem), logos: (built-in stdlib), https: (remote registry). Caches loaded modules with cycle detection. ModuleSource stores content and resolved path."
-
-add_file "src/project/manifest.rs" \
-    "Project Manifest" \
-    "Largo.toml parser. Defines Manifest struct with package metadata (name, version, edition) and dependencies (path/git/version variants)."
-
-add_file "src/project/build.rs" \
-    "Build Orchestration" \
-    "Project build pipeline. find_project_root() walks up to find Largo.toml, build() coordinates parse→compile→cargo build, run() executes the built binary."
-
-add_file "src/project/credentials.rs" \
-    "Credential Management" \
-    "Phase 39 API token storage. Credentials struct persists to ~/.config/logos/credentials.toml with 0600 permissions. Supports LOGOS_TOKEN env var override. TOML format with registry→token map."
-
-add_file "src/project/registry.rs" \
-    "Registry Client" \
-    "Phase 39 package registry HTTP client. RegistryClient handles auth, publish (multipart tarball upload), token validation. create_tarball() packages src/, Largo.toml, README.md, LICENSE. is_git_dirty() for safety checks."
+add_file "src/codegen.rs" "Codegen" "Stmt -> Rust conversion."
+add_file "src/compile.rs" "Compiler" "Compilation pipeline."
+add_file "src/scope.rs" "Scope" "Scope management."
 
 # ==============================================================================
-# SUPPORT INFRASTRUCTURE
+# TYPE ANALYSIS
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'
-## Public API
+## Type Analysis
 
-The public interface for embedding LOGICAFFEINE in other applications.
-
-**Location:** `src/lib.rs`
-
+Two-pass type checking and discovery.
 EOF
 
-add_file "src/lib.rs" \
-    "Library Entry Point" \
-    "Exports compile(), compile_with_options(), compile_ambiguous(), compile_all_scopes(), compile_all_scopes_with_options(), compile_discourse(), compile_discourse_with_options(), and compile_with_context(). **Phase 12 Parse Forest:** compile_forest() and compile_forest_with_options() return Vec<String> of all valid readings for ambiguous sentences. MAX_FOREST_READINGS (12) limits output size. Handles lexical ambiguity (Noun/Verb tokens) via noun_priority_mode forking and structural ambiguity (PP attachment) via pp_attachment_mode. **Ambiguity APIs:** compile_ambiguous() returns Vec<String> for PP-attachment ambiguity; compile_all_scopes() returns all quantifier scope readings PLUS intensional readings (de re/de dicto) by calling enumerate_scopings() for scope permutations then enumerate_intensional_readings() for opaque verb ambiguity. **Discourse API:** compile_discourse() handles multi-sentence input with persistent DiscourseContext. Defines TranspileContext, CompileOptions, and OutputFormat (Unicode/LaTeX)."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Linguistic Data
-
-Dictionary and semantic information for word classification.
-
-**Location:** `src/lexicon.rs`
-
-EOF
-
-add_file "src/lexicon.rs" \
-    "Lexicon" \
-    "Feature-based lexical database. Feature enum (22 variants) classifies words by transitivity (Transitive, Intransitive, Ditransitive), control theory (SubjectControl, ObjectControl, Raising), semantics (Opaque, Factive, Performative, Collective), noun properties (Count, Mass, Proper, Masculine, Feminine, Neuter, Animate, Inanimate), and adjective types (Intersective, Subsective, NonIntersective, Gradable). Subsective adjectives use intension (^Noun) for class-relative predicates like 'small elephant' → S(x, ^E). VerbClass enum implements Vendler's Aktionsart with is_stative()/is_durative()/is_telic(). Metadata structs (VerbMetadata, NounMetadata, AdjectiveMetadata) provide lemma plus feature arrays. Generated lookup functions (lookup_verb_db, lookup_noun_db, lookup_adjective_db) return full metadata at runtime. is_subsective() generated check for adjective type. **Zero-Derivation Morphology:** Consonant cluster heuristic (vowel + consonant + l/r) recovers silent-e lemmas: 'tabled' → 'table', 'googled' → 'google'. **Phase 11 Sort System:** Sort enum (Human, Animate, Celestial, Abstract, Physical, Value) for ontological type hierarchy. lookup_sort() returns Sort for proper names. is_compatible_with() checks sort subsumption (Human⊂Animate⊂Physical). Used for metaphor detection via sort violations ('Juliet is the sun' violates Human/Celestial compatibility)."
-
-add_file "src/mwe.rs" \
-    "Multi-Word Expressions" \
-    "Post-tokenization MWE pipeline (Phase 13). MweTrie for pattern storage with longest-match lookup. apply_mwe_pipeline() collapses multi-token sequences into single semantic units. Handles compound nouns (fire engine → FireEngine), idioms (kicked the bucket → Die), and phrasal verbs (gave up → Surrender). Inherits tense from head token for morphological variants. build_mwe_trie() creates default vocabulary with common MWEs."
-
-add_file "src/ontology.rs" \
-    "Ontology Module" \
-    "Bridging anaphora and sort checking (Phase 14). find_bridging_wholes() returns possible whole objects for parts (e.g., 'engine' → ['car', 'plane']). check_sort_compatibility() validates predicate-subject sort match for metaphor detection. required_sort() gets predicate's required sort. Uses generated ontology_data.rs from build.rs with part-whole mappings and predicate sort requirements."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Memory Management
-
-Efficient memory allocation strategies for AST construction.
-
-**Location:** `src/intern.rs`, `src/arena.rs`
-
-EOF
-
-add_file "src/intern.rs" \
-    "Symbol Interning" \
-    "Interner and Symbol types for efficient string storage. Enables O(1) symbol comparisons and reduced memory footprint."
-
-add_file "src/arena.rs" \
-    "Arena Allocation" \
-    "Bumpalo-based arena allocator for AST nodes. Provides fast allocation with batch deallocation."
-
-add_file "src/arena_ctx.rs" \
-    "AST Context" \
-    "AstContext struct unifying 6 separate arenas into one Copy struct. Provides alloc_expr(), alloc_term(), alloc_slice() helpers for ergonomic AST construction. Fluent expression builders: binary(), unary(), quantifier(), temporal(), aspectual(), modal() with #[inline(always)]."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Error Handling
-
-User-friendly error reporting with educational feedback.
-
-**Location:** `src/error.rs`
-
-EOF
-
-add_file "src/error.rs" \
-    "Error Types" \
-    "ParseError and ParseErrorKind types. ParseError includes Span for source location. display_with_source() renders errors with ANSI colors, line numbers, underline markers, and 'did you mean?' suggestions. Implements socratic_explanation() for Socratic-style error guidance."
-
-add_file "src/diagnostic.rs" \
-    "Diagnostic Bridge" \
-    "Translates Rust borrow checker errors into friendly LOGOS messages. Parses rustc JSON output (E0382, E0597, E0505) and maps errors back to LOGOS source via SourceMap. LogosError struct with title, explanation, suggestion fields. Socratic messages explain ownership semantics."
-
-add_file "src/sourcemap.rs" \
-    "Source Map" \
-    "Maps generated Rust code back to LOGOS source positions. OwnershipRole enum (GiveObject, GiveRecipient, ShowObject, ShowRecipient, LetBinding, SetTarget, ZoneLocal) tracks semantic context. VarOrigin stores logos_name, span, and role. Enables friendly error messages for ownership/lifetime violations."
-
-add_file "src/verification.rs" \
-    "Verification Pass (AST Mapper)" \
-    "Bridges LOGOS AST to logos_verification IR. VerificationPass maps Stmt::Let → declare+assume, Stmt::Set → assume (simplified SSA), Stmt::Assert/Trust → verify. check_refinement() verifies refinement type constraints at Let bindings. Maps LogicExpr to VerifyExpr with special handling for comparison predicates (Greater, Less, GreaterEqual, LessEqual, Equal, NotEqual). Complex linguistic constructs gracefully degrade to Bool(true)."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Suggestions & Styling
-
-Compiler-style error presentation with typo correction and ANSI colors.
-
-**Location:** `src/suggest.rs`, `src/style.rs`
-
-EOF
-
-add_file "src/suggest.rs" \
-    "Typo Suggestions" \
-    "Zero-dependency Levenshtein distance algorithm. find_similar() finds closest vocabulary match for 'did you mean?' suggestions in error messages."
-
-add_file "src/style.rs" \
-    "ANSI Styling" \
-    "Style struct with red(), blue(), cyan(), green(), bold_red() methods for terminal color output. Integrated into display_with_source() for compiler-style error presentation."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Debug Utilities
-
-Development and introspection tools.
-
-**Location:** `src/debug.rs`
-
-EOF
-
-add_file "src/debug.rs" \
-    "Debug Tools" \
-    "DebugWorld for AST introspection. DisplayWith trait for custom formatting during development. Includes Causal expression display support."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Visitor Pattern
-
-Tree traversal infrastructure for AST analysis.
-
-**Location:** `src/visitor.rs`
-
-EOF
-
-add_file "src/visitor.rs" \
-    "Visitor Trait" \
-    "Visitor trait with walk_expr() and walk_term() functions for AST traversal. Enables analysis passes without manual recursion."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Test Utilities
-
-Helper functions for unit and integration testing.
-
-**Location:** `src/test_utils.rs`
-
-EOF
-
-add_file "src/test_utils.rs" \
-    "Test Helpers" \
-    "Utility functions for constructing test cases and validating transpilation output. assert_snapshot! macro for golden master testing. Snapshots stored in tests/snapshots/. Set UPDATE_SNAPSHOTS=1 to regenerate."
-
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Pragmatics
-
-Speech act theory and modal-to-imperative conversion.
-
-**Location:** `src/pragmatics.rs`
-
-EOF
-
-add_file "src/pragmatics.rs" \
-    "Pragmatics Module" \
-    "Modal-to-imperative conversion for indirect speech acts. Detects when modal questions should be interpreted as imperatives (e.g., 'Can you pass the salt?' → Pass(you, salt), 'Could you please open the door?' → Open(you, door)). Handles both Expr::NeoEvent and Expr::Predicate forms for addressee detection."
+add_file "src/analysis/mod.rs" "Analysis" "Module entry."
+add_file "src/analysis/registry.rs" "Registry" "Type definitions."
+add_file "src/analysis/discovery.rs" "Discovery" "First pass discovery."
 
 # ==============================================================================
-# GAMIFICATION
+# RUNTIME
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'
-## Gamification
+## Logos Core Runtime
 
-Achievement system, progress tracking, and spaced repetition for learning engagement.
-
-**Location:** `src/achievements.rs`, `src/progress.rs`, `src/game.rs`, `src/srs.rs`
-
+Standard library for compiled programs.
 EOF
 
-add_file "src/achievements.rs" \
-    "Achievements" \
-    "Achievement system with unlock conditions and tracking. Defines achievements for milestones (first problem, streak, mastery). Checks unlock conditions and emits events for UI notifications."
-
-add_file "src/progress.rs" \
-    "Progress Tracking" \
-    "Lesson and module progress tracking. Tracks completion status, scores, and time spent. Persists progress to storage for cross-session continuity."
-
-add_file "src/game.rs" \
-    "Game State" \
-    "Central game state management. Tracks XP, level, combo/streak counters, and current lesson. Coordinates between achievements, progress, and SRS systems."
-
-add_file "src/srs.rs" \
-    "Spaced Repetition" \
-    "SM-2 style spaced repetition algorithm for review scheduling. Calculates next review date based on performance. Prioritizes due items in review queue."
-
-add_file "src/audio.rs" \
-    "Audio Feedback" \
-    "Sound effect management for feedback. Plays success/failure/achievement sounds. Uses web audio API in WASM context."
-
-add_file "src/storage.rs" \
-    "Persistent Storage" \
-    "LocalStorage interface for saving game state. Handles serialization/deserialization of progress, settings, and achievements. Provides fallback for browsers without storage access."
-
-add_file "src/interpreter.rs" \
-    "LOGOS Interpreter" \
-    "Direct AST interpretation without compilation. Used for REPL, debugging, and rapid prototyping. Evaluates expressions and statements in a runtime environment."
-
-add_file "src/learn_state.rs" \
-    "Learning State Management" \
-    "Tracks user progress: lesson completion, XP, streaks, achievements. Persisted to local storage. LearningState struct with serializable progress data."
-
-add_file "src/struggle.rs" \
-    "Struggle Detection" \
-    "Identifies areas where users need help. Tracks error patterns, offers adaptive hints. StruggleTracker monitors repeated failures on specific concepts."
-
-add_file "src/symbol_dict.rs" \
-    "Symbol Dictionary" \
-    "Runtime symbol table for interactive features. Maps symbols to definitions and types. Used by workspace for autocomplete and hover info."
-
-add_file "src/unlock.rs" \
-    "Content Unlocking" \
-    "Progressive disclosure system. Lessons unlock based on prerequisites and mastery. UnlockState tracks completed lessons and available content."
+add_file "logos_core/src/lib.rs" "Runtime Lib" "Core library."
+add_file "logos_core/src/types.rs" "Types" "Runtime types."
 
 # ==============================================================================
-# APPLICATION
+# WEB APPLICATION
 # ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Entry Point
-
-Command-line interface and REPL for interactive use.
-
-**Location:** `src/main.rs`
-
-EOF
-
-add_file "src/main.rs" \
-    "Application Entry Point" \
-    "Web application entry point. Launches Dioxus web UI with Router for SPA navigation. Build with 'dx serve' for development or 'dx build' for production WASM deployment."
-
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Web Application
 
-Dioxus-based web application with routing and multiple pages.
-
-**Location:** `src/ui/`
-
-**Architecture:**
-- Router-based SPA with client-side navigation
-- Pages: Home (Quadrivium menu), Workspace (chat interface), Pricing, Learn (curriculum browser), Lesson (problem-solving)
-- Components: Reusable UI elements (chat display, input area)
-- Problem Generator: Template-based exercise generation with semantic grading
-- Fair Source licensing with honor system toggle
-
+Dioxus frontend components.
 EOF
 
+add_file "src/main.rs" "Main" "Entry point."
 if [ -d "src/ui" ]; then
-    for file in src/ui/*.rs; do
-        if [ -f "$file" ]; then
-            filename=$(basename "$file")
-            case "$filename" in
-                app.rs)
-                    add_file "$file" "UI: App" "Root application component with Router wrapper and global CSS styles (gradients, glassmorphism, animations)."
-                    ;;
-                router.rs)
-                    add_file "$file" "UI: Router" "Dioxus Router with routes: / (Home), /pricing (Pricing), /studio (Studio), /learn (Learn), /lesson/:era/:module (Lesson), /workspace/:subject (Workspace), /:..route (NotFound 404 handler). Includes NotFound component for graceful 404 handling."
-                    ;;
-                state.rs)
-                    add_file "$file" "UI: State" "Application state management with Signal-based reactivity. ChatMessage history and compile integration."
-                    ;;
-                *)
-                    add_file "$file" "UI: ${filename%.rs}" "UI module built with Dioxus 0.6."
-                    ;;
-            esac
-        fi
-    done
-
-    if [ -d "src/ui/pages" ]; then
-        for file in src/ui/pages/*.rs; do
-            if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                case "$filename" in
-                    home.rs)
-                        add_file "$file" "Page: Home" "Quadrivium landing page with 4 subject portals (Logic, English, Coding, Mathematics) and Fair Source license banner with honor system toggle."
-                        ;;
-                    workspace.rs)
-                        add_file "$file" "Page: Workspace" "Three-column learning interface: sidebar (lesson tree, history), center (chat/proof interface), right panel (AST inspector)."
-                        ;;
-                    pricing.rs)
-                        add_file "$file" "Page: Pricing" "Commercial licensing information page with Fair Source explanation and enterprise contact details."
-                        ;;
-                    learn.rs)
-                        add_file "$file" "Page: Learn" "Curriculum browser with expandable era/module hierarchy. Displays Trivium, Quadrivium, and Metaphysics eras with nested modules."
-                        ;;
-                    lesson.rs)
-                        add_file "$file" "Page: Lesson" "Interactive problem-solving interface. Displays generated challenges, accepts FOL input, provides semantic grading with feedback, and tracks progress through exercises."
-                        ;;
-                    studio.rs)
-                        add_file "$file" "Page: Studio" "Live transpilation sandbox with AST visualization, portal animations, and real-time English-to-FOL conversion. Header nav uses Link components for client-side routing to Home and Learn pages."
-                        ;;
-                    mod.rs)
-                        add_file "$file" "Pages: Module" "Page module exports for Home, Pricing, Workspace, Learn, Lesson, and Studio pages."
-                        ;;
-                    *)
-                        add_file "$file" "Page: ${filename%.rs}" "Application page component."
-                        ;;
-                esac
-            fi
-        done
-
-        # Registry subdirectory
-        if [ -d "src/ui/pages/registry" ]; then
-            for file in src/ui/pages/registry/*.rs; do
-                if [ -f "$file" ]; then
-                    filename=$(basename "$file")
-                    case "$filename" in
-                        mod.rs)
-                            add_file "$file" "Registry: Module" "Registry pages module exports for Browse and PackageDetail pages."
-                            ;;
-                        browse.rs)
-                            add_file "$file" "Registry: Browse" "Package registry browser. Lists available LOGOS packages with search and filtering."
-                            ;;
-                        package_detail.rs)
-                            add_file "$file" "Registry: Package Detail" "Individual package view showing metadata, versions, dependencies, and documentation."
-                            ;;
-                        *)
-                            add_file "$file" "Registry: ${filename%.rs}" "Registry page component."
-                            ;;
-                    esac
-                fi
-            done
-        fi
-    fi
-
-    if [ -d "src/ui/components" ]; then
-        for file in src/ui/components/*.rs; do
-            if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                case "$filename" in
-                    chat.rs)
-                        add_file "$file" "Component: ChatDisplay" "Renders chat message history with role-based styling (user, system, error)."
-                        ;;
-                    input.rs)
-                        add_file "$file" "Component: InputArea" "Text input with Enter key submission and Transpile button."
-                        ;;
-                    *)
-                        add_file "$file" "Component: ${filename%.rs}" "Reusable UI component."
-                        ;;
-                esac
-            fi
-        done
-    fi
-
-    # Hooks subdirectory
-    if [ -d "src/ui/hooks" ]; then
-        for file in src/ui/hooks/*.rs; do
-            if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                case "$filename" in
-                    mod.rs)
-                        add_file "$file" "Hooks: Module" "Custom React-style hooks for Dioxus. Reusable stateful logic patterns."
-                        ;;
-                    use_inactivity_timer.rs)
-                        add_file "$file" "Hook: Inactivity Timer" "Detects user inactivity for session timeout warnings and auto-save triggers."
-                        ;;
-                    *)
-                        add_file "$file" "Hook: ${filename%.rs}" "Custom Dioxus hook."
-                        ;;
-                esac
-            fi
-        done
-    fi
-
-    # Guide subdirectory
-    if [ -d "src/ui/pages/guide" ]; then
-        for file in src/ui/pages/guide/*.rs; do
-            if [ -f "$file" ]; then
-                filename=$(basename "$file")
-                case "$filename" in
-                    mod.rs)
-                        add_file "$file" "Guide: Module" "Documentation browser and interactive tutorials module."
-                        ;;
-                    content.rs)
-                        add_file "$file" "Guide: Content" "Markdown content and examples for guide sections. Static documentation data."
-                        ;;
-                    *)
-                        add_file "$file" "Guide: ${filename%.rs}" "Guide page component."
-                        ;;
-                esac
-            fi
-        done
-    fi
+    add_file "src/ui/app.rs" "App" "Root component."
 fi
 
 # ==============================================================================
@@ -2737,329 +481,25 @@ fi
 cat >> "$OUTPUT_FILE" << 'EOF'
 ## Problem Generator
 
-The Problem Generator transforms LOGOS from a sandbox into an interactive teaching tool with curriculum-based exercises.
-
-**Location:** `src/content.rs`, `src/generator.rs`, `src/grader.rs`, `src/runtime_lexicon.rs`
-
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Problem Generator Pipeline                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌───────────┐    ┌───────────┐    ┌───────────┐    ┌───────────┐        │
-│   │ Curriculum│───▶│ Generator │───▶│ Challenge │───▶│  Grader   │        │
-│   │   JSON    │    │  Engine   │    │           │    │           │        │
-│   └───────────┘    └─────┬─────┘    └───────────┘    └─────┬─────┘        │
-│                          │                                  │              │
-│                          ▼                                  ▼              │
-│                    ┌───────────┐                      ┌───────────┐        │
-│                    │  Runtime  │                      │ Semantic  │        │
-│                    │  Lexicon  │                      │ Equality  │        │
-│                    └───────────┘                      └───────────┘        │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Curriculum Structure
-
-Filesystem-based curriculum organization embedded at compile time via `include_dir`.
-
-```
-assets/curriculum/
-├── 01_trivium/                    # Era I: Naming
-│   ├── meta.json                  # Era metadata (id, title, description)
-│   ├── 01_atomic/                 # Module: Predication
-│   │   ├── meta.json              # Module metadata (pedagogy, order)
-│   │   ├── ex_01_adjectives.json  # Exercise: {ProperName} is {Adjective}
-│   │   └── ex_02_intransitive.json
-│   ├── 02_relations/              # Module: Transitive verbs
-│   └── 03_negation/               # Module: Negation
-├── 02_quadrivium/                 # Era II: Quantification
-│   ├── 01_universal/              # ∀x patterns
-│   ├── 02_existential/            # ∃x patterns
-│   └── 03_scope/                  # Scope ambiguity
-└── 03_metaphysics/                # Era III: Modality & Time
-    ├── 01_modality/               # □ and ◇ operators
-    └── 02_time/                   # Past and Future operators
-```
-
-**Exercise Schema:**
-```json
-{
-  "id": "ex_01",
-  "type": "translation",
-  "difficulty": 1,
-  "prompt": "Translate this observation:",
-  "template": "{ProperName} is {Adjective}.",
-  "constraints": { "Adjective": ["Intersective"] },
-  "hint": "Apply the adjective as a predicate to the constant."
-}
-```
-
-### Template Slots
-
-| Slot | Example | Constraints |
-|------|---------|-------------|
-| `{ProperName}` | John, Mary | Proper nouns from lexicon |
-| `{Noun}` | dog, cat | Common nouns, filterable by sort |
-| `{Noun:Plural}` | dogs, cats | Plural form of common noun |
-| `{Verb}` | runs, sleeps | Intransitive verbs |
-| `{Verb:Past}` | ran, slept | Past tense form |
-| `{Adjective}` | happy, tall | Intersective by default |
-
-### Semantic Grading
-
-The grader performs semantic equivalence checking, not string matching:
-
-1. **Unicode normalization**: `\forall` → `∀`, `->` → `→`, `&` → `∧`
-2. **Whitespace removal**: `∀x ( P(x) )` → `∀x(P(x))`
-3. **Commutativity**: `P ∧ Q` equals `Q ∧ P`
-4. **Structural similarity**: Partial credit for close attempts
-
-**Grading Results:**
-| Score | Meaning |
-|-------|---------|
-| 100 | Correct (semantically equivalent) |
-| 35-50 | Partial (close structure) |
-| 0 | Incorrect |
-
+Curriculum and exercise generation.
 EOF
 
-add_file "src/content.rs" \
-    "Content Engine" \
-    "Loads curriculum from embedded JSON files. Uses include_dir to embed assets/curriculum/ at compile time. Provides ContentEngine for querying eras, modules, and exercises."
-
-add_file "src/generator.rs" \
-    "Generator Engine" \
-    "Template-based problem generation. Fills slots like {ProperName}, {Verb}, {Adjective} using runtime lexicon queries with constraint filtering. Applies morphological transforms for modifiers like :Plural and :Past."
-
-add_file "src/grader.rs" \
-    "Answer Grader" \
-    "Semantic equivalence checking for FOL answers. Normalizes Unicode, handles commutativity of ∧/∨, and provides partial credit scoring. Uses structural AST comparison after normalization."
-
-add_file "src/runtime_lexicon.rs" \
-    "Runtime Lexicon" \
-    "Runtime access to lexicon data for the generator. Provides query APIs: nouns_with_feature(), verbs_with_feature(), nouns_with_sort(), proper_nouns(), common_nouns(). Loads from embedded lexicon.json."
+add_file "src/content.rs" "Content" "Curriculum loader."
+add_file "src/generator.rs" "Generator" "Problem generator."
+add_file "src/grader.rs" "Grader" "Semantic grader."
 
 # ==============================================================================
-# LOGOS CORE RUNTIME
+# TESTS
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << 'EOF'
-## Logos Core Runtime
-
-Embedded runtime library for compiled LOGOS programs. Provides type aliases and IO functions per the Spec.
-
-**Location:** `logos_core/src/`
-
+## Integration Tests
 EOF
 
-add_file "logos_core/src/lib.rs" \
-    "Runtime Library" \
-    "Entry point for logos_core crate. Conditional compilation: network, storage, memory, file, time, random, env gated with #[cfg(not(wasm32))] for native-only. CRDT and fs modules work cross-platform."
-
-add_file "logos_core/src/types.rs" \
-    "Type Aliases & Collections" \
-    "Type aliases per Spec §10.6.1: Nat→u64, Int→i64, Real→f64, Text→String, Bool→bool, Unit→(), Char→char, Byte→u8. Collections: Seq<T>→Vec<T>, Map<K,V>→HashMap, Set<T>→HashSet. Value enum for heterogeneous tuples with Showable impl and arithmetic operators. LogosContains trait for polymorphic contains."
-
-add_file "logos_core/src/indexing.rs" \
-    "Polymorphic Indexing" \
-    "LogosIndex and LogosIndexMut traits for 1-based indexing. Implementations for Vec<T> (converts 1-based to 0-based) and HashMap<K,V> (key-based). Enables 'item N of collection' and bracket access t[N] syntax."
-
-add_file "logos_core/src/io.rs" \
-    "IO Functions" \
-    "Standard IO per Spec §10.5. Defines Showable trait for custom formatting (primitives display without quotes, Vec/Option display with brackets). show() takes reference and uses Showable; read_line() for input; println/eprintln/print for standard output."
-
-add_file "logos_core/src/file.rs" \
-    "File I/O" \
-    "File system operations. read(path) returns Result<String, String>, write(path, content) writes text to file."
-
-add_file "logos_core/src/time.rs" \
-    "Time Functions" \
-    "Time utilities. now() returns current Unix timestamp as u64, sleep(ms) pauses execution."
-
-add_file "logos_core/src/random.rs" \
-    "Random Numbers" \
-    "Random number generation using rand crate. random_int(min, max) for integers, random_float() for 0.0-1.0 floats."
-
-add_file "logos_core/src/env.rs" \
-    "Environment" \
-    "Environment access. get(key) retrieves environment variable, args() returns command-line arguments as Vec<String>."
-
-add_file "logos_core/src/memory.rs" \
-    "Zone Memory Management" \
-    "Phase 8.5 & 8.6: Zone-based memory. Zone enum with Heap (bumpalo arena) and Mapped (memmap2 file) variants. new_heap(capacity) for arena allocation, new_mapped(path) for zero-copy file IO. alloc()/alloc_slice() for heap zones, as_slice() for mapped zones. reset() for bulk deallocation. Implements 'Hotel California' rule: values can enter but cannot escape."
-
-# CRDT Module
-add_file "logos_core/src/crdt/mod.rs" \
-    "CRDT Module Exports" \
-    "Exports Merge trait, GCounter, and LWWRegister for eventually consistent distributed state."
-
-add_file "logos_core/src/crdt/merge.rs" \
-    "Merge Trait" \
-    "Core CRDT interface. Four properties: commutative (a ⊔ b = b ⊔ a), associative ((a ⊔ b) ⊔ c = a ⊔ (b ⊔ c)), idempotent (a ⊔ a = a), and identity (a ⊔ ⊥ = a). All CRDT types implement this trait."
-
-add_file "logos_core/src/crdt/gcounter.rs" \
-    "GCounter (Grow-only Counter)" \
-    "Increment-only distributed counter. Maintains per-replica counts in HashMap. Merge takes max count per replica ID. Platform-specific replica ID: uuid::Uuid on native, getrandom bytes on WASM. PartialEq<u64/i32> for ergonomic assertions."
-
-add_file "logos_core/src/crdt/lww.rs" \
-    "LWWRegister (Last-Write-Wins Register)" \
-    "Generic register for any Clone type. Resolves conflicts by microsecond-precision UNIX timestamp. Higher timestamp wins on merge. Useful for user-facing fields like names, descriptions."
-
-add_file "logos_core/src/crdt/sync.rs" \
-    "Synced<T> Wrapper (Phase 52)" \
-    "Auto-replicating CRDT wrapper for GossipSub. Wraps Arc<Mutex<T>> for thread-safe shared state. mutate() triggers publish to topic, background task merges incoming messages. new() spawns subscriber task."
-
-# Network Module (Phase 48 + 51 + 52)
-add_file "logos_core/src/network/mod.rs" \
-    "Network Module Exports" \
-    "Exports Phase 48 (file chunking), Phase 51 (P2P mesh), and Phase 52 (GossipSub) primitives. Public API: FileSipper, FileManifest, listen, connect, send, PeerAgent, MeshNode, gossip_publish, gossip_subscribe."
-
-add_file "logos_core/src/network/mesh.rs" \
-    "Mesh Node (libp2p Swarm)" \
-    "Core P2P implementation using libp2p 0.54. MeshNode manages global swarm via OnceLock. MeshCommand enum: Listen, Connect, Send, GossipSubscribe, GossipPublish. Event loop handles mDNS discovery (auto-dials peers), request-response, and GossipSub message routing to gossip::on_message()."
-
-add_file "logos_core/src/network/protocol.rs" \
-    "LOGOS Protocol Codec" \
-    "/logos/mesh/1.0.0 stream protocol. LogosCodec implements async length-prefixed framing. 16MB max message size. LogosRequest/LogosResponse wire types."
-
-add_file "logos_core/src/network/wire.rs" \
-    "Wire Serialization" \
-    "Bincode-based LogosWire abstraction. encode<T: Serialize>() and decode<T: DeserializeOwned>(). WireError enum for encode/decode failures. Designed for future migration to rkyv."
-
-add_file "logos_core/src/network/behaviour.rs" \
-    "Mesh Behaviour" \
-    "Combined libp2p NetworkBehaviour. Integrates request-response, mDNS discovery, and GossipSub pub/sub. MeshBehaviour struct derives NetworkBehaviour with three sub-behaviours. gossipsub::Behaviour with MessageAuthenticity::Signed."
-
-add_file "logos_core/src/network/gossip.rs" \
-    "GossipSub Pub/Sub (Phase 52)" \
-    "GossipSub publish/subscribe for automatic CRDT replication. Static SUBSCRIPTIONS registry. publish<T>() broadcasts encoded state, subscribe_and_merge<T>() handles incoming merges. on_message() routes data to Synced<T> instances."
-
-add_file "logos_core/src/network/sipping.rs" \
-    "File Sipper (Phase 48)" \
-    "Zero-copy file chunking for resumable transfers. FileSipper uses memory-mapped zones. FileManifest describes chunks with SHA256 hashes. Default 1MB chunk size."
-
-# VFS Module (Phase 54: Cross-Platform Storage)
-add_file "logos_core/src/fs/mod.rs" \
-    "Virtual File System" \
-    "Platform-agnostic file operations. Vfs trait with conditional Send+Sync (native) vs ?Send (WASM). NativeVfs uses tokio::fs. PlatformVfs type alias for ergonomic cross-platform code."
-
-add_file "logos_core/src/fs/opfs.rs" \
-    "OPFS VFS (WASM)" \
-    "Origin Private File System for browser persistence. OpfsVfs implements async Vfs trait using web-sys bindings. navigator.storage.getDirectory() root, FileSystemWritableFileStream for writes."
-
-# Concurrency Module (Phase 54: Go-like Primitives)
-add_file "logos_core/src/concurrency.rs" \
-    "Go-like Concurrency Primitives" \
-    "Green thread and channel primitives. TaskHandle<T> wraps JoinHandle with is_finished()/abort(). Pipe<T>::new(cap) creates bounded mpsc channel split into PipeSender/PipeReceiver. spawn() for ergonomic task creation. check_preemption() for 10ms cooperative yielding in long loops."
+add_test_description "tests/phase1_garden_path.rs" "Phase 1: Garden Path" "Structural ambiguity tests." "The horse raced past the barn fell."
+add_test_description "tests/phase21_block_headers.rs" "Phase 21: Imperative" "Imperative mode tests." "## Main"
+add_test_description "tests/phase24_codegen.rs" "Phase 24: Codegen" "Code generation tests." "Let x be 5."
 
 # ==============================================================================
-# LOGOS VERIFICATION CRATE
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-
-## Logos Verification Crate
-
-**Location:** `logos_verification/`
-
-Z3-based static verification for LOGOS Assert statements. Premium feature requiring Pro+ license.
-
-### Architecture
-
-- **Smart Full Mapping**: Int/Bool → direct Z3 sorts; Object → uninterpreted sort; Predicates/Modals/Temporals → Apply (uninterpreted functions)
-- Z3 reasons structurally without semantic knowledge
-- Validity check: P is valid iff NOT(P) is UNSAT
-
-EOF
-
-add_file "logos_verification/src/lib.rs" \
-    "Verification Crate Entry" \
-    "Re-exports VerifyExpr, VerifyOp, VerifyType, Verifier, VerificationSession, LicensePlan, LicenseValidator, VerificationError. Smart Full Mapping strategy documentation."
-
-add_file "logos_verification/src/ir.rs" \
-    "Verification IR" \
-    "Lightweight AST for Z3 encoding. VerifyType (Int, Bool, Object), VerifyOp (arithmetic, comparison, logic), VerifyExpr (Int, Bool, Var, Binary, Not, ForAll, Exists, Apply). Convenience methods: eq, gt, lt, gte, lte, neq, and, or, implies. Apply is the 'catch-all' for uninterpreted functions."
-
-add_file "logos_verification/src/solver.rs" \
-    "Z3 Solver Wrapper" \
-    "Verifier struct with check_bool(), check_int_greater_than(), check_int_less_than(), check_int_equals(). VerificationSession for incremental constraint building with declare(), assume(), verify(). verify_with_binding() for scoped refinement type checking. Encoder converts VerifyExpr to Z3 ASTs."
-
-add_file "logos_verification/src/license.rs" \
-    "License Validation" \
-    "LicensePlan enum (None, Free, Supporter, Pro, Premium, Lifetime, Enterprise) with can_verify() method. LicenseValidator validates Stripe subscription IDs (sub_*) against api.logicaffeine.com/validate with 24-hour caching."
-
-add_file "logos_verification/src/error.rs" \
-    "Verification Errors" \
-    "VerificationError with Socratic explanations. Kinds: ContradictoryAssertion, BoundsViolation, RefinementViolation, LicenseRequired, LicenseInvalid, LicenseInsufficientPlan, SolverUnknown, SolverError. CounterExample provides failing variable assignments."
-
-# ==============================================================================
-# EXAMPLES
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Examples
-
-Example programs demonstrating LOGOS capabilities.
-
-**Location:** `examples/`
-
-EOF
-
-add_file "examples/demo.rs" \
-    "Demo: Transpiler Showcase" \
-    "Interactive demonstration of LOGICAFFEINE's English-to-FOL transpilation. Shows basic predication, temporal logic, aspectual operators, quantifiers, modals, relative clauses, and more with live output."
-
-add_file "examples/compile_mergesort.rs" \
-    "Demo: Mergesort Compilation" \
-    "End-to-end example compiling a complete LOGOS mergesort implementation to Rust. Demonstrates function definitions, collection operations, comparison operators, and recursive algorithms."
-
-# ==============================================================================
-# DYNAMIC FILE DISCOVERY
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Additional Modules
-
-Any additional source files not explicitly categorized above.
-
-EOF
-
-for file in src/*.rs; do
-    if [ -f "$file" ]; then
-        case "$file" in
-            */lib.rs|*/main.rs|*/token.rs|*/lexer.rs|*/ast.rs|*/parser.rs|\
-            */transpile.rs|*/formatter.rs|*/registry.rs|*/lambda.rs|\
-            */context.rs|*/view.rs|*/lexicon.rs|*/intern.rs|*/arena.rs|\
-            */arena_ctx.rs|*/visitor.rs|*/suggest.rs|*/style.rs|\
-            */error.rs|*/debug.rs|*/test_utils.rs|*/pragmatics.rs|\
-            */content.rs|*/generator.rs|*/grader.rs|*/runtime_lexicon.rs)
-                continue
-                ;;
-        esac
-        filename=$(basename "$file")
-        add_file "$file" \
-            "Module: ${filename%.rs}" \
-            "Additional source module."
-    fi
-done
-
-# ==============================================================================
-# CARGO.TOML
-# ==============================================================================
-cat >> "$OUTPUT_FILE" << 'EOF'
-## Build Configuration
-
-EOF
-
-add_file "Cargo.toml" \
-    "Package Manifest" \
-    "Rust package configuration with dependencies: bumpalo (arena allocator), dioxus (desktop UI)."
-
-add_file "build.rs" \
-    "Build Script" \
-    "Generates compile-time lookup functions from lexicon.json. Expands verbs into irregular verb entries and feature-based VerbDbEntry records. Derives behavioral lists (is_ditransitive_verb, is_subject_control_verb, is_object_control_verb, is_raising_verb, is_opaque_verb, is_collective_verb, is_performative) from feature arrays. Generates lookup_verb_db(), lookup_noun_db(), lookup_adjective_db() returning metadata with feature slices. Produces is_* check functions for closed classes and morphology rules."
-
-# ==============================================================================
-
 # METADATA
 # ==============================================================================
 cat >> "$OUTPUT_FILE" << EOF
@@ -3072,11 +512,11 @@ cat >> "$OUTPUT_FILE" << EOF
 - **Repository:** $(pwd)
 - **Git Branch:** $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 - **Git Commit:** $(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-- **Documentation Size:** $(du -h "$OUTPUT_FILE" | cut -f1)
 
 ---
 
-**Note:** This documentation is auto-generated. Run \`./generate-docs.sh\` to regenerate after code changes.
+**Note:** This documentation is auto-generated. Run 
+./generate-docs.sh to regenerate.
 EOF
 
 # ==============================================================================
@@ -3087,10 +527,11 @@ echo "Documentation generated: $OUTPUT_FILE"
 echo ""
 echo "Summary:"
 echo "--------"
-echo "  Source files: $SRC_FILES"
-echo "  Test files:   $TEST_FILES"
+echo "  Source files: $SRC_LINES"
+echo "  Test files:   $TEST_LINES"
 echo "  Total lines:  $TOTAL_LINES"
 echo ""
 echo "  Documentation size: $(du -h "$OUTPUT_FILE" | cut -f1)"
 echo ""
 echo "Done! View with: cat $OUTPUT_FILE"
+chmod +x "$OUTPUT_FILE"

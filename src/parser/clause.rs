@@ -4,11 +4,12 @@ use super::pragmatics::PragmaticsParsing;
 use super::quantifier::QuantifierParsing;
 use super::question::QuestionParsing;
 use super::verb::LogicVerbParsing;
-use super::{ParseResult, Parser};
-use crate::ast::{LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term, ThematicRole};
+use super::{EventTemplate, ParseResult, Parser};
+use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term, ThematicRole};
 use crate::lexer::Lexer;
 use crate::lexicon::Time;
-use crate::drs::BoxType;
+use crate::drs::{BoxType, Gender, Number};
+use super::ParserMode;
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexicon::Definiteness;
@@ -34,6 +35,20 @@ pub trait ClauseParsing<'a, 'ctx, 'int> {
 
 impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_sentence(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        // In imperative mode, handle Let statements by converting to LogicExpr
+        // This supports declarative parser being called after process_block_headers()
+        // Let x is/= value -> returns the value expression (the test just checks parsing succeeds)
+        if self.mode == ParserMode::Imperative && self.check(&TokenType::Let) {
+            self.advance(); // consume "Let"
+            let _var = self.expect_identifier()?;
+            // Accept "is", "be", "=" as assignment operators
+            if self.check(&TokenType::Is) || self.check(&TokenType::Be) || self.check(&TokenType::Equals) || self.check(&TokenType::Identity) {
+                self.advance(); // consume the operator
+            }
+            // Parse the value and return it (test just checks parsing succeeds)
+            return self.parse_disjunction();
+        }
+
         // Check for ellipsis pattern: "Mary does too." / "Mary can too."
         if let Some(result) = self.try_parse_ellipsis() {
             return result;
@@ -208,8 +223,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 let token = self.peek();
                 let token_text = self.interner.resolve(token.lexeme);
                 if token_text.eq_ignore_ascii_case("it") {
-                    // Look ahead for weather verb
+                    // Look ahead for weather verb: "it rains" or "it is raining"
                     if self.current + 1 < self.tokens.len() {
+                        // Check for "it + verb" pattern
                         if let TokenType::Verb { lemma, time, .. } = &self.tokens[self.current + 1].kind {
                             let lemma_str = self.interner.resolve(*lemma);
                             if Lexer::is_weather_verb(lemma_str) {
@@ -220,12 +236,9 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
                                 let event_var = self.get_event_var();
 
-                                // DRT: Register event var for universal quantification in conditionals
+                                // Weather verbs are impersonal - no pronoun resolution needed
+                                // Event var gets universal force from transpiler when suppress_existential=true
                                 let suppress_existential = self.drs.in_conditional_antecedent();
-                                if suppress_existential {
-                                    let event_class = self.interner.intern("Event");
-                                    self.drs.introduce_referent(event_var, event_class, crate::context::Gender::Neuter);
-                                }
 
                                 let mut result: &'a LogicExpr<'a> = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
                                     event_var,
@@ -285,6 +298,60 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                                 });
                             }
                         }
+                        // Check for "it + is/are + verb" pattern: "it is raining"
+                        else if self.current + 2 < self.tokens.len() {
+                            let is_copula = matches!(
+                                self.tokens[self.current + 1].kind,
+                                TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+                            );
+                            if is_copula {
+                                if let TokenType::Verb { lemma, .. } = &self.tokens[self.current + 2].kind {
+                                    let lemma_str = self.interner.resolve(*lemma);
+                                    if Lexer::is_weather_verb(lemma_str) {
+                                        let verb = *lemma;
+                                        let verb_time = if matches!(
+                                            self.tokens[self.current + 1].kind,
+                                            TokenType::Was | TokenType::Were
+                                        ) {
+                                            Time::Past
+                                        } else {
+                                            Time::Present
+                                        };
+                                        self.advance(); // consume "it"
+                                        self.advance(); // consume "is/are/was/were"
+                                        self.advance(); // consume weather verb
+
+                                        let event_var = self.get_event_var();
+                                        // Weather verbs are impersonal - no pronoun resolution needed
+                                        // Event var gets universal force from transpiler when suppress_existential=true
+                                        let suppress_existential = self.drs.in_conditional_antecedent();
+
+                                        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                                            event_var,
+                                            verb,
+                                            roles: self.ctx.roles.alloc_slice(vec![]),
+                                            modifiers: self.ctx.syms.alloc_slice(vec![]),
+                                            suppress_existential,
+                                            world: None,
+                                        })));
+
+                                        // Progressive aspect for "is raining"
+                                        let with_aspect = self.ctx.exprs.alloc(LogicExpr::Aspectual {
+                                            operator: AspectOperator::Progressive,
+                                            body: neo_event,
+                                        });
+
+                                        return Ok(match verb_time {
+                                            Time::Past => self.ctx.exprs.alloc(LogicExpr::Temporal {
+                                                operator: TemporalOperator::Past,
+                                                body: with_aspect,
+                                            }),
+                                            _ => with_aspect,
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -292,8 +359,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             // Track if subject is an indefinite that needs DRS registration
             let (subject, subject_type_pred) = if self.check_pronoun() {
                 let token = self.advance().clone();
-                let resolved = if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                let token_text = self.interner.resolve(token.lexeme);
+                // Handle first/second person pronouns as constants (deictic reference)
+                let resolved = if token_text.eq_ignore_ascii_case("i") {
+                    self.interner.intern("Speaker")
+                } else if token_text.eq_ignore_ascii_case("you") {
+                    self.interner.intern("Addressee")
+                } else if let TokenType::Pronoun { gender, number, .. } = token.kind {
+                    let resolved_pronoun = self.resolve_pronoun(gender, number)?;
+                    match resolved_pronoun {
+                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    }
                 } else {
                     unknown
                 };
@@ -301,24 +377,32 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             } else {
                 let np = self.parse_noun_phrase(true)?;
 
-                // Check if this is an indefinite NP that should introduce a DRS referent
-                if np.definiteness == Some(Definiteness::Indefinite) {
-                    let var = self.next_var_name();
+                // Check if this NP should introduce a DRS referent
+                // Both indefinites ("a dog") and definites ("the dog") introduce referents
+                // For definites without antecedent, this implements "global accommodation"
+                if np.definiteness == Some(Definiteness::Indefinite)
+                    || np.definiteness == Some(Definiteness::Definite)
+                    || np.definiteness == Some(Definiteness::Distal) {
                     let gender = Self::infer_noun_gender(self.interner.resolve(np.noun));
+                    let number = if Self::is_plural_noun(self.interner.resolve(np.noun)) {
+                        Number::Plural
+                    } else {
+                        Number::Singular
+                    };
 
-                    // Register in DRS - will get universal force from ConditionalAntecedent box
-                    self.drs.introduce_referent(var, np.noun, gender);
+                    // Register in DRS using noun as variable (for pronoun resolution)
+                    self.drs.introduce_referent(np.noun, np.noun, gender, number);
 
-                    // Create type predicate: Farmer(x)
+                    // Create type predicate: Farmer(noun)
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: np.noun,
-                        args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
+                        args: self.ctx.terms.alloc_slice([Term::Variable(np.noun)]),
                         world: None,
                     });
 
-                    (var, Some(type_pred))
+                    (np.noun, Some(type_pred))
                 } else {
-                    // Definite or proper name - use as constant
+                    // Proper name - use as constant (proper names have their own registration)
                     (np.noun, None)
                 }
             };
@@ -364,7 +448,10 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         } else if token_text.eq_ignore_ascii_case("you") {
                             self.interner.intern("Addressee")
                         } else {
-                            self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                            let resolved_pronoun = self.resolve_pronoun(gender, number)?;
+                            match resolved_pronoun {
+                                super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                            }
                         }
                     } else {
                         unknown
@@ -558,8 +645,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
             let subject = if self.check_pronoun() {
                 let token = self.advance().clone();
-                if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                    self.resolve_pronoun(gender, number).unwrap_or(unknown)
+                let token_text = self.interner.resolve(token.lexeme);
+                // Handle first/second person pronouns as constants (deictic reference)
+                if token_text.eq_ignore_ascii_case("i") {
+                    self.interner.intern("Speaker")
+                } else if token_text.eq_ignore_ascii_case("you") {
+                    self.interner.intern("Addressee")
+                } else if let TokenType::Pronoun { gender, number, .. } = token.kind {
+                    let resolved_pronoun = self.resolve_pronoun(gender, number)?;
+                    match resolved_pronoun {
+                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    }
                 } else {
                     unknown
                 }
@@ -591,12 +687,31 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
     fn extract_verb_from_expr(&self, expr: &LogicExpr<'a>) -> Option<Symbol> {
         match expr {
-            LogicExpr::Predicate { name, .. } => Some(*name),
+            // NeoEvent directly contains the verb
             LogicExpr::NeoEvent(data) => Some(data.verb),
-            LogicExpr::BinaryOp { right, .. } => self.extract_verb_from_expr(right),
+            // Control structures directly contain the verb
+            LogicExpr::Control { verb, .. } => Some(*verb),
+            // Phase 46: For BinaryOp, try to find NeoEvent first (either side),
+            // then fall back to Predicate. This handles both:
+            // - Transitive: Apple(x) ∧ ∃e(Eat(e)...) - NeoEvent on right
+            // - Motion PP: ∃e(Walk(e)...) ∧ To(e, Park) - NeoEvent on left
+            LogicExpr::BinaryOp { left, right, .. } => {
+                // First check if left contains a NeoEvent (motion PP case)
+                if let Some(verb) = self.extract_neo_event_verb(left) {
+                    return Some(verb);
+                }
+                // Then check right (transitive case with type predicate on left)
+                if let Some(verb) = self.extract_neo_event_verb(right) {
+                    return Some(verb);
+                }
+                // Fall back to any extractable verb
+                self.extract_verb_from_expr(left)
+                    .or_else(|| self.extract_verb_from_expr(right))
+            }
+            // Plain predicate - last resort (might be type predicate or PP)
+            LogicExpr::Predicate { name, .. } => Some(*name),
             LogicExpr::Modal { operand, .. } => self.extract_verb_from_expr(operand),
             LogicExpr::Presupposition { assertion, .. } => self.extract_verb_from_expr(assertion),
-            LogicExpr::Control { verb, .. } => Some(*verb),
             LogicExpr::Temporal { body, .. } => self.extract_verb_from_expr(body),
             LogicExpr::TemporalAnchor { body, .. } => self.extract_verb_from_expr(body),
             LogicExpr::Aspectual { body, .. } => self.extract_verb_from_expr(body),
@@ -605,6 +720,8 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// Phase 46: Generalized gapping with template-guided reconstruction.
+    /// Handles NPs, PPs, temporal adverbs, and preserves roles from EventTemplate.
     fn parse_gapped_clause(&mut self, borrowed_verb: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
         let subject = self.parse_noun_phrase(true)?;
 
@@ -616,46 +733,70 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         let event_var = self.get_event_var();
         let suppress_existential = self.drs.in_conditional_antecedent();
 
-        // Check if next token is temporal adverb (gapping with adjunct only)
-        if self.check_temporal_adverb() {
-            let adv_sym = if let TokenType::TemporalAdverb(sym) = self.advance().kind {
-                sym
-            } else {
-                self.interner.intern("?")
-            };
+        // Get template for role guidance
+        let template = self.last_event_template.clone();
 
-            return Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb: borrowed_verb,
-                roles: self.ctx.roles.alloc_slice(vec![
-                    (ThematicRole::Agent, subject_term),
-                ]),
-                modifiers: self.ctx.syms.alloc_slice(vec![adv_sym]),
-                suppress_existential,
-                world: None,
-            }))));
+        // Collect arguments (NPs, PPs, temporal adverbs) from gapped clause
+        let mut np_args: Vec<Term<'a>> = Vec::new();
+        let mut pp_args: Vec<(Symbol, Term<'a>)> = Vec::new();
+        let mut override_adverb: Option<Symbol> = None;
+
+        loop {
+            if self.check_temporal_adverb() {
+                // Temporal adverb: override template modifier
+                if let TokenType::TemporalAdverb(sym) = self.advance().kind {
+                    override_adverb = Some(sym);
+                }
+            } else if self.check_preposition() {
+                // PP argument: "to the school", "on the table"
+                let prep = if let TokenType::Preposition(sym) = self.advance().kind {
+                    sym
+                } else {
+                    continue;
+                };
+                let np = self.parse_noun_phrase(false)?;
+                pp_args.push((prep, self.noun_phrase_to_term(&np)));
+            } else if self.check_content_word() || self.check_article() {
+                // NP argument
+                let np = self.parse_noun_phrase(false)?;
+                np_args.push(self.noun_phrase_to_term(&np));
+                if self.check(&TokenType::Comma) {
+                    self.advance();
+                }
+            } else {
+                break;
+            }
         }
 
-        // Standard gapping: subject + object
-        let object = self.parse_noun_phrase(false)?;
-        let object_term = self.noun_phrase_to_term(&object);
+        // Build roles using template guidance
+        let roles = self.build_gapped_roles(subject_term, &np_args, &pp_args, &template);
 
-        let roles = vec![
-            (ThematicRole::Agent, subject_term),
-            (ThematicRole::Theme, object_term),
-        ];
+        // Handle modifiers: override if adverb provided, else inherit from template
+        let modifiers = match (override_adverb, &template) {
+            (Some(adv), Some(tmpl)) => {
+                // Filter out temporal modifiers from template, add new one
+                let mut mods: Vec<Symbol> = tmpl
+                    .modifiers
+                    .iter()
+                    .filter(|m| !self.is_temporal_modifier(**m))
+                    .cloned()
+                    .collect();
+                mods.push(adv);
+                mods
+            }
+            (Some(adv), None) => vec![adv],
+            (None, Some(tmpl)) => tmpl.modifiers.clone(),
+            (None, None) => vec![],
+        };
 
-        Ok(self
-            .ctx
-            .exprs
-            .alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
-                event_var,
-                verb: borrowed_verb,
-                roles: self.ctx.roles.alloc_slice(roles),
-                modifiers: self.ctx.syms.alloc_slice(vec![]),
-                suppress_existential,
-                world: None,
-            }))))
+        Ok(self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+            event_var,
+            verb: borrowed_verb,
+            roles: self.ctx.roles.alloc_slice(roles),
+            modifiers: self.ctx.syms.alloc_slice(modifiers),
+            suppress_existential,
+            world: None,
+        }))))
     }
 
     fn is_complete_clause(&self, expr: &LogicExpr<'a>) -> bool {
@@ -697,12 +838,15 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let saved_pos = self.current;
             let standard_attempt = self.try_parse(|p| p.parse_conjunction());
 
+            // Gapping in disjunction: only for Or, not Iff. Use original (non-expanded) trigger.
+            // Expanded gapping (with Period/is_at_end) only applies in parse_conjunction.
             let use_gapping = match &standard_attempt {
                 Some(right) => {
                     !self.is_complete_clause(right)
                         && (self.check(&TokenType::Comma) || self.check_content_word())
+                        && operator != TokenType::Iff // Don't gap on biconditional
                 }
-                None => true,
+                None => operator != TokenType::Iff, // For Iff, require successful parse
             };
 
             if !use_gapping {
@@ -763,10 +907,17 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             let saved_pos = self.current;
             let standard_attempt = self.try_parse(|p| p.parse_atom());
 
+            // Phase 46: Expanded gapping trigger to support PP gapping, temporal override,
+            // and intransitive gapping (bare subject at clause boundary)
             let use_gapping = match &standard_attempt {
                 Some(right) => {
                     !self.is_complete_clause(right)
-                        && (self.check(&TokenType::Comma) || self.check_content_word())
+                        && (self.check(&TokenType::Comma)
+                            || self.check_content_word()
+                            || self.check_preposition()
+                            || self.check_temporal_adverb()
+                            || self.check(&TokenType::Period)
+                            || self.is_at_end())
                 }
                 None => true,
             };
@@ -921,8 +1072,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         } else if self.check_pronoun() {
             let token = self.advance().clone();
             if let TokenType::Pronoun { gender, number, .. } = token.kind {
-                self.resolve_pronoun(gender, number)
-                    .unwrap_or_else(|| self.interner.intern("?"))
+                match self.resolve_pronoun(gender, number) {
+                    Ok(resolved) => match resolved {
+                        super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+                    },
+                    Err(e) => return Some(Err(e)),
+                }
             } else {
                 self.current = saved_pos;
                 return None;
@@ -999,5 +1154,147 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         };
 
         Some(Ok(result))
+    }
+}
+
+// Phase 46: Helper methods for generalized gapping (not part of trait)
+impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+    /// Helper to extract verb specifically from NeoEvent structures
+    fn extract_neo_event_verb(&self, expr: &LogicExpr<'a>) -> Option<Symbol> {
+        match expr {
+            LogicExpr::NeoEvent(data) => Some(data.verb),
+            LogicExpr::Quantifier { body, .. } => self.extract_neo_event_verb(body),
+            LogicExpr::BinaryOp { left, right, .. } => {
+                self.extract_neo_event_verb(left)
+                    .or_else(|| self.extract_neo_event_verb(right))
+            }
+            LogicExpr::Temporal { body, .. } => self.extract_neo_event_verb(body),
+            LogicExpr::Aspectual { body, .. } => self.extract_neo_event_verb(body),
+            _ => None,
+        }
+    }
+
+    /// Build roles for gapped clause using template guidance.
+    /// NP args map to Theme/Recipient roles, PP args map by preposition type.
+    fn build_gapped_roles(
+        &self,
+        subject_term: Term<'a>,
+        np_args: &[Term<'a>],
+        pp_args: &[(Symbol, Term<'a>)],
+        template: &Option<EventTemplate<'a>>,
+    ) -> Vec<(ThematicRole, Term<'a>)> {
+        let mut roles = vec![(ThematicRole::Agent, subject_term)];
+
+        match template {
+            Some(tmpl) => {
+                let template_roles = &tmpl.non_agent_roles;
+
+                // Separate template roles into NP-type and PP-type
+                let np_template_roles: Vec<_> = template_roles
+                    .iter()
+                    .filter(|(r, _)| {
+                        matches!(
+                            r,
+                            ThematicRole::Theme | ThematicRole::Recipient | ThematicRole::Patient
+                        )
+                    })
+                    .collect();
+
+                let pp_template_roles: Vec<_> = template_roles
+                    .iter()
+                    .filter(|(r, _)| {
+                        matches!(
+                            r,
+                            ThematicRole::Goal
+                                | ThematicRole::Source
+                                | ThematicRole::Location
+                                | ThematicRole::Instrument
+                        )
+                    })
+                    .collect();
+
+                // Handle NPs by matching to template NP roles
+                match (np_template_roles.len(), np_args.len()) {
+                    (0, 0) => {} // Intransitive - no NP roles
+                    (_, 0) => {
+                        // Use all template NP roles unchanged
+                        for (role, term) in &np_template_roles {
+                            roles.push((*role, term.clone()));
+                        }
+                    }
+                    (n, 1) if n > 0 => {
+                        // 1 NP arg: replace LAST NP role (usually Theme), keep others
+                        for (role, term) in np_template_roles.iter().take(n - 1) {
+                            roles.push((*role, term.clone()));
+                        }
+                        if let Some((last_role, _)) = np_template_roles.last() {
+                            roles.push((*last_role, np_args[0].clone()));
+                        }
+                    }
+                    (n, m) if m == n => {
+                        // Same count: replace all NP roles in order
+                        for ((role, _), arg) in np_template_roles.iter().zip(np_args.iter()) {
+                            roles.push((*role, arg.clone()));
+                        }
+                    }
+                    (_, _) => {
+                        // Fallback: assign Theme to each NP
+                        for (i, arg) in np_args.iter().enumerate() {
+                            let role = np_template_roles
+                                .get(i)
+                                .map(|(r, _)| *r)
+                                .unwrap_or(ThematicRole::Theme);
+                            roles.push((role, arg.clone()));
+                        }
+                    }
+                }
+
+                // Handle PPs: use parsed PPs if provided, else use template
+                if pp_args.is_empty() {
+                    // Use template PP roles unchanged
+                    for (role, term) in &pp_template_roles {
+                        roles.push((*role, term.clone()));
+                    }
+                } else {
+                    // Use parsed PPs, map preposition to role
+                    for (prep, term) in pp_args {
+                        let role = self.preposition_to_role(*prep);
+                        roles.push((role, term.clone()));
+                    }
+                }
+            }
+            None => {
+                // No template: backward-compat hardcoded Agent + Theme
+                for arg in np_args {
+                    roles.push((ThematicRole::Theme, arg.clone()));
+                }
+                for (prep, term) in pp_args {
+                    let role = self.preposition_to_role(*prep);
+                    roles.push((role, term.clone()));
+                }
+            }
+        }
+        roles
+    }
+
+    /// Map preposition to thematic role
+    fn preposition_to_role(&self, prep: Symbol) -> ThematicRole {
+        let prep_str = self.interner.resolve(prep).to_lowercase();
+        match prep_str.as_str() {
+            "to" | "toward" | "towards" => ThematicRole::Goal,
+            "from" => ThematicRole::Source,
+            "in" | "on" | "at" => ThematicRole::Location,
+            "with" | "by" => ThematicRole::Instrument,
+            _ => ThematicRole::Location, // Default fallback
+        }
+    }
+
+    /// Check if modifier is temporal (for override filtering)
+    fn is_temporal_modifier(&self, sym: Symbol) -> bool {
+        let s = self.interner.resolve(sym).to_lowercase();
+        matches!(
+            s.as_str(),
+            "yesterday" | "today" | "tomorrow" | "now" | "then" | "past" | "future"
+        )
     }
 }

@@ -1,104 +1,84 @@
-use logos::{DiscourseContext, OwnershipState};
-use logos::context::{Entity, Gender, Number};
+use logos::{Interner, WorldState, OwnershipState};
+use logos::drs::{Gender, Number};
 
 #[test]
 fn entity_starts_owned() {
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "thing".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    let var = interner.intern("x");
+    let noun = interner.intern("thing");
+    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
-    let entity = ctx.resolve_definite("thing").unwrap();
-    assert_eq!(entity.ownership, OwnershipState::Owned);
+    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Owned));
 }
 
 #[test]
 fn ownership_state_can_be_moved() {
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "book".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    let var = interner.intern("x");
+    let noun = interner.intern("book");
+    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
-    ctx.set_ownership("book", OwnershipState::Moved);
+    world_state.set_ownership(noun, OwnershipState::Moved);
 
-    let entity = ctx.resolve_definite("book").unwrap();
-    assert_eq!(entity.ownership, OwnershipState::Moved);
+    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Moved));
 }
 
 #[test]
 fn ownership_state_can_be_borrowed() {
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "item".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    let var = interner.intern("x");
+    let noun = interner.intern("item");
+    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
-    ctx.set_ownership("item", OwnershipState::Borrowed);
+    world_state.set_ownership(noun, OwnershipState::Borrowed);
 
-    let entity = ctx.resolve_definite("item").unwrap();
-    assert_eq!(entity.ownership, OwnershipState::Borrowed);
+    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Borrowed));
 }
 
 #[test]
 fn get_ownership_returns_current_state() {
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "y".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "value".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    let var = interner.intern("y");
+    let noun = interner.intern("value");
+    let unknown = interner.intern("unknown");
+    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
-    assert_eq!(ctx.get_ownership("value"), Some(OwnershipState::Owned));
-    assert_eq!(ctx.get_ownership("unknown"), None);
+    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Owned));
+    assert_eq!(world_state.get_ownership(unknown), None);
 }
 
 // Step 1.5: Use-After-Move Detection
 
 #[test]
 fn moved_variable_detected() {
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "book".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    let var = interner.intern("x");
+    let noun = interner.intern("book");
+    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
-    ctx.set_ownership("book", OwnershipState::Moved);
+    world_state.set_ownership(noun, OwnershipState::Moved);
 
     // After move, get_ownership should return Moved
-    assert_eq!(ctx.get_ownership("book"), Some(OwnershipState::Moved));
+    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Moved));
 }
 
 #[test]
 fn borrowed_variable_still_accessible() {
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "item".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let mut interner = Interner::new();
+    let var = interner.intern("x");
+    let noun = interner.intern("item");
+    world_state.drs.introduce_referent(var, noun, Gender::Neuter, Number::Singular);
 
-    ctx.set_ownership("item", OwnershipState::Borrowed);
+    world_state.set_ownership(noun, OwnershipState::Borrowed);
 
     // After borrow, get_ownership should return Borrowed (not Moved)
-    assert_eq!(ctx.get_ownership("item"), Some(OwnershipState::Borrowed));
+    assert_eq!(world_state.get_ownership(noun), Some(OwnershipState::Borrowed));
 }
 
 // =============================================================================
@@ -150,15 +130,12 @@ fn give_statement_parses() {
     let source = "## Main\nLet x be 5.\nGive x to processor.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
+    let mut world_state = WorldState::new();
     // Register recipient so strict verification passes
-    ctx.register(Entity {
-        symbol: "processor".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "processor".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let processor_var = interner.intern("processor");
+    let processor_noun = interner.intern("processor");
+    world_state.drs.introduce_referent(processor_var, processor_noun, Gender::Neuter, Number::Singular);
+
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -179,7 +156,7 @@ fn give_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -199,14 +176,11 @@ fn give_statement_marks_variable_as_moved() {
     let source = "## Main\nLet x be 5.\nGive x to processor.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "processor".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "processor".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let processor_var = interner.intern("processor");
+    let processor_noun = interner.intern("processor");
+    world_state.drs.introduce_referent(processor_var, processor_noun, Gender::Neuter, Number::Singular);
+
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -227,15 +201,16 @@ fn give_statement_marks_variable_as_moved() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
     assert!(result.is_ok(), "Give statement should parse: {:?}", result);
 
     // After parsing Give, the variable should be marked as Moved
+    let x_sym = interner.intern("x");
     assert_eq!(
-        ctx.get_ownership("x"),
+        world_state.get_ownership_by_var(x_sym),
         Some(OwnershipState::Moved),
         "Variable 'x' should be marked as Moved after Give"
     );
@@ -246,14 +221,11 @@ fn use_after_give_produces_error() {
     let source = "## Main\nLet x be 5.\nGive x to processor.\nReturn x.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "processor".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "processor".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let processor_var = interner.intern("processor");
+    let processor_noun = interner.intern("processor");
+    world_state.drs.introduce_referent(processor_var, processor_noun, Gender::Neuter, Number::Singular);
+
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -274,7 +246,7 @@ fn use_after_give_produces_error() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -294,14 +266,11 @@ fn show_statement_parses() {
     let source = "## Main\nLet x be 5.\nShow x to console.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "console".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "console".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let console_var = interner.intern("console");
+    let console_noun = interner.intern("console");
+    world_state.drs.introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
+
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -322,7 +291,7 @@ fn show_statement_parses() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
@@ -342,14 +311,11 @@ fn show_statement_marks_variable_as_borrowed() {
     let source = "## Main\nLet x be 5.\nShow x to console.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "console".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "console".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let console_var = interner.intern("console");
+    let console_noun = interner.intern("console");
+    world_state.drs.introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
+
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -370,15 +336,16 @@ fn show_statement_marks_variable_as_borrowed() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();
     assert!(result.is_ok(), "Show statement should parse: {:?}", result);
 
     // After parsing Show, the variable should be marked as Borrowed
+    let x_sym = interner.intern("x");
     assert_eq!(
-        ctx.get_ownership("x"),
+        world_state.get_ownership_by_var(x_sym),
         Some(OwnershipState::Borrowed),
         "Variable 'x' should be marked as Borrowed after Show"
     );
@@ -389,14 +356,11 @@ fn variable_accessible_after_show() {
     let source = "## Main\nLet x be 5.\nShow x to console.\nReturn x.";
     let (mut interner, tokens) = make_parser(source);
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "console".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "console".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
+    let console_var = interner.intern("console");
+    let console_noun = interner.intern("console");
+    world_state.drs.introduce_referent(console_var, console_noun, Gender::Neuter, Number::Singular);
+
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
     let np_arena = logos::arena::Arena::new();
@@ -417,7 +381,7 @@ fn variable_accessible_after_show() {
         &imperative_expr_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, logos::analysis::TypeRegistry::default());
     parser.process_block_headers();
 
     let result = parser.parse_program();

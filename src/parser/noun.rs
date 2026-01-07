@@ -1,7 +1,7 @@
 use super::clause::ClauseParsing;
 use super::{ParseResult, Parser};
 use crate::ast::{LogicExpr, NounPhrase, Term};
-use crate::context::{Case, Gender, Number};
+use crate::drs::{Case, Gender, Number};
 use crate::intern::SymbolEq;
 use crate::lexicon::Definiteness;
 use crate::token::TokenType;
@@ -60,13 +60,15 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                 _ => (Gender::Unknown, Number::Singular),
             };
 
-            let resolved = self.resolve_pronoun(gender, number)
-                .unwrap_or_else(|| self.interner.intern("?"));
+            let resolved = self.resolve_pronoun(gender, number)?;
+            let resolved_sym = match resolved {
+                super::ResolvedPronoun::Variable(s) | super::ResolvedPronoun::Constant(s) => s,
+            };
 
             let possessor_np = NounPhrase {
                 definiteness: None,
                 adjectives: &[],
-                noun: resolved,
+                noun: resolved_sym,
                 possessor: None,
                 pps: &[],
                 superlative: None,
@@ -260,8 +262,6 @@ impl<'a, 'ctx, 'int> NounParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             } else {
                 Number::Singular
             };
-            let noun_class = noun_str.to_string();
-            self.register_entity(&symbol, &noun_class, Gender::Neuter, number);
         }
 
         Ok(NounPhrase {

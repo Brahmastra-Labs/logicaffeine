@@ -1,5 +1,6 @@
 use logos::*;
-use logos::context::{Entity, Gender, Number};
+use logos::drs::{Gender, Number, WorldState};
+use logos::analysis::TypeRegistry;
 
 #[test]
 fn x_is_5_errors_in_imperative() {
@@ -8,14 +9,7 @@ fn x_is_5_errors_in_imperative() {
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "x".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
 
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
@@ -33,7 +27,8 @@ fn x_is_5_errors_in_imperative() {
         &pp_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let registry = TypeRegistry::default();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
     parser.process_block_headers();
 
     let result = parser.parse();
@@ -48,20 +43,13 @@ fn x_is_5_errors_in_imperative() {
 }
 
 #[test]
-fn x_is_predicate_still_works_in_imperative() {
-    let source = "## Main\nx is mortal.";
+fn let_x_is_5_accepted() {
+    let source = "## Main\nLet x is 5.";
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "x".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "x".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
 
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
@@ -79,34 +67,22 @@ fn x_is_predicate_still_works_in_imperative() {
         &pp_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let registry = TypeRegistry::default();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
     parser.process_block_headers();
 
     let result = parser.parse();
-    if let Err(ref e) = result {
-        assert!(
-            !matches!(e.kind, ParseErrorKind::IsValueEquality { .. }),
-            "x is mortal should NOT trigger IsValueEquality, got {:?}",
-            e.kind
-        );
-    }
+    assert!(result.is_ok(), "Let x is 5 should parse: {:?}", result.err());
 }
 
 #[test]
-fn count_is_10_errors_in_imperative() {
-    let source = "## Main\ncount is 10.";
+fn x_equals_5_accepted() {
+    let source = "## Main\nLet x = 5.";
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let mut ctx = DiscourseContext::new();
-    ctx.register(Entity {
-        symbol: "count".to_string(),
-        gender: Gender::Neuter,
-        number: Number::Singular,
-        noun_class: "count".to_string(),
-        ownership: OwnershipState::Owned,
-    });
+    let mut world_state = WorldState::new();
 
     let expr_arena = logos::arena::Arena::new();
     let term_arena = logos::arena::Arena::new();
@@ -124,16 +100,43 @@ fn count_is_10_errors_in_imperative() {
         &pp_arena,
     );
 
-    let mut parser = Parser::with_context(tokens, &mut ctx, &mut interner, ast_ctx);
+    let registry = TypeRegistry::default();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
     parser.process_block_headers();
 
     let result = parser.parse();
-    assert!(result.is_err(), "count is 10 should error in imperative mode");
+    assert!(result.is_ok(), "Let x = 5 should parse: {:?}", result.err());
+}
 
-    let err = result.unwrap_err();
-    assert!(
-        matches!(err.kind, ParseErrorKind::IsValueEquality { .. }),
-        "Should be IsValueEquality error, got {:?}",
-        err.kind
+#[test]
+fn x_is_true_accepted() {
+    let source = "## Main\nLet x is true.";
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mut world_state = WorldState::new();
+
+    let expr_arena = logos::arena::Arena::new();
+    let term_arena = logos::arena::Arena::new();
+    let np_arena = logos::arena::Arena::new();
+    let sym_arena = logos::arena::Arena::new();
+    let role_arena = logos::arena::Arena::new();
+    let pp_arena = logos::arena::Arena::new();
+
+    let ast_ctx = logos::arena_ctx::AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
     );
+
+    let registry = TypeRegistry::default();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, registry);
+    parser.process_block_headers();
+
+    let result = parser.parse();
+    assert!(result.is_ok(), "Let x is true should parse: {:?}", result.err());
 }
