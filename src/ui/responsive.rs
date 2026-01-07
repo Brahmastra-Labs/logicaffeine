@@ -1,13 +1,83 @@
 /// Unified responsive and mobile styling system for Logicaffeine.
 ///
 /// This module centralizes all mobile/responsive concerns:
-/// - Breakpoint definitions
-/// - Touch target standards
-/// - Mobile-specific CSS utilities
-/// - Reusable mobile component styles (tabs, bottom sheets, etc.)
+/// - Breakpoint definitions (XS: 480px, SM: 640px, MD: 768px, LG: 1024px, XL: 1280px)
+/// - Touch target standards (44px WCAG minimum, 48px comfortable, 56px large)
+/// - Mobile-specific CSS utilities (.desktop-only, .mobile-only, .touch-target)
+/// - Safe area insets for notched devices (iPhone X+)
+/// - Reduced motion support (WCAG 2.1 Level AAA)
+/// - Reusable mobile component styles (tabs, accordions, panels, buttons)
 ///
-/// Usage: Import this module and include `MOBILE_BASE_STYLES` in your root component,
+/// # Usage
+///
+/// Import this module and include `MOBILE_BASE_STYLES` in your root component (app.rs),
 /// then use the provided class names and CSS variables throughout.
+///
+/// ```rust,ignore
+/// // In app.rs:
+/// use crate::ui::responsive::MOBILE_BASE_STYLES;
+///
+/// rsx! {
+///     style { "{MOBILE_BASE_STYLES}" }
+///     // ... rest of app
+/// }
+/// ```
+///
+/// # Mobile Patterns
+///
+/// ## Breakpoints
+/// Use the constants from `breakpoints::` module:
+/// - `breakpoints::XS` (480px) - Small phones
+/// - `breakpoints::SM` (640px) - Phones landscape, hamburger menu threshold
+/// - `breakpoints::MD` (768px) - Primary mobile/desktop breakpoint
+/// - `breakpoints::LG` (1024px) - Small laptops
+/// - `breakpoints::XL` (1280px) - Desktops
+///
+/// ## Touch Targets (WCAG 2.5.5)
+/// All interactive elements on mobile must meet minimum 44x44px size:
+/// ```css
+/// @media (max-width: 768px) {
+///     .my-button {
+///         min-height: var(--touch-min, 44px);
+///         -webkit-tap-highlight-color: transparent;
+///         touch-action: manipulation;
+///     }
+/// }
+/// ```
+///
+/// ## Safe Area Insets
+/// For fixed/sticky elements on notched devices:
+/// ```css
+/// @supports (padding: env(safe-area-inset-top)) {
+///     .fixed-header {
+///         padding-top: env(safe-area-inset-top);
+///     }
+///     .fixed-bottom {
+///         bottom: max(24px, env(safe-area-inset-bottom));
+///     }
+/// }
+/// ```
+///
+/// ## Reduced Motion
+/// Always respect user preference for reduced motion:
+/// ```css
+/// @media (prefers-reduced-motion: reduce) {
+///     .animated-element {
+///         animation: none !important;
+///         transition: none !important;
+///     }
+/// }
+/// ```
+///
+/// # Testing
+///
+/// Run mobile-specific tests:
+/// ```bash
+/// cargo test --test mobile_tabs_tests
+/// ```
+///
+/// See `.zenflow/tasks/implement-a-mobile-responsivenes-0bca/MOBILE_TESTING.md`
+/// for comprehensive testing guidelines.
 
 // =============================================================================
 // BREAKPOINTS
