@@ -321,3 +321,56 @@ fn test_four_tab_modes_all_represented_in_styles() {
         );
     }
 }
+
+// =============================================================================
+// SAFE AREA INSET TESTS
+// =============================================================================
+
+#[test]
+fn test_base_styles_safe_area_variables() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("--safe-top: env(safe-area-inset-top, 0px)"),
+        "Should define --safe-top CSS variable with fallback"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains("--safe-bottom: env(safe-area-inset-bottom, 0px)"),
+        "Should define --safe-bottom CSS variable with fallback"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains("--safe-left: env(safe-area-inset-left, 0px)"),
+        "Should define --safe-left CSS variable with fallback"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains("--safe-right: env(safe-area-inset-right, 0px)"),
+        "Should define --safe-right CSS variable with fallback"
+    );
+}
+
+#[test]
+fn test_base_styles_safe_area_utility_classes() {
+    assert!(
+        MOBILE_BASE_STYLES.contains(".safe-top"),
+        "Should have .safe-top utility class"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains(".safe-bottom"),
+        "Should have .safe-bottom utility class"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains(".safe-horizontal"),
+        "Should have .safe-horizontal utility class"
+    );
+}
+
+#[test]
+fn test_safe_area_uses_max_for_fallback() {
+    // Ensure safe area utilities use max() to provide minimum padding
+    assert!(
+        MOBILE_BASE_STYLES.contains("padding-top: max(var(--mobile-padding), var(--safe-top))"),
+        ".safe-top should use max() to ensure minimum padding"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains("padding-bottom: max(var(--mobile-padding), var(--safe-bottom))"),
+        ".safe-bottom should use max() to ensure minimum padding"
+    );
+}

@@ -432,4 +432,28 @@ mod tests {
     fn test_active_page_from_route_profile() {
         assert_eq!(ActivePage::from_route(&Route::Profile {}), ActivePage::Profile);
     }
+
+    #[test]
+    fn test_main_nav_has_safe_area_support() {
+        assert!(
+            MAIN_NAV_STYLE.contains("@supports (padding: env(safe-area-inset-top))"),
+            "Should use @supports for safe area inset detection"
+        );
+        assert!(
+            MAIN_NAV_STYLE.contains("padding-top: env(safe-area-inset-top)"),
+            "Should add safe area top padding for notched devices"
+        );
+    }
+
+    #[test]
+    fn test_main_nav_inner_safe_area_padding() {
+        assert!(
+            MAIN_NAV_STYLE.contains("env(safe-area-inset-left)"),
+            "Should account for left safe area inset"
+        );
+        assert!(
+            MAIN_NAV_STYLE.contains("env(safe-area-inset-right)"),
+            "Should account for right safe area inset"
+        );
+    }
 }

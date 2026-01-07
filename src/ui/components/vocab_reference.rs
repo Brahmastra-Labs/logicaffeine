@@ -521,3 +521,61 @@ pub fn VocabReference(props: VocabReferenceProps) -> Element {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vocab_reference_has_safe_area_support() {
+        assert!(
+            VOCAB_REFERENCE_STYLE.contains("@supports (padding: env(safe-area-inset-bottom))"),
+            "Should use @supports for safe area inset detection"
+        );
+    }
+
+    #[test]
+    fn test_vocab_toggle_safe_area_positioning() {
+        assert!(
+            VOCAB_REFERENCE_STYLE.contains("bottom: max(24px, env(safe-area-inset-bottom))"),
+            "Toggle should use max() for bottom positioning with safe area fallback"
+        );
+        assert!(
+            VOCAB_REFERENCE_STYLE.contains("right: max(24px, env(safe-area-inset-right))"),
+            "Toggle should use max() for right positioning with safe area fallback"
+        );
+    }
+
+    #[test]
+    fn test_vocab_panel_safe_area_positioning() {
+        assert!(
+            VOCAB_REFERENCE_STYLE.contains("calc(60px + env(safe-area-inset-bottom))"),
+            "Panel should account for safe area inset in bottom positioning"
+        );
+    }
+
+    #[test]
+    fn test_vocab_panel_safe_area_max_height() {
+        assert!(
+            VOCAB_REFERENCE_STYLE.contains("max-height: calc(70vh - env(safe-area-inset-bottom))"),
+            "Panel max-height should account for safe area inset"
+        );
+    }
+
+    #[test]
+    fn test_get_symbols_contains_all_categories() {
+        let symbols = get_symbols();
+        let categories: Vec<_> = symbols.iter().map(|s| s.category).collect();
+        assert!(categories.contains(&"quantifier"));
+        assert!(categories.contains(&"connective"));
+        assert!(categories.contains(&"predicate"));
+    }
+
+    #[test]
+    fn test_get_vocab_terms_not_empty() {
+        let terms = get_vocab_terms();
+        assert!(!terms.is_empty());
+        assert!(terms.iter().any(|t| t.term == "Predicate"));
+        assert!(terms.iter().any(|t| t.term == "Variable"));
+    }
+}

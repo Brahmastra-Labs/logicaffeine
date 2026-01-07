@@ -258,3 +258,47 @@ pub fn SidebarMobileToggle(on_toggle: EventHandler<()>) -> Element {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sidebar_mobile_toggle_has_safe_area_support() {
+        assert!(
+            SIDEBAR_STYLE.contains("@supports (padding: env(safe-area-inset-bottom))"),
+            "Should use @supports for safe area inset detection"
+        );
+        assert!(
+            SIDEBAR_STYLE.contains("bottom: max(24px, env(safe-area-inset-bottom))"),
+            "Should use max() to ensure minimum 24px bottom padding"
+        );
+        assert!(
+            SIDEBAR_STYLE.contains("right: max(24px, env(safe-area-inset-right))"),
+            "Should use max() to ensure minimum 24px right padding"
+        );
+    }
+
+    #[test]
+    fn test_sidebar_mobile_toggle_touch_target() {
+        assert!(
+            SIDEBAR_STYLE.contains("width: 56px") && SIDEBAR_STYLE.contains("height: 56px"),
+            "Mobile toggle should be 56x56px for easy touch target"
+        );
+    }
+
+    #[test]
+    fn test_group_sections_preserves_order() {
+        let sections = vec![
+            SectionInfo { id: "a".into(), number: 1, title: "First".into(), part: "Part 1".into() },
+            SectionInfo { id: "b".into(), number: 2, title: "Second".into(), part: "Part 1".into() },
+            SectionInfo { id: "c".into(), number: 3, title: "Third".into(), part: "Part 2".into() },
+        ];
+        let grouped = group_sections_by_part(&sections);
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].0, "Part 1");
+        assert_eq!(grouped[0].1.len(), 2);
+        assert_eq!(grouped[1].0, "Part 2");
+        assert_eq!(grouped[1].1.len(), 1);
+    }
+}

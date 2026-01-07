@@ -525,16 +525,61 @@
 
 **Conclusion**: All pages pass touch target requirements. No fixes needed.
 
-### [ ] Task 4.2: Add Safe Area Inset Support
+### [x] Task 4.2: Add Safe Area Inset Support
 <!-- chat-id: 82a7d4d2-0ee0-458a-a152-3e75598e73de -->
-**Files**: `src/ui/pages/learn.rs`, `main_nav.rs`, other pages with fixed elements
+**Files**: `src/ui/components/main_nav.rs`, `guide_sidebar.rs`, `vocab_reference.rs`, `responsive.rs`
 
-1. Apply `env(safe-area-inset-*)` to fixed/sticky elements
-2. Ensure content isn't hidden behind notches or home indicators
-3. Test with iOS device emulation in browser dev tools
+**Completed**: Added safe area inset support to all fixed and sticky elements for notched devices (iPhone X+, etc.):
+
+1. **Base CSS Variables** (already existed in `responsive.rs`):
+   - `--safe-top: env(safe-area-inset-top, 0px)`
+   - `--safe-bottom: env(safe-area-inset-bottom, 0px)`
+   - `--safe-left: env(safe-area-inset-left, 0px)`
+   - `--safe-right: env(safe-area-inset-right, 0px)`
+   - Utility classes: `.safe-top`, `.safe-bottom`, `.safe-horizontal`
+
+2. **MainNav (`main_nav.rs`)** - Sticky header:
+   - Added `@supports (padding: env(safe-area-inset-top))` block
+   - `.main-nav` gets `padding-top: env(safe-area-inset-top)` for top notch
+   - `.main-nav-inner` gets `max()` padding for left/right safe areas
+
+3. **GuideSidebar (`guide_sidebar.rs`)** - Fixed mobile toggle button:
+   - Added `@supports (padding: env(safe-area-inset-bottom))` block
+   - `.sidebar-mobile-toggle` uses `bottom: max(24px, env(safe-area-inset-bottom))`
+   - `.sidebar-mobile-toggle` uses `right: max(24px, env(safe-area-inset-right))`
+
+4. **VocabReference (`vocab_reference.rs`)** - Fixed toggle and panel:
+   - Added `@supports (padding: env(safe-area-inset-bottom))` block
+   - `.vocab-reference-toggle` uses `max()` for bottom/right positioning
+   - `.vocab-reference-panel` adjusts bottom position and max-height for safe area
+
+5. **NavDrawer (`nav_drawer.rs`)** - Already had safe area support:
+   - `env(safe-area-inset-left)` for drawer panel padding
+   - `env(safe-area-inset-top)` for header padding
+   - `env(safe-area-inset-bottom)` for footer padding
+
+**Unit Tests Added** (11 tests):
+- `test_main_nav_has_safe_area_support`
+- `test_main_nav_inner_safe_area_padding`
+- `test_sidebar_mobile_toggle_has_safe_area_support`
+- `test_vocab_reference_has_safe_area_support`
+- `test_vocab_toggle_safe_area_positioning`
+- `test_vocab_panel_safe_area_positioning`
+- `test_vocab_panel_safe_area_max_height`
+- `test_nav_drawer_has_safe_area_support` (existing)
+- `test_base_styles_safe_area_variables`
+- `test_base_styles_safe_area_utility_classes`
+- `test_safe_area_uses_max_for_fallback`
 
 **Verification**:
-Manual: Use Safari responsive mode with iPhone X/14 Pro simulation
+- `cargo build --features cli` ✓
+- `cargo test safe_area` ✓ (11 tests passed)
+- `cargo test -- --skip e2e` ✓ (all tests pass)
+
+**Manual Testing**: Use Safari responsive mode with iPhone X/14 Pro simulation to verify:
+- [ ] Header content not hidden behind notch
+- [ ] Fixed bottom buttons visible above home indicator
+- [ ] Vocab reference panel respects safe area
 
 ### [ ] Task 4.3: Add Reduced Motion Support
 **Files**: `src/ui/responsive.rs`, affected components
