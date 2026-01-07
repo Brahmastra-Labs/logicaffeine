@@ -8,6 +8,7 @@
 ## Workflow Steps
 
 ### [ ] Step: Requirements
+<!-- chat-id: 0d316e23-946c-4644-81d7-7858d175bfb1 -->
 
 Create a Product Requirements Document (PRD) based on the feature description.
 
@@ -19,7 +20,8 @@ Create a Product Requirements Document (PRD) based on the feature description.
 
 Save the PRD to `{@artifacts_path}/requirements.md`.
 
-### [ ] Step: Technical Specification
+### [x] Step: Technical Specification
+<!-- chat-id: 3f6c2318-a67b-4775-9eaa-efc6f79e791e -->
 
 Create a technical specification based on the PRD in `{@artifacts_path}/requirements.md`.
 
@@ -33,6 +35,13 @@ Save to `{@artifacts_path}/spec.md` with:
 - Data model / API / interface changes
 - Delivery phases (incremental, testable milestones)
 - Verification approach using project lint/test commands
+
+**Completed**: Created `spec.md` with:
+- Accordion pattern design for Learn page mobile tabs
+- 4-phase delivery plan (Learn page fix → Standardize breakpoints → Navigation → Polish)
+- Component interface definitions
+- CSS architecture additions
+- Testing and verification approach
 
 ### [ ] Step: Planning
 
