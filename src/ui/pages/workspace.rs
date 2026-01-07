@@ -131,8 +131,129 @@ const WORKSPACE_STYLE: &str = r#"
     padding: 40px 20px;
 }
 
-@media (max-width: 900px) {
-    .sidebar, .inspector {
+/* ===========================================
+   TABLET BREAKPOINT (768px)
+   =========================================== */
+@media (max-width: 768px) {
+    .workspace-header {
+        padding: 12px 16px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .workspace-header .breadcrumb {
+        font-size: 12px;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .workspace-header .breadcrumb a {
+        font-size: 12px;
+    }
+
+    .workspace-header h1 {
+        font-size: 18px;
+    }
+
+    .workspace-content {
+        flex-direction: column;
+    }
+
+    /* Sidebar becomes a collapsible top section on mobile */
+    .sidebar {
+        width: 100%;
+        max-height: 200px;
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 12px 16px;
+        overflow-y: auto;
+    }
+
+    .sidebar h3 {
+        font-size: 11px;
+        margin-bottom: 12px;
+    }
+
+    .lesson-tree {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .lesson-tree li {
+        padding: 10px 14px;
+        margin-bottom: 0;
+        font-size: 13px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .main-area {
+        flex: 1;
+        min-height: 0;
+    }
+
+    /* Inspector hidden on tablet - accessible via toggle */
+    .inspector {
+        display: none;
+    }
+}
+
+/* ===========================================
+   SMALL PHONE BREAKPOINT (480px)
+   =========================================== */
+@media (max-width: 480px) {
+    .workspace-header {
+        padding: 10px 12px;
+    }
+
+    .workspace-header .breadcrumb {
+        font-size: 11px;
+        gap: 4px;
+    }
+
+    .workspace-header .breadcrumb a {
+        font-size: 11px;
+    }
+
+    .workspace-header h1 {
+        font-size: 16px;
+    }
+
+    .sidebar {
+        padding: 10px 12px;
+        max-height: 160px;
+    }
+
+    .sidebar h3 {
+        font-size: 10px;
+        margin-bottom: 8px;
+    }
+
+    /* On small phones, lesson tree items become compact chips */
+    .lesson-tree {
+        gap: 6px;
+    }
+
+    .lesson-tree li {
+        padding: 8px 12px;
+        font-size: 12px;
+        border-radius: 6px;
+        min-height: 40px;
+    }
+
+    /* Hide history section on very small screens */
+    .sidebar h3:nth-of-type(2),
+    .sidebar h3 + p {
+        display: none;
+    }
+
+    .sidebar h3[style*="margin-top: 32px"],
+    .sidebar h3[style*="margin-top: 32px"] + p {
         display: none;
     }
 }

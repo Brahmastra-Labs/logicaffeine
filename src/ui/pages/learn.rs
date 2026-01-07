@@ -416,13 +416,20 @@ const LEARN_STYLE: &str = r#"
     border: 1px solid rgba(251, 191, 36, 0.2);
 }
 
-/* Content tab selector */
+/* Content tab selector - desktop only horizontal tabs */
 .content-tabs {
     display: flex;
     gap: var(--spacing-sm);
     margin-bottom: var(--spacing-xl);
     border-bottom: 1px solid rgba(255,255,255,0.08);
     padding-bottom: var(--spacing-md);
+}
+
+/* Hide horizontal tabs on mobile, show accordion instead */
+@media (max-width: 768px) {
+    .content-tabs {
+        display: none !important;
+    }
 }
 
 .content-tab-btn {
@@ -478,6 +485,86 @@ const LEARN_STYLE: &str = r#"
     color: #fbbf24;
     border-bottom-color: #fbbf24;
     background: rgba(251, 191, 36, 0.1);
+}
+
+/* Mobile content tabs - stacked vertical layout for touch */
+.mobile-content-tabs {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: var(--spacing-xl);
+}
+
+@media (max-width: 768px) {
+    .mobile-content-tabs {
+        display: flex;
+    }
+}
+
+.mobile-content-tab {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 48px;
+    padding: 12px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md, 8px);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-secondary, #888);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: all 0.15s ease;
+}
+
+.mobile-content-tab:active {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.mobile-tab-icon {
+    font-size: 18px;
+    line-height: 1;
+    width: 24px;
+    text-align: center;
+}
+
+.mobile-tab-label {
+    flex: 1;
+    text-align: left;
+}
+
+/* Active state colors for mobile tabs */
+.mobile-content-tab.active {
+    color: var(--text-primary, #e8e8e8);
+    background: rgba(102, 126, 234, 0.15);
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+.mobile-content-tab.lesson.active {
+    background: rgba(96, 165, 250, 0.15);
+    border-color: rgba(96, 165, 250, 0.3);
+    color: #60a5fa;
+}
+
+.mobile-content-tab.examples.active {
+    background: rgba(167, 139, 250, 0.15);
+    border-color: rgba(167, 139, 250, 0.3);
+    color: #a78bfa;
+}
+
+.mobile-content-tab.practice.active {
+    background: rgba(74, 222, 128, 0.15);
+    border-color: rgba(74, 222, 128, 0.3);
+    color: #4ade80;
+}
+
+.mobile-content-tab.test.active {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
 }
 
 /* Lesson section styling */
@@ -967,7 +1054,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
                     exercise_count: 5,
                     difficulty: 1,
-                    preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
+                    preview_code: Some("All humans are mortal. Socrates is human. Socrates is mortal."),
                 },
                 ModuleData {
                     id: "syllogistic",
@@ -1595,7 +1682,7 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
 
     rsx! {
         div { class: "interactive-exercise-panel",
-            // Content tabs (Lesson | Examples | Practice | Test)
+            // Desktop: Horizontal tabs (hidden on mobile via CSS)
             div { class: "content-tabs",
                 button {
                     class: if current_view == ContentView::Lesson { "content-tab-btn active" } else { "content-tab-btn" },
@@ -1627,6 +1714,47 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                         feedback.set(None);
                     },
                     "Test"
+                }
+            }
+
+            // Mobile: Stacked tab buttons (shown on mobile via CSS, hidden on desktop)
+            // These are styled as accordion headers but just serve as tab selectors
+            // Content is rendered below, same as desktop
+            div { class: "mobile-content-tabs",
+                button {
+                    class: if current_view == ContentView::Lesson { "mobile-content-tab lesson active" } else { "mobile-content-tab lesson" },
+                    onclick: move |_| content_view.set(ContentView::Lesson),
+                    span { class: "mobile-tab-icon", "📖" }
+                    span { class: "mobile-tab-label", "Lesson" }
+                }
+                button {
+                    class: if current_view == ContentView::Examples { "mobile-content-tab examples active" } else { "mobile-content-tab examples" },
+                    onclick: move |_| content_view.set(ContentView::Examples),
+                    span { class: "mobile-tab-icon", "💡" }
+                    span { class: "mobile-tab-label", "Examples" }
+                }
+                button {
+                    class: if current_view == ContentView::Practice { "mobile-content-tab practice active" } else { "mobile-content-tab practice" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Practice);
+                        practice_mode.set(PracticeMode::Practice);
+                    },
+                    span { class: "mobile-tab-icon", "✏️" }
+                    span { class: "mobile-tab-label", "Practice" }
+                }
+                button {
+                    class: if current_view == ContentView::Test { "mobile-content-tab test active" } else { "mobile-content-tab test" },
+                    onclick: move |_| {
+                        content_view.set(ContentView::Test);
+                        practice_mode.set(PracticeMode::Test);
+                        test_question.set(0);
+                        test_answers.set(Vec::new());
+                        test_complete.set(false);
+                        user_answer.set(String::new());
+                        feedback.set(None);
+                    },
+                    span { class: "mobile-tab-icon", "📝" }
+                    span { class: "mobile-tab-label", "Test" }
                 }
             }
 

@@ -188,6 +188,101 @@ const SUCCESS_STYLE: &str = r#"
     padding: 16px;
     margin-bottom: 24px;
 }
+
+/* Mobile touch target optimizations */
+@media (max-width: 768px) {
+    .success-container {
+        padding: 40px 16px;
+    }
+
+    .success-title {
+        font-size: 28px;
+    }
+
+    .success-message {
+        font-size: 16px;
+    }
+
+    .copy-btn {
+        min-height: 44px;
+        padding: 12px 24px;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+        min-height: 48px;
+        padding: 14px 28px;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .license-box {
+        padding: 20px;
+    }
+
+    .license-key {
+        font-size: 12px;
+        padding: 12px;
+    }
+
+    .success-note a {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 4px;
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+@media (max-width: 480px) {
+    .success-container {
+        padding: 24px 12px;
+    }
+
+    .success-icon {
+        width: 64px;
+        height: 64px;
+        font-size: 32px;
+        margin-bottom: 24px;
+    }
+
+    .success-title {
+        font-size: 24px;
+    }
+
+    .success-message {
+        font-size: 14px;
+        margin-bottom: 24px;
+    }
+
+    .license-box {
+        padding: 16px;
+    }
+
+    .license-key {
+        font-size: 11px;
+        padding: 10px;
+    }
+
+    .success-actions {
+        max-width: 100%;
+    }
+
+    .btn-primary,
+    .btn-secondary {
+        font-size: 14px;
+    }
+
+    .success-note {
+        padding: 16px;
+    }
+
+    .success-note p {
+        font-size: 13px;
+    }
+}
 "#;
 
 const STRIPE_CUSTOMER_PORTAL: &str = "https://billing.stripe.com/p/login/8x200l3VN98D7qa1SMe3e00";

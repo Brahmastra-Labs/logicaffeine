@@ -1,13 +1,83 @@
 /// Unified responsive and mobile styling system for Logicaffeine.
 ///
 /// This module centralizes all mobile/responsive concerns:
-/// - Breakpoint definitions
-/// - Touch target standards
-/// - Mobile-specific CSS utilities
-/// - Reusable mobile component styles (tabs, bottom sheets, etc.)
+/// - Breakpoint definitions (XS: 480px, SM: 640px, MD: 768px, LG: 1024px, XL: 1280px)
+/// - Touch target standards (44px WCAG minimum, 48px comfortable, 56px large)
+/// - Mobile-specific CSS utilities (.desktop-only, .mobile-only, .touch-target)
+/// - Safe area insets for notched devices (iPhone X+)
+/// - Reduced motion support (WCAG 2.1 Level AAA)
+/// - Reusable mobile component styles (tabs, accordions, panels, buttons)
 ///
-/// Usage: Import this module and include `MOBILE_BASE_STYLES` in your root component,
+/// # Usage
+///
+/// Import this module and include `MOBILE_BASE_STYLES` in your root component (app.rs),
 /// then use the provided class names and CSS variables throughout.
+///
+/// ```rust,ignore
+/// // In app.rs:
+/// use crate::ui::responsive::MOBILE_BASE_STYLES;
+///
+/// rsx! {
+///     style { "{MOBILE_BASE_STYLES}" }
+///     // ... rest of app
+/// }
+/// ```
+///
+/// # Mobile Patterns
+///
+/// ## Breakpoints
+/// Use the constants from `breakpoints::` module:
+/// - `breakpoints::XS` (480px) - Small phones
+/// - `breakpoints::SM` (640px) - Phones landscape, hamburger menu threshold
+/// - `breakpoints::MD` (768px) - Primary mobile/desktop breakpoint
+/// - `breakpoints::LG` (1024px) - Small laptops
+/// - `breakpoints::XL` (1280px) - Desktops
+///
+/// ## Touch Targets (WCAG 2.5.5)
+/// All interactive elements on mobile must meet minimum 44x44px size:
+/// ```css
+/// @media (max-width: 768px) {
+///     .my-button {
+///         min-height: var(--touch-min, 44px);
+///         -webkit-tap-highlight-color: transparent;
+///         touch-action: manipulation;
+///     }
+/// }
+/// ```
+///
+/// ## Safe Area Insets
+/// For fixed/sticky elements on notched devices:
+/// ```css
+/// @supports (padding: env(safe-area-inset-top)) {
+///     .fixed-header {
+///         padding-top: env(safe-area-inset-top);
+///     }
+///     .fixed-bottom {
+///         bottom: max(24px, env(safe-area-inset-bottom));
+///     }
+/// }
+/// ```
+///
+/// ## Reduced Motion
+/// Always respect user preference for reduced motion:
+/// ```css
+/// @media (prefers-reduced-motion: reduce) {
+///     .animated-element {
+///         animation: none !important;
+///         transition: none !important;
+///     }
+/// }
+/// ```
+///
+/// # Testing
+///
+/// Run mobile-specific tests:
+/// ```bash
+/// cargo test --test mobile_tabs_tests
+/// ```
+///
+/// See `.zenflow/tasks/implement-a-mobile-responsivenes-0bca/MOBILE_TESTING.md`
+/// for comprehensive testing guidelines.
 
 // =============================================================================
 // BREAKPOINTS
@@ -141,14 +211,42 @@ pub const MOBILE_BASE_STYLES: &str = r#"
     user-select: none;
 }
 
-/* Reduced motion support */
+/* ============================================ */
+/* REDUCED MOTION SUPPORT                       */
+/* ============================================ */
+/* Respects user preference for reduced motion. */
+/* This is a WCAG 2.1 Level AAA requirement.    */
+/* Animations are reduced to near-instant while */
+/* still showing final states for functionality.*/
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
+        /* Reduce animation to near-instant (0.01ms allows final state to render) */
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
+        animation-delay: 0ms !important;
+        /* Reduce transitions to near-instant */
         transition-duration: 0.01ms !important;
+        transition-delay: 0ms !important;
+        /* Disable scroll behavior animations */
+        scroll-behavior: auto !important;
+    }
+
+    /* Ensure decorative animations are completely disabled */
+    .particles,
+    .flame,
+    .combo-flames,
+    [class*="pulse"],
+    [class*="bounce"],
+    [class*="shake"],
+    [class*="dance"] {
+        animation: none !important;
+    }
+
+    /* Ensure transform-based hover effects are static */
+    *:hover {
+        transform: none !important;
     }
 }
 "#;
@@ -442,6 +540,206 @@ pub const MOBILE_INPUT_STYLES: &str = r#"
 "#;
 
 // =============================================================================
+// MOBILE ACCORDION TABS
+// =============================================================================
+
+/// Mobile accordion tab styles for stacked, expandable tab navigation.
+/// Use this pattern when horizontal tabs overflow on mobile viewports.
+/// Each tab header is a full-width touch target that expands to reveal content.
+pub const MOBILE_ACCORDION_STYLES: &str = r#"
+/* Accordion container - hidden on desktop, shown on mobile */
+.accordion-tabs {
+    display: none;
+    flex-direction: column;
+    width: 100%;
+    gap: 8px;
+    padding: 0 var(--mobile-padding, 12px);
+}
+
+@media (max-width: 768px) {
+    .accordion-tabs {
+        display: flex;
+    }
+
+    /* Hide standard horizontal tabs on mobile when accordion is used */
+    .desktop-tabs {
+        display: none !important;
+    }
+}
+
+/* Individual accordion tab item */
+.accordion-tab-item {
+    border-radius: var(--radius-md, 8px);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+    transition: border-color 0.2s ease;
+}
+
+.accordion-tab-item.expanded {
+    border-color: rgba(102, 126, 234, 0.4);
+}
+
+/* Accordion tab header - the clickable touch target */
+.accordion-tab-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    min-height: var(--touch-comfortable, 48px);
+    padding: 12px 16px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary, #888);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.accordion-tab-header:active {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.accordion-tab-header.expanded {
+    color: var(--text-primary, #e8e8e8);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* Header left section with icon and label */
+.accordion-tab-header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.accordion-tab-icon {
+    font-size: 18px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+}
+
+.accordion-tab-label {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+/* Expand/collapse chevron indicator */
+.accordion-tab-chevron {
+    font-size: 12px;
+    transition: transform 0.2s ease;
+    color: var(--text-tertiary, #666);
+}
+
+.accordion-tab-header.expanded .accordion-tab-chevron {
+    transform: rotate(180deg);
+}
+
+/* Lock icon for locked tabs */
+.accordion-tab-lock {
+    font-size: 14px;
+    color: var(--text-tertiary, #666);
+    margin-left: 8px;
+}
+
+.accordion-tab-header.locked {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Accordion tab content - animated expand/collapse */
+.accordion-tab-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease-out;
+}
+
+.accordion-tab-content.expanded {
+    max-height: 2000px;
+    transition: max-height 0.35s ease-in;
+}
+
+.accordion-tab-content-inner {
+    padding: 0 16px 16px;
+}
+
+/* Color variants for different tab types */
+
+/* Lesson tab - blue accent (default) */
+.accordion-tab-header.lesson.expanded {
+    background: rgba(96, 165, 250, 0.12);
+    color: #60a5fa;
+}
+
+.accordion-tab-item.lesson.expanded {
+    border-color: rgba(96, 165, 250, 0.3);
+}
+
+.accordion-tab-header.lesson .accordion-tab-icon {
+    color: #60a5fa;
+}
+
+/* Examples tab - purple accent */
+.accordion-tab-header.examples.expanded {
+    background: rgba(167, 139, 250, 0.12);
+    color: #a78bfa;
+}
+
+.accordion-tab-item.examples.expanded {
+    border-color: rgba(167, 139, 250, 0.3);
+}
+
+.accordion-tab-header.examples .accordion-tab-icon {
+    color: #a78bfa;
+}
+
+/* Practice tab - green accent */
+.accordion-tab-header.practice.expanded {
+    background: rgba(74, 222, 128, 0.12);
+    color: #4ade80;
+}
+
+.accordion-tab-item.practice.expanded {
+    border-color: rgba(74, 222, 128, 0.3);
+}
+
+.accordion-tab-header.practice .accordion-tab-icon {
+    color: #4ade80;
+}
+
+/* Test tab - yellow/amber accent */
+.accordion-tab-header.test.expanded {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+}
+
+.accordion-tab-item.test.expanded {
+    border-color: rgba(251, 191, 36, 0.3);
+}
+
+.accordion-tab-header.test .accordion-tab-icon {
+    color: #fbbf24;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .accordion-tab-content {
+        transition: none;
+    }
+
+    .accordion-tab-chevron {
+        transition: none;
+    }
+}
+"#;
+
+// =============================================================================
 // MOBILE RESIZER ALTERNATIVE
 // =============================================================================
 
@@ -474,12 +772,13 @@ pub const MOBILE_RESIZER_STYLES: &str = r#"
 /// All mobile styles combined - include this for a complete mobile solution
 pub fn all_mobile_styles() -> String {
     format!(
-        "{}\n{}\n{}\n{}\n{}\n{}",
+        "{}\n{}\n{}\n{}\n{}\n{}\n{}",
         MOBILE_BASE_STYLES,
         MOBILE_TAB_BAR_STYLES,
         MOBILE_PANEL_STYLES,
         MOBILE_BUTTON_STYLES,
         MOBILE_INPUT_STYLES,
+        MOBILE_ACCORDION_STYLES,
         MOBILE_RESIZER_STYLES,
     )
 }

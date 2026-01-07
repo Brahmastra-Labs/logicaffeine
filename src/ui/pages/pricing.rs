@@ -581,12 +581,167 @@ a { color: inherit; }
   fill: currentColor;
 }
 
-@media (max-width: 700px) {
+/* ============================================ */
+/* TABLET BREAKPOINT (768px - MD)              */
+/* ============================================ */
+@media (max-width: 768px) {
+  .pricing-container {
+    padding: 40px 16px;
+  }
+
+  .pricing-header {
+    margin-bottom: 32px;
+  }
+
   .pricing-header h1 {
     font-size: var(--font-display-md);
+    letter-spacing: -1px;
   }
+
+  .pricing-header p {
+    font-size: var(--font-body-md);
+  }
+
   .pricing-tiers {
     grid-template-columns: 1fr;
+    gap: var(--spacing-lg);
+  }
+
+  .tier-card {
+    padding: var(--spacing-xl);
+  }
+
+  .free-license-banner,
+  .lifetime-section,
+  .license-section,
+  .manage-section,
+  .contact-section {
+    padding: var(--spacing-xl);
+    margin-bottom: 24px;
+  }
+
+  .contact-links {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .contact-email {
+    width: 100%;
+    text-align: center;
+  }
+
+  .pricing-footer-links {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--spacing-md);
+  }
+
+  .github-btn,
+  .back-link {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* Touch-friendly buttons */
+  .btn-primary,
+  .btn-secondary,
+  .btn-contact,
+  .btn-free,
+  .contact-email {
+    min-height: 48px;
+    padding: 14px var(--spacing-xl);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+/* ============================================ */
+/* SMALL PHONE BREAKPOINT (480px - XS)         */
+/* ============================================ */
+@media (max-width: 480px) {
+  .pricing-container {
+    padding: 24px 12px;
+  }
+
+  .pricing-header {
+    margin-bottom: 24px;
+  }
+
+  .pricing-header h1 {
+    font-size: var(--font-heading-xl);
+    letter-spacing: -0.5px;
+  }
+
+  .pricing-header p {
+    font-size: var(--font-body-sm);
+  }
+
+  .tier-card {
+    padding: var(--spacing-lg);
+  }
+
+  .tier-badge,
+  .early-access-badge,
+  .coming-soon-badge {
+    font-size: var(--font-caption-sm);
+    padding: var(--spacing-xs) 8px;
+  }
+
+  .tier-name {
+    font-size: var(--font-heading-md);
+  }
+
+  .tier-price .amount {
+    font-size: var(--font-display-sm);
+  }
+
+  .tier-features li {
+    font-size: var(--font-caption-md);
+    padding: var(--spacing-xs) 0;
+    padding-left: var(--spacing-lg);
+  }
+
+  .free-license-banner,
+  .lifetime-section,
+  .license-section,
+  .manage-section,
+  .contact-section {
+    padding: var(--spacing-lg);
+    margin-bottom: 16px;
+  }
+
+  .free-license-banner h2,
+  .lifetime-section h2,
+  .license-section h2,
+  .contact-section h2 {
+    font-size: var(--font-heading-md);
+  }
+
+  .lifetime-section .price {
+    font-size: 32px;
+  }
+
+  .license-section p,
+  .license-section ul {
+    font-size: var(--font-body-sm);
+  }
+
+  .active-license-banner {
+    padding: var(--spacing-lg);
+  }
+
+  .active-license-banner h2 {
+    font-size: var(--font-heading-md);
+  }
+
+  .active-license-banner .plan-badge {
+    font-size: var(--font-body-sm);
+    padding: var(--spacing-xs) var(--spacing-md);
+  }
+
+  /* Hide decorative orbs on small screens for performance */
+  .bg-orb {
+    display: none;
   }
 }
 

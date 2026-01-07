@@ -148,6 +148,16 @@ const SIDEBAR_STYLE: &str = r#"
         display: none;
     }
 }
+
+/* Mobile sidebar module touch targets (for mobile sheet view) */
+@media (max-width: 768px) {
+    .learn-sidebar-module {
+        min-height: 44px;
+        padding: 12px var(--spacing-lg);
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+}
 "#;
 
 /// Information about a module for the sidebar

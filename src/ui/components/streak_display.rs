@@ -71,6 +71,14 @@ const STREAK_STYLE: &str = r#"
 .freeze-token.empty {
     opacity: 0.3;
 }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .streak-at-risk {
+        animation: none;
+        opacity: 1;
+    }
+}
 "#;
 
 #[component]

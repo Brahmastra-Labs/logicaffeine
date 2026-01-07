@@ -359,6 +359,27 @@ a {
     background: rgba(74, 222, 128, 0.15);
     color: var(--color-success);
 }
+
+/* Reduced motion support for global animations */
+@media (prefers-reduced-motion: reduce) {
+    .message {
+        animation: none;
+    }
+    .revealed-content {
+        animation: none;
+    }
+    .progress-fill {
+        transition: none;
+    }
+    .input-row input,
+    .input-row button,
+    .reveal-btn {
+        transition: none;
+    }
+    .input-row button:hover {
+        transform: none;
+    }
+}
 "#;
 
 pub fn App() -> Element {
