@@ -196,6 +196,7 @@
 **Manual Testing**: Check landing page at 320px, 480px, 768px, 1024px viewports
 
 ### [ ] Task 2.2: Standardize Pricing Page Breakpoints
+<!-- chat-id: 83258c11-c75d-435e-88ba-66b86d8cc6d3 -->
 **File**: `src/ui/pages/pricing.rs`
 
 1. Replace any custom breakpoints with standard ones
