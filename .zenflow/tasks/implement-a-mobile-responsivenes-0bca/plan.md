@@ -308,18 +308,42 @@
 
 **Manual Testing**: Check profile page at 320px, 480px, 768px, 1024px viewports
 
-### [ ] Task 2.5: Standardize Workspace Page Breakpoints
+### [x] Task 2.5: Standardize Workspace Page Breakpoints
 <!-- chat-id: 7dd750d2-e35f-4530-8016-19a4e2e5a99f -->
 **File**: `src/ui/pages/workspace.rs`
 
-1. Add tablet breakpoints (768px)
-2. Add phone breakpoints (480px)
-3. Ensure panels/sections stack correctly on mobile
+**Completed**: Replaced custom 900px breakpoint with standardized MD (768px) and XS (480px) breakpoints:
+
+1. **Tablet breakpoint (768px)**:
+   - Header stacks vertically with reduced padding (12px 16px)
+   - Breadcrumb wraps with smaller font (12px)
+   - Title uses smaller font (18px)
+   - Workspace content stacks vertically (flex-direction: column)
+   - Sidebar becomes horizontal top section (width: 100%, max-height: 200px)
+   - Lesson tree becomes flex-wrap horizontal chip layout with 44px touch targets
+   - Added `-webkit-tap-highlight-color: transparent` and `touch-action: manipulation` for touch UX
+   - Inspector hidden on tablet (accessible via future toggle)
+   - Main area fills remaining space with min-height: 0
+
+2. **Small phone breakpoint (480px)**:
+   - Header padding reduced further (10px 12px)
+   - Breadcrumb uses 11px font with tighter gaps (4px)
+   - Title uses 16px font
+   - Sidebar becomes more compact (padding: 10px 12px, max-height: 160px)
+   - Lesson tree items become compact chips (8px 12px padding, 12px font, 40px min-height)
+   - History section hidden on small phones to save space
+   - Section titles use smaller font (10px)
+
+3. **Touch target compliance**:
+   - Lesson tree items meet 44px minimum touch target on tablet, 40px on small phones
+   - Tap highlight disabled for cleaner touch feedback
+   - Touch action manipulation set for responsive touch
 
 **Verification**:
-```bash
-cargo build --features cli
-```
+- `cargo build --features cli` ✓
+- `cargo test -- --skip e2e` ✓ (all tests pass)
+
+**Manual Testing**: Check workspace page at 320px, 480px, 768px, 1024px viewports
 
 ---
 

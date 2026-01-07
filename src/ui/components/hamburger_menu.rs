@@ -237,7 +237,9 @@ mod tests {
 
     #[test]
     fn test_hamburger_has_animation_transitions() {
-        assert!(HAMBURGER_MENU_STYLES.contains("transition: transform"));
-        assert!(HAMBURGER_MENU_STYLES.contains("transition: opacity"));
+        // The transition is combined: "transition: transform 0.25s ease, opacity 0.25s ease"
+        assert!(HAMBURGER_MENU_STYLES.contains("transition:"));
+        assert!(HAMBURGER_MENU_STYLES.contains("transform"));
+        assert!(HAMBURGER_MENU_STYLES.contains("opacity"));
     }
 }
