@@ -213,6 +213,17 @@ const MAIN_NAV_STYLE: &str = r#"
     fill: currentColor;
 }
 
+/* Safe area insets for notched devices */
+@supports (padding: env(safe-area-inset-top)) {
+    .main-nav {
+        padding-top: env(safe-area-inset-top);
+    }
+    .main-nav-inner {
+        padding-left: max(var(--spacing-xl), env(safe-area-inset-left));
+        padding-right: max(var(--spacing-xl), env(safe-area-inset-right));
+    }
+}
+
 /* Responsive - tablet breakpoint */
 @media (max-width: 980px) {
     .main-nav-brand-text {

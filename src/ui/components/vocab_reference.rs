@@ -255,6 +255,19 @@ const VOCAB_REFERENCE_STYLE: &str = r#"
 .vocab-search-input::placeholder {
     color: var(--text-tertiary);
 }
+
+/* Safe area insets for notched devices */
+@supports (padding: env(safe-area-inset-bottom)) {
+    .vocab-reference-toggle {
+        bottom: max(24px, env(safe-area-inset-bottom));
+        right: max(24px, env(safe-area-inset-right));
+    }
+    .vocab-reference-panel {
+        bottom: max(84px, calc(60px + env(safe-area-inset-bottom)));
+        right: max(24px, env(safe-area-inset-right));
+        max-height: calc(70vh - env(safe-area-inset-bottom));
+    }
+}
 "#;
 
 /// Symbol entry for the reference

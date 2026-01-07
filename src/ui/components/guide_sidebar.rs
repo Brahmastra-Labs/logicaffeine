@@ -143,6 +143,14 @@ const SIDEBAR_STYLE: &str = r#"
         justify-content: center;
     }
 }
+
+/* Safe area insets for notched devices */
+@supports (padding: env(safe-area-inset-bottom)) {
+    .sidebar-mobile-toggle {
+        bottom: max(24px, env(safe-area-inset-bottom));
+        right: max(24px, env(safe-area-inset-right));
+    }
+}
 "#;
 
 /// Information about a section for the sidebar
