@@ -195,21 +195,49 @@
 
 **Manual Testing**: Check landing page at 320px, 480px, 768px, 1024px viewports
 
-### [ ] Task 2.2: Standardize Pricing Page Breakpoints
+### [x] Task 2.2: Standardize Pricing Page Breakpoints
 <!-- chat-id: 83258c11-c75d-435e-88ba-66b86d8cc6d3 -->
 **File**: `src/ui/pages/pricing.rs`
 
-1. Replace any custom breakpoints with standard ones
-2. Ensure pricing cards stack vertically on mobile
-3. Add XS breakpoint for small phones
-4. Verify touch targets on pricing buttons
+**Completed**: Standardized all breakpoints to use MD (768px) and XS (480px) from `responsive.rs`:
+
+1. **Replaced custom 700px breakpoint** → Standard 768px (MD) for tablet/mobile transition
+   - Reduced container padding (40px 16px)
+   - Pricing header margins reduced
+   - Title font size reduced to `--font-display-md`
+   - Pricing tiers grid becomes single column
+   - Tier cards get reduced padding
+   - All sections (free-license-banner, lifetime, license, manage, contact) get reduced padding
+   - Contact links stack vertically with full-width buttons
+   - Footer links stack vertically with full-width
+   - All buttons get touch-friendly sizing (48px min-height, tap-highlight disabled)
+
+2. **Added comprehensive XS (480px) breakpoint** for small phones:
+   - Container padding reduced further (24px 12px)
+   - Heading reduced to `--font-heading-xl`
+   - Tier cards get compact padding
+   - Badges get smaller font and padding
+   - Tier names and prices use smaller font sizes
+   - Feature list items get compact styling
+   - All sections get reduced padding (16px margins)
+   - Section headings use `--font-heading-md`
+   - Lifetime price reduced from 42px to 32px
+   - License section text uses `--font-body-sm`
+   - Active license banner gets compact styling
+   - Decorative background orbs hidden for performance
+
+3. **Touch target compliance**:
+   - All buttons (btn-primary, btn-secondary, btn-contact, btn-free, contact-email) get 48px min-height
+   - Added `-webkit-tap-highlight-color: transparent` for touch feel
+   - Added `touch-action: manipulation` for responsive touch
 
 **Verification**:
-```bash
-cargo build --features cli
-```
+- `cargo build --features cli` ✓
+
+**Manual Testing**: Check pricing page at 320px, 480px, 768px, 1024px viewports
 
 ### [ ] Task 2.3: Add Mobile Breakpoints to Lesson Page
+<!-- chat-id: d77d30be-4fee-419a-be5e-a60d8f30ad4a -->
 **File**: `src/ui/pages/lesson.rs`
 
 1. Add media queries for MD (768px) and XS (480px) breakpoints
