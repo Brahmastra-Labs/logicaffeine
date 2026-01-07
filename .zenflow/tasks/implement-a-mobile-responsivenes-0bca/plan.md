@@ -440,20 +440,58 @@
 - `cargo test --lib nav_drawer` ✓ (13 tests passed)
 - `cargo test -- --skip e2e` ✓ (all tests pass)
 
-### [ ] Task 3.3: Integrate Mobile Navigation into MainNav
+### [x] Task 3.3: Integrate Mobile Navigation into MainNav
+<!-- chat-id: 1cdad97c-69e0-4fdb-bf5e-99580ff90e6b -->
 **File**: `src/ui/components/main_nav.rs`
 
-1. Import hamburger menu and nav drawer components
-2. Show hamburger icon at breakpoint <640px instead of hiding nav links
-3. Wire hamburger to open/close the nav drawer
-4. Preserve desktop navigation unchanged
+**Completed**: Integrated hamburger menu and nav drawer into MainNav component:
+
+1. **Imports added**:
+   - `HamburgerMenu` component and `HAMBURGER_MENU_STYLES` from `hamburger_menu` module
+   - `NavDrawer` component from `nav_drawer` module
+
+2. **State management**:
+   - Added `nav_drawer_open` signal to track drawer open/closed state
+   - Created `toggle_drawer` handler for hamburger menu toggle
+   - Created `close_drawer` handler for nav drawer close events
+
+3. **CSS responsive updates**:
+   - At 980px (tablet): Brand text hidden (unchanged)
+   - At 640px (mobile): Nav links and CTA buttons hidden, hamburger menu shown
+   - Hamburger menu appears in the same position as CTA buttons on mobile
+
+4. **Component integration**:
+   - `HamburgerMenu` added inside header, wired to `nav_drawer_open` signal
+   - `NavDrawer` added outside header, receives `active` page prop for highlighting
+
+5. **Unit tests** (10 tests added):
+   - `test_main_nav_style_has_mobile_breakpoint`
+   - `test_main_nav_hides_nav_links_on_mobile`
+   - `test_main_nav_hides_cta_on_mobile`
+   - `test_main_nav_brand_text_hidden_on_tablet`
+   - `test_active_page_from_route_landing`
+   - `test_active_page_from_route_guide`
+   - `test_active_page_from_route_learn`
+   - `test_active_page_from_route_studio`
+   - `test_active_page_from_route_pricing`
+   - `test_active_page_from_route_profile`
+
+6. **Derived trait added**:
+   - Added `Debug` derive to `ActivePage` enum for test assertions
 
 **Verification**:
-```bash
-cargo build --features cli
-cargo test -- --skip e2e
-```
-Manual: Verify mobile nav works at 320px-639px viewports
+- `cargo build --features cli` ✓
+- `cargo test --lib main_nav` ✓ (10 tests passed)
+- `cargo test -- --skip e2e` ✓ (all tests pass)
+
+**Manual Testing**: Verify mobile nav works at 320px-639px viewports
+- [ ] Hamburger menu visible at ≤640px
+- [ ] Nav links and CTA hidden at ≤640px
+- [ ] Drawer opens/closes smoothly
+- [ ] All navigation links work in drawer
+- [ ] Active page highlighted in drawer
+- [ ] Backdrop click closes drawer
+- [ ] Desktop layout unchanged at >640px
 
 ---
 

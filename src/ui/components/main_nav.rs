@@ -4,10 +4,12 @@
 //! - Logo and brand name
 //! - Navigation links with active underline indicator
 //! - GitHub icon and CTA buttons
-//! - Responsive design
+//! - Responsive design with hamburger menu and slide-out drawer on mobile
 
 use dioxus::prelude::*;
 use crate::ui::router::Route;
+use super::hamburger_menu::{HamburgerMenu, HAMBURGER_MENU_STYLES};
+use super::nav_drawer::NavDrawer;
 
 /// Embedded logo SVG
 const LOGO_SVG: &str = include_str!("../../../assets/logo.svg");
@@ -20,7 +22,7 @@ pub struct NavItem {
 }
 
 /// Which page is currently active
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum ActivePage {
     #[default]
     Guide,
@@ -211,19 +213,23 @@ const MAIN_NAV_STYLE: &str = r#"
     fill: currentColor;
 }
 
-/* Responsive */
+/* Responsive - tablet breakpoint */
 @media (max-width: 980px) {
-    .main-nav-links {
-        display: none;
-    }
     .main-nav-brand-text {
         display: none;
     }
 }
 
+/* Responsive - mobile breakpoint: hide nav links, show hamburger */
 @media (max-width: 640px) {
     .main-nav-inner {
         padding: var(--spacing-md) var(--spacing-lg);
+    }
+    .main-nav-links {
+        display: none;
+    }
+    .main-nav-cta {
+        display: none;
     }
     .main-nav-btn {
         padding: var(--spacing-sm) var(--spacing-md);
@@ -245,8 +251,22 @@ pub fn MainNav(
     #[props(default = true)]
     show_nav_links: bool,
 ) -> Element {
+    // State for mobile nav drawer
+    let mut nav_drawer_open = use_signal(|| false);
+
+    // Toggle handler for hamburger menu
+    let toggle_drawer = move |_| {
+        nav_drawer_open.toggle();
+    };
+
+    // Close handler for nav drawer
+    let close_drawer = move |_| {
+        nav_drawer_open.set(false);
+    };
+
     rsx! {
         style { "{MAIN_NAV_STYLE}" }
+        style { "{HAMBURGER_MENU_STYLES}" }
 
         header { class: "main-nav",
             div { class: "main-nav-inner",
@@ -268,7 +288,7 @@ pub fn MainNav(
                     }
                 }
 
-                // Navigation links with active underline
+                // Navigation links with active underline (desktop only)
                 if show_nav_links {
                     nav { class: "main-nav-links",
                         Link {
@@ -299,7 +319,7 @@ pub fn MainNav(
                     }
                 }
 
-                // CTA buttons
+                // CTA buttons (desktop only)
                 div { class: "main-nav-cta",
                     // GitHub button
                     a {
@@ -329,7 +349,76 @@ pub fn MainNav(
                         }
                     }
                 }
+
+                // Hamburger menu (mobile only, shown at ≤640px)
+                HamburgerMenu {
+                    is_open: nav_drawer_open,
+                    on_toggle: toggle_drawer,
+                }
             }
         }
+
+        // Mobile navigation drawer
+        NavDrawer {
+            is_open: nav_drawer_open,
+            on_close: close_drawer,
+            active: active,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_main_nav_style_has_mobile_breakpoint() {
+        assert!(MAIN_NAV_STYLE.contains("@media (max-width: 640px)"));
+    }
+
+    #[test]
+    fn test_main_nav_hides_nav_links_on_mobile() {
+        assert!(MAIN_NAV_STYLE.contains(".main-nav-links {\n        display: none;\n    }"));
+    }
+
+    #[test]
+    fn test_main_nav_hides_cta_on_mobile() {
+        assert!(MAIN_NAV_STYLE.contains(".main-nav-cta {\n        display: none;\n    }"));
+    }
+
+    #[test]
+    fn test_main_nav_brand_text_hidden_on_tablet() {
+        assert!(MAIN_NAV_STYLE.contains("@media (max-width: 980px)"));
+        assert!(MAIN_NAV_STYLE.contains(".main-nav-brand-text {\n        display: none;\n    }"));
+    }
+
+    #[test]
+    fn test_active_page_from_route_landing() {
+        assert_eq!(ActivePage::from_route(&Route::Landing {}), ActivePage::Other);
+    }
+
+    #[test]
+    fn test_active_page_from_route_guide() {
+        assert_eq!(ActivePage::from_route(&Route::Guide {}), ActivePage::Guide);
+    }
+
+    #[test]
+    fn test_active_page_from_route_learn() {
+        assert_eq!(ActivePage::from_route(&Route::Learn {}), ActivePage::Learn);
+    }
+
+    #[test]
+    fn test_active_page_from_route_studio() {
+        assert_eq!(ActivePage::from_route(&Route::Studio {}), ActivePage::Studio);
+    }
+
+    #[test]
+    fn test_active_page_from_route_pricing() {
+        assert_eq!(ActivePage::from_route(&Route::Pricing {}), ActivePage::Pricing);
+    }
+
+    #[test]
+    fn test_active_page_from_route_profile() {
+        assert_eq!(ActivePage::from_route(&Route::Profile {}), ActivePage::Profile);
     }
 }
