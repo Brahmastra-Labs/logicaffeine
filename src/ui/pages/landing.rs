@@ -498,12 +498,23 @@ body:has(.landing) {
   background: rgba(167,139,250,0.15);
 }
 
-@media (max-width: 700px) {
+/* Tablet breakpoint (768px) - Simplify compare table */
+@media (max-width: 768px) {
   .compare-row {
     grid-template-columns: 1fr 1fr 1fr;
   }
   .compare-cell:nth-child(4),
   .compare-cell:nth-child(5) {
+    display: none;
+  }
+}
+
+/* XS breakpoint (480px) - Further simplify for small phones */
+@media (max-width: 480px) {
+  .compare-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .compare-cell:nth-child(3) {
     display: none;
   }
 }
@@ -532,7 +543,8 @@ body:has(.landing) {
   flex-wrap: wrap;
 }
 
-@media (max-width: 980px) {
+/* MD breakpoint (768px) - Tablet/mobile layout */
+@media (max-width: 768px) {
   .hero-grid { grid-template-columns: 1fr; }
   .demo-body { grid-template-columns: 1fr; }
   .demo-col + .demo-col { border-left: none; border-top: 1px solid rgba(255,255,255,0.06); }
