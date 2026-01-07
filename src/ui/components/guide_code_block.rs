@@ -211,6 +211,88 @@ const CODE_BLOCK_STYLE: &str = r#"
         transform: none;
     }
 }
+
+/* Mobile responsive - stack header elements vertically */
+@media (max-width: 768px) {
+    .guide-code-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .guide-code-label {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .guide-code-title {
+        font-size: 12px;
+    }
+
+    .guide-code-mode {
+        font-size: 10px;
+        padding: 3px 8px;
+    }
+
+    .guide-code-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .guide-code-btn {
+        flex: 1;
+        min-width: 70px;
+        min-height: 44px;
+        padding: 10px 12px;
+        font-size: 12px;
+        justify-content: center;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .guide-code-textarea {
+        font-size: 13px;
+        padding: 12px;
+        min-height: 100px;
+    }
+
+    .guide-code-output-content {
+        font-size: 13px;
+        padding: 12px;
+    }
+}
+
+/* Small phones - even more compact */
+@media (max-width: 480px) {
+    .guide-code-header {
+        padding: 10px;
+        gap: 10px;
+    }
+
+    .guide-code-label {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .guide-code-actions {
+        width: 100%;
+    }
+
+    .guide-code-btn {
+        flex: 1 1 calc(33% - 6px);
+        min-width: 60px;
+        padding: 8px 10px;
+        font-size: 11px;
+    }
+
+    .guide-code-textarea {
+        font-size: 12px;
+        line-height: 1.5;
+    }
+}
 "#;
 
 #[derive(Props, Clone, PartialEq)]
