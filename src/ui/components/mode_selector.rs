@@ -158,22 +158,6 @@ const MODE_SELECTOR_STYLE: &str = r#"
     text-transform: uppercase;
     margin-left: 8px;
 }
-
-/* Reduced motion support */
-@media (prefers-reduced-motion: reduce) {
-    .mode-overlay {
-        animation: none;
-        opacity: 1;
-    }
-    .mode-dialog {
-        animation: none;
-        opacity: 1;
-        transform: translateY(0);
-    }
-    .mode-option:hover {
-        transform: none;
-    }
-}
 "#;
 
 #[derive(Clone, PartialEq)]
