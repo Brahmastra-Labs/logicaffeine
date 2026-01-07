@@ -42,21 +42,35 @@
 
 **Verification**: `cargo build --features cli` ✓
 
-### [ ] Task 1.2: Create MobileAccordionTabs Component
+### [x] Task 1.2: Create MobileAccordionTabs Component
+<!-- chat-id: b37cb273-a9b4-4046-8ee6-e4a122730f9b -->
 **File**: `src/ui/components/module_tabs.rs`
 
-Extend or create a mobile-specific variant:
-1. Add `MobileAccordionTabs` component that renders stacked accordion headers
-2. Props: `current: TabMode`, `on_change: EventHandler<TabMode>`, `locked_tabs: Vec<TabMode>`
-3. Each tab header shows: icon, label, expand/collapse chevron indicator
-4. Only one tab expanded at a time (controlled by `current` prop)
-5. Locked tabs show lock icon and disabled styling
+**Completed**: Added two mobile accordion components:
+
+1. **`MobileAccordionTabs`**: Container component for all four tabs
+   - Props: `current: TabMode`, `on_change: EventHandler<TabMode>`, `locked_tabs: Vec<TabMode>`, `children: Element`
+   - Renders stacked accordion headers with icons and chevron indicators
+   - Only one tab expanded at a time (controlled by `current` prop)
+   - Uses `MOBILE_ACCORDION_STYLES` from responsive module
+
+2. **`MobileAccordionTab`**: Individual accordion tab for custom layouts
+   - Props: `tab: TabMode`, `is_expanded: bool`, `is_locked: bool`, `on_click: EventHandler<TabMode>`, `children: Element`
+   - Provides granular control when tab content is generated dynamically
+
+3. **Helper functions**:
+   - `tab_icon(TabMode)`: Returns emoji icon for each tab (📖, 💡, ✏️, 📝)
+   - `tab_class_name(TabMode)`: Returns CSS class name for each tab (lesson, examples, practice, test)
+
+4. **Unit tests added**:
+   - `test_tab_icon_returns_emoji_for_each_mode`
+   - `test_tab_class_name_returns_css_class_for_each_mode`
+   - `test_all_tab_modes_have_icons`
+   - `test_all_tab_modes_have_class_names`
 
 **Verification**:
-```bash
-cargo build --features cli
-cargo test -- --skip e2e
-```
+- `cargo build --features cli` ✓
+- `cargo test --lib module_tabs` ✓ (5 tests passed)
 
 ### [ ] Task 1.3: Integrate Accordion into Learn Page
 **File**: `src/ui/pages/learn.rs`
