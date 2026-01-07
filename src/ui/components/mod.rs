@@ -17,5 +17,6 @@ pub mod guide_sidebar;
 pub mod learn_sidebar;
 pub mod main_nav;
 pub mod module_tabs;
+pub mod hamburger_menu;
 pub mod symbol_dictionary;
 pub mod vocab_reference;
