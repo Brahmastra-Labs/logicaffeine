@@ -101,6 +101,18 @@ const SIDEBAR_STYLE: &str = r#"
     }
 }
 
+/* Mobile sidebar section touch targets (for mobile sheet view) */
+@media (max-width: 768px) {
+    .sidebar-section {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        padding: 12px 16px;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+}
+
 /* Mobile sidebar toggle - shown on mobile */
 .sidebar-mobile-toggle {
     display: none;

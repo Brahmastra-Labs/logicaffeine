@@ -405,7 +405,58 @@ const ROADMAP_STYLE: &str = r#"
     gap: 6px;
 }
 
-@media (max-width: 600px) {
+/* Mobile touch target optimizations */
+@media (max-width: 768px) {
+    .roadmap-back {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .milestone-tab {
+        min-height: 44px;
+        padding: 10px 14px;
+        display: inline-flex;
+        align-items: center;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .format-btn {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 8px 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
+    .roadmap-footer a {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        padding: 8px 12px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .roadmap-hero h1 {
+        font-size: 32px;
+    }
+
+    .roadmap-hero p {
+        font-size: 16px;
+    }
+
+    .milestone-content {
+        padding: 18px;
+    }
+}
+
+@media (max-width: 480px) {
     .timeline::before {
         left: 18px;
     }
@@ -418,7 +469,24 @@ const ROADMAP_STYLE: &str = r#"
         height: 20px;
     }
     .milestone-title {
-        font-size: 18px;
+        font-size: 16px;
+    }
+    .milestone-desc {
+        font-size: 13px;
+    }
+    .milestone-code {
+        padding: 12px;
+        font-size: 12px;
+    }
+    .roadmap-hero h1 {
+        font-size: 26px;
+    }
+    .roadmap-hero p {
+        font-size: 14px;
+    }
+    .roadmap-footer {
+        flex-direction: column;
+        gap: 12px;
     }
 }
 

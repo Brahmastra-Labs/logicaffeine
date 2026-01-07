@@ -1054,7 +1054,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
                     exercise_count: 5,
                     difficulty: 1,
-                    preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
+                    preview_code: Some("All humans are mortal. Socrates is human. Socrates is mortal."),
                 },
                 ModuleData {
                     id: "syllogistic",
