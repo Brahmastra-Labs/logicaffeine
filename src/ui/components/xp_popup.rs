@@ -66,6 +66,19 @@ const XP_POPUP_STYLE: &str = r#"
 .xp-line.streak { color: #06b6d4; }
 .xp-line.critical { color: #fbbf24; font-weight: 600; }
 .xp-line.first-try { color: #a78bfa; }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .xp-popup {
+        animation: none;
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    .xp-total.critical {
+        animation: none;
+        text-shadow: 0 0 20px #fbbf24;
+    }
+}
 "#;
 
 #[component]

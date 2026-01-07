@@ -141,14 +141,42 @@ pub const MOBILE_BASE_STYLES: &str = r#"
     user-select: none;
 }
 
-/* Reduced motion support */
+/* ============================================ */
+/* REDUCED MOTION SUPPORT                       */
+/* ============================================ */
+/* Respects user preference for reduced motion. */
+/* This is a WCAG 2.1 Level AAA requirement.    */
+/* Animations are reduced to near-instant while */
+/* still showing final states for functionality.*/
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
     *::after {
+        /* Reduce animation to near-instant (0.01ms allows final state to render) */
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
+        animation-delay: 0ms !important;
+        /* Reduce transitions to near-instant */
         transition-duration: 0.01ms !important;
+        transition-delay: 0ms !important;
+        /* Disable scroll behavior animations */
+        scroll-behavior: auto !important;
+    }
+
+    /* Ensure decorative animations are completely disabled */
+    .particles,
+    .flame,
+    .combo-flames,
+    [class*="pulse"],
+    [class*="bounce"],
+    [class*="shake"],
+    [class*="dance"] {
+        animation: none !important;
+    }
+
+    /* Ensure transform-based hover effects are static */
+    *:hover {
+        transform: none !important;
     }
 }
 "#;

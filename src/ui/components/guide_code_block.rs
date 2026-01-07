@@ -199,6 +199,18 @@ const CODE_BLOCK_STYLE: &str = r#"
     color: rgba(229,231,235,0.4);
     font-size: 13px;
 }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .guide-code-copied {
+        animation: none;
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+    .guide-code-btn:active {
+        transform: none;
+    }
+}
 "#;
 
 #[derive(Props, Clone, PartialEq)]

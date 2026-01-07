@@ -582,6 +582,7 @@
 - [ ] Vocab reference panel respects safe area
 
 ### [ ] Task 4.3: Add Reduced Motion Support
+<!-- chat-id: 4f163185-dd99-4a49-8828-71c62a507b90 -->
 **Files**: `src/ui/responsive.rs`, affected components
 
 1. Wrap animations in `@media (prefers-reduced-motion: reduce)` checks

@@ -268,6 +268,25 @@ const VOCAB_REFERENCE_STYLE: &str = r#"
         max-height: calc(70vh - env(safe-area-inset-bottom));
     }
 }
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+    .vocab-reference-toggle {
+        transition: none;
+    }
+    .vocab-reference-toggle:hover {
+        transform: none;
+    }
+    .vocab-reference-toggle.attention {
+        animation: none;
+        transform: scale(1);
+    }
+    .vocab-reference-panel {
+        animation: none;
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 "#;
 
 /// Symbol entry for the reference

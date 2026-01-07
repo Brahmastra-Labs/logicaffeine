@@ -374,3 +374,103 @@ fn test_safe_area_uses_max_for_fallback() {
         ".safe-bottom should use max() to ensure minimum padding"
     );
 }
+
+// =============================================================================
+// COMPREHENSIVE REDUCED MOTION TESTS
+// =============================================================================
+
+#[test]
+fn test_global_reduced_motion_animation_duration() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("animation-duration: 0.01ms !important"),
+        "Global reduced motion should set animation-duration to near-instant"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_animation_iteration() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("animation-iteration-count: 1 !important"),
+        "Global reduced motion should limit animations to single iteration"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_animation_delay() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("animation-delay: 0ms !important"),
+        "Global reduced motion should remove animation delays"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_transition_duration() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("transition-duration: 0.01ms !important"),
+        "Global reduced motion should set transition-duration to near-instant"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_transition_delay() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("transition-delay: 0ms !important"),
+        "Global reduced motion should remove transition delays"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_scroll_behavior() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("scroll-behavior: auto !important"),
+        "Global reduced motion should disable smooth scrolling"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_decorative_elements() {
+    // Decorative animation classes should be disabled
+    assert!(
+        MOBILE_BASE_STYLES.contains(".particles") && MOBILE_BASE_STYLES.contains("animation: none !important"),
+        "Decorative particle animations should be disabled"
+    );
+    assert!(
+        MOBILE_BASE_STYLES.contains(".flame") && MOBILE_BASE_STYLES.contains("animation: none !important"),
+        "Decorative flame animations should be disabled"
+    );
+}
+
+#[test]
+fn test_global_reduced_motion_targets_all_elements() {
+    assert!(
+        MOBILE_BASE_STYLES.contains("*,")
+            && MOBILE_BASE_STYLES.contains("*::before,")
+            && MOBILE_BASE_STYLES.contains("*::after"),
+        "Global reduced motion should target all elements and pseudo-elements"
+    );
+}
+
+#[test]
+fn test_accordion_specific_reduced_motion() {
+    // Accordion should have its own reduced motion rules
+    assert!(
+        MOBILE_ACCORDION_STYLES.contains("@media (prefers-reduced-motion: reduce)")
+            && MOBILE_ACCORDION_STYLES.contains(".accordion-tab-content")
+            && MOBILE_ACCORDION_STYLES.contains("transition: none"),
+        "Accordion content should disable transitions in reduced motion mode"
+    );
+    assert!(
+        MOBILE_ACCORDION_STYLES.contains(".accordion-tab-chevron")
+            && MOBILE_ACCORDION_STYLES.contains("transition: none"),
+        "Accordion chevron should disable rotation transition in reduced motion mode"
+    );
+}
+
+#[test]
+fn test_reduced_motion_media_query_constant() {
+    assert_eq!(
+        media::REDUCED_MOTION,
+        "@media (prefers-reduced-motion: reduce)",
+        "Should have correct reduced motion media query constant"
+    );
+}
