@@ -349,34 +349,96 @@
 
 ## Phase 3: Navigation Enhancement
 
-### [ ] Task 3.1: Create Hamburger Menu Component
+### [x] Task 3.1: Create Hamburger Menu Component
 <!-- chat-id: 23133bb7-a154-423f-807b-70a6425d71c5 -->
 **File**: `src/ui/components/hamburger_menu.rs` (new file)
 
-1. Create `HamburgerMenu` component with open/close state
-2. Three-line icon that animates to X when open
-3. Props: `is_open: Signal<bool>`, `on_toggle: EventHandler<()>`
-4. Mobile-only visibility (hidden on desktop)
+**Completed**: Created `HamburgerMenu` component with:
+
+1. **Component structure**:
+   - Props: `is_open: Signal<bool>`, `on_toggle: EventHandler<()>`
+   - Renders a 48x48px touch-friendly button with three animated lines
+   - Uses CSS transitions for smooth open/close animation (three lines → X icon)
+
+2. **CSS Features** (`HAMBURGER_MENU_STYLES`):
+   - Hidden on desktop (`display: none`), shown on mobile (`@media max-width: 640px`)
+   - 48px touch target for WCAG 2.5 compliance
+   - Three `.hamburger-line` spans that animate:
+     - Closed state: translateY(-6px), translateY(0), translateY(6px)
+     - Open state: rotate(45deg), opacity: 0, rotate(-45deg)
+   - Touch-optimized: `-webkit-tap-highlight-color: transparent`, `touch-action: manipulation`
+   - Focus visible outline for keyboard accessibility
+   - Reduced motion support: `@media (prefers-reduced-motion: reduce)` disables transitions
+
+3. **Helper function**:
+   - `hamburger_breakpoint()`: Returns "640px" (SM breakpoint) where hamburger becomes visible
+
+4. **Unit tests** (10 tests):
+   - `test_hamburger_styles_contain_required_classes`
+   - `test_hamburger_has_open_state_styles`
+   - `test_hamburger_hidden_on_desktop_shown_on_mobile`
+   - `test_hamburger_touch_target_meets_wcag`
+   - `test_hamburger_has_tap_highlight_disabled`
+   - `test_hamburger_has_touch_action_manipulation`
+   - `test_hamburger_supports_reduced_motion`
+   - `test_hamburger_has_focus_visible_styles`
+   - `test_hamburger_breakpoint_is_sm`
+   - `test_hamburger_has_animation_transitions`
 
 **Verification**:
-```bash
-cargo build --features cli
-```
+- `cargo build --features cli` ✓
+- `cargo test --lib hamburger_menu` ✓ (10 tests passed)
 
-### [ ] Task 3.2: Create Mobile Navigation Drawer
+### [x] Task 3.2: Create Mobile Navigation Drawer
 <!-- chat-id: bdde0b2e-bdf6-475b-91a7-83c20ec40a3d -->
 **File**: `src/ui/components/nav_drawer.rs` (new file)
 
-1. Slide-out navigation drawer component
-2. Full-height overlay from left side
-3. All main navigation links
-4. Close button and click-outside-to-close
-5. Smooth slide animation
+**Completed**: Created `NavDrawer` component with full-featured mobile navigation:
+
+1. **Component structure**:
+   - Props: `is_open: Signal<bool>`, `on_close: EventHandler<()>`, `active: ActivePage`
+   - Renders a slide-out drawer from the left side with semi-transparent backdrop
+   - Includes brand header with logo, navigation links, and footer with GitHub link
+
+2. **Navigation items**:
+   - Guide (📖), Learn (🎓), Studio (🔧), Roadmap (🗺️), Pricing (💰), Profile (👤)
+   - Active page highlighting with gradient background and left border accent
+   - Click on any link closes the drawer
+
+3. **CSS Features** (`NAV_DRAWER_STYLES`):
+   - **Backdrop**: Fixed overlay with `rgba(0, 0, 0, 0.6)`, `z-index: 100`, opacity animation
+   - **Drawer panel**: 280px width (max 85vw), slides from left with `translateX(-100%)` → `translateX(0)`
+   - **Animation**: `transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)` for smooth slide
+   - **Header**: Logo, brand name, close button (X icon with 44x44px touch target)
+   - **Links**: 48px min-height touch targets, active state with gradient and border-left accent
+   - **Footer**: GitHub link with icon
+
+4. **Accessibility & Touch**:
+   - ARIA attributes: `role="dialog"`, `aria-modal="true"`, `aria-label="Navigation menu"`
+   - Close button with `aria-label="Close navigation"`
+   - Touch-optimized: `-webkit-tap-highlight-color: transparent`, `touch-action: manipulation`
+   - Reduced motion support: `@media (prefers-reduced-motion: reduce)` disables transitions
+   - Safe area insets: `env(safe-area-inset-left)`, `env(safe-area-inset-top)`, `env(safe-area-inset-bottom)`
+
+5. **Unit tests** (13 tests):
+   - `test_nav_drawer_styles_contain_required_classes`
+   - `test_nav_drawer_has_backdrop_overlay`
+   - `test_nav_drawer_slides_from_left`
+   - `test_nav_drawer_width_constraints`
+   - `test_nav_drawer_touch_targets_meet_wcag`
+   - `test_nav_drawer_has_reduced_motion_support`
+   - `test_nav_drawer_has_safe_area_support`
+   - `test_nav_drawer_active_link_styling`
+   - `test_nav_drawer_has_smooth_animation`
+   - `test_nav_drawer_tap_highlight_disabled`
+   - `test_get_nav_items_returns_all_pages`
+   - `test_nav_items_have_icons`
+   - `test_nav_drawer_backdrop_visibility_states`
 
 **Verification**:
-```bash
-cargo build --features cli
-```
+- `cargo build --features cli` ✓
+- `cargo test --lib nav_drawer` ✓ (13 tests passed)
+- `cargo test -- --skip e2e` ✓ (all tests pass)
 
 ### [ ] Task 3.3: Integrate Mobile Navigation into MainNav
 **File**: `src/ui/components/main_nav.rs`
