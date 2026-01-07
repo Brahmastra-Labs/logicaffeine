@@ -25,21 +25,22 @@
 
 ## Phase 1: Learn Page Mobile Fix (Critical)
 
-### [ ] Task 1.1: Add Accordion Styles to Responsive Module
+### [x] Task 1.1: Add Accordion Styles to Responsive Module
+<!-- chat-id: c1f342a2-9468-488f-a170-d91c68441e11 -->
 **File**: `src/ui/responsive.rs`
 
-Add mobile accordion tab styles as a new constant `MOBILE_ACCORDION_STYLES`:
-- `.accordion-tabs`: Full-width flex column container, hidden on desktop
-- `.accordion-tab-header`: 48px min-height touch target, flex row with expand/collapse icon
-- `.accordion-tab-content`: Animated max-height transition for expand/collapse
-- `.accordion-tab-content.expanded`: Visible state
-- Color variants: `.accordion-tab-header.lesson`, `.practice`, `.examples`, `.test`
-- Desktop media query to hide accordion and show standard tabs
+**Completed**: Added `MOBILE_ACCORDION_STYLES` constant with:
+- `.accordion-tabs`: Full-width flex column container, hidden on desktop, shown on mobile
+- `.accordion-tab-item`: Individual accordion item with border and rounded corners
+- `.accordion-tab-header`: 48px min-height touch target with flex layout and chevron indicator
+- `.accordion-tab-content`: Animated max-height transition (0.25s collapse, 0.35s expand)
+- `.accordion-tab-content.expanded`: Visible state with 2000px max-height
+- Color variants for lesson (blue), examples (purple), practice (green), test (yellow)
+- Locked tab styling with opacity and cursor changes
+- `@media (prefers-reduced-motion: reduce)` support
+- Updated `all_mobile_styles()` to include accordion styles
 
-**Verification**:
-```bash
-cargo build --features cli
-```
+**Verification**: `cargo build --features cli` ✓
 
 ### [ ] Task 1.2: Create MobileAccordionTabs Component
 **File**: `src/ui/components/module_tabs.rs`
