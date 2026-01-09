@@ -328,6 +328,7 @@ pub fn copy_logos_core(output_dir: &Path) -> Result<(), CompileError> {
 }
 
 /// Recursively copy a directory.
+/// Skips files that disappear during copy (race condition with parallel builds).
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
     fs::create_dir_all(dst).map_err(|e| CompileError::Io(e.to_string()))?;
 
@@ -337,8 +338,22 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
         let file_name = entry.file_name();
         let dst_path = dst.join(&file_name);
 
-        // Skip target directory and other build artifacts
-        if file_name == "target" || file_name == ".git" {
+        // Skip target directory, build artifacts, and lock files
+        if file_name == "target"
+            || file_name == ".git"
+            || file_name == "Cargo.lock"
+            || file_name == ".DS_Store"
+        {
+            continue;
+        }
+
+        // Skip files that start with a dot (hidden files)
+        if file_name.to_string_lossy().starts_with('.') {
+            continue;
+        }
+
+        // Check if path still exists (race condition protection)
+        if !src_path.exists() {
             continue;
         }
 
@@ -347,16 +362,25 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
         } else if file_name == "Cargo.toml" {
             // Special handling for Cargo.toml: remove [workspace] line
             // which can interfere with nested crate dependencies
-            let content = fs::read_to_string(&src_path)
-                .map_err(|e| CompileError::Io(e.to_string()))?;
-            let filtered: String = content
-                .lines()
-                .filter(|line| !line.trim().starts_with("[workspace]"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            fs::write(&dst_path, filtered).map_err(|e| CompileError::Io(e.to_string()))?;
+            match fs::read_to_string(&src_path) {
+                Ok(content) => {
+                    let filtered: String = content
+                        .lines()
+                        .filter(|line| !line.trim().starts_with("[workspace]"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    fs::write(&dst_path, filtered)
+                        .map_err(|e| CompileError::Io(e.to_string()))?;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(CompileError::Io(e.to_string())),
+            }
         } else {
-            fs::copy(&src_path, &dst_path).map_err(|e| CompileError::Io(e.to_string()))?;
+            match fs::copy(&src_path, &dst_path) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(CompileError::Io(e.to_string())),
+            }
         }
     }
 

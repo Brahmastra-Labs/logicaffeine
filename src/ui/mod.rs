@@ -6,6 +6,7 @@ pub mod router;
 pub mod pages;
 pub mod theme;
 pub mod responsive;
+pub mod examples;
 
 pub use app::App;
 pub use theme::{colors, font_size, font_family, spacing, radius};

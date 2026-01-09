@@ -7,7 +7,7 @@ use crate::ast::{
     AspectOperator, LogicExpr, NeoEventData, NounPhrase, QuantifierKind, TemporalOperator, Term,
     ThematicRole,
 };
-use crate::drs::{Gender, Number};
+use crate::drs::{Gender, Number, ReferentSource};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::Symbol;
 use crate::lexer::Lexer;
@@ -285,7 +285,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
-        if self.check_auxiliary() {
+        // Check for auxiliary (like "did" in "did not bark")
+        // BUT: "did it" should be parsed as verb "do" with object "it"
+        // We lookahead to check if this is truly an auxiliary usage
+        if self.check_auxiliary() && self.is_true_auxiliary_usage() {
             let aux_time = if let TokenType::Auxiliary(time) = self.advance().kind {
                 time
             } else {
@@ -296,8 +299,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             if self.match_token(&[TokenType::Not]) {
                 self.negative_depth += 1;
 
-                if self.check_verb() {
-                    let verb = self.consume_verb();
+                // Check for verb or "do" (TokenType::Do is separate from TokenType::Verb)
+                if self.check_verb() || self.check(&TokenType::Do) {
+                    let verb = if self.check(&TokenType::Do) {
+                        self.advance(); // consume "do"
+                        self.interner.intern("Do")
+                    } else {
+                        self.consume_verb()
+                    };
 
                     if self.check_quantifier() {
                         let quantifier_token = self.advance().kind.clone();
@@ -453,10 +462,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let mut roles: Vec<(ThematicRole, Term<'a>)> =
                         vec![(ThematicRole::Agent, subject_term)];
 
-                    if self.check_content_word() || self.check_article() {
-                        let object = self.parse_noun_phrase(false)?;
-                        let object_term = self.noun_phrase_to_term(&object);
-                        roles.push((ThematicRole::Theme, object_term));
+                    // Check for object: NP, article+NP, or pronoun (like "it")
+                    if self.check_content_word() || self.check_article() || self.check_pronoun() {
+                        if self.check_pronoun() {
+                            // Handle pronoun object like "it" in "did not do it"
+                            let pronoun_token = self.advance().clone();
+                            let term = if let TokenType::Pronoun { gender, number, .. } = pronoun_token.kind {
+                                let resolved = self.resolve_pronoun(gender, number)?;
+                                match resolved {
+                                    super::ResolvedPronoun::Variable(s) => Term::Variable(s),
+                                    super::ResolvedPronoun::Constant(s) => Term::Constant(s),
+                                }
+                            } else {
+                                // Fallback to lexeme if somehow not a pronoun token
+                                Term::Constant(pronoun_token.lexeme)
+                            };
+                            roles.push((ThematicRole::Theme, term));
+                        } else {
+                            let object = self.parse_noun_phrase(false)?;
+                            let object_term = self.noun_phrase_to_term(&object);
+                            roles.push((ThematicRole::Theme, object_term));
+                        }
                     }
 
                     let event_var = self.get_event_var();
@@ -501,6 +527,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             };
             self.advance();
 
+            // Check for negation: "was not caught", "is not happy"
+            let is_negated = self.check(&TokenType::Not);
+            if is_negated {
+                self.advance(); // consume "not"
+            }
+
             if self.check_verb() {
                 let (verb, _verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
 
@@ -533,22 +565,55 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     predicate
                 };
 
-                return Ok(if copula_time == Time::Past {
+                let with_time = if copula_time == Time::Past {
                     self.ctx.exprs.alloc(LogicExpr::Temporal {
                         operator: TemporalOperator::Past,
                         body: with_aspect,
                     })
                 } else {
                     with_aspect
+                };
+
+                return Ok(if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: with_time,
+                    })
+                } else {
+                    with_time
                 });
             }
 
             let predicate = self.consume_content_word()?;
-            return Ok(self.ctx.exprs.alloc(LogicExpr::Predicate {
+            let base_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: predicate,
                 args: self.ctx.terms.alloc_slice([subject_term]),
                 world: None,
-            }));
+            });
+
+            let with_time = if copula_time == Time::Past {
+                self.ctx.exprs.alloc(LogicExpr::Temporal {
+                    operator: TemporalOperator::Past,
+                    body: base_pred,
+                })
+            } else {
+                base_pred
+            };
+
+            return Ok(if is_negated {
+                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: with_time,
+                })
+            } else {
+                with_time
+            });
+        }
+
+        // Handle "did it" - when Auxiliary(Past) is used as a transitive verb (past of "do")
+        // This happens when we bypassed auxiliary handling because of lookahead
+        if self.check_auxiliary_as_main_verb() {
+            return self.parse_do_as_main_verb(subject_term);
         }
 
         if self.check_verb() {
@@ -714,7 +779,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     } else {
                         Number::Singular
                     };
-                    self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+                    // Definite descriptions presuppose existence, so they should be globally accessible
+                    if object_np.definiteness == Some(Definiteness::Definite) {
+                        self.drs.introduce_referent_with_source(obj_var, object_np.noun, obj_gender, obj_number, ReferentSource::MainClause);
+                    } else {
+                        self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+                    }
 
                     let obj_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
@@ -800,7 +870,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         } else {
                             Number::Singular
                         };
-                        self.drs.introduce_referent(object_np.noun, object_np.noun, obj_gender, obj_number);
+                        // Definite descriptions presuppose existence, so they should be globally accessible
+                        self.drs.introduce_referent_with_source(object_np.noun, object_np.noun, obj_gender, obj_number, ReferentSource::MainClause);
                     }
 
                     let term = Term::Constant(object_np.noun);

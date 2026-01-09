@@ -135,13 +135,12 @@ pub fn Editor(
 pub fn LiveEditor(
     on_change: EventHandler<String>,
     placeholder: Option<String>,
+    #[props(default)] value: String,
 ) -> Element {
-    let mut text = use_signal(String::new);
     let placeholder_text = placeholder.unwrap_or_else(|| "Type an English sentence...".to_string());
 
     let handle_input = move |evt: Event<FormData>| {
         let new_value = evt.value();
-        text.set(new_value.clone());
         on_change.call(new_value);
     };
 
@@ -152,7 +151,7 @@ pub fn LiveEditor(
             textarea {
                 class: "editor-fallback",
                 placeholder: "{placeholder_text}",
-                value: "{text}",
+                value: "{value}",
                 oninput: handle_input,
                 spellcheck: "false",
                 autocomplete: "off",

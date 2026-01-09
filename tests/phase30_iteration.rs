@@ -3,6 +3,7 @@
 //! Tests for Seq type, list literals, Repeat loops, and ranges.
 
 use logos::compile::{compile_to_rust, compile_to_dir};
+use tempfile::TempDir;
 
 #[test]
 fn test_list_literal_codegen() {
@@ -60,15 +61,12 @@ Repeat for n in items:
 #[test]
 fn test_runtime_seq_type() {
     let source = "## Main\nLet list: Seq of Int be [10, 20].";
-    let temp_dir = std::env::temp_dir().join("logos_phase30_seq");
-    if temp_dir.exists() { std::fs::remove_dir_all(&temp_dir).unwrap(); }
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-    compile_to_dir(source, &temp_dir).expect("Full compilation");
+    compile_to_dir(source, temp_dir.path()).expect("Full compilation");
 
-    let types_rs = std::fs::read_to_string(temp_dir.join("logos_core/src/types.rs")).unwrap();
+    let types_rs = std::fs::read_to_string(temp_dir.path().join("logos_core/src/types.rs")).unwrap();
     assert!(types_rs.contains("pub type Seq<T> = Vec<T>;"), "types.rs: {}", types_rs);
-
-    std::fs::remove_dir_all(&temp_dir).unwrap();
 }
 
 #[test]
@@ -81,16 +79,13 @@ fn test_seq_type_annotation_codegen() {
 #[test]
 fn test_showable_trait_exported() {
     let source = "## Main\nReturn.";
-    let temp_dir = std::env::temp_dir().join("logos_phase30_showable");
-    if temp_dir.exists() { std::fs::remove_dir_all(&temp_dir).unwrap(); }
+    let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-    compile_to_dir(source, &temp_dir).expect("Full compilation");
+    compile_to_dir(source, temp_dir.path()).expect("Full compilation");
 
-    let lib_rs = std::fs::read_to_string(temp_dir.join("logos_core/src/lib.rs")).unwrap();
+    let lib_rs = std::fs::read_to_string(temp_dir.path().join("logos_core/src/lib.rs")).unwrap();
     assert!(lib_rs.contains("Showable"), "lib.rs should export Showable: {}", lib_rs);
 
-    let io_rs = std::fs::read_to_string(temp_dir.join("logos_core/src/io.rs")).unwrap();
+    let io_rs = std::fs::read_to_string(temp_dir.path().join("logos_core/src/io.rs")).unwrap();
     assert!(io_rs.contains("pub trait Showable"), "io.rs should define Showable: {}", io_rs);
-
-    std::fs::remove_dir_all(&temp_dir).unwrap();
 }

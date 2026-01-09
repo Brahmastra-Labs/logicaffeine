@@ -258,6 +258,7 @@ pub fn highlight_logic(logic: &str) -> String {
                     result.push_str(&format!(r#"<span class="logic-predicate">{}</span>"#, word));
                 }
             }
+            '\n' => result.push_str("<br>"),
             _ => result.push(c),
         }
     }

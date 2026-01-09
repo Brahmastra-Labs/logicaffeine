@@ -55,6 +55,15 @@ impl From<io::Error> for VfsError {
 
 pub type VfsResult<T> = Result<T, VfsError>;
 
+/// A directory entry returned by `list_dir`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirEntry {
+    /// Name of the file or directory (not full path).
+    pub name: String,
+    /// True if this entry is a directory.
+    pub is_directory: bool,
+}
+
 /// Virtual File System trait for platform-agnostic file operations.
 ///
 /// On native platforms, requires Send+Sync for thread-safe access.
@@ -85,6 +94,9 @@ pub trait Vfs: Send + Sync {
 
     /// Atomically rename a file (for journal compaction).
     async fn rename(&self, from: &str, to: &str) -> VfsResult<()>;
+
+    /// List entries in a directory.
+    async fn list_dir(&self, path: &str) -> VfsResult<Vec<DirEntry>>;
 }
 
 /// WASM version of VFS trait without Send+Sync (JS is single-threaded).
@@ -114,6 +126,9 @@ pub trait Vfs {
 
     /// Atomically rename a file (for journal compaction).
     async fn rename(&self, from: &str, to: &str) -> VfsResult<()>;
+
+    /// List entries in a directory.
+    async fn list_dir(&self, path: &str) -> VfsResult<Vec<DirEntry>>;
 }
 
 /// Native filesystem VFS using tokio::fs.
@@ -211,6 +226,31 @@ impl Vfs for NativeVfs {
         let to_path = self.resolve(to);
         tokio::fs::rename(&from_path, &to_path).await.map_err(VfsError::from)
     }
+
+    async fn list_dir(&self, path: &str) -> VfsResult<Vec<DirEntry>> {
+        let full_path = self.resolve(path);
+        let mut entries = Vec::new();
+        let mut read_dir = tokio::fs::read_dir(&full_path).await.map_err(VfsError::from)?;
+
+        while let Some(entry) = read_dir.next_entry().await.map_err(VfsError::from)? {
+            let metadata = entry.metadata().await.map_err(VfsError::from)?;
+            entries.push(DirEntry {
+                name: entry.file_name().to_string_lossy().into_owned(),
+                is_directory: metadata.is_dir(),
+            });
+        }
+
+        // Sort entries: directories first, then alphabetically
+        entries.sort_by(|a, b| {
+            match (a.is_directory, b.is_directory) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            }
+        });
+
+        Ok(entries)
+    }
 }
 
 /// Type alias for platform-specific VFS.
@@ -271,5 +311,32 @@ mod tests {
         let content = vfs.read_to_string("a/b/c/file.txt").await.unwrap();
 
         assert_eq!(content, "deep");
+    }
+
+    #[tokio::test]
+    async fn test_native_vfs_list_dir() {
+        let temp = TempDir::new().unwrap();
+        let vfs = NativeVfs::new(temp.path());
+
+        // Create files and directories
+        vfs.write("file1.txt", b"content1").await.unwrap();
+        vfs.write("file2.txt", b"content2").await.unwrap();
+        vfs.write("subdir/nested.txt", b"nested").await.unwrap();
+
+        // List root directory
+        let entries = vfs.list_dir("").await.unwrap();
+
+        // Should have 3 entries: subdir (dir), file1.txt, file2.txt
+        assert_eq!(entries.len(), 3);
+
+        // Directory should come first
+        assert_eq!(entries[0].name, "subdir");
+        assert!(entries[0].is_directory);
+
+        // Files should be alphabetically sorted
+        assert_eq!(entries[1].name, "file1.txt");
+        assert!(!entries[1].is_directory);
+        assert_eq!(entries[2].name, "file2.txt");
+        assert!(!entries[2].is_directory);
     }
 }

@@ -1,10 +1,10 @@
 # Logicaffeine
 
-**Compile English to Rust.**
+**Our Mission: Compile the universes information. No, not collect, compile, like code.**
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![Version](https://img.shields.io/badge/version-0.5.5-blue)]()
-[![Phases](https://img.shields.io/badge/linguistic%20phases-85+-success)]()
+[![Tests](https://img.shields.io/badge/tests-2227+-success)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE.md)
 
 **[Try LOGOS Online →](https://logicaffeine.com/guide)**
@@ -124,6 +124,7 @@ LLMs are probabilistic—they guess. LOGOS is deterministic—it parses. When "e
   - [Event Adjectives](#event-adjectives)
   - [Distributive vs Collective](#distributive-vs-collective)
   - [Axioms & Entailment](#axioms--entailment)
+  - [Proof Engine](#proof-engine)
   - [Focus Particles](#focus-particles)
   - [Morphological Rules](#morphological-rules)
   - [Intensionality](#intensionality)
@@ -178,8 +179,8 @@ cargo run
 # Run the test suite (1000+ tests)
 cargo test
 
-# Run a specific phase
-cargo test --test phase43_collections
+# Run a specific test
+cargo test --test e2e_functions
 ```
 
 ### Library Usage
@@ -529,6 +530,38 @@ A Result is either:
     an Ok with value: Int.
     an Error with message: Text.
 ```
+
+**Recursive Inductive Types:**
+
+LOGOS supports recursive data structures through inductive types. These are automatically boxed for memory safety:
+
+```logos
+## A Peano is either:
+    A Zero.
+    A Succ with pred Peano.
+
+## Main
+Let z be a new Zero.
+Let n1 be a new Succ with pred z.
+Let n2 be a new Succ with pred n1.
+
+Inspect n2:
+    When Zero: Show "zero".
+    When Succ (p):
+        Inspect p:
+            When Zero: Show "one".
+            When Succ (pp): Show "two or more".
+```
+
+This compiles to efficient Rust with `Box<T>` for recursive fields:
+```rust
+pub enum Peano {
+    Zero,
+    Succ { pred: Box<Peano> },
+}
+```
+
+Recursive types enable classic functional data structures like linked lists, binary trees, and natural number representations.
 
 #### Generics
 
@@ -1376,6 +1409,984 @@ Input:  "Every dog barks."
 Output: ∀x(Dog(x) → Bark(x)) ∧ ∀x(Dog(x) → Animal(x))
 ```
 
+### Proof Engine
+
+LOGOS includes a native proof engine that constructs derivation trees explaining *why* something is true, not just *that* it is true.
+
+**Curry-Howard Correspondence:**
+- A Proposition is a Type
+- A Proof is a Program
+- Verification is Type Checking
+
+#### BackwardChainer
+
+The proof engine uses backward chaining: starting from the goal, it searches for inference rules whose conclusions match, then recursively proves their premises.
+
+```rust
+use logos::proof::{BackwardChainer, ProofExpr, ProofTerm};
+
+let mut engine = BackwardChainer::new();
+
+// Axiom 1: All humans are mortal
+engine.add_axiom(ProofExpr::ForAll {
+    variable: "x".into(),
+    body: Box::new(ProofExpr::Implies(
+        Box::new(ProofExpr::Predicate {
+            name: "Human".into(),
+            args: vec![ProofTerm::Variable("x".into())],
+            world: None,
+        }),
+        Box::new(ProofExpr::Predicate {
+            name: "Mortal".into(),
+            args: vec![ProofTerm::Variable("x".into())],
+            world: None,
+        }),
+    )),
+});
+
+// Axiom 2: Socrates is human
+engine.add_axiom(ProofExpr::Predicate {
+    name: "Human".into(),
+    args: vec![ProofTerm::Constant("Socrates".into())],
+    world: None,
+});
+
+// Goal: Prove Socrates is mortal
+let goal = ProofExpr::Predicate {
+    name: "Mortal".into(),
+    args: vec![ProofTerm::Constant("Socrates".into())],
+    world: None,
+};
+
+let proof = engine.prove(goal).unwrap();
+println!("{}", proof.display_tree());
+```
+
+**Output:**
+```
+└─ [ModusPonens] Mortal(Socrates)
+   └─ [UniversalInst(Socrates)] Human(Socrates) → Mortal(Socrates)
+      └─ [PremiseMatch] ∀x(Human(x) → Mortal(x))
+   └─ [PremiseMatch] Human(Socrates)
+```
+
+#### Inference Rules
+
+| Rule | Logic | Description |
+|------|-------|-------------|
+| PremiseMatch | Γ, P ⊢ P | Direct match with knowledge base |
+| ModusPonens | P → Q, P ⊢ Q | If P implies Q and P holds, then Q |
+| ModusTollens | ¬Q, P → Q ⊢ ¬P | Contrapositive reasoning |
+| ConjunctionIntro | P, Q ⊢ P ∧ Q | Prove both sides |
+| ConjunctionElim | P ∧ Q ⊢ P | Extract from conjunction |
+| DisjunctionIntro | P ⊢ P ∨ Q | Prove one side |
+| DisjunctionElim | P ∨ Q, P → R, Q → R ⊢ R | Case analysis |
+| UniversalInst | ∀x P(x) ⊢ P(c) | Instantiate with specific term |
+| ExistentialIntro | P(c) ⊢ ∃x P(x) | Witness introduction |
+| StructuralInduction | P(0), ∀k(P(k) → P(S(k))) ⊢ ∀n P(n) | Induction on inductive types |
+
+#### Structural Induction
+
+The proof engine supports structural induction on inductive types like Peano naturals and lists.
+
+**Example: Proving ∀n. Add(n, 0) = n**
+
+```rust
+// Define addition axioms
+engine.add_axiom(eq(app("Add", vec![zero(), var("m")]), var("m")));
+engine.add_axiom(eq(
+    app("Add", vec![succ(var("k")), var("m")]),
+    succ(app("Add", vec![var("k"), var("m")])),
+));
+
+// Goal: ∀n:Nat. Add(n, 0) = n
+let goal = eq(app("Add", vec![nat_var("n"), zero()]), nat_var("n"));
+
+let proof = engine.prove(goal).unwrap();
+// Uses StructuralInduction with base case and step case
+```
+
+The prover automatically:
+1. **Base case:** Substitutes Zero for n, proves Add(Zero, 0) = Zero
+2. **Step case:** Assumes Add(k, 0) = k (induction hypothesis), proves Add(Succ(k), 0) = Succ(k)
+
+#### Unification
+
+The engine uses Robinson's unification algorithm with occurs check to find substitutions that make terms identical:
+
+```
+Mortal(x) unifies with Mortal(Socrates)
+→ {x ↦ Socrates}
+
+f(g(x), y) unifies with f(g(a), b)
+→ {x ↦ a, y ↦ b}
+
+x unifies with f(x)
+→ FAILS (occurs check prevents infinite types)
+```
+
+**Alpha-Equivalence:** Bound variable names are arbitrary. The unifier understands that `∃e P(e)` is equivalent to `∃x P(x)`. This enables event semantics where "John runs" parsed twice may generate different event variable names (`e₁` vs `e₂`) but should still unify.
+
+Fresh constants (`#α0`, `#α1`, ...) are substituted for bound variables before comparing bodies, ensuring correct structural comparison without capture issues.
+
+#### Beta-Reduction
+
+The proof engine implements beta-reduction for lambda calculus—the computational engine that underpins type theory:
+
+**Basic Reduction:**
+```
+(λx. Run(x))(John) → Run(John)
+```
+
+**Nested Reduction:**
+```
+(λx. (λy. P(x, y))(B))(A) → P(A, B)
+```
+
+The prover normalizes both goals and premises before matching, so:
+
+```rust
+// Premise: (λx. Run(x))(John)
+// Goal: Run(John)
+// ✓ Matches after beta-reduction
+```
+
+This enables higher-order reasoning where lambda terms appear in axioms or goals.
+
+#### Pattern Unification
+
+Miller Pattern Unification is the decidable fragment of higher-order unification used for:
+- **Motive inference** in structural induction
+- **Type inference** in dependent types
+- **Implicit argument resolution**
+
+**The Pattern:** `?F(x₁, ..., xₙ) = Body` where xᵢ are distinct bound variables
+**The Solution:** `?F = λx₁...λxₙ. Body`
+
+**Simple Example:**
+```
+?P(x) = x + 0 = x
+→ ?P = λx. (x + 0 = x)
+```
+
+**Multi-Argument Example:**
+```
+?F(x, y) = x + y = y + x
+→ ?F = λx.λy. (x + y = y + x)
+```
+
+**Error Cases:**
+- Duplicate variables: `?P(x, x)` — not a Miller pattern (rejected)
+- Scope violation: `?P(x) = y + 0` where y is not in scope (rejected)
+
+This enables the prover to automatically infer induction motives when proving properties like `∀n. Add(n, 0) = n`.
+
+#### Type Kernel
+
+The proof engine includes a Calculus of Constructions (CoC) kernel—the type-theoretic foundation that makes proofs and programs the same thing.
+
+**Universe Hierarchy:**
+```
+Prop : Type₁ : Type₂ : Type₃ : ...
+```
+
+**Dependent Function Types (Π):**
+```
+ΠA:Type. Πx:A. A    -- The type of polymorphic identity
+```
+
+**Example: Polymorphic Identity Function**
+```rust
+use logos::kernel::{Term, Universe, Context, infer_type};
+
+// λA:Type. λx:A. x
+let id = Term::Lambda {
+    param: "A",
+    param_type: Box::new(Term::Sort(Universe::Type(0))),
+    body: Box::new(Term::Lambda {
+        param: "x",
+        param_type: Box::new(Term::Var("A")),
+        body: Box::new(Term::Var("x")),
+    }),
+};
+
+// Kernel infers: ΠA:Type. Πx:A. A
+let ty = infer_type(&Context::new(), &id)?;
+```
+
+The kernel:
+- Implements the infinite universe hierarchy (Prop : Type₁ : Type₂ : ...)
+- Type-checks dependent function types (Π-types)
+- Performs substitution with capture avoidance
+- Checks alpha-equivalence for type equality
+- Rejects type errors (mismatches, unbound variables, non-function application)
+
+#### Inductive Types
+
+The kernel supports inductive type definitions—the "I" in CIC (Calculus of Inductive Constructions).
+
+**Formation & Introduction Rules:**
+```
+Nat : Type₀                     -- Formation: Nat is a type
+Zero : Nat                      -- Introduction: nullary constructor
+Succ : Nat → Nat               -- Introduction: unary constructor
+```
+
+**Example: Defining Peano Naturals**
+```rust
+use logos::kernel::{Term, Universe, Context};
+
+let mut ctx = Context::new();
+
+// Nat : Type 0
+ctx.add_inductive("Nat", Term::Sort(Universe::Type(0)));
+
+// Zero : Nat
+ctx.add_constructor("Zero", "Nat", Term::Global("Nat".into()));
+
+// Succ : Nat -> Nat
+ctx.add_constructor("Succ", "Nat", Term::Pi {
+    param: "_".into(),
+    param_type: Box::new(Term::Global("Nat".into())),
+    body: Box::new(Term::Global("Nat".into())),
+});
+
+// Succ(Succ(Zero)) : Nat ✓
+```
+
+Inductive types enable:
+- **Data definition**: Nat, List, Bool, Tree as first-class kernel types
+- **Type-safe constructors**: Zero and Succ are the only ways to build Nat
+- **Elimination via match**: Consume inductive values with pattern matching
+
+**Elimination (Match):**
+```
+match n return (λ_. Nat) with
+| Zero   => Zero
+| Succ k => k
+```
+
+The match typing rule ensures exhaustive, type-safe case analysis:
+- The discriminant must have an inductive type
+- The motive `P : I → Type` determines the result type
+- Each constructor gets exactly one case with the correct type
+
+#### Polymorphic Inductive Types
+
+The kernel supports polymorphic inductive types with type parameters:
+
+**Syntax:**
+```coq
+Inductive List (A : Type) :=
+  Nil : List A
+  | Cons : A -> List A -> List A.
+
+Inductive Either (A : Type) (B : Type) :=
+  Left : A -> Either A B
+  | Right : B -> Either A B.
+```
+
+**Type Signatures:**
+- `List : Type -> Type` (or `Π(A:Type). Type`)
+- `Nil : Π(A:Type). List A`
+- `Cons : Π(A:Type). A -> List A -> List A`
+
+**Instantiation:**
+```
+List Nat              -- List of naturals
+Nil Nat               -- Empty list of naturals
+Cons Nat Zero (Nil Nat)   -- [0]
+```
+
+Type parameters are prepended to constructor types, enabling polymorphic data structures like `List`, `Either`, `Option`, and `Tree`.
+
+#### Generic Elimination (DElim)
+
+The `DElim` construct provides a generic elimination principle for any inductive type:
+
+**Derivation Constructors:**
+
+| Constructor | Type | Purpose |
+|-------------|------|---------|
+| `DCase` | `Derivation -> Derivation -> Derivation` | Chain case proofs |
+| `DCaseEnd` | `Derivation` | Terminate case chain |
+| `DElim` | `Syntax -> Syntax -> Derivation -> Derivation` | Generic eliminator |
+
+**How DElim Works:**
+```
+DElim(InductiveType, Motive, CaseChain)
+```
+
+1. **InductiveType**: The type to eliminate over (e.g., `Nat`, `List A`)
+2. **Motive**: The goal predicate `λn:T. P(n)`
+3. **CaseChain**: Proofs for each constructor via `DCase`
+
+**Example: Induction on Nat**
+```
+Motive: λn:Nat. Eq Nat n n
+Cases: DCase(base_proof, DCase(step_proof, DCaseEnd))
+Result: ∀n:Nat. Eq Nat n n
+```
+
+DElim validates that:
+- Case count matches constructor count
+- Each case conclusion matches the expected goal type
+
+#### List Operations
+
+With polymorphic types and DElim, the kernel supports standard list operations:
+
+**Append:**
+```coq
+Definition append : forall A : Type, List A -> List A -> List A :=
+  fun A : Type =>
+  fix rec =>
+  fun xs : List A =>
+  fun ys : List A =>
+  match xs return List A with
+  | Nil => ys
+  | Cons h t => Cons A h (rec t ys)
+  end.
+```
+
+**Map:**
+```coq
+Definition map : forall A B : Type, (A -> B) -> List A -> List B :=
+  fun A B : Type =>
+  fun f : A -> B =>
+  fix rec =>
+  fun xs : List A =>
+  match xs return List B with
+  | Nil => Nil B
+  | Cons h t => Cons B (f h) (rec t)
+  end.
+```
+
+**Length:**
+```coq
+Definition length : forall A : Type, List A -> Nat := ...
+```
+
+These operations compute correctly under evaluation:
+- `append [0] [1]` → `[0, 1]`
+- `map Succ [0, 1]` → `[1, 2]`
+- `length [0, 1, 2]` → `3`
+
+**Verified Theorems:**
+
+The kernel can computationally verify list theorems:
+
+| Theorem | Statement |
+|---------|-----------|
+| `append_nil_r` | `∀l. append l [] = l` |
+| `append_assoc` | `∀x y z. append (append x y) z = append x (append y z)` |
+| `map_id` | `∀l. map id l = l` |
+| `length_append` | `∀x y. length (append x y) = plus (length x) (length y)` |
+
+These are verified by computation: both sides reduce to the same normal form.
+
+#### Universe Cumulativity
+
+The kernel implements universe subtyping—types at lower levels can be used where higher levels are expected:
+
+```
+Prop ≤ Type₀ ≤ Type₁ ≤ Type₂ ≤ ...
+```
+
+**What This Enables:**
+- A function expecting `Type₁` accepts `Nat : Type₀`
+- Propositions (`Prop`) can be used where types are expected
+- Pi types are contravariant in parameters, covariant in return types
+
+**No Downward Flow:** `Type₀` cannot be used where `Prop` is expected—the hierarchy only flows upward.
+
+#### Kernel Prelude
+
+The kernel includes a standard library of fundamental logical types:
+
+| Type | Universe | Constructors | Purpose |
+|------|----------|--------------|---------|
+| `Nat` | Type₀ | `Zero`, `Succ` | Natural numbers |
+| `True` | Prop | `I` | Trivial proposition |
+| `False` | Prop | (none) | Empty type (absurdity) |
+| `Eq` | Π(A:Type). A → A → Prop | `refl` | Propositional equality |
+| `And` | Prop → Prop → Prop | `conj` | Logical conjunction |
+| `Or` | Prop → Prop → Prop | `left`, `right` | Logical disjunction |
+
+**Example: Proving Equality**
+```rust
+use logos::kernel::prelude::with_prelude;
+
+let ctx = with_prelude();
+
+// refl Nat Zero : Eq Nat Zero Zero
+// "Proof that 0 = 0"
+```
+
+The prelude enables expressing and type-checking propositions like `Eq Nat (Succ Zero) (Succ Zero)` (proof that 1 = 1).
+
+#### Certifier
+
+The certifier bridges the proof engine and kernel—it converts derivation trees into lambda terms that type-check in the kernel. This is the Curry-Howard correspondence made concrete:
+
+| DerivationTree Rule | Kernel Term |
+|---------------------|-------------|
+| Axiom / PremiseMatch | `Term::Global(name)` |
+| ModusPonens [impl, arg] | `Term::App(impl_term, arg_term)` |
+| ConjunctionIntro [p, q] | `conj P Q p_term q_term` |
+| UniversalInst(witness) | `Term::App(forall_proof, witness)` |
+| UniversalIntro(x:T) | `Term::Lambda(x, T, body)` |
+| StructuralInduction | `Term::Fix` + `Term::Match` |
+| ExistentialIntro(witness) | `exist T witness proof` |
+
+**Why It Matters:** Every proof produced by the backward chainer can now be independently verified by the kernel's type checker. The kernel audits the engine—untrusted proofs become certified terms.
+
+**Example: The Classic Syllogism**
+```
+h1 : ∀x. P(x) → Q(x)    [Kernel: Π(x:Nat). P x → Q x]
+h2 : P(Zero)            [Kernel: P Zero]
+────────────────────────────────────────────────────
+Certified: (h1 Zero) h2 : Q Zero
+```
+
+#### End-to-End Verification
+
+The complete verification pipeline connects all components:
+
+```
+Input → Parse → Engine → Certify → Type-Check → Verified
+```
+
+**The Socrates Syllogism, Verified:**
+```rust
+let result = verify_theorem(
+    "All men are mortal. Socrates is a man. Therefore Socrates is mortal."
+);
+// Produces: ((h2 Socrates) h1) : mortal(Socrates)
+```
+
+The `verify_theorem` function:
+1. Parses natural language to FOL
+2. Runs backward chaining proof search
+3. Certifies the derivation tree to kernel terms
+4. Type-checks the certified term against the goal type
+
+If any step fails, verification fails—no false positives.
+
+#### The Guardian: Termination & Positivity
+
+The Guardian protects the kernel from logical inconsistency:
+
+**Termination Checking:** Recursive functions must decrease on a structural argument.
+```
+fix f. λn:Nat. match n { Zero → ... | Succ k → f k }  ✓ (k < Succ k)
+fix f. λn:Nat. f (Succ n)                              ✗ (infinite loop)
+```
+
+**Positivity Checking:** Inductive types cannot appear negatively in their own constructors.
+```
+Inductive Nat { Zero : Nat, Succ : Nat → Nat }        ✓ (positive)
+Inductive Bad { MkBad : (Bad → Bool) → Bad }          ✗ (negative occurrence)
+```
+
+Negative occurrences enable Curry's paradox—the type-theoretic equivalent of Russell's paradox. The Guardian rejects them before they can break soundness.
+
+#### Equality & Rewriting
+
+The Mirror implements Leibniz's Law: equals can be substituted for equals.
+
+**Core Rules:**
+```
+Rewrite:      a = b, P(a) ⊢ P(b)     (Leibniz's Law)
+Symmetry:     a = b ⊢ b = a
+Transitivity: a = b, b = c ⊢ a = c
+```
+
+**Example: The Superman Syllogism**
+```
+Clark = Superman ∧ mortal(Clark) ⊢ mortal(Superman)
+```
+
+The kernel provides `Eq_rec` (the equality eliminator), `Eq_sym`, and `Eq_trans` as certified primitives.
+
+#### Full Reduction
+
+The Calculator teaches the proof engine to compute:
+
+**Iota Reduction:** Pattern matching on constructors
+```
+match (Succ k) { Zero → a | Succ n → body } → body[n := k]
+```
+
+**Fix Unfolding:** Recursive functions unfold on constructors
+```
+(fix f. λn. match n {...}) (Succ k) → unfolds and reduces
+```
+
+**Reflexivity by Computation:** Proves `a = b` by normalizing both sides
+```
+1 + 1 = 2  →  Succ (Succ Zero) = Succ (Succ Zero)  →  refl
+```
+
+This enables arithmetic proofs: `0 + n = n`, `1 + 1 = 2`, `2 + 1 = 3`.
+
+#### Delta Reduction
+
+The kernel now has memory—global definitions unfold during normalization:
+
+```
+Definition two : Nat := Succ(Succ(Zero))
+
+normalize(two) → Succ(Succ(Zero))    (δ-reduction)
+```
+
+**Three kinds of globals:**
+| Kind | Behavior | Example |
+|------|----------|---------|
+| Definition | Unfolds (transparent) | `two := Succ(Succ(Zero))` |
+| Axiom | Stuck (opaque) | `human : Entity → Prop` |
+| Constructor | Iota-eliminated | `Succ : Nat → Nat` |
+
+#### Kernel Primitives
+
+The kernel supports native hardware types for practical computation—no more stack overflows from Peano arithmetic on large numbers.
+
+**Primitive Types:**
+
+| Type | Representation | Example |
+|------|----------------|---------|
+| `Int` | 64-bit signed integer | `42`, `-100`, `1000000` |
+| `Float` | 64-bit floating point | `3.14`, `-0.5` |
+| `Text` | UTF-8 string | `"hello"` |
+
+**Hardware Arithmetic:**
+
+```
+Check 10000.
+→ "10000 : Int" (instant)
+
+Definition trillion : Int := mul 1000000 1000000.
+Eval trillion.
+→ "1000000000000" (instant via CPU ALU)
+```
+
+**Built-in Operations:**
+
+| Operation | Signature | Behavior |
+|-----------|-----------|----------|
+| `add` | `Int → Int → Int` | Addition |
+| `sub` | `Int → Int → Int` | Subtraction |
+| `mul` | `Int → Int → Int` | Multiplication |
+| `div` | `Int → Int → Int` | Integer division |
+| `mod` | `Int → Int → Int` | Modulo |
+
+**Why This Matters:**
+
+Before kernel primitives, verifying `10000` required building `Succ(Succ(...))` 10,000 times—causing stack overflows. Native `i64` support enables instant verification of large numbers, which is required for arithmetization of syntax (encoding logical formulas as numbers).
+
+#### Reflection
+
+The kernel can represent its own syntax as data, enabling verified tactics, Gödel numbering, and self-referential theorems.
+
+**Syntax Type:**
+
+The `Syntax` inductive type encodes kernel terms using De Bruijn indices:
+
+| Constructor | Type | Represents |
+|-------------|------|------------|
+| `SVar` | `Int → Syntax` | Variable (De Bruijn index) |
+| `SGlobal` | `Text → Syntax` | Global reference |
+| `SSort` | `Univ → Syntax` | Universe (Prop/Type) |
+| `SApp` | `Syntax → Syntax → Syntax` | Application |
+| `SLam` | `Syntax → Syntax → Syntax` | Lambda abstraction |
+| `SPi` | `Syntax → Syntax → Syntax` | Pi type |
+| `SLit` | `Int → Syntax` | Integer literal (for quoting) |
+| `SName` | `Text → Syntax` | Named reference (for quoting) |
+
+**Universe Type:**
+
+| Constructor | Type | Represents |
+|-------------|------|------------|
+| `UProp` | `Univ` | Prop universe |
+| `UType` | `Int → Univ` | Type at level n |
+
+**Derivation Type:**
+
+The `Derivation` inductive type encodes proof trees as first-class data:
+
+| Constructor | Type | Represents |
+|-------------|------|------------|
+| `DAxiom` | `Syntax → Derivation` | Introduce an axiom |
+| `DModusPonens` | `Derivation → Derivation → Derivation` | Modus ponens: from P and P→Q, derive Q |
+| `DUnivIntro` | `Derivation → Derivation` | Universal introduction: from P, derive ∀x.P |
+| `DUnivElim` | `Derivation → Syntax → Derivation` | Universal elimination: from ∀x.P, derive P[t/x] |
+| `DRefl` | `Syntax → Syntax → Derivation` | Reflexivity: prove Eq T a a |
+| `DInduction` | `Syntax → Derivation → Derivation → Derivation` | Induction: motive, base case, step case |
+| `DCompute` | `Syntax → Derivation` | Proof by computation: prove Eq T A B if eval(A) == eval(B) |
+| `DCong` | `Syntax → Derivation → Derivation` | Congruence: from Eq T a b, derive Eq T (f a) (f b) |
+
+**Derivation Operations:**
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `concludes` | `Derivation → Syntax` | Extract what a derivation proves |
+| `try_refl` | `Syntax → Derivation` | Reflexivity tactic: attempt to prove goal by reflexivity |
+| `try_compute` | `Syntax → Derivation` | Computation tactic: prove equality by evaluating both sides |
+| `try_cong` | `Syntax → Derivation → Derivation` | Congruence tactic: wrap DCong |
+| `tact_fail` | `Syntax → Derivation` | Tactic that always fails (returns error) |
+| `tact_orelse` | `(Syntax → Derivation) → (Syntax → Derivation) → Syntax → Derivation` | Try first tactic; if it fails, try second |
+
+**Syntax Operations:**
+
+| Function | Type | Description |
+|----------|------|-------------|
+| `syn_size` | `Syntax → Int` | Count nodes in syntax tree |
+| `syn_max_var` | `Syntax → Int` | Max free variable index (-1 if closed) |
+| `syn_lift` | `Int → Int → Syntax → Syntax` | Shift free variables by amount above cutoff |
+| `syn_subst` | `Syntax → Int → Syntax → Syntax` | Capture-avoiding substitution |
+| `syn_beta` | `Syntax → Syntax → Syntax` | Beta reduction: substitute arg into body |
+| `syn_step` | `Syntax → Syntax` | Single-step head reduction |
+| `syn_eval` | `Int → Syntax → Syntax` | Bounded evaluation up to N steps |
+| `syn_quote` | `Syntax → Syntax` | Quote: produce code that constructs the input |
+| `syn_diag` | `Syntax → Syntax` | Diagonalization: substitute quoted self into variable 0 |
+
+**Example: Representing the Identity Function**
+
+```
+Definition id : Syntax := SLam (SSort (UType 0)) (SVar 0).
+Eval (syn_size id).      → 3
+Eval (syn_max_var id).   → -1  (closed term)
+```
+
+**Example: Variable Lifting**
+
+```
+Eval (syn_lift 1 0 (SVar 0)).                        → (SVar 1)
+Eval (syn_lift 1 0 (SLam (SSort UProp) (SVar 0))).   → λ.var0  (bound, unchanged)
+Eval (syn_lift 1 0 (SLam (SSort UProp) (SVar 1))).   → λ.var2  (free, shifted)
+```
+
+**Example: Capture-Avoiding Substitution**
+
+```
+Eval (syn_subst (SSort UProp) 0 (SVar 0)).           → (SSort UProp)
+Eval (syn_subst A 0 (SLam T (SVar 0))).              → SLam T (SVar 0)  (bound)
+Eval (syn_subst A 0 (SLam T (SVar 1))).              → SLam T A         (free)
+```
+
+**Example: Beta Reduction**
+
+```
+Eval (syn_beta (SVar 0) (SSort UProp)).              → (SSort UProp)
+Eval (syn_step (SApp (SLam T (SVar 0)) A)).          → A
+Eval (syn_step (SApp (SApp (SLam T body) x) y)).     → (SApp (syn_beta body x) y)
+```
+
+**Why This Matters:**
+
+`syn_step` performs single-step head reduction on embedded syntax, enabling verified computation on reflected terms. This is required for the Diagonal Lemma, where a formula must evaluate its own encoding.
+
+**Example: Bounded Evaluation**
+
+```
+Eval (syn_eval 0 (SApp (SLam T (SVar 0)) A)).    → (SApp (SLam T (SVar 0)) A)  (no fuel)
+Eval (syn_eval 1 (SApp (SLam T (SVar 0)) A)).    → A                           (one step)
+Eval (syn_eval 10 ((λx.λy.x) A B)).              → A                           (multi-step)
+```
+
+**Why This Matters:**
+
+`syn_eval` provides bounded evaluation with a fuel parameter, ensuring termination. This avoids the Halting Problem by design—computation is always total, preventing non-termination during proof checking.
+
+**Example: Quoting**
+
+```
+Eval (syn_quote (SVar 5)).                       → (SApp (SName "SVar") (SLit 5))
+Eval (syn_quote (SSort UProp)).                  → (SApp (SName "SSort") (SName "UProp"))
+Eval (syn_quote (SApp f x)).                     → (SApp (SApp (SName "SApp") (syn_quote f)) (syn_quote x))
+```
+
+**Why This Matters:**
+
+`syn_quote` produces code that constructs its input—required for Gödel's Diagonal Lemma. The diagonalization function `syn_diag x := syn_subst (syn_quote x) 0 x` substitutes the quoted representation of x into variable 0 of x itself, enabling self-referential sentences.
+
+**Example: Inference Rules**
+
+```
+Definition ax : Derivation := DAxiom P.
+Eval (concludes ax).                             → P
+
+Definition mp : Derivation := DModusPonens (DAxiom P) (DAxiom (Implies P Q)).
+Eval (concludes mp).                             → Q
+
+Definition ui : Derivation := DUnivIntro (DAxiom P).
+Eval (concludes ui).                             → (Forall T P)
+
+Definition ue : Derivation := DUnivElim (DAxiom (Forall T P)) A.
+Eval (concludes ue).                             → P[A/0]
+```
+
+**Why This Matters:**
+
+`Derivation` and `concludes` enable reasoning about proofs as data. The kernel can now represent provability itself, which is required for constructing the Gödel sentence "This statement is unprovable."
+
+**Example: The Diagonal Lemma**
+
+```
+syn_diag x := syn_subst (syn_quote x) 0 x
+
+Definition T : Syntax := SApp (SName "Not") (SApp (SName "Provable") (SVar 0)).
+Definition G : Syntax := syn_diag T.
+-- G says: "I am not provable" (the Gödel sentence)
+
+Definition quine : Syntax := SApp (SName "Print") (SVar 0).
+Definition Q : Syntax := syn_diag quine.
+-- Q prints its own source code
+```
+
+**Why This Matters:**
+
+`syn_diag` enables construction of self-referential sentences: Gödel sentences ("I am unprovable"), quines (self-replicating programs), and fixed points for arbitrary predicates.
+
+**Example: The Gödel Sentence**
+
+```
+Definition Not : Prop -> Prop := fun P => P -> False.
+Definition Provable : Syntax -> Prop :=
+  fun s => Ex Derivation (fun d => Eq Syntax (concludes d) s).
+
+Definition T : Syntax := SApp (SName "Not") (SApp (SName "Provable") (SVar 0)).
+Definition G : Syntax := syn_diag T.
+-- G says: "I am not provable"
+```
+
+**The Two Levels:**
+
+| Level | Expression | Meaning |
+|-------|------------|---------|
+| Deep (Syntax) | `G : Syntax` | The sentence "I am not provable" |
+| Shallow (Prop) | `Provable G : Prop` | Can we prove G? |
+| | `Not (Provable G) : Prop` | The claim G makes about itself |
+
+**Why This Matters:**
+
+If the system is consistent, it cannot prove G (because G asserts its own unprovability). Yet G is true—it correctly describes itself. This is the First Incompleteness Theorem: any consistent formal system capable of encoding arithmetic contains true statements it cannot prove.
+
+**Example: The Incompleteness Theorems**
+
+```
+Definition Consistent : Prop := Not (Provable (SName "False")).
+
+Definition Godel_I : Prop := Consistent -> Not (Provable G).
+Check Godel_I.                           → Consistent -> (Not (Provable G)) : Prop
+
+Definition Godel_II : Prop := Consistent -> Not (Provable ConsistentSyn).
+Check Godel_II.                          → Consistent -> (Not (Provable ConsistentSyn)) : Prop
+```
+
+**The Two Theorems:**
+
+| Theorem | Statement | Meaning |
+|---------|-----------|---------|
+| Gödel I | `Consistent -> Not (Provable G)` | If consistent, G is unprovable |
+| Gödel II | `Consistent -> Not (Provable ConsistentSyn)` | If consistent, cannot prove own consistency |
+
+**Why This Matters:**
+
+The kernel can now formally state its own incompleteness. This is not a limitation of the implementation but a mathematical certainty—any sufficiently powerful consistent system has inherent boundaries.
+
+**Example: Verified Tactics**
+
+```
+Definition goal : Syntax := Eq Nat Zero Zero.
+Definition proof : Derivation := try_refl goal.
+Eval (concludes proof).                  → Eq Nat Zero Zero
+
+-- The tactic workflow:
+-- 1. Define a goal (as Syntax)
+-- 2. Run the tactic: proof := try_refl goal
+-- 3. Verify: concludes proof == goal  ✓
+```
+
+**Why This Matters:**
+
+`try_refl` is a tactic that inspects the goal, constructs the appropriate `DRefl` derivation, and returns a verified proof. This enables proof automation—tactics that search for proofs programmatically.
+
+**Example: Deep Induction**
+
+```
+Definition motive : Syntax := SLam (SName "Nat") P.
+Definition base : Derivation := (* proof that P(Zero) *)
+Definition step : Derivation := (* proof that ∀k. P(k) → P(Succ k) *)
+
+Definition ind_proof : Derivation := DInduction motive base step.
+Eval (concludes ind_proof).              → Forall Nat motive
+```
+
+**Verification at `concludes` time:**
+
+| Check | Requirement |
+|-------|-------------|
+| Base case | `concludes base == motive[Zero/n]` |
+| Step case | `concludes step == ∀k. motive[k/n] → motive[Succ k/n]` |
+| Result | If both pass → `Forall Nat motive`, else → `Error` |
+
+**Why This Matters:**
+
+`DInduction` encodes mathematical induction as a derivation constructor. The kernel verifies that the base case proves P(Zero) and the step case proves ∀k. P(k) → P(Succ k) before concluding ∀n. P(n).
+
+**Example: Tactic Combinators**
+
+```
+Definition solve_trivial := tact_orelse try_refl tact_fail.
+
+Eval (concludes (solve_trivial (Eq Nat Zero Zero))).  → Eq Nat Zero Zero
+Eval (concludes (solve_trivial (Eq Nat Zero One))).   → Error
+```
+
+**Why This Matters:**
+
+`tact_orelse` enables composite tactics via lazy evaluation—the second tactic is only evaluated if the first fails. This allows building tactic strategies from simpler components.
+
+**Example: Computational Proofs**
+
+```
+-- try_refl fails: (add 1 1) and 2 are syntactically different
+Eval (concludes (try_refl (Eq Int (add 1 1) 2))).     → Error
+
+-- try_compute succeeds: eval(add 1 1) = eval(2) = 2
+Eval (concludes (try_compute (Eq Int (add 1 1) 2))). → Eq Int (add 1 1) 2
+
+-- Composite tactic for arithmetic
+Definition solve_arith := tact_orelse try_refl try_compute.
+```
+
+**Why This Matters:**
+
+`try_compute` proves equalities by evaluating both sides (with bounded fuel) and comparing results. This extends `syn_step` to handle arithmetic operations (`add`, `sub`, `mul`, `div`, `mod`) on `SLit` values, enabling proofs like `1 + 1 = 2` automatically.
+
+**Example: Congruence**
+
+```
+-- Given: eq_proof proves (Eq Nat k k')
+-- Context: SLam (SName "Nat") (SApp (SName "Succ") (SVar 0))  -- λx. Succ x
+Definition cong_proof := DCong context eq_proof.
+Eval (concludes cong_proof).                     → Eq Nat (Succ k) (Succ k')
+```
+
+**Why This Matters:**
+
+`DCong` implements Leibniz's Law (substituting equals for equals) in the deep embedding. Given a context `λx. f[x]` and a proof of `a = b`, it derives `f[a] = f[b]`. This enables the step case of induction proofs: from IH `k + 0 = k`, apply congruence with `λx. Succ x` to get `Succ (k + 0) = Succ k`.
+
+#### The Vernacular
+
+The kernel supports a text-based command interface:
+
+```
+Definition one : Nat := Succ Zero.
+Definition inc : Nat -> Nat := fun n : Nat => Succ n.
+Check Zero.                              → "Zero : Nat"
+Eval (inc Zero).                         → "(Succ Zero)"
+Inductive MyBool := Yes : MyBool | No : MyBool.
+```
+
+**Commands:**
+| Command | Purpose |
+|---------|---------|
+| `Definition x : T := v.` | Add named definition |
+| `Check e.` | Infer and display type |
+| `Eval e.` | Normalize and display |
+| `Inductive T := C₁ : T₁ \| ...` | Define inductive type |
+
+Arrow syntax `A -> B` desugars to `Π(_:A). B`.
+
+#### Program Extraction
+
+The Forge extracts verified kernel terms to executable Rust code:
+
+```rust
+// Kernel definition
+Definition add : Nat -> Nat -> Nat := fix f => fun m n =>
+  match m { Zero => n | Succ k => Succ (f k n) }.
+
+// Extracted Rust
+fn add(m: Nat, n: Nat) -> Nat {
+    match m {
+        Nat::Zero => n,
+        Nat::Succ(k) => Nat::Succ(Box::new(add(*k, n))),
+    }
+}
+```
+
+**Extraction rules:**
+| Kernel | Rust |
+|--------|------|
+| Inductive type | `enum` with `Box` for recursion |
+| Fixpoint | Recursive function |
+| Match | `match` with auto-deref |
+| Application | Function call |
+
+Extracted code compiles and executes—proofs become programs.
+
+#### Oracle Fallback (Z3)
+
+When structural proofs fail, the engine falls back to Z3 as an Oracle. This creates a hybrid architecture:
+
+| Tier | Role | Output |
+|------|------|--------|
+| **Tier 1: Prover** | Explains "Why" | DerivationTree with inference rules |
+| **Tier 2: Oracle** | Checks "Is this valid?" | Z3 verification (sat/unsat) |
+
+**Requirements:** Requires the `verification` feature flag and Z3 installed.
+
+```rust
+// Goal: x > 10 → x > 5 (no axioms provided)
+// Structural prover cannot derive this, but Z3 knows arithmetic.
+
+let engine = BackwardChainer::new();
+let goal = implies(gt(x, 10), gt(x, 5));
+
+let proof = engine.prove(goal).unwrap();
+// Returns: OracleVerification("Verified by Z3")
+```
+
+**Inductive Safety:** The oracle automatically skips goals containing Peano constructs (`Zero`, `Succ`, `Ctor`, `TypedVar`) since Z3 cannot reason about inductive types without explicit axioms.
+
+#### Theorem Interface
+
+LOGOS is a proof assistant. Write theorem blocks directly in `.logos` files:
+
+```logos
+## Theorem: Socrates_Doom
+Given: All men are mortal.
+Given: All mortals are doomed.
+Given: Socrates is a man.
+Prove: Socrates is doomed.
+Proof: Auto.
+```
+
+**Output:**
+```
+Theorem 'Socrates_Doom' Proved!
+└─ [ModusPonens] doomed(Socrates)
+   └─ [UniversalInst(Socrates)] mortal(Socrates) → doomed(Socrates)
+      └─ [PremiseMatch] ∀x(mortal(x) → doomed(x))
+   └─ [ModusPonens] mortal(Socrates)
+      └─ [UniversalInst(Socrates)] man(Socrates) → mortal(Socrates)
+         └─ [PremiseMatch] ∀x(man(x) → mortal(x))
+      └─ [PremiseMatch] man(Socrates)
+```
+
+**Proof Strategies:**
+
+| Strategy | Syntax | Description |
+|----------|--------|-------------|
+| Auto | `Proof: Auto.` | Automatic backward chaining |
+| Induction | `Proof: Induction on n.` | Structural induction on variable |
+| ByRule | `Proof: ModusPonens.` | Direct rule application |
+
+**Semantic Normalization:** Predicates are automatically lemmatized and lowercased. "men" → "man", "Mortal" = "mortal" = "mortals". This allows natural English ("All men are mortal") without manual canonicalization. Constants like "Socrates" preserve their case.
+
 ### Focus Particles
 
 Focus particles like "only", "even", and "just" create alternative semantics:
@@ -2140,6 +3151,8 @@ Input:  "The rock thinks."
 Output: SortViolation: "think" requires Animate subject
 ```
 
+> *Did you know that a software developer's job is primarily to teach rocks to think? This is why "wizard" is synonymous with "programmer".*
+
 **Predicate Sort Requirements:**
 
 Predicates specify required sorts for their arguments:
@@ -2302,6 +3315,9 @@ pub fn compile_to_dir(input: &str, output: &Path) -> Result<(), CompileError>
 // Output Formats
 pub fn compile_with_options(input: &str, opts: CompileOptions) -> Result<String, ParseError>
 
+// Theorem Proving
+pub fn compile_theorem(input: &str) -> Result<String, ProofError>
+
 // Session (Multi-Turn Discourse)
 pub struct Session { ... }
 impl Session {
@@ -2380,6 +3396,7 @@ let latex = compile_with_options("All cats sleep.", options).unwrap();
 | `lambda.rs` | Scope enumeration via λ-calculus |
 | `drs.rs` | Discourse Representation Structures |
 | `session.rs` | Multi-turn evaluation with persistent DRS |
+| `proof/` | Backward-chaining proof engine with unification |
 | `logos_core/` | Runtime library for generated code |
 
 ### Design Highlights
@@ -2394,34 +3411,36 @@ let latex = compile_with_options("All cats sleep.", options).unwrap();
 
 ## Testing
 
-Tests are organized by linguistic complexity across 85+ phases:
+The test suite covers 2200+ tests organized by category:
 
-| Phases | Focus |
-|--------|-------|
-| 1-5 | Core syntax: garden path, polarity, tense, movement, wh-questions |
-| 6-14 | Advanced semantics: degrees, sorts, ontology, MWEs, ambiguity |
-| 15-20 | Extended phenomena: negation, aspect, plurality, axioms |
-| 21-29 | Code generation: blocks, scoping, types, ownership, runtime |
-| 30-38 | Type system: collections, structs, functions, enums, modules |
-| 41-45 | Formal semantics: event adjectives, DRS, distributivity, intensionality |
-| 46-54 | Systems: agents, networking, CRDTs, security, concurrency |
-| 85 | Memory zones: arena allocation |
-| phase_crdt_* | CRDT variants: serialization, delta, stress, edge cases |
-| phase_kripke | Modal subordination: Kripke semantics |
+| Category | Coverage |
+|----------|----------|
+| Core Syntax | Garden path sentences, polarity, tense, movement, wh-questions |
+| Advanced Semantics | Degrees, sorts, ontology, multi-word expressions, ambiguity |
+| Extended Phenomena | Negation, aspect, plurality, axioms |
+| Code Generation | Blocks, scoping, types, ownership, runtime |
+| Type System | Collections, structs, functions, enums, inductive types, modules |
+| Formal Semantics | Event adjectives, DRS, distributivity, intensionality |
+| Systems | Agents, networking, CRDTs, security, concurrency |
+| Proof Engine | Backward chaining, unification, induction, kernel, certifier, extraction |
+| Memory | Arena allocation, zones |
+| CRDTs | Serialization, delta, stress tests, edge cases |
+| Modals | Modal subordination, Kripke semantics |
 
 **End-to-End Tests:**
 - `e2e_collections.rs` - Push, pop, length, slicing
 - `e2e_functions.rs` - Recursion, multi-parameter
 - `e2e_structs.rs` - User-defined types
 - `e2e_enums.rs` - Pattern matching
+- `phase102_bridge.rs` - Recursive inductive types
 - `grand_challenge_mergesort.rs` - Full algorithm compilation
 
 ```bash
 # Run all tests
 cargo test
 
-# Run specific phase
-cargo test --test phase43_collections
+# Run a specific test suite
+cargo test --test e2e_functions
 
 # Run with output
 cargo test -- --nocapture
@@ -2434,31 +3453,67 @@ cargo test -- --nocapture
 | Term | Definition |
 |------|------------|
 | **Arena Allocation** | Memory allocation strategy where objects are allocated in a contiguous region and freed all at once |
+| **Backward Chaining** | Goal-directed proof search that works from the conclusion to axioms |
+| **Beta-Reduction** | Lambda calculus computation: (λx.P)(a) → P[x:=a]. Reduces function application by substitution |
 | **Bridging Anaphora** | Resolution of definite descriptions via world knowledge (e.g., "the engine" after mentioning "a car") |
+| **Calculus of Constructions (CoC)** | Type theory unifying proofs and programs; foundation for proof assistants like Coq |
+| **Certifier** | Converts derivation trees to kernel terms; proofs become type-checkable lambda terms |
 | **Collective Predicate** | Predicate applying to groups as wholes ("gather", "meet"), not individuals |
 | **CRDT** | Conflict-free Replicated Data Type - data structures that merge automatically without coordination |
+| **Cumulativity** | Universe subtyping: Type₀ ≤ Type₁ ≤ Type₂; lower levels usable where higher expected |
+| **Curry-Howard Correspondence** | Isomorphism between proofs and programs, propositions and types |
 | **De Dicto / De Re** | Narrow scope (conceptual) vs. wide scope (referential) readings of intensional contexts |
+| **Dependent Type** | Type that depends on a value; ΠA:Type. A→A depends on the type A |
+| **Derivation Tree** | Recursive proof structure showing inference steps from axioms to conclusion |
+| **Delta Reduction (δ)** | Unfolding global definitions during normalization; `two → Succ(Succ(Zero))` |
+| **DElim** | Generic elimination principle for inductive types; takes motive and case chain to prove properties by structural induction |
 | **Distributed<T>** | CRDT wrapper combining persistence AND network sync; journals both local and remote updates |
 | **Distributive Predicate** | Predicate applying to individuals separately ("sleep"), not groups |
 | **DRS** | Discourse Representation Structure - formal framework for tracking entities and relations across sentences |
+| **Elimination Rule** | Rule for consuming inductive values via pattern matching (match) |
 | **First-Order Logic (FOL)** | Formal system using quantifiers (∀, ∃), predicates, and logical connectives |
+| **Fixpoint (Fix)** | Recursive term combinator; `fix f. body` where f refers to the whole term for recursion |
 | **Focus Particle** | Words like "only", "even", "just" that invoke alternatives and presuppositions |
+| **Formation Rule** | Rule declaring a type exists (e.g., Nat : Type₀) |
 | **GossipSub** | Pub/sub protocol for P2P message propagation used for CRDT synchronization |
+| **Inductive Type** | Type defined by its constructors; values built only via introduction rules |
+| **Introduction Rule** | Rule for constructing values (e.g., Zero : Nat, Succ : Nat → Nat) |
+| **Iota Reduction** | Pattern matching computation: match on constructor selects branch and substitutes bindings |
+| **Kernel Primitives** | Native hardware types (Int, Float, Text) with O(1) arithmetic; enables verification of large numbers without Peano overhead |
 | **Kripke Semantics** | Possible worlds framework for modal logic; used for modal subordination |
 | **Lambda Calculus** | Formal system for function abstraction and application, used for compositional semantics |
+| **Leibniz's Law** | Indiscernibility of identicals: if a = b, then P(a) implies P(b); implemented via Eq_rec |
 | **Link's Logic of Plurals** | Framework classifying predicates as distributive, collective, or mixed |
+| **Miller Pattern Unification** | Decidable fragment of higher-order unification where holes are applied to distinct bound variables |
 | **Modal Subordination** | Anaphora resolution across modal contexts ("A wolf might come in. It would eat you.") |
 | **MWE** | Multi-Word Expression - phrases that behave as single units ("fire engine", "kick the bucket") |
 | **Neo-Davidsonian** | Event semantics using event variables with thematic roles (Agent, Patient, Theme) |
 | **NPI** | Negative Polarity Item - words like "any" that require negative/downward-entailing contexts |
+| **Oracle** | Z3-based fallback verification when structural proofs fail |
 | **Parse Forest** | Collection of all valid parse trees for an ambiguous sentence |
 | **Pipe** | Go-style channel for CSP concurrency; typed, unbuffered by default |
+| **Pi Type (Π)** | Dependent function type: Πx:A. B(x) where B can mention x |
+| **Polymorphic Inductive Type** | Inductive type parameterized by type variables; `List (A : Type)` creates a family of types |
+| **Positivity Checking** | Ensures inductive types don't appear negatively in constructors; prevents Curry's paradox |
+| **Prelude** | Standard library of fundamental types (Nat, Eq, True, False, And, Or) |
 | **Privative Adjective** | Adjective negating the noun ("fake gun" → not a gun) |
+| **Propositional Equality** | Type `Eq A x y` inhabited only when x equals y; proof via `refl` |
+| **Program Extraction** | Translating verified kernel terms to executable code (Rust); proofs become programs |
+| **Reflection** | Deep embedding of kernel syntax as data (Syntax type); enables tactics, Gödel numbering, and self-reference |
 | **Scope Ambiguity** | When quantifiers can be ordered in multiple ways, yielding different meanings |
+| **Structural Induction** | Proof technique for inductive types (Nat, List) using base case and step case |
 | **Symbol Interning** | Storing strings once and referring to them by index for efficiency |
+| **Termination Checking** | Ensures recursive functions decrease on a structural argument; prevents infinite loops |
 | **Thematic Role** | Semantic relationship between verb and argument (Agent, Patient, Theme, Goal, etc.) |
+| **Theorem Block** | LOGOS syntax for declaring provable statements with Given premises and Prove goal |
+| **Type Parameter** | Variable ranging over types in polymorphic definitions; `A` in `List A` |
+| **Alpha-Equivalence** | Principle that bound variable names are arbitrary; ∃e P(e) ≡ ∃x P(x) |
+| **Unification** | Algorithm finding substitutions to make terms identical; core of proof engines |
+| **Universe** | Hierarchy of types: Prop : Type₁ : Type₂ : ... preventing paradoxes |
+| **Vernacular** | Human-readable command language for interacting with the kernel (Definition, Check, Eval, Inductive) |
 | **Vendler Class** | Aspectual classification: State, Activity, Accomplishment, Achievement, Semelfactive |
 | **Zone** | Memory arena with deterministic deallocation; all contents freed when zone exits |
+| **Fun Fact** | This was built because the developer was tired of sitting around waiting for the resources to build it, so he just built it. A vision 10 years in the making. Development for the project began on December 22nd 2025. |
 
 ---
 
@@ -2512,3 +3567,4 @@ See [LICENSE.md](LICENSE.md) for full terms.
 **Logicaffeine** | [Try Online](https://logicaffeine.com/guide) | [Docs](SPECIFICATION.md) | [Changelog](CHANGELOG.md) | [Contribute](CONTRIBUTING.md)
 
 *In the beginning was the Word, and the Word was with Logic, and the Word was Code.*
+

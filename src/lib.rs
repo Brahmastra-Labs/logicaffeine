@@ -24,7 +24,10 @@ pub mod generator;
 pub mod grader;
 pub mod achievements;
 pub mod analysis;
+pub mod extraction;
+pub mod interface;
 pub mod intern;
+pub mod kernel;
 pub mod lambda;
 pub mod lexer;
 pub mod lexicon;
@@ -33,6 +36,7 @@ pub mod ontology;
 pub mod parser;
 pub mod pragmatics;
 pub mod progress;
+pub mod proof;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod project;
 #[cfg(all(not(target_arch = "wasm32"), feature = "cli"))]
@@ -69,6 +73,8 @@ pub use analysis::discover_with_imports;
 pub use project::{Loader, ModuleSource};
 #[cfg(not(target_arch = "wasm32"))]
 pub use compile::copy_logos_core;
+#[cfg(not(target_arch = "wasm32"))]
+pub use compile::compile_to_rust;
 pub use arena::Arena;
 pub use arena_ctx::AstContext;
 pub use ast::{LogicExpr, NounPhrase, Term, ThematicRole};
@@ -87,6 +93,9 @@ pub use view::{ExprView, NounPhraseView, Resolve, TermView};
 pub use visitor::{Visitor, walk_expr, walk_term, walk_np};
 pub use interpreter::{Interpreter, InterpreterResult, RuntimeValue};
 pub use session::Session;
+
+// Re-export proof types for UI integration
+pub use proof::{BackwardChainer, DerivationTree, ProofExpr, ProofTerm, InferenceRule};
 
 // ═══════════════════════════════════════════════════════════════════
 // Output Format Configuration
@@ -157,6 +166,453 @@ pub fn compile_kripke(input: &str) -> Result<String, ParseError> {
     })
 }
 
+/// Phase 63: Compile and verify a theorem block.
+///
+/// ## Syntax
+/// ```logos
+/// ## Theorem: Name
+/// Given: Premise 1.
+/// Given: Premise 2.
+/// Prove: Goal.
+/// Proof: Auto.
+/// ```
+///
+/// Returns the derivation tree if the theorem is proven,
+/// or an error explaining the proof failure.
+pub fn compile_theorem(input: &str) -> Result<String, ParseError> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Apply MWE collapsing
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+
+    let ctx = AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+    );
+
+    // Parse as program to get statements including Theorem blocks
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let statements = parser.parse_program()?;
+
+    // Find the first Theorem statement
+    let theorem = statements
+        .iter()
+        .find_map(|stmt| {
+            if let ast::Stmt::Theorem(t) = stmt {
+                Some(t)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| ParseError {
+            kind: ParseErrorKind::Custom("No theorem block found in input".to_string()),
+            span: token::Span::default(),
+        })?;
+
+    // Convert premises from LogicExpr to ProofExpr
+    let mut engine = proof::BackwardChainer::new();
+    for premise in &theorem.premises {
+        let proof_expr = proof::logic_expr_to_proof_expr(premise, &interner);
+        engine.add_axiom(proof_expr);
+    }
+
+    // Convert goal from LogicExpr to ProofExpr
+    let goal = proof::logic_expr_to_proof_expr(theorem.goal, &interner);
+
+    // Attempt to prove the goal
+    match engine.prove(goal.clone()) {
+        Ok(derivation) => {
+            Ok(format!(
+                "Theorem '{}' Proved!\n{}",
+                theorem.name,
+                derivation.display_tree()
+            ))
+        }
+        Err(e) => {
+            // Return error with context about what was attempted
+            Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "Theorem '{}' failed.\n  Goal: {}\n  Premises: {}\n  Error: {}",
+                    theorem.name,
+                    goal,
+                    theorem.premises.len(),
+                    e
+                )),
+                span: token::Span::default(),
+            })
+        }
+    }
+}
+
+// =============================================================================
+// Phase 78: End-to-End Verification
+// =============================================================================
+
+use std::collections::HashSet;
+
+/// Phase 78: Verify a theorem with full kernel certification.
+///
+/// Pipeline:
+/// 1. Parse theorem block
+/// 2. Extract symbols and build kernel context
+/// 3. Run proof engine
+/// 4. Certify derivation tree to kernel term
+/// 5. Type-check the term
+/// 6. Return (proof_term, context)
+///
+/// ## Example
+/// ```
+/// use logos::verify_theorem;
+///
+/// let input = "## Theorem: Socrates_Mortality\n\
+///     Given: Socrates is a man.\n\
+///     Given: Every man is mortal.\n\
+///     Prove: Socrates is mortal.\n\
+///     Proof: Auto.\n";
+///
+/// match verify_theorem(input) {
+///     Ok((proof, _ctx)) => println!("Verified: {}", proof),
+///     Err(e) => panic!("Verification failed: {:?}", e),
+/// }
+/// ```
+pub fn verify_theorem(input: &str) -> Result<(kernel::Term, kernel::Context), ParseError> {
+    // === STEP 1: Parse ===
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+
+    let ctx = AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+    );
+
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+    let statements = parser.parse_program()?;
+
+    let theorem = statements
+        .iter()
+        .find_map(|stmt| {
+            if let ast::Stmt::Theorem(t) = stmt {
+                Some(t)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| ParseError {
+            kind: ParseErrorKind::Custom("No theorem block found in input".to_string()),
+            span: token::Span::default(),
+        })?;
+
+    // === STEP 2: Build Kernel Context ===
+    let mut kernel_ctx = kernel::Context::new();
+    kernel::prelude::StandardLibrary::register(&mut kernel_ctx);
+
+    // Convert premises and goal to ProofExpr
+    let mut proof_exprs: Vec<proof::ProofExpr> = Vec::new();
+    for premise in &theorem.premises {
+        let proof_expr = proof::logic_expr_to_proof_expr(premise, &interner);
+        proof_exprs.push(proof_expr);
+    }
+    let goal_expr = proof::logic_expr_to_proof_expr(theorem.goal, &interner);
+
+    // Collect symbols from all expressions
+    let mut collector = SymbolCollector::new();
+    for expr in &proof_exprs {
+        collector.collect(expr);
+    }
+    collector.collect(&goal_expr);
+
+    // Register predicates: P : Entity → Prop
+    for pred_name in collector.predicates() {
+        register_predicate(&mut kernel_ctx, pred_name);
+    }
+
+    // Register constants: Socrates : Entity
+    for const_name in collector.constants() {
+        register_constant(&mut kernel_ctx, const_name);
+    }
+
+    // Register axiom hypotheses and build engine
+    let mut engine = proof::BackwardChainer::new();
+    for (i, proof_expr) in proof_exprs.iter().enumerate() {
+        let hyp_name = format!("h{}", i + 1);
+        let hyp_type = proof_expr_to_kernel_type(proof_expr)?;
+        kernel_ctx.add_declaration(&hyp_name, hyp_type);
+        engine.add_axiom(proof_expr.clone());
+    }
+
+    // === STEP 3: Prove ===
+    let derivation = engine.prove(goal_expr.clone()).map_err(|e| ParseError {
+        kind: ParseErrorKind::Custom(format!("Proof failed: {}", e)),
+        span: token::Span::default(),
+    })?;
+
+    // === STEP 4: Certify ===
+    let cert_ctx = proof::certifier::CertificationContext::new(&kernel_ctx);
+    let proof_term = proof::certifier::certify(&derivation, &cert_ctx).map_err(|e| ParseError {
+        kind: ParseErrorKind::Custom(format!("Certification failed: {}", e)),
+        span: token::Span::default(),
+    })?;
+
+    // === STEP 5: Type-Check ===
+    let _ = kernel::infer_type(&kernel_ctx, &proof_term).map_err(|e| ParseError {
+        kind: ParseErrorKind::Custom(format!("Type check failed: {}", e)),
+        span: token::Span::default(),
+    })?;
+
+    // === STEP 6: Return ===
+    Ok((proof_term, kernel_ctx))
+}
+
+/// Collects predicates and constants from ProofExpr
+struct SymbolCollector {
+    predicates: HashSet<String>,
+    constants: HashSet<String>,
+}
+
+impl SymbolCollector {
+    fn new() -> Self {
+        SymbolCollector {
+            predicates: HashSet::new(),
+            constants: HashSet::new(),
+        }
+    }
+
+    fn collect(&mut self, expr: &proof::ProofExpr) {
+        match expr {
+            proof::ProofExpr::Predicate { name, args, .. } => {
+                self.predicates.insert(name.clone());
+                for arg in args {
+                    self.collect_term(arg);
+                }
+            }
+            proof::ProofExpr::And(l, r)
+            | proof::ProofExpr::Or(l, r)
+            | proof::ProofExpr::Implies(l, r)
+            | proof::ProofExpr::Iff(l, r) => {
+                self.collect(l);
+                self.collect(r);
+            }
+            proof::ProofExpr::Not(inner) => {
+                self.collect(inner);
+            }
+            proof::ProofExpr::ForAll { body, .. } | proof::ProofExpr::Exists { body, .. } => {
+                self.collect(body);
+            }
+            proof::ProofExpr::Atom(_) => {
+                // Atoms are propositional constants, not FOL predicates
+            }
+            proof::ProofExpr::Identity(l, r) => {
+                // Collect constants from identity terms
+                self.collect_term(l);
+                self.collect_term(r);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_term(&mut self, term: &proof::ProofTerm) {
+        match term {
+            proof::ProofTerm::Constant(name) => {
+                // Only add if it looks like a proper name (capitalized)
+                if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                    self.constants.insert(name.clone());
+                }
+            }
+            proof::ProofTerm::Function(name, args) => {
+                self.predicates.insert(name.clone());
+                for arg in args {
+                    self.collect_term(arg);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn predicates(&self) -> impl Iterator<Item = &String> {
+        self.predicates.iter()
+    }
+
+    fn constants(&self) -> impl Iterator<Item = &String> {
+        self.constants.iter()
+    }
+}
+
+/// Register a predicate in the kernel context.
+/// P : Entity → Prop
+fn register_predicate(ctx: &mut kernel::Context, name: &str) {
+    // Don't re-register if already present
+    if ctx.get_global(name).is_some() {
+        return;
+    }
+
+    let pred_type = kernel::Term::Pi {
+        param: "_".to_string(),
+        param_type: Box::new(kernel::Term::Global("Entity".to_string())),
+        body_type: Box::new(kernel::Term::Sort(kernel::Universe::Prop)),
+    };
+    ctx.add_declaration(name, pred_type);
+}
+
+/// Register a constant in the kernel context.
+/// Socrates : Entity
+fn register_constant(ctx: &mut kernel::Context, name: &str) {
+    // Don't re-register if already present
+    if ctx.get_global(name).is_some() {
+        return;
+    }
+
+    ctx.add_declaration(name, kernel::Term::Global("Entity".to_string()));
+}
+
+/// Convert ProofExpr (engine) to kernel Term (type)
+fn proof_expr_to_kernel_type(expr: &proof::ProofExpr) -> Result<kernel::Term, ParseError> {
+    match expr {
+        proof::ProofExpr::Predicate { name, args, .. } => {
+            // P(a, b, c) → ((P a) b) c
+            let mut term = kernel::Term::Global(name.clone());
+            for arg in args {
+                let arg_term = proof_term_to_kernel_term(arg)?;
+                term = kernel::Term::App(Box::new(term), Box::new(arg_term));
+            }
+            Ok(term)
+        }
+        proof::ProofExpr::ForAll { variable, body } => {
+            // ∀x.P(x) → Π(x:Entity). P(x)
+            let body_type = proof_expr_to_kernel_type(body)?;
+            Ok(kernel::Term::Pi {
+                param: variable.clone(),
+                param_type: Box::new(kernel::Term::Global("Entity".to_string())),
+                body_type: Box::new(body_type),
+            })
+        }
+        proof::ProofExpr::Implies(ante, cons) => {
+            // P → Q → Π(_:P). Q
+            let ante_type = proof_expr_to_kernel_type(ante)?;
+            let cons_type = proof_expr_to_kernel_type(cons)?;
+            Ok(kernel::Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(ante_type),
+                body_type: Box::new(cons_type),
+            })
+        }
+        proof::ProofExpr::And(l, r) => {
+            // P ∧ Q → And P Q
+            let l_type = proof_expr_to_kernel_type(l)?;
+            let r_type = proof_expr_to_kernel_type(r)?;
+            Ok(kernel::Term::App(
+                Box::new(kernel::Term::App(
+                    Box::new(kernel::Term::Global("And".to_string())),
+                    Box::new(l_type),
+                )),
+                Box::new(r_type),
+            ))
+        }
+        proof::ProofExpr::Or(l, r) => {
+            // P ∨ Q → Or P Q
+            let l_type = proof_expr_to_kernel_type(l)?;
+            let r_type = proof_expr_to_kernel_type(r)?;
+            Ok(kernel::Term::App(
+                Box::new(kernel::Term::App(
+                    Box::new(kernel::Term::Global("Or".to_string())),
+                    Box::new(l_type),
+                )),
+                Box::new(r_type),
+            ))
+        }
+        proof::ProofExpr::Atom(name) => {
+            // Propositional atoms: P → P (as a global)
+            Ok(kernel::Term::Global(name.clone()))
+        }
+        proof::ProofExpr::Identity(l, r) => {
+            // a = b → Eq Entity a b
+            let l_term = proof_term_to_kernel_term(l)?;
+            let r_term = proof_term_to_kernel_term(r)?;
+            Ok(kernel::Term::App(
+                Box::new(kernel::Term::App(
+                    Box::new(kernel::Term::App(
+                        Box::new(kernel::Term::Global("Eq".to_string())),
+                        Box::new(kernel::Term::Global("Entity".to_string())),
+                    )),
+                    Box::new(l_term),
+                )),
+                Box::new(r_term),
+            ))
+        }
+        _ => Err(ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "Unsupported ProofExpr for kernel type: {:?}",
+                expr
+            )),
+            span: token::Span::default(),
+        }),
+    }
+}
+
+/// Convert ProofTerm to kernel Term
+fn proof_term_to_kernel_term(term: &proof::ProofTerm) -> Result<kernel::Term, ParseError> {
+    match term {
+        proof::ProofTerm::Constant(name) => Ok(kernel::Term::Global(name.clone())),
+        proof::ProofTerm::Variable(name) => Ok(kernel::Term::Var(name.clone())),
+        proof::ProofTerm::Function(name, args) => {
+            let mut t = kernel::Term::Global(name.clone());
+            for arg in args {
+                let arg_term = proof_term_to_kernel_term(arg)?;
+                t = kernel::Term::App(Box::new(t), Box::new(arg_term));
+            }
+            Ok(t)
+        }
+        _ => Err(ParseError {
+            kind: ParseErrorKind::Custom(format!(
+                "Unsupported ProofTerm for kernel: {:?}",
+                term
+            )),
+            span: token::Span::default(),
+        }),
+    }
+}
+
 pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<String, ParseError> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(input, &mut interner);
@@ -203,7 +659,8 @@ pub fn compile_with_options(input: &str, options: CompileOptions) -> Result<Stri
 
     let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
     let mut registry = SymbolRegistry::new();
-    let main_output = ast.transpile(&mut registry, &interner, options.format);
+    // Use transpile_discourse to format multiple sentences as numbered formulas
+    let main_output = ast.transpile_discourse(&mut registry, &interner, options.format);
 
     // Append Reichenbach temporal constraints
     let constraints = world_state.time_constraints();
@@ -364,7 +821,7 @@ pub fn compile_discourse_with_options(sentences: &[&str], options: CompileOption
         world_state.end_sentence();
 
         let ast = semantics::apply_axioms(ast, ast_ctx.exprs, ast_ctx.terms, &mut interner);
-        results.push(ast.transpile(&mut registry, &interner, options.format));
+        results.push(ast.transpile_discourse(&mut registry, &interner, options.format));
     }
 
     let event_history = world_state.event_history();
@@ -668,7 +1125,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            results.push(ast.transpile(&mut registry, &interner, options.format));
+            results.push(ast.transpile_discourse(&mut registry, &interner, options.format));
         }
     }
 
@@ -703,7 +1160,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -741,7 +1198,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -814,7 +1271,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -854,7 +1311,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -893,7 +1350,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -932,7 +1389,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -974,7 +1431,7 @@ pub fn compile_forest_with_options(input: &str, options: CompileOptions) -> Vec<
                 ast
             };
             let mut registry = SymbolRegistry::new();
-            let reading = ast.transpile(&mut registry, &interner, options.format);
+            let reading = ast.transpile_discourse(&mut registry, &interner, options.format);
             if !results.contains(&reading) {
                 results.push(reading);
             }
@@ -1264,12 +1721,13 @@ pub fn compile_for_ui(input: &str) -> CompileResult {
             let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
             let ast_node = expr_to_ast_node(ast, &interner);
             let mut registry = SymbolRegistry::new();
-            let logic = ast.transpile(&mut registry, &interner, OutputFormat::Unicode);
-            let simple_logic = ast.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
+            // Use transpile_discourse to format multiple sentences as numbered formulas
+            let logic = ast.transpile_discourse(&mut registry, &interner, OutputFormat::Unicode);
+            let simple_logic = ast.transpile_discourse(&mut registry, &interner, OutputFormat::SimpleFOL);
 
             // Apply Kripke lowering to transform Modal nodes → Quantifier nodes + world args
             let kripke_ast = semantics::apply_kripke_lowering(ast, ctx.exprs, ctx.terms, &mut interner);
-            let kripke_logic = kripke_ast.transpile(&mut registry, &interner, OutputFormat::Kripke);
+            let kripke_logic = kripke_ast.transpile_discourse(&mut registry, &interner, OutputFormat::Kripke);
 
             CompileResult {
                 logic: Some(logic),
@@ -1318,10 +1776,11 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     let mwe_trie = mwe::build_mwe_trie();
     let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
 
-    // Pass 1: Discovery - scan for type definitions
-    let type_registry = {
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
         let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run()
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
 
     // Create arenas for AST allocation
@@ -1353,7 +1812,8 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
 
     match parser.parse_program() {
         Ok(stmts) => {
-            let mut interp = interpreter::Interpreter::new(&interner);
+            let mut interp = interpreter::Interpreter::new(&interner)
+                .with_policies(policy_registry);
             match interp.run(&stmts).await {
                 Ok(()) => InterpreterResult {
                     lines: interp.output,
@@ -1372,6 +1832,265 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
                 error: Some(advice),
             }
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Code Generation API - WASM-compatible (no filesystem dependencies)
+// ═══════════════════════════════════════════════════════════════════
+
+/// Generate Rust code from LOGOS imperative source.
+/// This works on WASM - it only does parsing and code generation, no file I/O.
+pub fn generate_rust_code(source: &str) -> Result<String, ParseError> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Apply MWE collapsing
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery - scan for type definitions and policies
+    let (type_registry, policy_registry) = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        (result.types, result.policies)
+    };
+    let codegen_registry = type_registry.clone();
+    let codegen_policies = policy_registry.clone();
+
+    let mut world_state = drs::WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<ast::stmt::Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<ast::stmt::Expr> = Arena::new();
+    let type_expr_arena: Arena<ast::stmt::TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    // Pass 2: Parse with type context
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+
+    // Generate Rust code
+    let rust_code = codegen::codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    Ok(rust_code)
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Proof Integration API - For UI proof panels
+// ═══════════════════════════════════════════════════════════════════
+
+/// Result of compiling for proof - includes the actual ProofExpr
+#[derive(Debug, Clone)]
+pub struct ProofCompileResult {
+    /// The converted ProofExpr (for BackwardChainer)
+    pub proof_expr: Option<proof::ProofExpr>,
+    /// String representation of the FOL
+    pub logic_string: Option<String>,
+    /// Error message if compilation failed
+    pub error: Option<String>,
+}
+
+/// Compile English input to ProofExpr for the proof engine.
+/// Returns both the ProofExpr (for BackwardChainer) and the string representation.
+pub fn compile_for_proof(input: &str) -> ProofCompileResult {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let lex_tokens = lexer.tokenize();
+
+    let mwe_trie = mwe::build_mwe_trie();
+    let lex_tokens = mwe::apply_mwe_pipeline(lex_tokens, &mwe_trie, &mut interner);
+
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&lex_tokens, &mut interner);
+        discovery.run()
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+
+    let ctx = AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+    );
+
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(lex_tokens, &mut world_state, &mut interner, ctx, type_registry);
+
+    match parser.parse() {
+        Ok(ast) => {
+            // Apply semantic normalization
+            let ast = semantics::apply_axioms(ast, ctx.exprs, ctx.terms, &mut interner);
+            let ast = pragmatics::apply_pragmatics(ast, ctx.exprs, &interner);
+
+            // Convert to string
+            let mut registry = SymbolRegistry::new();
+            let logic_string = ast.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
+
+            // Convert to ProofExpr
+            let proof_expr = proof::logic_expr_to_proof_expr(ast, &interner);
+
+            ProofCompileResult {
+                proof_expr: Some(proof_expr),
+                logic_string: Some(logic_string),
+                error: None,
+            }
+        }
+        Err(e) => {
+            let advice = socratic_explanation(&e, &interner);
+            ProofCompileResult {
+                proof_expr: None,
+                logic_string: None,
+                error: Some(advice),
+            }
+        }
+    }
+}
+
+/// Result of compiling a theorem block for UI
+#[derive(Debug, Clone)]
+pub struct TheoremCompileResult {
+    /// Name of the theorem
+    pub name: String,
+    /// Premises as ProofExprs (for knowledge_base)
+    pub premises: Vec<proof::ProofExpr>,
+    /// Goal as ProofExpr (for current_proof_expr)
+    pub goal: Option<proof::ProofExpr>,
+    /// FOL string of the goal
+    pub goal_string: Option<String>,
+    /// Derivation tree if auto-proved
+    pub derivation: Option<proof::DerivationTree>,
+    /// Error message if parsing/proving failed
+    pub error: Option<String>,
+}
+
+/// Compile a theorem block for UI display.
+/// Parses `## Theorem:` blocks and extracts premises, goal, and optional derivation.
+pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    // Apply MWE collapsing
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    // Pass 1: Discovery
+    let type_registry = {
+        let mut discovery = analysis::DiscoveryPass::new(&tokens, &mut interner);
+        discovery.run()
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+
+    let ctx = AstContext::new(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+    );
+
+    // Parse as program to get statements including Theorem blocks
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+
+    let statements = match parser.parse_program() {
+        Ok(stmts) => stmts,
+        Err(e) => {
+            return TheoremCompileResult {
+                name: String::new(),
+                premises: Vec::new(),
+                goal: None,
+                goal_string: None,
+                derivation: None,
+                error: Some(format!("Parse error: {:?}", e)),
+            };
+        }
+    };
+
+    // Find the first Theorem statement
+    let theorem = match statements.iter().find_map(|stmt| {
+        if let ast::Stmt::Theorem(t) = stmt {
+            Some(t)
+        } else {
+            None
+        }
+    }) {
+        Some(t) => t,
+        None => {
+            return TheoremCompileResult {
+                name: String::new(),
+                premises: Vec::new(),
+                goal: None,
+                goal_string: None,
+                derivation: None,
+                error: Some("No theorem block found".to_string()),
+            };
+        }
+    };
+
+    // Convert premises from LogicExpr to ProofExpr
+    let premises: Vec<proof::ProofExpr> = theorem
+        .premises
+        .iter()
+        .map(|p| proof::logic_expr_to_proof_expr(p, &interner))
+        .collect();
+
+    // Convert goal from LogicExpr to ProofExpr
+    let goal = proof::logic_expr_to_proof_expr(theorem.goal, &interner);
+
+    // Get goal as string
+    let mut registry = SymbolRegistry::new();
+    let goal_string = theorem.goal.transpile(&mut registry, &interner, OutputFormat::SimpleFOL);
+
+    // If strategy is Auto, attempt proof
+    let derivation = if matches!(theorem.strategy, ast::theorem::ProofStrategy::Auto) {
+        let mut engine = proof::BackwardChainer::new();
+        for premise in &premises {
+            engine.add_axiom(premise.clone());
+        }
+        engine.prove(goal.clone()).ok()
+    } else {
+        None
+    };
+
+    TheoremCompileResult {
+        name: theorem.name.clone(),
+        premises,
+        goal: Some(goal),
+        goal_string: Some(goal_string),
+        derivation,
+        error: None,
     }
 }
 
@@ -2149,10 +2868,12 @@ mod tests {
 
     #[test]
     fn passive_without_agent() {
+        // Definite subjects get simple treatment: P(Read(book)) where P = Past
+        // Indefinite subjects would get existential: ∃x.Read(x, book)
         let result = compile("The book was read.").unwrap();
         assert!(
-            result.contains("∃") && result.contains("Read("),
-            "Agentless passive should produce ∃x.Read(x, Book): got '{}'",
+            result.contains("Read(") && (result.contains("P(") || result.contains("Past")),
+            "Agentless passive with definite subject should produce P(Read(book)): got '{}'",
             result
         );
     }

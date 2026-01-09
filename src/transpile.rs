@@ -239,7 +239,62 @@ impl<'a> Term<'a> {
     }
 }
 
+/// Extract top-level conjuncts from a discourse (sentences combined with AND).
+/// Returns a vector of individual sentence expressions.
+fn collect_discourse_conjuncts<'a>(expr: &'a LogicExpr<'a>) -> Vec<&'a LogicExpr<'a>> {
+    let mut conjuncts = Vec::new();
+    collect_discourse_conjuncts_inner(expr, &mut conjuncts);
+    conjuncts
+}
+
+fn collect_discourse_conjuncts_inner<'a>(expr: &'a LogicExpr<'a>, conjuncts: &mut Vec<&'a LogicExpr<'a>>) {
+    match expr {
+        LogicExpr::BinaryOp { left, op: TokenType::And, right } => {
+            // Recursively collect from both sides
+            collect_discourse_conjuncts_inner(left, conjuncts);
+            collect_discourse_conjuncts_inner(right, conjuncts);
+        }
+        _ => {
+            // This is a leaf sentence (not a top-level conjunction)
+            conjuncts.push(expr);
+        }
+    }
+}
+
 impl<'a> LogicExpr<'a> {
+    /// Transpile a discourse (multiple sentences) as numbered formulas.
+    /// If the expression is a top-level conjunction of sentences, formats as:
+    /// ```text
+    /// 1) formula1
+    /// 2) formula2
+    /// 3) formula3
+    /// ```
+    /// If it's a single sentence, just returns the formula without numbering.
+    pub fn transpile_discourse(
+        &self,
+        registry: &mut SymbolRegistry,
+        interner: &Interner,
+        format: OutputFormat,
+    ) -> String {
+        let conjuncts = collect_discourse_conjuncts(self);
+
+        if conjuncts.len() <= 1 {
+            // Single sentence - no numbering needed
+            return self.transpile(registry, interner, format);
+        }
+
+        // Multiple sentences - format as numbered list
+        let mut result = String::new();
+        for (i, conjunct) in conjuncts.iter().enumerate() {
+            if i > 0 {
+                result.push('\n');
+            }
+            let formula = conjunct.transpile(registry, interner, format);
+            result.push_str(&format!("{}) {}", i + 1, formula));
+        }
+        result
+    }
+
     pub fn write_logic<W: Write, F: LogicFormatter>(
         &self,
         w: &mut W,

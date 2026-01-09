@@ -46,6 +46,12 @@ impl Interner {
         &self.vec[sym.0 as usize]
     }
 
+    /// Look up an existing interned string without creating a new entry.
+    /// Returns None if the string has not been interned.
+    pub fn lookup(&self, s: &str) -> Option<Symbol> {
+        self.map.get(s).copied()
+    }
+
     pub fn len(&self) -> usize {
         self.vec.len()
     }

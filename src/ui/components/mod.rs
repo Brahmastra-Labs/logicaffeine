@@ -19,3 +19,13 @@ pub mod main_nav;
 pub mod module_tabs;
 pub mod symbol_dictionary;
 pub mod vocab_reference;
+
+// Studio components (Phase 3)
+pub mod mode_toggle;
+pub mod file_browser;
+pub mod repl_output;
+pub mod context_view;
+pub mod symbol_palette;
+pub mod formula_editor;
+pub mod code_editor;
+pub mod proof_panel;

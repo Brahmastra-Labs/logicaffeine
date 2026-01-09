@@ -1,4 +1,5 @@
 use super::logic::LogicExpr;
+use super::theorem::TheoremBlock;
 use crate::intern::Symbol;
 
 /// Type expression for explicit type annotations.
@@ -506,6 +507,13 @@ pub enum Stmt<'a> {
         /// The branches to select from
         branches: Vec<SelectBranch<'a>>,
     },
+
+    /// Phase 63: Theorem block
+    /// `## Theorem: Name`
+    /// `Given: Premise.`
+    /// `Prove: Goal.`
+    /// `Proof: Auto.`
+    Theorem(TheoremBlock<'a>),
 }
 
 /// Phase 54: A branch in a Select statement

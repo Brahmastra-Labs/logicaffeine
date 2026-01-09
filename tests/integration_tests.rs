@@ -575,10 +575,12 @@ fn passive_with_agent() {
 
 #[test]
 fn passive_without_agent() {
+    // Definite subjects get simple treatment: P(Read(book)) where P = Past
+    // Indefinite subjects would get existential: ∃x.Read(x, book)
     let result = compile("The book was read.").unwrap();
     assert!(
-        result.contains("∃") && result.contains("Read("),
-        "Agentless passive should produce ∃x.Read(x, B): got '{}'",
+        result.contains("Read(") && (result.contains("P(") || result.contains("Past")),
+        "Agentless passive with definite subject should produce P(Read(book)): got '{}'",
         result
     );
 }

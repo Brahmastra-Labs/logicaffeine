@@ -12,12 +12,13 @@ use async_recursion::async_recursion;
 
 use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
+use crate::analysis::{PolicyRegistry, PolicyCondition};
 
 // Phase 55: VFS imports
 use logos_core::fs::Vfs;
 
 /// Runtime values during interpretation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeValue {
     Int(i64),
     Float(f64),
@@ -32,11 +33,28 @@ pub enum RuntimeValue {
         type_name: String,
         fields: HashMap<String, RuntimeValue>,
     },
+    /// Phase 102: Kernel inductive value.
+    ///
+    /// This variant represents a value of a kernel-defined inductive type.
+    /// At compile time, the kernel verifies exhaustiveness and type correctness.
+    /// At runtime, this is a thin wrapper holding the constructor and arguments.
+    ///
+    /// The "Dual Life" architecture:
+    /// - Soul (Kernel): Full inductive type with proofs
+    /// - Body (Rust): Efficient runtime representation
+    Inductive {
+        /// The inductive type name (e.g., "Nat", "List", "Color")
+        inductive_type: String,
+        /// The constructor name (e.g., "Zero", "Succ", "Red")
+        constructor: String,
+        /// Constructor arguments (e.g., Succ has one Nat argument)
+        args: Vec<RuntimeValue>,
+    },
     Nothing,
 }
 
 impl RuntimeValue {
-    pub fn type_name(&self) -> &'static str {
+    pub fn type_name(&self) -> &str {
         match self {
             RuntimeValue::Int(_) => "Int",
             RuntimeValue::Float(_) => "Float",
@@ -48,6 +66,7 @@ impl RuntimeValue {
             RuntimeValue::Set(_) => "Set",
             RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct { .. } => "Struct",
+            RuntimeValue::Inductive { inductive_type, .. } => inductive_type.as_str(),
             RuntimeValue::Nothing => "Nothing",
         }
     }
@@ -98,6 +117,19 @@ impl RuntimeValue {
                     format!("{} {{ {} }}", type_name, field_strs.join(", "))
                 }
             }
+            RuntimeValue::Inductive { constructor, args, .. } => {
+                if args.is_empty() {
+                    // Nullary constructor (e.g., Zero, Nil, Red)
+                    constructor.clone()
+                } else {
+                    // Constructor with arguments (e.g., Succ(Zero), Cons(1, Nil))
+                    let arg_strs: Vec<String> = args
+                        .iter()
+                        .map(|v| v.to_display_string())
+                        .collect();
+                    format!("{}({})", constructor, arg_strs.join(", "))
+                }
+            }
             RuntimeValue::Nothing => "nothing".to_string(),
         }
     }
@@ -120,6 +152,7 @@ pub struct FunctionDef<'a> {
 /// Tree-walking interpreter for LOGOS programs.
 ///
 /// Phase 55: Now async with optional VFS for file operations.
+/// Phase 102: Kernel context for inductive type support.
 pub struct Interpreter<'a> {
     interner: &'a Interner,
     /// Scope stack - each HashMap is a scope level
@@ -132,6 +165,12 @@ pub struct Interpreter<'a> {
     pub output: Vec<String>,
     /// Phase 55: VFS for file operations (OPFS on WASM, NativeVfs on native)
     vfs: Option<Arc<dyn Vfs>>,
+    /// Phase 102: Kernel context for inductive type lookup.
+    /// When set, the interpreter can query the kernel for inductive types
+    /// and their constructors, enabling the "Dual Life" architecture.
+    kernel_ctx: Option<Arc<crate::kernel::Context>>,
+    /// Policy registry for security predicate/capability checks.
+    policy_registry: Option<PolicyRegistry>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -143,6 +182,8 @@ impl<'a> Interpreter<'a> {
             struct_defs: HashMap::new(),
             output: Vec::new(),
             vfs: None,
+            kernel_ctx: None,
+            policy_registry: None,
         }
     }
 
@@ -150,6 +191,48 @@ impl<'a> Interpreter<'a> {
     pub fn with_vfs(mut self, vfs: Arc<dyn Vfs>) -> Self {
         self.vfs = Some(vfs);
         self
+    }
+
+    /// Phase 102: Set the kernel context for inductive type support.
+    ///
+    /// When set, the interpreter can query the kernel for inductive types
+    /// and constructors, enabling unified type system.
+    pub fn with_kernel(mut self, ctx: Arc<crate::kernel::Context>) -> Self {
+        self.kernel_ctx = Some(ctx);
+        self
+    }
+
+    /// Set the policy registry for security checks.
+    pub fn with_policies(mut self, registry: PolicyRegistry) -> Self {
+        self.policy_registry = Some(registry);
+        self
+    }
+
+    /// Phase 102: Check if a name is a kernel inductive type.
+    pub fn is_kernel_inductive(&self, name: &str) -> bool {
+        self.kernel_ctx
+            .as_ref()
+            .map(|ctx| ctx.is_inductive(name))
+            .unwrap_or(false)
+    }
+
+    /// Phase 102: Get constructors for a kernel inductive type.
+    ///
+    /// Returns a vector of (constructor_name, arity) pairs.
+    pub fn get_kernel_constructors(&self, name: &str) -> Vec<(String, usize)> {
+        self.kernel_ctx
+            .as_ref()
+            .map(|ctx| {
+                ctx.get_constructors(name)
+                    .iter()
+                    .map(|(ctor_name, ty)| {
+                        // Count Pi types to determine arity
+                        let arity = count_pi_args(ty);
+                        (ctor_name.to_string(), arity)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// Execute a program (list of statements).
@@ -222,6 +305,7 @@ impl<'a> Interpreter<'a> {
                 let iter_val = self.evaluate_expr(iterable).await?;
                 let items = match iter_val {
                     RuntimeValue::List(list) => list,
+                    RuntimeValue::Set(set) => set,
                     RuntimeValue::Text(s) => {
                         s.chars().map(|c| RuntimeValue::Text(c.to_string())).collect()
                     }
@@ -491,16 +575,110 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::MergeCrdt { .. } => {
-                Err("CRDT Merge is not supported in the interpreter. Use compiled Rust.".to_string())
+            Stmt::MergeCrdt { source, target } => {
+                // Evaluate source (the struct to merge from)
+                let source_val = self.evaluate_expr(source).await?;
+                let source_fields = match &source_val {
+                    RuntimeValue::Struct { fields, .. } => fields.clone(),
+                    _ => return Err("Merge source must be a struct".to_string()),
+                };
+
+                // Target must be an identifier so we can mutate it
+                if let Expr::Identifier(target_sym) = target {
+                    let mut target_val = self.lookup(*target_sym)?.clone();
+
+                    if let RuntimeValue::Struct { ref mut fields, .. } = target_val {
+                        // For each field in source, merge into target
+                        for (field_name, source_field_val) in source_fields {
+                            let current = fields.get(&field_name)
+                                .cloned()
+                                .unwrap_or(RuntimeValue::Int(0));
+
+                            // Merge counters by adding values
+                            let merged = match (&current, &source_field_val) {
+                                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                                    RuntimeValue::Int(a + b)
+                                }
+                                _ => source_field_val, // Non-counter fields: just take source value
+                            };
+                            fields.insert(field_name, merged);
+                        }
+                        self.assign(*target_sym, target_val)?;
+                    } else {
+                        return Err("Merge target must be a struct".to_string());
+                    }
+                } else {
+                    return Err("Merge target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
             }
 
-            Stmt::IncreaseCrdt { .. } => {
-                Err("CRDT Increase is not supported in the interpreter. Use compiled Rust.".to_string())
+            Stmt::IncreaseCrdt { object, field, amount } => {
+                // Evaluate the amount expression
+                let amount_val = self.evaluate_expr(amount).await?;
+                let amount_int = match amount_val {
+                    RuntimeValue::Int(n) => n,
+                    _ => return Err("CRDT increment amount must be an integer".to_string()),
+                };
+
+                // Get the object (must be an identifier for mutation)
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+
+                    // Mutate the field
+                    if let RuntimeValue::Struct { ref mut fields, .. } = obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        let current = fields.get(&field_name)
+                            .cloned()
+                            .unwrap_or(RuntimeValue::Int(0));
+
+                        let new_val = match current {
+                            RuntimeValue::Int(n) => RuntimeValue::Int(n + amount_int),
+                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
+                        };
+                        fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err("Cannot increase field on non-struct value".to_string());
+                    }
+                } else {
+                    return Err("IncreaseCrdt target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
             }
 
-            Stmt::DecreaseCrdt { .. } => {
-                Err("CRDT Decrease is not supported in the interpreter. Use compiled Rust.".to_string())
+            Stmt::DecreaseCrdt { object, field, amount } => {
+                // Evaluate the amount expression
+                let amount_val = self.evaluate_expr(amount).await?;
+                let amount_int = match amount_val {
+                    RuntimeValue::Int(n) => n,
+                    _ => return Err("CRDT decrement amount must be an integer".to_string()),
+                };
+
+                // Get the object (must be an identifier for mutation)
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+
+                    // Mutate the field
+                    if let RuntimeValue::Struct { ref mut fields, .. } = obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        let current = fields.get(&field_name)
+                            .cloned()
+                            .unwrap_or(RuntimeValue::Int(0));
+
+                        let new_val = match current {
+                            RuntimeValue::Int(n) => RuntimeValue::Int(n - amount_int),
+                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
+                        };
+                        fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err("Cannot decrease field on non-struct value".to_string());
+                    }
+                } else {
+                    return Err("DecreaseCrdt target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
             }
 
             Stmt::AppendToSequence { .. } => {
@@ -511,8 +689,63 @@ impl<'a> Interpreter<'a> {
                 Err("Resolve conflict is not supported in the interpreter. Use compiled Rust.".to_string())
             }
 
-            Stmt::Check { .. } => {
-                Err("Security Check is not supported in the interpreter. Use compiled Rust.".to_string())
+            Stmt::Check { subject, predicate, is_capability, object, source_text, .. } => {
+                // Get the policy registry
+                let registry = match &self.policy_registry {
+                    Some(r) => r,
+                    None => return Err("Security Check requires policies. Use compiled Rust or add ## Policy block.".to_string()),
+                };
+
+                // Get the subject value
+                let subj_val = self.lookup(*subject)?.clone();
+                let subj_type_name = match &subj_val {
+                    RuntimeValue::Struct { type_name, .. } => type_name.clone(),
+                    _ => return Err(format!("Check subject must be a struct, got {}", subj_val.type_name())),
+                };
+
+                // Find the subject type symbol
+                let subj_type_sym = match self.interner.lookup(&subj_type_name) {
+                    Some(sym) => sym,
+                    None => return Err(format!("Unknown type '{}' in Check statement", subj_type_name)),
+                };
+
+                let passed = if *is_capability {
+                    // Capability check: "user can publish document"
+                    let obj_val = match object {
+                        Some(obj_sym) => Some(self.lookup(*obj_sym)?.clone()),
+                        None => None,
+                    };
+
+                    let caps = registry.get_capabilities(subj_type_sym);
+                    let cap = caps
+                        .and_then(|caps| caps.iter().find(|c| c.action == *predicate));
+
+                    match cap {
+                        Some(cap) => self.evaluate_policy_condition(&cap.condition, &subj_val, obj_val.as_ref()),
+                        None => {
+                            let pred_name = self.interner.resolve(*predicate);
+                            return Err(format!("No capability '{}' defined for type '{}'", pred_name, subj_type_name));
+                        }
+                    }
+                } else {
+                    // Predicate check: "user is admin"
+                    let preds = registry.get_predicates(subj_type_sym);
+                    let pred_def = preds
+                        .and_then(|preds| preds.iter().find(|p| p.predicate_name == *predicate));
+
+                    match pred_def {
+                        Some(pred) => self.evaluate_policy_condition(&pred.condition, &subj_val, None),
+                        None => {
+                            let pred_name = self.interner.resolve(*predicate);
+                            return Err(format!("No predicate '{}' defined for type '{}'", pred_name, subj_type_name));
+                        }
+                    }
+                };
+
+                if !passed {
+                    return Err(format!("Security Check Failed: {}", source_text));
+                }
+                Ok(ControlFlow::Continue)
             }
 
             Stmt::Listen { .. } => {
@@ -562,6 +795,12 @@ impl<'a> Interpreter<'a> {
             Stmt::Select { .. } => {
                 Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
             }
+
+            // Phase 63: Theorems are verified at compile-time, not executed
+            Stmt::Theorem(_) => {
+                // Theorems don't execute - they're processed by compile_theorem()
+                Ok(ControlFlow::Continue)
+            }
         }
     }
 
@@ -585,30 +824,60 @@ impl<'a> Interpreter<'a> {
 
     /// Execute Inspect (pattern matching).
     /// Phase 55: Now async.
+    /// Phase 102: Extended to handle kernel inductives.
     #[async_recursion(?Send)]
     async fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
         for arm in arms {
+            // Handle Otherwise (wildcard) case
             if arm.variant.is_none() {
                 self.execute_block(arm.body).await?;
                 return Ok(());
             }
-            if let RuntimeValue::Struct { type_name, fields } = target {
-                if let Some(variant) = arm.variant {
-                    let variant_name = self.interner.resolve(variant);
-                    if type_name == variant_name {
-                        self.push_scope();
-                        for (field_name, binding_name) in &arm.bindings {
-                            let field_str = self.interner.resolve(*field_name);
-                            if let Some(val) = fields.get(field_str) {
-                                self.define(*binding_name, val.clone());
+
+            match target {
+                // Original Struct handling (for backward compatibility during transition)
+                RuntimeValue::Struct { type_name, fields } => {
+                    if let Some(variant) = arm.variant {
+                        let variant_name = self.interner.resolve(variant);
+                        if type_name == variant_name {
+                            self.push_scope();
+                            for (field_name, binding_name) in &arm.bindings {
+                                let field_str = self.interner.resolve(*field_name);
+                                if let Some(val) = fields.get(field_str) {
+                                    self.define(*binding_name, val.clone());
+                                }
                             }
+                            let result = self.execute_block(arm.body).await;
+                            self.pop_scope();
+                            result?;
+                            return Ok(());
                         }
-                        let result = self.execute_block(arm.body).await;
-                        self.pop_scope();
-                        result?;
-                        return Ok(());
                     }
                 }
+
+                // Phase 102: Kernel inductive handling
+                RuntimeValue::Inductive { constructor, args, .. } => {
+                    if let Some(variant) = arm.variant {
+                        let variant_name = self.interner.resolve(variant);
+                        if constructor == variant_name {
+                            self.push_scope();
+                            // Bind args positionally to binding names
+                            // arm.bindings is Vec<(field_name, binding_name)>
+                            // For inductives, we use bindings positionally
+                            for (i, (_, binding_name)) in arm.bindings.iter().enumerate() {
+                                if i < args.len() {
+                                    self.define(*binding_name, args[i].clone());
+                                }
+                            }
+                            let result = self.execute_block(arm.body).await;
+                            self.pop_scope();
+                            result?;
+                            return Ok(());
+                        }
+                    }
+                }
+
+                _ => {}
             }
         }
         Ok(())
@@ -833,15 +1102,25 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Struct { type_name: name, fields })
             }
 
-            Expr::NewVariant { variant, fields, .. } => {
-                let name = self.interner.resolve(*variant).to_string();
-                let mut field_map = HashMap::new();
-                for (field_sym, field_expr) in fields {
-                    let field_name = self.interner.resolve(*field_sym).to_string();
+            // Phase 102: Enum variant constructor
+            // Now creates RuntimeValue::Inductive for unified kernel types
+            Expr::NewVariant { enum_name, variant, fields } => {
+                let inductive_type = self.interner.resolve(*enum_name).to_string();
+                let constructor = self.interner.resolve(*variant).to_string();
+
+                // Evaluate field values in order (positional for inductives)
+                let mut args = Vec::new();
+                for (_, field_expr) in fields {
                     let field_val = self.evaluate_expr(field_expr).await?;
-                    field_map.insert(field_name, field_val);
+                    args.push(field_val);
                 }
-                Ok(RuntimeValue::Struct { type_name: name, fields: field_map })
+
+                // Create unified inductive value
+                Ok(RuntimeValue::Inductive {
+                    inductive_type,
+                    constructor,
+                    args,
+                })
             }
 
             Expr::ManifestOf { .. } => {
@@ -985,6 +1264,12 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
             (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
             (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+            // Phase 102: Inductive equality - same type, same constructor, equal args
+            (RuntimeValue::Inductive { inductive_type: t1, constructor: c1, args: a1 },
+             RuntimeValue::Inductive { inductive_type: t2, constructor: c2, args: a2 }) => {
+                t1 == t2 && c1 == c2 && a1.len() == a2.len() &&
+                a1.iter().zip(a2.iter()).all(|(x, y)| self.values_equal(x, y))
+            }
             _ => false,
         }
     }
@@ -1198,6 +1483,116 @@ impl<'a> Interpreter<'a> {
             }
         }
         Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+    }
+
+    /// Evaluate a policy condition against a subject value.
+    fn evaluate_policy_condition(
+        &self,
+        condition: &PolicyCondition,
+        subject: &RuntimeValue,
+        object: Option<&RuntimeValue>,
+    ) -> bool {
+        match condition {
+            PolicyCondition::FieldEquals { field, value, is_string_literal } => {
+                // subject's field equals value
+                if let RuntimeValue::Struct { fields, .. } = subject {
+                    let field_name = self.interner.resolve(*field);
+                    if let Some(field_val) = fields.get(field_name) {
+                        let expected = self.interner.resolve(*value);
+                        // Compare based on type
+                        match field_val {
+                            RuntimeValue::Text(s) => s == expected,
+                            RuntimeValue::Int(n) => {
+                                if *is_string_literal {
+                                    false // Can't compare int to string
+                                } else {
+                                    expected.parse::<i64>().map(|e| *n == e).unwrap_or(false)
+                                }
+                            }
+                            RuntimeValue::Bool(b) => {
+                                if *is_string_literal {
+                                    false
+                                } else {
+                                    expected.parse::<bool>().map(|e| *b == e).unwrap_or(false)
+                                }
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            PolicyCondition::FieldBool { field, value } => {
+                if let RuntimeValue::Struct { fields, .. } = subject {
+                    let field_name = self.interner.resolve(*field);
+                    if let Some(RuntimeValue::Bool(b)) = fields.get(field_name) {
+                        *b == *value
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            PolicyCondition::Predicate { predicate, .. } => {
+                // Recursively evaluate another predicate
+                if let Some(registry) = &self.policy_registry {
+                    if let RuntimeValue::Struct { type_name, .. } = subject {
+                        if let Some(subj_type_sym) = self.interner.lookup(type_name) {
+                            if let Some(preds) = registry.get_predicates(subj_type_sym) {
+                                if let Some(pred) = preds.iter().find(|p| p.predicate_name == *predicate) {
+                                    return self.evaluate_policy_condition(&pred.condition, subject, object);
+                                }
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            PolicyCondition::ObjectFieldEquals { subject: subj_field, object: obj_sym, field } => {
+                // subject's subj_field equals object's field
+                let obj = match object {
+                    Some(o) => o,
+                    None => return false,
+                };
+                if let (RuntimeValue::Struct { fields: subj_fields, .. },
+                        RuntimeValue::Struct { fields: obj_fields, .. }) = (subject, obj) {
+                    let subj_field_name = self.interner.resolve(*subj_field);
+                    let obj_field_name = self.interner.resolve(*field);
+                    if let (Some(subj_val), Some(obj_val)) = (subj_fields.get(subj_field_name), obj_fields.get(obj_field_name)) {
+                        self.values_equal(subj_val, obj_val)
+                    } else {
+                        // Check if comparing the whole subject/object
+                        let _obj_sym_name = self.interner.resolve(*obj_sym);
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+            PolicyCondition::Or(left, right) => {
+                self.evaluate_policy_condition(left, subject, object)
+                    || self.evaluate_policy_condition(right, subject, object)
+            }
+            PolicyCondition::And(left, right) => {
+                self.evaluate_policy_condition(left, subject, object)
+                    && self.evaluate_policy_condition(right, subject, object)
+            }
+        }
+    }
+}
+
+/// Phase 102: Count the number of Pi (function) arguments in a kernel Term.
+///
+/// Used to determine constructor arity for inductive types.
+fn count_pi_args(term: &crate::kernel::Term) -> usize {
+    use crate::kernel::Term;
+    match term {
+        Term::Pi { body_type, .. } => 1 + count_pi_args(body_type),
+        _ => 0,
     }
 }
 

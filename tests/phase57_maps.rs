@@ -6,10 +6,15 @@ use logos::codegen::{codegen_expr, codegen_stmt, RefinementContext, empty_var_ca
 use logos::ast::{Expr, Stmt, Literal};
 use logos::intern::Interner;
 use logos::arena::Arena;
+use logos::analysis::TypeRegistry;
 use std::collections::HashSet;
 
 fn empty_lww_fields() -> HashSet<(String, String)> {
     HashSet::new()
+}
+
+fn empty_registry(interner: &mut Interner) -> TypeRegistry {
+    TypeRegistry::with_primitives(interner)
 }
 
 // ============================================================
@@ -57,9 +62,10 @@ fn codegen_map_set_string_key() {
     let mut ctx = RefinementContext::new();
     let async_fns = HashSet::new();
     let pipe_vars = HashSet::new();
+    let type_registry = TypeRegistry::with_primitives(&mut interner);
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::new(), &mut ctx,
                                &empty_lww_fields(), &mut synced_vars, &empty_var_caps(),
-                               &async_fns, &pipe_vars);
+                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry);
 
     // Should use trait method, NOT hardcoded index math
     assert_eq!(result, "LogosIndexMut::logos_set(&mut registry, String::from(\"iron\"), plate);\n");
@@ -108,9 +114,10 @@ fn codegen_vec_set_integer_key() {
     let mut ctx = RefinementContext::new();
     let async_fns = HashSet::new();
     let pipe_vars = HashSet::new();
+    let type_registry = TypeRegistry::with_primitives(&mut interner);
     let result = codegen_stmt(&stmt, &interner, 0, &HashSet::new(), &mut ctx,
                                &empty_lww_fields(), &mut synced_vars, &empty_var_caps(),
-                               &async_fns, &pipe_vars);
+                               &async_fns, &pipe_vars, &HashSet::new(), &type_registry);
 
     // Should use trait method (trait impl handles 1-based conversion)
     assert_eq!(result, "LogosIndexMut::logos_set(&mut items, 2, val);\n");

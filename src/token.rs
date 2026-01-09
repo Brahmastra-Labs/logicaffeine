@@ -119,6 +119,11 @@ pub enum TokenType {
     Inspect,  // Phase 33: Pattern matching
     Native,   // Phase 38: Native function modifier
 
+    // Phase 63: Theorem Keywords
+    Given,    // Premise marker in theorem blocks
+    Prove,    // Goal marker in theorem blocks
+    Auto,     // Automatic proof strategy
+
     // Phase 10: IO Keywords
     Read,     // "Read input from..."
     Write,    // "Write x to file..."

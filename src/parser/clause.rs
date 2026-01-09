@@ -18,6 +18,7 @@ use crate::token::TokenType;
 pub trait ClauseParsing<'a, 'ctx, 'int> {
     fn parse_sentence(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     fn parse_conditional(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
+    fn parse_either_or(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     fn parse_disjunction(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     fn parse_conjunction(&mut self) -> ParseResult<&'a LogicExpr<'a>>;
     fn parse_relative_clause(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>>;
@@ -101,6 +102,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
 
         if self.match_token(&[TokenType::If]) {
             return self.parse_conditional();
+        }
+
+        // Handle "Either X or Y" disjunction
+        // Special case: "Either NP1 or NP2 is/are PRED" should apply PRED to both
+        if self.match_token(&[TokenType::Either]) {
+            return self.parse_either_or();
         }
 
         if self.check_modal() {
@@ -196,6 +203,114 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         }
 
         Ok(result)
+    }
+
+    /// Parse "Either NP1 or NP2 is/are PRED" or "Either S1 or S2"
+    ///
+    /// Handles coordination: "Either Alice or Bob is guilty" should become
+    /// guilty(Alice) ∨ guilty(Bob), not Alice ∨ guilty(Bob)
+    fn parse_either_or(&mut self) -> ParseResult<&'a LogicExpr<'a>> {
+        // Save position for potential backtracking
+        let start_pos = self.current;
+
+        // Try to parse as "Either NP1 or NP2 VP"
+        // First, try to parse just a proper name (not a full clause)
+        if let TokenType::ProperName(name1) = self.peek().kind {
+            self.advance(); // consume first proper name
+
+            if self.check(&TokenType::Or) {
+                self.advance(); // consume "or"
+
+                if let TokenType::ProperName(name2) = self.peek().kind {
+                    self.advance(); // consume second proper name
+
+                    // Check for shared predicate: "is/are ADJECTIVE"
+                    let is_copula = matches!(
+                        self.peek().kind,
+                        TokenType::Is | TokenType::Are | TokenType::Was | TokenType::Were
+                    );
+                    if is_copula {
+                        self.advance(); // consume copula
+
+                        // Check for negation: "is not"
+                        let is_negated = self.match_token(&[TokenType::Not]);
+
+                        // Try to get an adjective
+                        if let TokenType::Adjective(adj) = self.peek().kind {
+                            self.advance(); // consume adjective
+
+                            // Create predicate for each NP
+                            let pred1 = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: adj,
+                                args: self.ctx.terms.alloc_slice(vec![
+                                    Term::Constant(name1)
+                                ]),
+                                world: None,
+                            });
+                            let pred2 = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                                name: adj,
+                                args: self.ctx.terms.alloc_slice(vec![
+                                    Term::Constant(name2)
+                                ]),
+                                world: None,
+                            });
+
+                            // Apply negation if needed
+                            let left = if is_negated {
+                                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                                    op: TokenType::Not,
+                                    operand: pred1,
+                                })
+                            } else {
+                                pred1
+                            };
+                            let right = if is_negated {
+                                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                                    op: TokenType::Not,
+                                    operand: pred2,
+                                })
+                            } else {
+                                pred2
+                            };
+
+                            return Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left,
+                                op: TokenType::Or,
+                                right,
+                            }));
+                        }
+                    }
+                }
+            }
+
+            // Backtrack if the special case didn't match
+            self.current = start_pos;
+        }
+
+        // Fall back to general disjunction parsing
+        // Enter disjunct box for left side - referents here are inaccessible outward
+        self.drs.enter_box(BoxType::Disjunct);
+        let left = self.parse_conjunction()?;
+        self.drs.exit_box();
+
+        if !self.check(&TokenType::Or) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "or".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "or"
+
+        // Enter disjunct box for right side - referents here are also inaccessible outward
+        self.drs.enter_box(BoxType::Disjunct);
+        let right = self.parse_conjunction()?;
+        self.drs.exit_box();
+
+        Ok(self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+            left,
+            op: TokenType::Or,
+            right,
+        }))
     }
 
     fn is_counterfactual_context(&self) -> bool {
@@ -391,7 +506,14 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                     };
 
                     // Register in DRS using noun as variable (for pronoun resolution)
-                    self.drs.introduce_referent(np.noun, np.noun, gender, number);
+                    // For DEFINITES ("the X"), use MainClause source to avoid universal force
+                    // This ensures "the butler" in conditionals is treated as a constant
+                    // For INDEFINITES ("a X"), use default source (gets universal force in antecedent)
+                    if np.definiteness == Some(Definiteness::Definite) || np.definiteness == Some(Definiteness::Distal) {
+                        self.drs.introduce_referent_with_source(np.noun, np.noun, gender, number, crate::drs::ReferentSource::MainClause);
+                    } else {
+                        self.drs.introduce_referent(np.noun, np.noun, gender, number);
+                    }
 
                     // Create type predicate: Farmer(noun)
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
@@ -954,6 +1076,58 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
     fn parse_relative_clause(&mut self, gap_var: Symbol) -> ParseResult<&'a LogicExpr<'a>> {
         if self.check_verb() {
             return self.parse_verb_phrase_for_restriction(gap_var);
+        }
+
+        // Handle "do/does (not)" in relative clauses: "who do not shave themselves"
+        if self.check(&TokenType::Do) || self.check(&TokenType::Does) {
+            self.advance(); // consume "do/does"
+
+            let is_negated = self.check(&TokenType::Not);
+            if is_negated {
+                self.advance(); // consume "not"
+            }
+
+            if self.check_verb() {
+                let verb = self.consume_verb();
+
+                // Check for reflexive object: "shave themselves"
+                let roles = if self.check(&TokenType::Reflexive) {
+                    self.advance(); // consume "themselves/himself"
+                    vec![
+                        (ThematicRole::Agent, Term::Variable(gap_var)),
+                        (ThematicRole::Theme, Term::Variable(gap_var)),
+                    ]
+                } else if self.check_content_word() || self.check_article() {
+                    // Parse object NP
+                    let obj = self.parse_noun_phrase(false)?;
+                    vec![
+                        (ThematicRole::Agent, Term::Variable(gap_var)),
+                        (ThematicRole::Theme, Term::Constant(obj.noun)),
+                    ]
+                } else {
+                    // Intransitive
+                    vec![(ThematicRole::Agent, Term::Variable(gap_var))]
+                };
+
+                let event_var = self.get_event_var();
+                let suppress_existential = self.drs.in_conditional_antecedent();
+                let event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                    event_var,
+                    verb,
+                    roles: self.ctx.roles.alloc_slice(roles),
+                    modifiers: self.ctx.syms.alloc_slice(vec![]),
+                    suppress_existential,
+                    world: None,
+                })));
+
+                if is_negated {
+                    return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: event,
+                    }));
+                }
+                return Ok(event);
+            }
         }
 
         if self.check_content_word() || self.check_article() {

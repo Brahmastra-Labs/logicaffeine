@@ -252,6 +252,11 @@ impl Lexicon {
 
         if lower.ends_with("ed") {
             let stem = self.strip_ed(&lower);
+            // Only treat as verb if the stem is a known base verb
+            // This prevents "doomed" → "Doom" when "doom" isn't in lexicon
+            if !is_base_verb(&stem) {
+                return None;
+            }
             let lemma = Self::capitalize(&stem);
             let class = self.lookup_verb_class(&lemma.to_lowercase());
             return Some(VerbEntry {
@@ -340,7 +345,15 @@ impl Lexicon {
             let last = chars[chars.len() - 1];
             let second_last = chars[chars.len() - 2];
 
+            // Doubled consonant handling for verbs like "stopped" → "stop"
+            // BUT: first check if the base WITH doubled consonant is already a verb
+            // This handles words like "passed" → "pass" (natural double 's')
             if last == second_last && !"aeiou".contains(last) {
+                // First try the base as-is (handles "pass", "miss", "kiss", etc.)
+                if is_base_verb(base) {
+                    return base.to_string();
+                }
+                // Otherwise strip the doubled consonant (handles "stopped" → "stop")
                 return base[..base.len() - 1].to_string();
             }
 
@@ -356,6 +369,14 @@ impl Lexicon {
 
         if needs_e_ed(base) {
             return format!("{}e", base);
+        }
+
+        // Fallback: try adding 'e' and check if that's a valid verb
+        // This handles all silent-e verbs not explicitly in needs_e_ed
+        // e.g., "escaped" → "escap" → "escape" (valid verb)
+        let with_e = format!("{}e", base);
+        if is_base_verb(&with_e) {
+            return with_e;
         }
 
         base.to_string()
@@ -488,6 +509,40 @@ pub fn is_derivable_noun(word: &str) -> bool {
     analyze_word(word).is_some()
 }
 
+/// Check if a word is a proper name (has Feature::Proper in the lexicon).
+/// Used to distinguish "Socrates fears death" from "Birds fly" (bare plurals).
+/// Names like "Socrates", "James", "Chris" end in 's' but aren't plural nouns.
+pub fn is_proper_name(word: &str) -> bool {
+    let lower = word.to_lowercase();
+    if let Some(meta) = lookup_noun_db(&lower) {
+        return meta.features.contains(&Feature::Proper);
+    }
+    false
+}
+
+/// Get the canonical lemma for a noun.
+///
+/// Maps inflected forms to their dictionary headword:
+/// - "men" → "Man"
+/// - "children" → "Child"
+/// - "farmers" → "Farmer"
+///
+/// This is used for predicate canonicalization in the proof engine,
+/// ensuring "All men are mortal" and "Socrates is a man" produce
+/// matching predicates.
+pub fn get_canonical_noun(word: &str) -> Option<&'static str> {
+    match analyze_word(word) {
+        Some(WordAnalysis::Noun(meta)) => Some(meta.lemma),
+        Some(WordAnalysis::DerivedNoun { .. }) => {
+            // Derived nouns (e.g., "blogger") return owned Strings,
+            // so we can't return a static reference.
+            // Fall back to raw word handling in the caller.
+            None
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -516,6 +571,42 @@ mod tests {
     #[test]
     fn feature_from_str_unknown() {
         assert_eq!(Feature::from_str("Unknown"), None);
+    }
+
+    #[test]
+    fn canonical_noun_irregular_plurals() {
+        // Irregular plurals canonicalize to singular lemma
+        assert_eq!(get_canonical_noun("men"), Some("Man"));
+        assert_eq!(get_canonical_noun("children"), Some("Child"));
+        assert_eq!(get_canonical_noun("mice"), Some("Mouse"));
+    }
+
+    #[test]
+    fn canonical_noun_regular_plurals() {
+        // Regular plurals canonicalize to singular lemma
+        assert_eq!(get_canonical_noun("farmers"), Some("Farmer"));
+        assert_eq!(get_canonical_noun("philosophers"), Some("Philosopher"));
+    }
+
+    #[test]
+    fn canonical_noun_singular_forms() {
+        // Singular forms return their lemma (capitalized)
+        assert_eq!(get_canonical_noun("man"), Some("Man"));
+        assert_eq!(get_canonical_noun("farmer"), Some("Farmer"));
+    }
+
+    #[test]
+    fn canonical_noun_adjectives_return_none() {
+        // Adjectives should NOT be canonicalized as nouns
+        assert_eq!(get_canonical_noun("doomed"), None);
+        assert_eq!(get_canonical_noun("wise"), None);
+    }
+
+    #[test]
+    fn canonical_noun_mortals() {
+        // "mortals" as a plural noun canonicalizes to "Mortal"
+        assert_eq!(get_canonical_noun("mortals"), Some("Mortal"));
+        assert_eq!(get_canonical_noun("mortal"), Some("Mortal"));
     }
 
     #[test]
@@ -657,4 +748,5 @@ mod tests {
         assert_eq!(meta.lemma, "Tall");
         assert!(meta.features.contains(&Feature::Gradable));
     }
+
 }

@@ -76,3 +76,34 @@ Trust that x is positive because x is greater than 0 because "reasoning".
     // Prop=(x is positive because x > 0), Reason="reasoning"
     assert!(rust.contains("// TRUST: reasoning"), "Should have trust comment: {}", rust);
 }
+
+#[test]
+fn test_assert_in_function() {
+    let source = r#"
+## To withdraw (amount: Int) from (balance: Int) -> Int:
+    Assert that amount is greater than 0.
+    Return balance - amount.
+
+## Main
+Let result be withdraw(50, 100).
+Show result.
+"#;
+    let rust = compile_to_rust(source).expect("Should compile Assert in function");
+    assert!(rust.contains("debug_assert!"), "Should have debug_assert: {}", rust);
+}
+
+#[test]
+fn test_trust_in_function() {
+    let source = r#"
+## To process (n: Int) -> Int:
+    Trust that n is greater than 0 because "caller guarantees positive input".
+    Return n * 2.
+
+## Main
+Let doubled be process(5).
+Show doubled.
+"#;
+    let rust = compile_to_rust(source).expect("Should compile Trust in function");
+    assert!(rust.contains("// TRUST: caller guarantees positive input"), "Should have trust comment: {}", rust);
+    assert!(rust.contains("debug_assert!"), "Should have debug_assert: {}", rust);
+}

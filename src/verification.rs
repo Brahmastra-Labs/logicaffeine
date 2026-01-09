@@ -173,6 +173,9 @@ impl<'a> VerificationPass<'a> {
             | Stmt::Listen { .. }
             | Stmt::ConnectTo { .. }
             | Stmt::LetPeerAgent { .. } => Ok(()),
+
+            // All other statements don't affect verification
+            _ => Ok(()),
         }
     }
 
@@ -198,7 +201,10 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::Add
                     | BinaryOpKind::Subtract
                     | BinaryOpKind::Multiply
-                    | BinaryOpKind::Divide => VerifyType::Int,
+                    | BinaryOpKind::Divide
+                    | BinaryOpKind::Modulo => VerifyType::Int,
+                    // Concat produces a string (Object type)
+                    BinaryOpKind::Concat => VerifyType::Object,
                 }
             }
             // Default to Int for other expressions
@@ -357,6 +363,8 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
+                    // Modulo and Concat not directly supported in verification IR
+                    BinaryOpKind::Modulo | BinaryOpKind::Concat => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -382,6 +390,8 @@ impl<'a> VerificationPass<'a> {
             Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
             Expr::Literal(Literal::Text(_)) => None, // Text not supported in Z3
             Expr::Literal(Literal::Nothing) => None,
+            Expr::Literal(Literal::Float(_)) => None, // Float not directly supported
+            Expr::Literal(Literal::Char(_)) => None, // Char not directly supported
 
             Expr::Identifier(sym) => {
                 let name = self.interner.resolve(*sym);
@@ -404,6 +414,8 @@ impl<'a> VerificationPass<'a> {
                     BinaryOpKind::LtEq => VerifyOp::Lte,
                     BinaryOpKind::And => VerifyOp::And,
                     BinaryOpKind::Or => VerifyOp::Or,
+                    // Modulo and Concat not directly supported in verification IR
+                    BinaryOpKind::Modulo | BinaryOpKind::Concat => return None,
                 };
                 Some(VerifyExpr::binary(verify_op, l, r))
             }
@@ -426,7 +438,13 @@ impl<'a> VerificationPass<'a> {
             | Expr::Range { .. }
             | Expr::FieldAccess { .. }
             | Expr::New { .. }
-            | Expr::NewVariant { .. } => None,
+            | Expr::NewVariant { .. }
+            | Expr::Contains { .. }
+            | Expr::Union { .. }
+            | Expr::Intersection { .. }
+            | Expr::ManifestOf { .. }
+            | Expr::ChunkAt { .. }
+            | Expr::Tuple(_) => None,
         }
     }
 

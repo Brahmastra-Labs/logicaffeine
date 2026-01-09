@@ -499,6 +499,31 @@ fn collect_lww_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(
     lww_fields
 }
 
+/// Phase 102: Collect enum fields that need Box<T> for recursion.
+/// Returns a set of (EnumName, VariantName, FieldName) tuples.
+fn collect_boxed_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet<(String, String, String)> {
+    let mut boxed_fields = HashSet::new();
+    for (type_sym, def) in registry.iter_types() {
+        if let TypeDef::Enum { variants, .. } = def {
+            let enum_name = interner.resolve(*type_sym);
+            for variant in variants {
+                let variant_name = interner.resolve(variant.name);
+                for field in &variant.fields {
+                    if is_recursive_field(&field.ty, enum_name, interner) {
+                        let field_name = interner.resolve(field.name).to_string();
+                        boxed_fields.insert((
+                            enum_name.to_string(),
+                            variant_name.to_string(),
+                            field_name,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    boxed_fields
+}
+
 /// Phase 54: Collect function names that are async.
 /// Used by LaunchTask codegen to determine if .await is needed.
 fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
@@ -608,6 +633,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 54: Collect pipe declarations (variables with _tx/_rx suffixes)
     let main_pipe_vars = collect_pipe_vars(stmts);
 
+    // Phase 102: Collect boxed fields for recursive enum handling
+    let boxed_fields = collect_boxed_fields(registry, interner);
+
     // Collect user-defined structs from registry (Phase 34: generics, Phase 47: is_portable, Phase 49: is_shared)
     let structs: Vec<_> = registry.iter_types()
         .filter_map(|(name, def)| {
@@ -661,7 +689,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields, &async_functions));
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields, &async_functions, &boxed_fields, registry));
         }
     }
 
@@ -695,7 +723,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         if matches!(stmt, Stmt::FunctionDef { .. }) {
             continue;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars));
+        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -704,6 +732,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 /// Phase 32/38: Generate a function definition.
 /// Phase 38: Updated for native functions and TypeExpr types.
 /// Phase 49: Accepts lww_fields for LWWRegister SetField handling.
+/// Phase 103: Accepts registry for polymorphic enum type inference.
 fn codegen_function_def(
     name: Symbol,
     params: &[(Symbol, &TypeExpr)],
@@ -713,6 +742,8 @@ fn codegen_function_def(
     interner: &Interner,
     lww_fields: &HashSet<(String, String)>,
     async_functions: &HashSet<Symbol>,  // Phase 54
+    boxed_fields: &HashSet<(String, String, String)>,  // Phase 102
+    registry: &TypeRegistry,  // Phase 103
 ) -> String {
     let mut output = String::new();
     let func_name = interner.resolve(name);
@@ -786,7 +817,7 @@ fn codegen_function_def(
         let func_pipe_vars = HashSet::new();
 
         for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars));
+            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
         }
         writeln!(output, "}}\n").unwrap();
     }
@@ -1053,10 +1084,18 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
             writeln!(output, "{}    {},", ind, variant_name).unwrap();
         } else {
             // Struct variant with named fields
+            // Phase 102: Detect and box recursive fields
+            let enum_name_str = interner.resolve(name);
             let fields_str: Vec<String> = variant.fields.iter()
                 .map(|f| {
                     let rust_type = codegen_field_type(&f.ty, interner);
-                    format!("{}: {}", interner.resolve(f.name), rust_type)
+                    let field_name = interner.resolve(f.name);
+                    // Check if this field references the enum itself (recursive type)
+                    if is_recursive_field(&f.ty, enum_name_str, interner) {
+                        format!("{}: Box<{}>", field_name, rust_type)
+                    } else {
+                        format!("{}: {}", field_name, rust_type)
+                    }
                 })
                 .collect();
             writeln!(output, "{}    {} {{ {} }},", ind, variant_name, fields_str.join(", ")).unwrap();
@@ -1137,6 +1176,92 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
     }
 }
 
+/// Phase 102: Check if a field type references the containing enum (recursive type).
+/// Recursive types need to be wrapped in Box<T> for Rust to know the size.
+fn is_recursive_field(ty: &FieldType, enum_name: &str, interner: &Interner) -> bool {
+    match ty {
+        FieldType::Primitive(sym) => interner.resolve(*sym) == enum_name,
+        FieldType::Named(sym) => interner.resolve(*sym) == enum_name,
+        FieldType::TypeParam(_) => false,
+        FieldType::Generic { base, params } => {
+            // Check if base matches or any type parameter contains the enum
+            interner.resolve(*base) == enum_name ||
+            params.iter().any(|p| is_recursive_field(p, enum_name, interner))
+        }
+    }
+}
+
+/// Phase 103: Infer type annotation for multi-param generic enum variants.
+/// Returns Some(type_annotation) if the enum has multiple type params, None otherwise.
+fn infer_variant_type_annotation(
+    expr: &Expr,
+    registry: &TypeRegistry,
+    interner: &Interner,
+) -> Option<String> {
+    // Only handle NewVariant expressions
+    let (enum_name, variant_name, field_values) = match expr {
+        Expr::NewVariant { enum_name, variant, fields } => (*enum_name, *variant, fields),
+        _ => return None,
+    };
+
+    // Look up the enum in the registry
+    let enum_def = registry.get(enum_name)?;
+    let (generics, variants) = match enum_def {
+        TypeDef::Enum { generics, variants, .. } => (generics, variants),
+        _ => return None,
+    };
+
+    // Only generate type annotations for multi-param generics
+    if generics.len() < 2 {
+        return None;
+    }
+
+    // Find the variant definition
+    let variant_def = variants.iter().find(|v| v.name == variant_name)?;
+
+    // Collect which type params are bound by which field types
+    let mut type_param_types: HashMap<Symbol, String> = HashMap::new();
+    for (field_name, field_value) in field_values {
+        // Find the field in the variant definition
+        if let Some(field_def) = variant_def.fields.iter().find(|f| f.name == *field_name) {
+            // If the field type is a type parameter, infer its type from the value
+            if let FieldType::TypeParam(type_param) = &field_def.ty {
+                let inferred = infer_rust_type_from_expr(field_value, interner);
+                type_param_types.insert(*type_param, inferred);
+            }
+        }
+    }
+
+    // Build the type annotation: EnumName<T1, T2, ...>
+    // For bound params, use the inferred type; for unbound, use ()
+    let enum_str = interner.resolve(enum_name);
+    let param_strs: Vec<String> = generics.iter()
+        .map(|g| {
+            type_param_types.get(g)
+                .cloned()
+                .unwrap_or_else(|| "()".to_string())
+        })
+        .collect();
+
+    Some(format!("{}<{}>", enum_str, param_strs.join(", ")))
+}
+
+/// Phase 103: Infer Rust type from a LOGOS expression.
+fn infer_rust_type_from_expr(expr: &Expr, interner: &Interner) -> String {
+    match expr {
+        Expr::Literal(lit) => match lit {
+            Literal::Number(_) => "i64".to_string(),
+            Literal::Float(_) => "f64".to_string(),
+            Literal::Text(_) => "String".to_string(),
+            Literal::Boolean(_) => "bool".to_string(),
+            Literal::Char(_) => "char".to_string(),
+            Literal::Nothing => "()".to_string(),
+        },
+        // For identifiers and complex expressions, let Rust infer
+        _ => "_".to_string(),
+    }
+}
+
 pub fn codegen_stmt<'a>(
     stmt: &Stmt<'a>,
     interner: &Interner,
@@ -1148,6 +1273,8 @@ pub fn codegen_stmt<'a>(
     var_caps: &HashMap<Symbol, VariableCapabilities>,  // Phase 56: Mount+Sync detection
     async_functions: &HashSet<Symbol>,  // Phase 54: Functions that are async
     pipe_vars: &HashSet<Symbol>,  // Phase 54: Pipe declarations (have _tx/_rx suffixes)
+    boxed_fields: &HashSet<(String, String, String)>,  // Phase 102: Recursive enum fields
+    registry: &TypeRegistry,  // Phase 103: For type annotations on polymorphic enums
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
@@ -1155,8 +1282,11 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            let value_str = codegen_expr(value, interner, synced_vars);
-            let type_annotation = ty.map(|t| codegen_type_expr(t, interner));
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+
+            // Phase 103: Get explicit type annotation or infer for multi-param generic enums
+            let type_annotation = ty.map(|t| codegen_type_expr(t, interner))
+                .or_else(|| infer_variant_type_annotation(value, registry, interner));
 
             // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
             let is_mutable = *mutable || mutable_vars.contains(var);
@@ -1177,7 +1307,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            let value_str = codegen_expr(value, interner, synced_vars);
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
 
             // Phase 43C: Check if this variable has a refinement constraint
@@ -1197,14 +1327,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
                 }
                 ctx.pop_scope();
             }
@@ -1217,7 +1347,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -1229,7 +1359,7 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -1448,7 +1578,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SendPipe { value, pipe } => {
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
             // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
@@ -1496,7 +1626,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::TrySendPipe { value, pipe, result } => {
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             let pipe_str = codegen_expr(pipe, interner, synced_vars);
             // Phase 54: Check if pipe is a local declaration
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
@@ -1563,7 +1693,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, var_name, var_name
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}        }}", indent_str).unwrap();
@@ -1578,7 +1708,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, ms_str
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}    }}", indent_str).unwrap();
@@ -1605,7 +1735,7 @@ pub fn codegen_stmt<'a>(
         Stmt::SetField { object, field, value } => {
             let obj_str = codegen_expr(object, interner, synced_vars);
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr(value, interner, synced_vars);
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
 
             // Phase 49: Check if this field is an LWWRegister - use .set() instead of =
             // We check if ANY type has this field as LWW (heuristic - works for most cases)
@@ -1627,14 +1757,19 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Inspect { target, arms, .. } => {
             let target_str = codegen_expr(target, interner, synced_vars);
+
+            // Phase 102: Track which bindings come from boxed fields for inner Inspects
+            let mut inner_boxed_bindings: HashSet<Symbol> = HashSet::new();
+
             writeln!(output, "{}match {} {{", indent_str, target_str).unwrap();
 
             for arm in arms {
                 if let Some(variant) = arm.variant {
                     let variant_name = interner.resolve(variant);
                     // Get the enum name from the arm, or fallback to just variant name
-                    let enum_prefix = arm.enum_name
-                        .map(|e| format!("{}::", interner.resolve(e)))
+                    let enum_name_str = arm.enum_name.map(|e| interner.resolve(e));
+                    let enum_prefix = enum_name_str
+                        .map(|e| format!("{}::", e))
                         .unwrap_or_default();
 
                     if arm.bindings.is_empty() {
@@ -1642,10 +1777,20 @@ pub fn codegen_stmt<'a>(
                         writeln!(output, "{}    {}{} => {{", indent_str, enum_prefix, variant_name).unwrap();
                     } else {
                         // Pattern with bindings
+                        // Phase 102: Check which bindings are from boxed fields
                         let bindings_str: Vec<String> = arm.bindings.iter()
                             .map(|(field, binding)| {
                                 let field_name = interner.resolve(*field);
                                 let binding_name = interner.resolve(*binding);
+
+                                // Check if this field is boxed
+                                if let Some(enum_name) = enum_name_str {
+                                    let key = (enum_name.to_string(), variant_name.to_string(), field_name.to_string());
+                                    if boxed_fields.contains(&key) {
+                                        inner_boxed_bindings.insert(*binding);
+                                    }
+                                }
+
                                 if field_name == binding_name {
                                     field_name.to_string()
                                 } else {
@@ -1662,7 +1807,61 @@ pub fn codegen_stmt<'a>(
 
                 ctx.push_scope();
                 for stmt in arm.body {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
+                    // Phase 102: Handle inner Inspect statements with boxed bindings
+                    let inner_stmt_code = if let Stmt::Inspect { target: inner_target, .. } = stmt {
+                        // Check if the inner target is a boxed binding
+                        if let Expr::Identifier(sym) = inner_target {
+                            if inner_boxed_bindings.contains(sym) {
+                                // Generate with dereference
+                                let target_str = interner.resolve(*sym);
+                                let mut inner_output = String::new();
+                                writeln!(inner_output, "{}match *{} {{", "    ".repeat(indent + 2), target_str).unwrap();
+
+                                if let Stmt::Inspect { arms: inner_arms, .. } = stmt {
+                                    for inner_arm in inner_arms.iter() {
+                                        if let Some(v) = inner_arm.variant {
+                                            let v_name = interner.resolve(v);
+                                            let inner_enum_prefix = inner_arm.enum_name
+                                                .map(|e| format!("{}::", interner.resolve(e)))
+                                                .unwrap_or_default();
+
+                                            if inner_arm.bindings.is_empty() {
+                                                writeln!(inner_output, "{}    {}{} => {{", "    ".repeat(indent + 2), inner_enum_prefix, v_name).unwrap();
+                                            } else {
+                                                let bindings: Vec<String> = inner_arm.bindings.iter()
+                                                    .map(|(f, b)| {
+                                                        let fn_name = interner.resolve(*f);
+                                                        let bn_name = interner.resolve(*b);
+                                                        if fn_name == bn_name { fn_name.to_string() }
+                                                        else { format!("{}: {}", fn_name, bn_name) }
+                                                    })
+                                                    .collect();
+                                                writeln!(inner_output, "{}    {}{} {{ {} }} => {{", "    ".repeat(indent + 2), inner_enum_prefix, v_name, bindings.join(", ")).unwrap();
+                                            }
+                                        } else {
+                                            writeln!(inner_output, "{}    _ => {{", "    ".repeat(indent + 2)).unwrap();
+                                        }
+
+                                        ctx.push_scope();
+                                        for inner_stmt in inner_arm.body {
+                                            inner_output.push_str(&codegen_stmt(inner_stmt, interner, indent + 4, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                                        }
+                                        ctx.pop_scope();
+                                        writeln!(inner_output, "{}    }}", "    ".repeat(indent + 2)).unwrap();
+                                    }
+                                }
+                                writeln!(inner_output, "{}}}", "    ".repeat(indent + 2)).unwrap();
+                                inner_output
+                            } else {
+                                codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+                            }
+                        } else {
+                            codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+                        }
+                    } else {
+                        codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+                    };
+                    output.push_str(&inner_stmt_code);
                 }
                 ctx.pop_scope();
                 writeln!(output, "{}    }}", indent_str).unwrap();
@@ -1672,7 +1871,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             let coll_str = codegen_expr(collection, interner, synced_vars);
             writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
         }
@@ -1692,13 +1891,13 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Add { value, collection } => {
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             let coll_str = codegen_expr(collection, interner, synced_vars);
             writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Remove { value, collection } => {
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             let coll_str = codegen_expr(collection, interner, synced_vars);
             writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
         }
@@ -1706,7 +1905,7 @@ pub fn codegen_stmt<'a>(
         Stmt::SetIndex { collection, index, value } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
             let index_str = codegen_expr(index, interner, synced_vars);
-            let value_str = codegen_expr(value, interner, synced_vars);
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             // Phase 57: Polymorphic indexing via trait
             writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
         }
@@ -1740,7 +1939,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
             }
 
             ctx.pop_scope();
@@ -1783,7 +1982,7 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
 
                 // Convert call statements to awaited calls for async context
                 let inner_awaited = if let Stmt::Call { .. } = stmt {
@@ -1837,7 +2036,7 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
                     write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
@@ -1851,7 +2050,7 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars);
+                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
                              indent_str, inner.trim()).unwrap();
                 }
@@ -2001,7 +2200,7 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Append to SharedSequence (RGA)
         Stmt::AppendToSequence { sequence, value } => {
             let seq_str = codegen_expr(sequence, interner, synced_vars);
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             writeln!(
                 output,
                 "{}{}.append({});",
@@ -2012,13 +2211,19 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Resolve MVRegister conflicts
         Stmt::ResolveConflict { object, field, value } => {
             let field_name = interner.resolve(*field);
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             let obj_str = codegen_expr(object, interner, synced_vars);
             writeln!(
                 output,
                 "{}{}.{}.resolve({});",
                 indent_str, obj_str, field_name, val_str
             ).unwrap();
+        }
+
+        // Phase 63: Theorems are verified at compile-time, no runtime code generated
+        Stmt::Theorem(_) => {
+            // Theorems don't generate runtime code - they're processed separately
+            // by compile_theorem() at the meta-level
         }
     }
 
@@ -2036,6 +2241,20 @@ fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
 }
 
 pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
+    // Use empty registry and boxed_fields for simple expression codegen
+    let empty_registry = TypeRegistry::new();
+    codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry)
+}
+
+/// Phase 102: Codegen with boxed field support for recursive enums.
+/// Phase 103: Added registry for polymorphic enum type inference.
+fn codegen_expr_boxed(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,  // (EnumName, VariantName, FieldName)
+    registry: &TypeRegistry,  // Phase 103: For type annotations on polymorphic enums
+) -> String {
     match expr {
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
@@ -2103,7 +2322,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
 
         Expr::Contains { collection, value } => {
             let coll_str = codegen_expr(collection, interner, synced_vars);
-            let val_str = codegen_expr(value, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
             // Use LogosContains trait for unified contains across List, Set, Map, Text
             format!("{}.logos_contains(&{})", coll_str, val_str)
         }
@@ -2178,7 +2397,7 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
-                        let value_str = codegen_expr(value, interner, synced_vars);
+                        let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
                         format!("{}: {}", field_name, value_str)
                     })
                     .collect::<Vec<_>>()
@@ -2203,12 +2422,56 @@ pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symb
                 // Unit variant: Shape::Point
                 format!("{}::{}", enum_str, variant_str)
             } else {
+                // Phase 103: Count identifier usage to handle cloning for reused values
+                // We need to clone on all uses except the last one
+                let mut identifier_counts: HashMap<Symbol, usize> = HashMap::new();
+                for (_, value) in fields.iter() {
+                    if let Expr::Identifier(sym) = value {
+                        *identifier_counts.entry(*sym).or_insert(0) += 1;
+                    }
+                }
+
+                // Track remaining uses for each identifier
+                let mut remaining_uses: HashMap<Symbol, usize> = identifier_counts.clone();
+
                 // Struct variant: Shape::Circle { radius: 10 }
+                // Phase 102: Check if any field is recursive and needs Box::new()
                 let fields_str: Vec<String> = fields.iter()
                     .map(|(field_name, value)| {
                         let name = interner.resolve(*field_name);
-                        let val = codegen_expr(value, interner, synced_vars);
-                        format!("{}: {}", name, val)
+
+                        // Phase 103: Clone identifiers that are used multiple times
+                        // Clone on all uses except the last one (to allow move on final use)
+                        let val = if let Expr::Identifier(sym) = value {
+                            let total = identifier_counts.get(sym).copied().unwrap_or(0);
+                            let remaining = remaining_uses.get_mut(sym);
+                            if total > 1 {
+                                if let Some(r) = remaining {
+                                    *r -= 1;
+                                    if *r > 0 {
+                                        // Not the last use, need to clone
+                                        format!("{}.clone()", interner.resolve(*sym))
+                                    } else {
+                                        // Last use, can move
+                                        interner.resolve(*sym).to_string()
+                                    }
+                                } else {
+                                    interner.resolve(*sym).to_string()
+                                }
+                            } else {
+                                interner.resolve(*sym).to_string()
+                            }
+                        } else {
+                            codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry)
+                        };
+
+                        // Check if this field needs to be boxed (recursive type)
+                        let key = (enum_str.to_string(), variant_str.to_string(), name.to_string());
+                        if boxed_fields.contains(&key) {
+                            format!("{}: Box::new({})", name, val)
+                        } else {
+                            format!("{}: {}", name, val)
+                        }
                     })
                     .collect();
                 format!("{}::{} {{ {} }}", enum_str, variant_str, fields_str.join(", "))

@@ -107,7 +107,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 None
             };
 
-            let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, vec![]);
+            // Collect any trailing adverbs
+            let modifiers = self.collect_adverbs();
+            let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, modifiers);
 
             // Determine quantifier kind first (shared by both branches)
             let kind = match quantifier_token {
@@ -404,7 +406,8 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
             let complement = if self.check_verb() {
                 let verb = self.consume_verb();
-                self.build_verb_neo_event(verb, var_name, None, vec![])
+                let modifiers = self.collect_adverbs();
+                self.build_verb_neo_event(verb, var_name, None, modifiers)
             } else {
                 let unknown = self.interner.intern("?");
                 self.ctx.exprs.alloc(LogicExpr::Atom(unknown))
@@ -489,11 +492,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     world: None,
                 });
 
+                let npi_modifiers = self.collect_adverbs();
                 let verb_with_obj = self.build_verb_neo_event(
                     verb,
                     var_name,
                     Some(Term::Variable(obj_var)),
-                    vec![],
+                    npi_modifiers,
                 );
 
                 let npi_body = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -587,11 +591,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                         world: None,
                     });
 
+                    let obj_modifiers = self.collect_adverbs();
                     let verb_with_obj = self.build_verb_neo_event(
                         verb,
                         var_name,
                         Some(Term::Variable(obj_var)),
-                        vec![],
+                        obj_modifiers,
                     );
 
                     let obj_kind = match obj_q {
@@ -702,7 +707,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             } else {
                 None
             };
-            let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, vec![]);
+            // Collect any trailing adverbs (e.g., "bark loudly")
+            let modifiers = self.collect_adverbs();
+            let verb_pred = self.build_verb_neo_event(verb, var_name, obj_term, modifiers);
 
             let body = match quantifier_token {
                 TokenType::All => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
@@ -1082,11 +1089,12 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                     // Build: ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y)) using Neo-Davidsonian semantics
                     // IMPORTANT: Use build_verb_neo_event() for consistent Full-tier formatting
+                    let inner_modifiers = self.collect_adverbs();
                     let verb_pred = self.build_verb_neo_event(
                         canonical_verb,
                         var_name,
                         Some(Term::Variable(donkey_var)),
-                        vec![],
+                        inner_modifiers,
                     );
 
                     // Build: Key(y) ∧ ∃e(Have(e) ∧ Agent(e,x) ∧ Theme(e,y))
@@ -1178,7 +1186,8 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         } else {
             None
         };
-        let base_pred = self.build_verb_neo_event(canonical_verb, var_name, obj_term, vec![]);
+        let final_modifiers = self.collect_adverbs();
+        let base_pred = self.build_verb_neo_event(canonical_verb, var_name, obj_term, final_modifiers);
 
         // Wrap in negation only for NARROW scope mode (de re reading)
         // Wide scope mode: negation handled via donkey binding flag in wrap_donkey_in_restriction
@@ -1378,8 +1387,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                     // Introduce definite plural referent to DRS for cross-sentence pronoun resolution
                     // E.g., "The dogs ran. They barked." - "they" refers to "dogs"
+                    // Definite descriptions presuppose existence, so they should be globally accessible.
                     let gender = Gender::Unknown;  // Plural entities have unknown gender
-                    self.drs.introduce_referent(singular_sym, singular_sym, gender, Number::Plural);
+                    self.drs.introduce_referent_with_source(singular_sym, singular_sym, gender, Number::Plural, ReferentSource::MainClause);
 
                     if is_collective {
                         Ok(substituted)
@@ -1460,13 +1470,15 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                     // Introduce definite referent to DRS for cross-sentence pronoun resolution
                     // E.g., "The engine smoked. It broke." - "it" refers to "engine"
+                    // Definite descriptions presuppose existence, so they should be globally
+                    // accessible even when introduced inside conditional antecedents.
                     let gender = Self::infer_noun_gender(self.interner.resolve(noun));
                     let number = if Self::is_plural_noun(self.interner.resolve(noun)) {
                         Number::Plural
                     } else {
                         Number::Singular
                     };
-                    self.drs.introduce_referent(x, noun, gender, number);
+                    self.drs.introduce_referent_with_source(x, noun, gender, number, ReferentSource::MainClause);
 
                     let mut y_restriction = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: noun,

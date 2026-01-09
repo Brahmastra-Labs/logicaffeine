@@ -5,11 +5,24 @@
 
 #![cfg(target_arch = "wasm32")]
 
-use super::{Vfs, VfsError, VfsResult};
+use super::{DirEntry, Vfs, VfsError, VfsResult};
 use async_trait::async_trait;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemWritableFileStream};
+
+#[wasm_bindgen]
+extern "C" {
+    /// Async iterator result from FileSystemDirectoryHandle.entries()
+    #[wasm_bindgen(js_name = Object)]
+    type AsyncIteratorResult;
+
+    #[wasm_bindgen(method, getter)]
+    fn done(this: &AsyncIteratorResult) -> bool;
+
+    #[wasm_bindgen(method, getter)]
+    fn value(this: &AsyncIteratorResult) -> JsValue;
+}
 
 /// VFS backed by the browser's Origin Private File System.
 ///
@@ -195,7 +208,14 @@ impl Vfs for OpfsVfs {
     }
 
     async fn exists(&self, path: &str) -> VfsResult<bool> {
+        // First try as a file
         match self.get_file(path, false).await {
+            Ok(_) => return Ok(true),
+            Err(VfsError::NotFound(_)) => {}
+            Err(e) => return Err(e),
+        }
+        // Then try as a directory
+        match self.get_dir(path, false).await {
             Ok(_) => Ok(true),
             Err(VfsError::NotFound(_)) => Ok(false),
             Err(e) => Err(e),
@@ -232,5 +252,73 @@ impl Vfs for OpfsVfs {
         self.write(to, &content).await?;
         self.remove(from).await?;
         Ok(())
+    }
+
+    async fn list_dir(&self, path: &str) -> VfsResult<Vec<DirEntry>> {
+        let dir = self.get_dir(path, false).await?;
+
+        // Get async iterator via entries()
+        let iterator: js_sys::AsyncIterator = js_sys::Reflect::get(&dir, &JsValue::from_str("entries"))
+            .ok()
+            .and_then(|f| f.dyn_ref::<js_sys::Function>().cloned())
+            .ok_or_else(|| VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "entries() not available",
+            )))?
+            .call0(&dir)
+            .map_err(|_| VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to call entries()",
+            )))?
+            .unchecked_into();
+
+        let mut entries = Vec::new();
+
+        loop {
+            let next_promise = iterator.next().map_err(|_| VfsError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Iterator next() failed",
+            )))?;
+
+            let result: AsyncIteratorResult = JsFuture::from(next_promise)
+                .await
+                .map_err(|_| VfsError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Async iteration failed",
+                )))?
+                .unchecked_into();
+
+            if result.done() {
+                break;
+            }
+
+            // value is [name, handle] array
+            let pair = result.value();
+            let array: js_sys::Array = pair.unchecked_into();
+            let name: String = array.get(0).as_string().unwrap_or_default();
+            let handle = array.get(1);
+
+            // Check if it's a directory by looking at the 'kind' property
+            let kind = js_sys::Reflect::get(&handle, &JsValue::from_str("kind"))
+                .ok()
+                .and_then(|v| v.as_string())
+                .unwrap_or_default();
+
+            entries.push(DirEntry {
+                name,
+                is_directory: kind == "directory",
+            });
+        }
+
+        // Sort entries: directories first, then alphabetically
+        entries.sort_by(|a, b| {
+            match (a.is_directory, b.is_directory) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            }
+        });
+
+        Ok(entries)
     }
 }

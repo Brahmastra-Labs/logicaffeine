@@ -1007,6 +1007,30 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Phase 103: Accept Focus tokens as identifiers (e.g., "Just" for Maybe variants)
+            TokenType::Focus(_) => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            // Phase 103: Accept Nothing token as identifier (for Maybe/Option variants)
+            TokenType::Nothing => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            // Phase 103: Accept Article tokens as type parameter names (L, R, A, etc.)
+            TokenType::Article(_) => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
+            // Phase 103: Accept Either token as type name (for Either type definition)
+            TokenType::Either => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
             _ => None
         }
     }

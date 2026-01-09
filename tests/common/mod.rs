@@ -216,3 +216,29 @@ pub fn assert_panics(source: &str, expected_msg: &str) {
         result.rust_code
     );
 }
+
+// ============================================================
+// Interpreter Tests (no Rust compilation)
+// ============================================================
+
+pub struct InterpreterTestResult {
+    pub output: String,
+    pub error: String,
+    pub success: bool,
+}
+
+/// Run LOGOS source through the interpreter (no Rust compilation).
+/// Uses futures::executor::block_on to run the async interpret_for_ui.
+pub fn run_interpreter(source: &str) -> InterpreterTestResult {
+    use logos::interpret_for_ui;
+    use futures::executor::block_on;
+
+    let result = block_on(interpret_for_ui(source));
+    let success = result.error.is_none();
+
+    InterpreterTestResult {
+        output: result.lines.join("\n"),
+        error: result.error.unwrap_or_default(),
+        success,
+    }
+}

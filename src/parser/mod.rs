@@ -22,7 +22,7 @@ use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
 use crate::ast::stmt::ReadSource;
-use crate::drs::{Case, Gender, Number};
+use crate::drs::{Case, Gender, Number, ReferentSource};
 use crate::drs::{Drs, BoxType, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
 use crate::intern::{Interner, Symbol, SymbolEq};
@@ -715,8 +715,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let current_box = self.drs.current_box_index();
         match self.drs.resolve_pronoun(current_box, gender, number) {
             Ok(sym) => return Ok(ResolvedPronoun::Variable(sym)),
-            Err(crate::drs::ScopeError::InaccessibleReferent { reason, .. }) => {
-                // Hard error: referent exists but is trapped in inaccessible scope
+            Err(crate::drs::ScopeError::InaccessibleReferent { gender: g, reason, .. }) => {
+                // Referent exists but is trapped in inaccessible scope.
+                // In multi-sentence discourse, try telescoping first - the referent
+                // from a previous sentence's conditional may be in telescope candidates.
+                if self.world_state.in_discourse_mode() {
+                    if let Some(candidate) = self.world_state.resolve_via_telescope(g) {
+                        return Ok(ResolvedPronoun::Variable(candidate.variable));
+                    }
+                }
+                // No telescope candidate found - this is a hard scope error
                 return Err(ParseError {
                     kind: ParseErrorKind::ScopeViolation(reason),
                     span: self.current_span(),
@@ -786,6 +794,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     fn is_plural_noun(noun: &str) -> bool {
         let lower = noun.to_lowercase();
+        // Proper names like "Socrates", "James", "Chris" end in 's' but aren't plurals
+        if lexicon::is_proper_name(&lower) {
+            return false;
+        }
         if lexicon::is_irregular_plural(&lower) {
             return true;
         }
@@ -907,7 +919,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.advance();
                         continue;
                     }
+                    BlockType::Theorem => {
+                        // Phase 63: Parse theorem block
+                        in_definition_block = false;
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        let theorem = self.parse_theorem_block()?;
+                        statements.push(theorem);
+                        continue;
+                    }
                     _ => {
+                        // Skip other declarative blocks (Proof, Example, Logic, Note)
                         in_definition_block = false;
                         self.mode = ParserMode::Declarative;
                         self.advance();
@@ -1827,8 +1849,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_assert_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Assert"
 
-        // Optionally consume "that"
-        if self.check(&TokenType::That) {
+        // Optionally consume "that" (may be tokenized as That or Article(Distal))
+        if self.check(&TokenType::That) || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
             self.advance();
         }
 
@@ -1844,8 +1866,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_trust_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Trust"
 
-        // Optionally consume "that"
-        if self.check(&TokenType::That) {
+        // Optionally consume "that" (may be tokenized as That or Article(Distal))
+        if self.check(&TokenType::That) || matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
             self.advance();
         }
 
@@ -3508,6 +3530,166 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
+    /// Phase 63: Parse theorem block
+    /// Syntax:
+    ///   ## Theorem: Name
+    ///   Given: Premise 1.
+    ///   Given: Premise 2.
+    ///   Prove: Goal.
+    ///   Proof: Auto.
+    fn parse_theorem_block(&mut self) -> ParseResult<Stmt<'a>> {
+        use crate::ast::theorem::{TheoremBlock, ProofStrategy};
+
+        // Skip newlines and indentation
+        self.skip_whitespace_tokens();
+
+        // Parse theorem name: expect "Name" after the ##Theorem header
+        // The header has already been consumed; expect Colon then Identifier
+        // Note: In some cases the colon might have been consumed with the header.
+        // Let's be flexible and check for both.
+        if self.check(&TokenType::Colon) {
+            self.advance();
+        }
+
+        // Skip whitespace again
+        self.skip_whitespace_tokens();
+
+        // Get theorem name - should be an identifier (Noun, ProperName, etc.)
+        let name = if let Some(token) = self.tokens.get(self.current) {
+            match &token.kind {
+                TokenType::Noun(_)
+                | TokenType::ProperName(_)
+                | TokenType::Verb { .. }
+                | TokenType::Adjective(_) => {
+                    let name = self.interner.resolve(token.lexeme).to_string();
+                    self.advance();
+                    name
+                }
+                _ => {
+                    // Use the lexeme directly for unrecognized tokens
+                    let lexeme = self.interner.resolve(token.lexeme);
+                    if !lexeme.is_empty() && lexeme.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false) {
+                        let name = lexeme.to_string();
+                        self.advance();
+                        name
+                    } else {
+                        "Anonymous".to_string()
+                    }
+                }
+            }
+        } else {
+            "Anonymous".to_string()
+        };
+
+        self.skip_whitespace_tokens();
+
+        // Skip period after name if present
+        if self.check(&TokenType::Period) {
+            self.advance();
+        }
+
+        self.skip_whitespace_tokens();
+
+        // Parse premises (Given: statements)
+        // Each premise is a sentence that can introduce referents for subsequent premises
+        let mut premises = Vec::new();
+        while self.check(&TokenType::Given) {
+            self.advance(); // consume "Given"
+
+            // Expect colon
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+
+            self.skip_whitespace_tokens();
+
+            // Parse the logic expression for this premise
+            let premise_expr = self.parse_sentence()?;
+            premises.push(premise_expr);
+
+            // Mark sentence boundary - this enables discourse mode and populates telescope
+            // so pronouns in subsequent premises can resolve to referents from this premise
+            self.world_state.end_sentence();
+
+            // Consume trailing period if present
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+
+            self.skip_whitespace_tokens();
+        }
+
+        // Parse goal (Prove: statement)
+        let goal = if self.check(&TokenType::Prove) {
+            self.advance(); // consume "Prove"
+
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+
+            self.skip_whitespace_tokens();
+
+            let goal_expr = self.parse_sentence()?;
+
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+
+            goal_expr
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "Prove".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        self.skip_whitespace_tokens();
+
+        // Parse proof strategy (Proof: Auto.)
+        let strategy = if self.check(&TokenType::BlockHeader { block_type: crate::token::BlockType::Proof }) {
+            self.advance();
+            self.skip_whitespace_tokens();
+
+            if self.check(&TokenType::Colon) {
+                self.advance();
+            }
+
+            self.skip_whitespace_tokens();
+
+            if self.check(&TokenType::Auto) {
+                self.advance();
+                ProofStrategy::Auto
+            } else {
+                // For now, default to Auto if we can't parse the strategy
+                ProofStrategy::Auto
+            }
+        } else {
+            // No explicit proof strategy, default to Auto
+            ProofStrategy::Auto
+        };
+
+        // Consume trailing period if present
+        if self.check(&TokenType::Period) {
+            self.advance();
+        }
+
+        let theorem = TheoremBlock {
+            name,
+            premises,
+            goal,
+            strategy,
+        };
+
+        Ok(Stmt::Theorem(theorem))
+    }
+
+    /// Skip whitespace tokens (newlines, indentation)
+    fn skip_whitespace_tokens(&mut self) {
+        while self.check(&TokenType::Newline) || self.check(&TokenType::Indent) || self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+    }
+
     /// Phase 32: Parse function definition after `## To` header
     /// Phase 32/38: Parse function definition
     /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
@@ -4312,20 +4494,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.parse_field_access_chain(base)
             }
 
-            // Handle ambiguous tokens that might be identifiers
+            // Handle ambiguous tokens that might be identifiers or function calls
             TokenType::Ambiguous { primary, alternatives } => {
-                let sym = match &**primary {
-                    TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => Some(*s),
-                    _ => alternatives.iter().find_map(|t| match t {
-                        TokenType::Noun(s) | TokenType::Adjective(s) | TokenType::ProperName(s) => Some(*s),
-                        _ => None
-                    })
+                // Always use lexeme for identifier access - preserves original casing
+                // (using verb lemma can give wrong casing like "Result" instead of "result")
+                let sym = token.lexeme;
+
+                // Check if this token can be used as identifier (has Noun/Verb/etc. interpretation)
+                let is_identifier_token = match &**primary {
+                    TokenType::Noun(_) | TokenType::Adjective(_) | TokenType::ProperName(_) |
+                    TokenType::Verb { .. } => true,
+                    _ => alternatives.iter().any(|t| matches!(t,
+                        TokenType::Noun(_) | TokenType::Adjective(_) | TokenType::ProperName(_) |
+                        TokenType::Verb { .. }
+                    ))
                 };
 
-                if let Some(s) = sym {
-                    self.verify_identifier_access(s)?;
+                if is_identifier_token {
                     self.advance();
-                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(s));
+
+                    // Check for function call: ambiguous_name(args)
+                    if self.check(&TokenType::LParen) {
+                        return self.parse_call_expr(sym);
+                    }
+
+                    self.verify_identifier_access(sym)?;
+                    let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
                     // Phase 31: Check for field access via possessive
                     self.parse_field_access_chain(base)
                 } else {
@@ -4660,9 +4854,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Write |
             TokenType::File |
             TokenType::Console |
-            // Phase 49: CRDT keywords can be function names (Merge, Increase)
+            // Phase 49: CRDT keywords can be type/function names
             TokenType::Merge |
             TokenType::Increase |
+            TokenType::Decrease |
+            // Phase 49b: CRDT type keywords can be type names
+            TokenType::Tally |
+            TokenType::SharedSet |
+            TokenType::SharedSequence |
+            TokenType::CollaborativeSequence |
             // Phase 54: "first", "second", etc. can be variable names
             // Phase 57: "add", "remove" can be function names
             TokenType::Add |
@@ -4672,7 +4872,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Both |            // "both" (correlative: both X and Y)
             TokenType::Either |          // "either" (correlative: either X or Y)
             TokenType::Combined |        // "combined" (string concat: combined with)
-            TokenType::Shared => {       // "shared" (CRDT type modifier)
+            TokenType::Shared |          // "shared" (CRDT type modifier)
+            // Phase 103: Focus particles can be variant names (Just, Only, Even)
+            TokenType::Focus(_) => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();
@@ -5207,6 +5409,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             };
             self.advance();
 
+            // Check for negation: "was not caught", "is not happy"
+            let is_negated = self.check(&TokenType::Not);
+            if is_negated {
+                self.advance(); // consume "not"
+            }
+
             // Check for Number token (measure phrase) before comparative or adjective
             // "John is 2 inches taller than Mary" or "The rope is 5 meters long"
             if self.check_number() {
@@ -5471,8 +5679,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
 
                 // Agentless passive: "The book was read" → ∃x.Read(x, Book)
-                if copula_time == Time::Past && verb_aspect == Aspect::Simple {
-                    // Could be agentless passive - treat as existential
+                // For DEFINITE subjects ("The butler was caught"), use simpler reading
+                // without existential over implicit agent: Past(catch(butler))
+                // This makes negation cleaner for theorem proving: ¬Past(catch(butler))
+                if copula_time == Time::Past && verb_aspect == Aspect::Simple
+                    && subject.definiteness != Some(Definiteness::Definite) {
+                    // Indefinite agentless passive - treat as existential over implicit agent
                     let var_name = self.next_var_name();
                     let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: verb,
@@ -5500,12 +5712,21 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         right: temporal,
                     });
 
-                    return Ok(self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                    let result = self.ctx.exprs.alloc(LogicExpr::Quantifier {
                         kind: QuantifierKind::Existential,
                         variable: var_name,
                         body,
                         island_id: self.current_island,
-                    }));
+                    });
+
+                    // Apply negation if "was not caught"
+                    if is_negated {
+                        return Ok(self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: result,
+                        }));
+                    }
+                    return Ok(result);
                 }
 
                 // Check if verb is an intensional predicate (e.g., "rising", "changing")
@@ -5547,7 +5768,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     with_aspect
                 };
 
-                return self.wrap_with_definiteness(subject.definiteness, subject.noun, with_time);
+                let final_expr = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: with_time,
+                    })
+                } else {
+                    with_time
+                };
+
+                // For DEFINITE subjects, return directly without Russellian wrapper
+                // "The butler was caught" → Past(catch(butler)) not ∃x(butler(x) ∧ ∀y(...) ∧ catch(x))
+                // This keeps the output simple for theorem proving
+                if subject.definiteness == Some(Definiteness::Definite) {
+                    return Ok(final_expr);
+                }
+
+                return self.wrap_with_definiteness(subject.definiteness, subject.noun, final_expr);
             }
 
             // Handle relative clause with copula: "The book that John read is good."
@@ -5587,7 +5824,28 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }));
             }
 
-            // Handle "The king is bald" - NP copula ADJ/NOUN
+            // Note: is_negated was already set after copula consumption above
+
+            // Handle identity: "Clark is Superman" - NP copula ProperName → Identity
+            // This enables Leibniz's Law: if Clark = Superman and mortal(Clark), then mortal(Superman)
+            if let TokenType::ProperName(predicate_name) = self.peek().kind {
+                self.advance(); // consume the proper name
+                let identity = self.ctx.exprs.alloc(LogicExpr::Identity {
+                    left: self.ctx.terms.alloc(Term::Constant(subject.noun)),
+                    right: self.ctx.terms.alloc(Term::Constant(predicate_name)),
+                });
+                let result = if is_negated {
+                    self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                        op: TokenType::Not,
+                        operand: identity,
+                    })
+                } else {
+                    identity
+                };
+                return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
+            }
+
+            // Handle "The king is bald" or "Alice is not guilty" - NP copula (not)? ADJ/NOUN
             // Also handles bare noun predicates like "Time is money"
             let predicate_name = self.consume_content_word()?;
 
@@ -5623,11 +5881,23 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),
                 world: None,
             });
-            return self.wrap_with_definiteness(subject.definiteness, subject.noun, predicate);
+
+            // Apply negation if "is not"
+            let result = if is_negated {
+                self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                    op: TokenType::Not,
+                    operand: predicate,
+                })
+            } else {
+                predicate
+            };
+            return self.wrap_with_definiteness(subject.definiteness, subject.noun, result);
         }
 
         // Handle auxiliary: set pending_time, handle negation
-        if self.check_auxiliary() {
+        // BUT: "did it" should be parsed as verb "do" with object "it"
+        // We lookahead to check if this is truly an auxiliary usage
+        if self.check_auxiliary() && self.is_true_auxiliary_usage() {
             let aux_time = if let TokenType::Auxiliary(time) = self.advance().kind {
                 time
             } else {
@@ -5644,8 +5914,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance();
                 }
 
-                if self.check_verb() {
-                    let verb = self.consume_verb();
+                // Check for verb or "do" (TokenType::Do is separate from TokenType::Verb)
+                if self.check_verb() || self.check(&TokenType::Do) {
+                    let verb = if self.check(&TokenType::Do) {
+                        self.advance(); // consume "do"
+                        self.interner.intern("Do")
+                    } else {
+                        self.consume_verb()
+                    };
                     let subject_term = self.noun_phrase_to_term(&subject);
 
                     // Check for NPI object first: "John did not see anything"
@@ -5809,11 +6085,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         _ => {}
                     }
 
-                    // Check for object
-                    if self.check_content_word() || self.check_article() {
-                        let object = self.parse_noun_phrase(false)?;
-                        let object_term = self.noun_phrase_to_term(&object);
-                        roles.push((ThematicRole::Theme, object_term));
+                    // Check for object: NP, article+NP, or pronoun (like "it")
+                    if self.check_content_word() || self.check_article() || self.check_pronoun() {
+                        if self.check_pronoun() {
+                            // Handle pronoun object like "it" in "did not do it"
+                            let pronoun_token = self.advance();
+                            let pronoun_sym = pronoun_token.lexeme;
+                            roles.push((ThematicRole::Theme, Term::Constant(pronoun_sym)));
+                        } else {
+                            let object = self.parse_noun_phrase(false)?;
+                            let object_term = self.noun_phrase_to_term(&object);
+                            roles.push((ThematicRole::Theme, object_term));
+                        }
                     }
 
                     let event_var = self.get_event_var();
@@ -6039,9 +6322,169 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
 
                 // Regular do-support: "John does run" or "John does not run"
+                // Also handles transitive: "John does not shave any man"
                 let subject_term = self.noun_phrase_to_term(&subject);
-                let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term)];
                 let modifiers: Vec<Symbol> = vec![];
+
+                // Check for reflexive object
+                if self.check(&TokenType::Reflexive) {
+                    self.advance();
+                    let roles = vec![
+                        (ThematicRole::Agent, subject_term.clone()),
+                        (ThematicRole::Theme, subject_term),
+                    ];
+                    let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                    }
+                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(roles),
+                        modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
+                        world: None,
+                    })));
+
+                    let result = if is_negated {
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: neo_event,
+                        })
+                    } else {
+                        neo_event
+                    };
+                    return self.wrap_with_definiteness_full(&subject, result);
+                }
+
+                // Check for quantified object: "does not shave any man"
+                if self.check_npi_quantifier() || self.check_quantifier() || self.check_article() {
+                    let (obj_quantifier, was_definite_article) = if self.check_npi_quantifier() {
+                        // "any" is an NPI quantifier in negative contexts
+                        let tok = self.advance().kind.clone();
+                        (Some(tok), false)
+                    } else if self.check_quantifier() {
+                        (Some(self.advance().kind.clone()), false)
+                    } else {
+                        let art = self.advance().kind.clone();
+                        if let TokenType::Article(def) = art {
+                            if def == Definiteness::Indefinite {
+                                (Some(TokenType::Some), false)
+                            } else {
+                                (None, true)
+                            }
+                        } else {
+                            (None, false)
+                        }
+                    };
+
+                    let object_np = self.parse_noun_phrase(false)?;
+                    let obj_var = self.next_var_name();
+
+                    let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
+                        name: object_np.noun,
+                        args: self.ctx.terms.alloc_slice([Term::Variable(obj_var)]),
+                        world: None,
+                    });
+
+                    // Check for relative clause on object
+                    let obj_restriction = if self.check(&TokenType::That) || self.check(&TokenType::Who) {
+                        self.advance();
+                        let rel_clause = self.parse_relative_clause(obj_var)?;
+                        self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: type_pred,
+                            op: TokenType::And,
+                            right: rel_clause,
+                        })
+                    } else {
+                        type_pred
+                    };
+
+                    let event_var = self.get_event_var();
+                    let suppress_existential = self.drs.in_conditional_antecedent();
+                    if suppress_existential {
+                        let event_class = self.interner.intern("Event");
+                        self.drs.introduce_referent(event_var, event_class, Gender::Neuter, Number::Singular);
+                    }
+
+                    let roles = vec![
+                        (ThematicRole::Agent, subject_term),
+                        (ThematicRole::Theme, Term::Variable(obj_var)),
+                    ];
+
+                    let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+                        event_var,
+                        verb,
+                        roles: self.ctx.roles.alloc_slice(roles),
+                        modifiers: self.ctx.syms.alloc_slice(modifiers),
+                        suppress_existential,
+                        world: None,
+                    })));
+
+                    // Build quantified expression
+                    // For "does not shave any man" with negation + any:
+                    // ¬∃x(Man(x) ∧ Shave(barber, x)) = "there is no man the barber shaves"
+                    let quantifier_kind = match &obj_quantifier {
+                        Some(TokenType::Any) if is_negated => QuantifierKind::Existential,
+                        Some(TokenType::All) => QuantifierKind::Universal,
+                        Some(TokenType::No) => QuantifierKind::Universal,
+                        _ => QuantifierKind::Existential,
+                    };
+
+                    let obj_body = match &obj_quantifier {
+                        Some(TokenType::All) => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: obj_restriction,
+                            op: TokenType::If,
+                            right: neo_event,
+                        }),
+                        Some(TokenType::No) => {
+                            let neg = self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                                op: TokenType::Not,
+                                operand: neo_event,
+                            });
+                            self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                                left: obj_restriction,
+                                op: TokenType::If,
+                                right: neg,
+                            })
+                        }
+                        _ => self.ctx.exprs.alloc(LogicExpr::BinaryOp {
+                            left: obj_restriction,
+                            op: TokenType::And,
+                            right: neo_event,
+                        }),
+                    };
+
+                    let obj_quantified = self.ctx.exprs.alloc(LogicExpr::Quantifier {
+                        kind: quantifier_kind,
+                        variable: obj_var,
+                        body: obj_body,
+                        island_id: self.current_island,
+                    });
+
+                    // Apply negation at sentence level for "does not ... any"
+                    let result = if is_negated && matches!(obj_quantifier, Some(TokenType::Any)) {
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: obj_quantified,
+                        })
+                    } else if is_negated {
+                        // For other quantifiers, negate the whole thing
+                        self.ctx.exprs.alloc(LogicExpr::UnaryOp {
+                            op: TokenType::Not,
+                            operand: obj_quantified,
+                        })
+                    } else {
+                        obj_quantified
+                    };
+
+                    return self.wrap_with_definiteness_full(&subject, result);
+                }
+
+                // Intransitive: "John does (not) run"
+                let roles: Vec<(ThematicRole, Term<'a>)> = vec![(ThematicRole::Agent, subject_term)];
                 let event_var = self.get_event_var();
                 let suppress_existential = self.drs.in_conditional_antecedent();
                 if suppress_existential {
@@ -6548,7 +6991,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     } else {
                         Number::Singular
                     };
-                    self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+                    // Definite descriptions presuppose existence, so they should be globally accessible
+                    if object_np.definiteness == Some(Definiteness::Definite) {
+                        self.drs.introduce_referent_with_source(obj_var, object_np.noun, obj_gender, obj_number, ReferentSource::MainClause);
+                    } else {
+                        self.drs.introduce_referent(obj_var, object_np.noun, obj_gender, obj_number);
+                    }
 
                     let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                         name: object_np.noun,
@@ -6664,7 +7112,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         } else {
                             Number::Singular
                         };
-                        self.drs.introduce_referent(object_np.noun, object_np.noun, obj_gender, obj_number);
+                        // Definite descriptions presuppose existence, so they should be globally accessible
+                        self.drs.introduce_referent_with_source(object_np.noun, object_np.noun, obj_gender, obj_number, ReferentSource::MainClause);
                     }
 
                     let term = self.noun_phrase_to_term(&object_np);
@@ -7192,6 +7641,119 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     fn check_auxiliary(&self) -> bool {
         matches!(self.peek().kind, TokenType::Auxiliary(_))
+    }
+
+    /// Check if the current auxiliary is being used as a true auxiliary (followed by "not" or verb)
+    /// vs being used as a main verb (like "did" in "did it").
+    ///
+    /// "did not bark" → auxiliary usage (emphatic past + negation)
+    /// "did run" → auxiliary usage (emphatic past)
+    /// "did it" → main verb usage (past of "do" + object)
+    fn is_true_auxiliary_usage(&self) -> bool {
+        if self.current + 1 >= self.tokens.len() {
+            return false;
+        }
+
+        let next_token = &self.tokens[self.current + 1].kind;
+
+        // If followed by "not", it's auxiliary usage
+        if matches!(next_token, TokenType::Not) {
+            return true;
+        }
+
+        // If followed by a verb, it's auxiliary usage
+        if matches!(next_token, TokenType::Verb { .. }) {
+            return true;
+        }
+
+        // If followed by pronoun (it, him, her, etc.), article, or noun, it's main verb usage
+        if matches!(
+            next_token,
+            TokenType::Pronoun { .. }
+                | TokenType::Article(_)
+                | TokenType::Noun(_)
+                | TokenType::ProperName(_)
+        ) {
+            return false;
+        }
+
+        // Default to auxiliary usage for backward compatibility
+        true
+    }
+
+    /// Check if we have an Auxiliary token that should be treated as a main verb.
+    /// This is true for "did" when followed by an object (e.g., "the butler did it").
+    fn check_auxiliary_as_main_verb(&self) -> bool {
+        if let TokenType::Auxiliary(Time::Past) = self.peek().kind {
+            // Check if followed by pronoun, article, or noun (object)
+            if self.current + 1 < self.tokens.len() {
+                let next = &self.tokens[self.current + 1].kind;
+                matches!(
+                    next,
+                    TokenType::Pronoun { .. }
+                        | TokenType::Article(_)
+                        | TokenType::Noun(_)
+                        | TokenType::ProperName(_)
+                )
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Parse "did" as the main verb "do" (past tense) with a transitive object.
+    /// This handles constructions like "the butler did it" → Do(e) ∧ Agent(e, butler) ∧ Theme(e, it)
+    fn parse_do_as_main_verb(&mut self, subject_term: Term<'a>) -> ParseResult<&'a LogicExpr<'a>> {
+        // Consume the auxiliary token (we're treating it as past tense "do")
+        let aux_token = self.advance();
+        let verb_time = if let TokenType::Auxiliary(time) = aux_token.kind {
+            time
+        } else {
+            Time::Past
+        };
+
+        // Intern "Do" as the verb lemma
+        let verb = self.interner.intern("Do");
+
+        // Parse the object - handle pronouns specially
+        let object_term = if let TokenType::Pronoun { .. } = self.peek().kind {
+            // Pronoun object (like "it" in "did it")
+            self.advance();
+            // For "it", we use a generic placeholder or resolved referent
+            // In the context of "did it", "it" often refers to "the crime" or "the act"
+            let it_sym = self.interner.intern("it");
+            Term::Constant(it_sym)
+        } else {
+            let object = self.parse_noun_phrase(false)?;
+            self.noun_phrase_to_term(&object)
+        };
+
+        // Build Neo-Davidsonian event structure
+        let event_var = self.get_event_var();
+        let suppress_existential = self.drs.in_conditional_antecedent();
+
+        let mut modifiers = Vec::new();
+        if verb_time == Time::Past {
+            modifiers.push(self.interner.intern("Past"));
+        } else if verb_time == Time::Future {
+            modifiers.push(self.interner.intern("Future"));
+        }
+
+        let neo_event = self.ctx.exprs.alloc(LogicExpr::NeoEvent(Box::new(NeoEventData {
+            event_var,
+            verb,
+            roles: self.ctx.roles.alloc_slice(vec![
+                (ThematicRole::Agent, subject_term),
+                (ThematicRole::Theme, object_term),
+            ]),
+            modifiers: self.ctx.syms.alloc_slice(modifiers),
+            suppress_existential,
+            world: None,
+        })));
+
+        Ok(neo_event)
     }
 
     fn check_to(&self) -> bool {

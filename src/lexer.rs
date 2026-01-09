@@ -1407,6 +1407,10 @@ impl<'a> Lexer<'a> {
             "assert" => return TokenType::Assert,
             "trust" => return TokenType::Trust,  // Phase 35: Trust statement
             "check" => return TokenType::Check,  // Phase 50: Security check
+            // Phase 63: Theorem keywords (Declarative mode - for theorem blocks)
+            "given" if self.mode == LexerMode::Declarative => return TokenType::Given,
+            "prove" if self.mode == LexerMode::Declarative => return TokenType::Prove,
+            "auto" if self.mode == LexerMode::Declarative => return TokenType::Auto,
             // Phase 51: P2P Networking keywords (Imperative mode only)
             "listen" if self.mode == LexerMode::Imperative => return TokenType::Listen,
             "connect" if self.mode == LexerMode::Imperative => return TokenType::NetConnect,

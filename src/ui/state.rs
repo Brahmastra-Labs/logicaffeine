@@ -382,6 +382,185 @@ pub struct PackageDetails {
     pub versions: Vec<PackageVersion>,
 }
 
+// ============================================================
+// Studio Mode State
+// ============================================================
+
+/// The active mode in the Studio playground.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum StudioMode {
+    /// English to First-Order Logic translation (default)
+    #[default]
+    Logic,
+    /// Vernacular REPL for proof development and .logos files
+    Code,
+    /// Visual formula builder with LaTeX preview
+    Math,
+}
+
+impl StudioMode {
+    /// Returns the file extension for this mode.
+    pub fn extension(&self) -> &'static str {
+        match self {
+            StudioMode::Logic => "logic",
+            StudioMode::Code => "logos",
+            StudioMode::Math => "math",
+        }
+    }
+
+    /// Returns the display name for this mode.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            StudioMode::Logic => "Logic",
+            StudioMode::Code => "Code",
+            StudioMode::Math => "Math",
+        }
+    }
+
+    /// Infer mode from file extension.
+    pub fn from_extension(ext: &str) -> Option<Self> {
+        match ext.to_lowercase().as_str() {
+            "logic" => Some(StudioMode::Logic),
+            "logos" => Some(StudioMode::Code),
+            "math" => Some(StudioMode::Math),
+            _ => None,
+        }
+    }
+}
+
+/// A node in the file tree representing a file or directory.
+#[derive(Clone, PartialEq, Debug)]
+pub struct FileNode {
+    /// Name of the file or directory (not full path).
+    pub name: String,
+    /// Full path from VFS root.
+    pub path: String,
+    /// True if this is a directory.
+    pub is_directory: bool,
+    /// Child nodes (empty for files).
+    pub children: Vec<FileNode>,
+    /// Whether this directory is expanded in the UI.
+    pub expanded: bool,
+}
+
+impl FileNode {
+    /// Create a new file node.
+    pub fn file(name: String, path: String) -> Self {
+        Self {
+            name,
+            path,
+            is_directory: false,
+            children: Vec::new(),
+            expanded: false,
+        }
+    }
+
+    /// Create a new directory node.
+    pub fn directory(name: String, path: String) -> Self {
+        Self {
+            name,
+            path,
+            is_directory: true,
+            children: Vec::new(),
+            expanded: false,
+        }
+    }
+
+    /// Create the root node for the file tree.
+    pub fn root() -> Self {
+        Self {
+            name: "workspace".to_string(),
+            path: "/".to_string(),
+            is_directory: true,
+            children: Vec::new(),
+            expanded: true,
+        }
+    }
+
+    /// Toggle the expanded state of a directory.
+    pub fn toggle_expanded(&mut self) {
+        if self.is_directory {
+            self.expanded = !self.expanded;
+        }
+    }
+
+    /// Find a node by path (mutable).
+    pub fn find_mut(&mut self, path: &str) -> Option<&mut FileNode> {
+        if self.path == path {
+            return Some(self);
+        }
+        for child in &mut self.children {
+            if let Some(found) = child.find_mut(path) {
+                return Some(found);
+            }
+        }
+        None
+    }
+}
+
+/// A line in the REPL output history.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ReplLine {
+    /// The input command.
+    pub input: String,
+    /// The output (result or error).
+    pub output: Result<String, String>,
+    /// Whether this was executed successfully.
+    pub success: bool,
+}
+
+impl ReplLine {
+    pub fn success(input: String, output: String) -> Self {
+        Self {
+            input,
+            output: Ok(output),
+            success: true,
+        }
+    }
+
+    pub fn error(input: String, error: String) -> Self {
+        Self {
+            input,
+            output: Err(error),
+            success: false,
+        }
+    }
+}
+
+/// A formula entry for Math mode.
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MathFormula {
+    /// The LaTeX source.
+    pub latex: String,
+    /// Optional label/name for the formula.
+    pub label: Option<String>,
+}
+
+/// Math mode file format.
+#[derive(Clone, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
+pub struct MathDocument {
+    /// Document name.
+    pub name: String,
+    /// List of formulas.
+    pub formulas: Vec<MathFormula>,
+    /// Index of the currently active formula.
+    #[serde(default)]
+    pub active_index: usize,
+}
+
+impl Default for MathDocument {
+    fn default() -> Self {
+        Self {
+            name: "Untitled".to_string(),
+            formulas: vec![MathFormula {
+                latex: String::new(),
+                label: None,
+            }],
+            active_index: 0,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

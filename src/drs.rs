@@ -623,32 +623,44 @@ impl Drs {
 
     /// Resolve a pronoun by finding accessible referents matching gender and number
     pub fn resolve_pronoun(&mut self, from_box: usize, gender: Gender, number: Number) -> Result<Symbol, ScopeError> {
-        // Phase 1: Search accessible boxes (skip referents from NegationScope source)
+        // Phase 1: Search accessible referents
+        // A referent is accessible if:
+        //   - It's in an accessible box, OR
+        //   - It has MainClause/ProperName source (globally accessible, e.g. definite descriptions)
+        // Skip referents from NegationScope or Disjunct sources (always inaccessible)
         let mut candidates = Vec::new();
 
         for (box_idx, drs_box) in self.boxes.iter().enumerate() {
-            if self.is_accessible(box_idx, from_box) {
-                for referent in &drs_box.universe {
-                    // Skip referents that are from negative quantifiers (No X)
-                    if matches!(referent.source, ReferentSource::NegationScope) {
-                        continue;
-                    }
+            let box_accessible = self.is_accessible(box_idx, from_box);
 
-                    // Gender matching rules:
-                    // - Exact match (Male=Male, Female=Female, etc)
-                    // - Unknown referents match any pronoun (gender accommodation)
-                    // - Unknown pronouns match any referent
-                    // This allows "He" to refer to "farmer" even if farmer's gender is Unknown
-                    let gender_match = referent.gender == gender
-                        || referent.gender == Gender::Unknown
-                        || gender == Gender::Unknown;
+            for referent in &drs_box.universe {
+                // Skip referents that are from negative quantifiers (No X) or disjuncts
+                // Both are inaccessible outward per DRS accessibility
+                if matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct) {
+                    continue;
+                }
 
-                    // Number matching: must match exactly (no number accommodation)
-                    let number_match = referent.number == number;
+                // Check if this referent is accessible:
+                // Either the box is accessible, or the referent has globally accessible source
+                let has_global_source = matches!(referent.source, ReferentSource::MainClause | ReferentSource::ProperName);
+                if !box_accessible && !has_global_source {
+                    continue;
+                }
 
-                    if gender_match && number_match {
-                        candidates.push((box_idx, referent.variable));
-                    }
+                // Gender matching rules:
+                // - Exact match (Male=Male, Female=Female, etc)
+                // - Unknown referents match any pronoun (gender accommodation)
+                // - Unknown pronouns match any referent
+                // This allows "He" to refer to "farmer" even if farmer's gender is Unknown
+                let gender_match = referent.gender == gender
+                    || referent.gender == Gender::Unknown
+                    || gender == Gender::Unknown;
+
+                // Number matching: must match exactly (no number accommodation)
+                let number_match = referent.number == number;
+
+                if gender_match && number_match {
+                    candidates.push((box_idx, referent.variable));
                 }
             }
         }
@@ -665,13 +677,19 @@ impl Drs {
             }
         }
 
-        // Phase 2: Check inaccessible boxes OR referents with NegationScope source
+        // Phase 2: Check inaccessible boxes OR referents with NegationScope/Disjunct source
         // Use the same strict gender matching for consistency
         for (_box_idx, drs_box) in self.boxes.iter().enumerate() {
             for referent in &drs_box.universe {
-                // Check for referents with NegationScope source (from "No X")
+                // Referents with MainClause or ProperName source are ALWAYS accessible
+                // (definite descriptions presuppose existence and are globally accessible)
+                if matches!(referent.source, ReferentSource::MainClause | ReferentSource::ProperName) {
+                    continue;
+                }
+
+                // Check for referents with NegationScope/Disjunct source (from "No X" or disjuncts)
                 // OR referents in inaccessible boxes
-                let is_inaccessible = matches!(referent.source, ReferentSource::NegationScope)
+                let is_inaccessible = matches!(referent.source, ReferentSource::NegationScope | ReferentSource::Disjunct)
                     || !self.is_accessible(_box_idx, from_box);
 
                 if is_inaccessible {
@@ -685,6 +703,8 @@ impl Drs {
                         // Found a matching referent but it's inaccessible
                         let blocking_scope = if matches!(referent.source, ReferentSource::NegationScope) {
                             BoxType::NegationScope
+                        } else if matches!(referent.source, ReferentSource::Disjunct) {
+                            BoxType::Disjunct
                         } else {
                             drs_box.box_type.unwrap_or(BoxType::Main)
                         };
