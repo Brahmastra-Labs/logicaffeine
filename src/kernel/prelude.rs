@@ -19,6 +19,7 @@ impl StandardLibrary {
         Self::register_entity(ctx);
         Self::register_nat(ctx);
         Self::register_bool(ctx);
+        Self::register_tlist(ctx);
         Self::register_true(ctx);
         Self::register_false(ctx);
         Self::register_not(ctx);
@@ -111,6 +112,120 @@ impl StandardLibrary {
 
         // false : Bool
         ctx.add_constructor("false", "Bool", bool_type);
+    }
+
+    /// TList : Type 0 -> Type 0
+    /// TNil : Π(A : Type 0). TList A
+    /// TCons : Π(A : Type 0). A -> TList A -> TList A
+    fn register_tlist(ctx: &mut Context) {
+        let type0 = Term::Sort(Universe::Type(0));
+        let a = Term::Var("A".to_string());
+
+        // TList : Type 0 -> Type 0
+        let tlist_type = Term::Pi {
+            param: "A".to_string(),
+            param_type: Box::new(type0.clone()),
+            body_type: Box::new(type0.clone()),
+        };
+        ctx.add_inductive("TList", tlist_type);
+
+        // TList A
+        let tlist_a = Term::App(
+            Box::new(Term::Global("TList".to_string())),
+            Box::new(a.clone()),
+        );
+
+        // TNil : Π(A : Type 0). TList A
+        let tnil_type = Term::Pi {
+            param: "A".to_string(),
+            param_type: Box::new(type0.clone()),
+            body_type: Box::new(tlist_a.clone()),
+        };
+        ctx.add_constructor("TNil", "TList", tnil_type);
+
+        // TCons : Π(A : Type 0). A -> TList A -> TList A
+        let tcons_type = Term::Pi {
+            param: "A".to_string(),
+            param_type: Box::new(type0),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(a.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(tlist_a.clone()),
+                    body_type: Box::new(tlist_a),
+                }),
+            }),
+        };
+        ctx.add_constructor("TCons", "TList", tcons_type);
+
+        // Convenience aliases for tactic lists (Syntax -> Derivation)
+        Self::register_tactic_list_helpers(ctx);
+    }
+
+    /// TTactics : Type 0 = TList (Syntax -> Derivation)
+    /// TacNil : TTactics
+    /// TacCons : (Syntax -> Derivation) -> TTactics -> TTactics
+    ///
+    /// Convenience wrappers to avoid explicit type arguments for tactic lists.
+    fn register_tactic_list_helpers(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // Tactic type: Syntax -> Derivation
+        let tactic_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()),
+            body_type: Box::new(derivation.clone()),
+        };
+
+        // TTactics = TList (Syntax -> Derivation)
+        let ttactics = Term::App(
+            Box::new(Term::Global("TList".to_string())),
+            Box::new(tactic_type.clone()),
+        );
+
+        // TTactics : Type 0
+        ctx.add_definition("TTactics".to_string(), Term::Sort(Universe::Type(0)), ttactics.clone());
+
+        // TacNil : TTactics = TNil (Syntax -> Derivation)
+        let tac_nil_body = Term::App(
+            Box::new(Term::Global("TNil".to_string())),
+            Box::new(tactic_type.clone()),
+        );
+        ctx.add_definition("TacNil".to_string(), ttactics.clone(), tac_nil_body);
+
+        // TacCons : (Syntax -> Derivation) -> TTactics -> TTactics
+        let tac_cons_type = Term::Pi {
+            param: "t".to_string(),
+            param_type: Box::new(tactic_type.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "ts".to_string(),
+                param_type: Box::new(ttactics.clone()),
+                body_type: Box::new(ttactics.clone()),
+            }),
+        };
+
+        // TacCons t ts = TCons (Syntax -> Derivation) t ts
+        let tac_cons_body = Term::Lambda {
+            param: "t".to_string(),
+            param_type: Box::new(tactic_type.clone()),
+            body: Box::new(Term::Lambda {
+                param: "ts".to_string(),
+                param_type: Box::new(ttactics.clone()),
+                body: Box::new(Term::App(
+                    Box::new(Term::App(
+                        Box::new(Term::App(
+                            Box::new(Term::Global("TCons".to_string())),
+                            Box::new(tactic_type),
+                        )),
+                        Box::new(Term::Var("t".to_string())),
+                    )),
+                    Box::new(Term::Var("ts".to_string())),
+                )),
+            }),
+        };
+        ctx.add_definition("TacCons".to_string(), tac_cons_type, tac_cons_body);
     }
 
     /// True : Prop
@@ -592,6 +707,11 @@ impl StandardLibrary {
         Self::register_try_cong(ctx);
         Self::register_tact_fail(ctx);
         Self::register_tact_orelse(ctx);
+        Self::register_tact_try(ctx);
+        Self::register_tact_repeat(ctx);
+        Self::register_tact_then(ctx);
+        Self::register_tact_first(ctx);
+        Self::register_tact_solve(ctx);
         Self::register_try_ring(ctx);
         Self::register_try_lia(ctx);
         Self::register_try_cc(ctx);
@@ -1381,6 +1501,168 @@ impl StandardLibrary {
         };
 
         ctx.add_declaration("tact_orelse", tact_orelse_type);
+    }
+
+    /// tact_try : (Syntax -> Derivation) -> Syntax -> Derivation
+    ///
+    /// Tactic combinator: try the tactic, but never fail.
+    /// If the tactic fails (concludes to Error), return identity (DAxiom goal).
+    /// Computational behavior defined in reduction.rs.
+    fn register_tact_try(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // Tactic type: Syntax -> Derivation
+        let tactic_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()),
+            body_type: Box::new(derivation.clone()),
+        };
+
+        // tact_try : (Syntax -> Derivation) -> Syntax -> Derivation
+        let tact_try_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(tactic_type), // t
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax),
+                body_type: Box::new(derivation),
+            }),
+        };
+
+        ctx.add_declaration("tact_try", tact_try_type);
+    }
+
+    /// tact_repeat : (Syntax -> Derivation) -> Syntax -> Derivation
+    ///
+    /// Tactic combinator: apply tactic repeatedly until it fails or makes no progress.
+    /// Returns identity if tactic fails immediately.
+    /// Computational behavior defined in reduction.rs.
+    fn register_tact_repeat(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // Tactic type: Syntax -> Derivation
+        let tactic_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()),
+            body_type: Box::new(derivation.clone()),
+        };
+
+        // tact_repeat : (Syntax -> Derivation) -> Syntax -> Derivation
+        let tact_repeat_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(tactic_type), // t
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax),
+                body_type: Box::new(derivation),
+            }),
+        };
+
+        ctx.add_declaration("tact_repeat", tact_repeat_type);
+    }
+
+    /// tact_then : (Syntax -> Derivation) -> (Syntax -> Derivation) -> Syntax -> Derivation
+    ///
+    /// Tactic combinator: sequence two tactics (the ";" operator).
+    /// Apply t1 to goal, then apply t2 to the result.
+    /// Fails if either tactic fails.
+    /// Computational behavior defined in reduction.rs.
+    fn register_tact_then(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // Tactic type: Syntax -> Derivation
+        let tactic_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()),
+            body_type: Box::new(derivation.clone()),
+        };
+
+        // tact_then : (Syntax -> Derivation) -> (Syntax -> Derivation) -> Syntax -> Derivation
+        let tact_then_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(tactic_type.clone()), // t1
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(tactic_type), // t2
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax),
+                    body_type: Box::new(derivation),
+                }),
+            }),
+        };
+
+        ctx.add_declaration("tact_then", tact_then_type);
+    }
+
+    /// tact_first : TList (Syntax -> Derivation) -> Syntax -> Derivation
+    ///
+    /// Tactic combinator: try tactics from a list until one succeeds.
+    /// Returns Error if all tactics fail or list is empty.
+    /// Computational behavior defined in reduction.rs.
+    fn register_tact_first(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // Tactic type: Syntax -> Derivation
+        let tactic_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()),
+            body_type: Box::new(derivation.clone()),
+        };
+
+        // TList (Syntax -> Derivation)
+        let tactic_list_type = Term::App(
+            Box::new(Term::Global("TList".to_string())),
+            Box::new(tactic_type),
+        );
+
+        // tact_first : TList (Syntax -> Derivation) -> Syntax -> Derivation
+        let tact_first_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(tactic_list_type), // tactics
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax),
+                body_type: Box::new(derivation),
+            }),
+        };
+
+        ctx.add_declaration("tact_first", tact_first_type);
+    }
+
+    /// tact_solve : (Syntax -> Derivation) -> Syntax -> Derivation
+    ///
+    /// Tactic combinator: tactic MUST completely solve the goal.
+    /// If tactic returns Error, returns Error.
+    /// If tactic returns a proof, returns that proof.
+    /// Computational behavior defined in reduction.rs.
+    fn register_tact_solve(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // Tactic type: Syntax -> Derivation
+        let tactic_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()),
+            body_type: Box::new(derivation.clone()),
+        };
+
+        // tact_solve : (Syntax -> Derivation) -> Syntax -> Derivation
+        let tact_solve_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(tactic_type), // t
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax),
+                body_type: Box::new(derivation),
+            }),
+        };
+
+        ctx.add_declaration("tact_solve", tact_solve_type);
     }
 
     // =========================================================================

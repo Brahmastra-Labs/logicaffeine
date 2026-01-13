@@ -2180,7 +2180,7 @@ mod tests {
     #[test]
     fn test_parse_let_definition() {
         let cmd = parse_let_definition("Let T be Zero").unwrap();
-        if let Command::Definition { name, ty, body } = cmd {
+        if let Command::Definition { name, ty, body, .. } = cmd {
             assert_eq!(name, "T");
             assert!(ty.is_none());
             if let Term::Global(g) = body {
@@ -2342,7 +2342,7 @@ mod tests {
     #[test]
     fn test_parse_complex_let_with_apply() {
         let cmd = parse_let_definition("Let T be Apply(Name \"Not\", Apply(Name \"Provable\", Variable 0)).").unwrap();
-        if let Command::Definition { name, ty, body } = cmd {
+        if let Command::Definition { name, ty, body, .. } = cmd {
             assert_eq!(name, "T");
             assert!(ty.is_none());
             // Body should be nested applications
@@ -2414,7 +2414,7 @@ mod tests {
     fn test_parse_theorem() {
         // ## Theorem: MyTheorem\n    Statement: True implies True.
         let cmd = parse_theorem("## Theorem: MyTheorem\n    Statement: A implies B.").unwrap();
-        if let Command::Definition { name, ty, body } = cmd {
+        if let Command::Definition { name, ty, body, .. } = cmd {
             assert_eq!(name, "MyTheorem");
             // Type should be Prop
             assert!(ty.is_some());

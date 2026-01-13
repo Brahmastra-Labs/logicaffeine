@@ -527,6 +527,32 @@ fn try_reflection_reduce(ctx: &Context, func: &Term, arg: &Term) -> Option<Term>
                 if name == "tact_orelse" {
                     return try_tact_orelse_reduce(ctx, t1, t2, arg);
                 }
+                // tact_then t1 t2 goal (3 arguments)
+                if name == "tact_then" {
+                    return try_tact_then_reduce(ctx, t1, t2, arg);
+                }
+            }
+        }
+    }
+
+    // tact_try t goal (2 arguments)
+    // Structure: ((tact_try t) goal)
+    if let Term::App(combinator, t) = func {
+        if let Term::Global(name) = combinator.as_ref() {
+            if name == "tact_try" {
+                return try_tact_try_reduce(ctx, t, arg);
+            }
+            // tact_repeat t goal (2 arguments)
+            if name == "tact_repeat" {
+                return try_tact_repeat_reduce(ctx, t, arg);
+            }
+            // tact_solve t goal (2 arguments)
+            if name == "tact_solve" {
+                return try_tact_solve_reduce(ctx, t, arg);
+            }
+            // tact_first tactics goal (2 arguments)
+            if name == "tact_first" {
+                return try_tact_first_reduce(ctx, t, arg);
             }
         }
     }
@@ -1920,6 +1946,12 @@ fn make_error_derivation() -> Term {
     Term::App(Box::new(daxiom), Box::new(error))
 }
 
+/// Build DAxiom goal (identity derivation)
+fn make_daxiom(goal: &Term) -> Term {
+    let daxiom = Term::Global("DAxiom".to_string());
+    Term::App(Box::new(daxiom), Box::new(goal.clone()))
+}
+
 /// Reflexivity tactic: try to prove a goal by reflexivity.
 ///
 /// try_refl goal:
@@ -3045,6 +3077,217 @@ fn is_error_syntax(term: &Term) -> bool {
         }
     }
     false
+}
+
+/// Reduce tact_try t goal
+///
+/// - Apply t to goal
+/// - If concludes returns Error, return identity (DAxiom goal)
+/// - Otherwise return t's result
+fn try_tact_try_reduce(ctx: &Context, t: &Term, goal: &Term) -> Option<Term> {
+    let norm_goal = normalize(ctx, goal);
+
+    // Apply t to goal
+    let d_app = Term::App(Box::new(t.clone()), Box::new(norm_goal.clone()));
+    let d = normalize(ctx, &d_app);
+
+    // Check if t succeeded by looking at concludes
+    if let Some(conc) = try_concludes_reduce(ctx, &d) {
+        if is_error_syntax(&conc) {
+            // t failed, return identity (DAxiom goal)
+            return Some(make_daxiom(&norm_goal));
+        } else {
+            // t succeeded
+            return Some(d);
+        }
+    }
+
+    // Couldn't evaluate concludes - return identity
+    Some(make_daxiom(&norm_goal))
+}
+
+/// Reduce tact_repeat t goal
+///
+/// Apply t repeatedly until it fails or makes no progress.
+/// Returns the accumulated derivation or identity if first application fails.
+fn try_tact_repeat_reduce(ctx: &Context, t: &Term, goal: &Term) -> Option<Term> {
+    const MAX_ITERATIONS: usize = 100;
+
+    let norm_goal = normalize(ctx, goal);
+    let mut current_goal = norm_goal.clone();
+    let mut last_successful_deriv: Option<Term> = None;
+
+    for _ in 0..MAX_ITERATIONS {
+        // Apply t to current goal
+        let d_app = Term::App(Box::new(t.clone()), Box::new(current_goal.clone()));
+        let d = normalize(ctx, &d_app);
+
+        // Check result
+        if let Some(conc) = try_concludes_reduce(ctx, &d) {
+            if is_error_syntax(&conc) {
+                // Tactic failed - stop and return what we have
+                break;
+            }
+
+            // Check for no-progress (fixed point)
+            if syntax_equal(&conc, &current_goal) {
+                // No progress made - stop
+                break;
+            }
+
+            // Progress made - continue
+            current_goal = conc;
+            last_successful_deriv = Some(d);
+        } else {
+            // Couldn't evaluate concludes - stop
+            break;
+        }
+    }
+
+    // Return final derivation or identity
+    last_successful_deriv.or_else(|| Some(make_daxiom(&norm_goal)))
+}
+
+/// Reduce tact_then t1 t2 goal
+///
+/// - Apply t1 to goal
+/// - If t1 fails, return Error
+/// - Otherwise apply t2 to the result of t1
+fn try_tact_then_reduce(
+    ctx: &Context,
+    t1: &Term,
+    t2: &Term,
+    goal: &Term,
+) -> Option<Term> {
+    let norm_goal = normalize(ctx, goal);
+
+    // Apply t1 to goal
+    let d1_app = Term::App(Box::new(t1.clone()), Box::new(norm_goal.clone()));
+    let d1 = normalize(ctx, &d1_app);
+
+    // Check if t1 succeeded
+    if let Some(conc1) = try_concludes_reduce(ctx, &d1) {
+        if is_error_syntax(&conc1) {
+            // t1 failed
+            return Some(make_error_derivation());
+        }
+
+        // t1 succeeded - apply t2 to the new goal (conc1)
+        let d2_app = Term::App(Box::new(t2.clone()), Box::new(conc1));
+        let d2 = normalize(ctx, &d2_app);
+
+        // The result is d2 (which may succeed or fail)
+        return Some(d2);
+    }
+
+    // Couldn't evaluate concludes - return error
+    Some(make_error_derivation())
+}
+
+/// Reduce tact_first tactics goal
+///
+/// Try each tactic in the list until one succeeds.
+/// Returns Error if all fail or list is empty.
+fn try_tact_first_reduce(ctx: &Context, tactics: &Term, goal: &Term) -> Option<Term> {
+    let norm_goal = normalize(ctx, goal);
+
+    // Extract tactics from TList
+    let tactic_vec = extract_tlist(tactics)?;
+
+    for tactic in tactic_vec {
+        // Apply this tactic to goal
+        let d_app = Term::App(Box::new(tactic), Box::new(norm_goal.clone()));
+        let d = normalize(ctx, &d_app);
+
+        // Check if it succeeded
+        if let Some(conc) = try_concludes_reduce(ctx, &d) {
+            if !is_error_syntax(&conc) {
+                // Success!
+                return Some(d);
+            }
+            // Failed - try next
+        }
+    }
+
+    // All failed
+    Some(make_error_derivation())
+}
+
+/// Extract elements from a TList term
+///
+/// TList is polymorphic: TNil A and TCons A h t
+/// So the structure is:
+/// - TNil A = App(Global("TNil"), type)
+/// - TCons A h t = App(App(App(Global("TCons"), type), head), tail)
+fn extract_tlist(term: &Term) -> Option<Vec<Term>> {
+    let mut result = Vec::new();
+    let mut current = term.clone();
+
+    loop {
+        match &current {
+            // TNil A = App(Global("TNil"), type)
+            Term::App(tnil, _type) => {
+                if let Term::Global(name) = tnil.as_ref() {
+                    if name == "TNil" {
+                        // Empty list
+                        break;
+                    }
+                }
+                // Try TCons A h t = App(App(App(Global("TCons"), type), head), tail)
+                if let Term::App(partial2, tail) = &current {
+                    if let Term::App(partial1, head) = partial2.as_ref() {
+                        if let Term::App(tcons, _type) = partial1.as_ref() {
+                            if let Term::Global(name) = tcons.as_ref() {
+                                if name == "TCons" {
+                                    result.push(head.as_ref().clone());
+                                    current = tail.as_ref().clone();
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                // Not a valid TList structure
+                return None;
+            }
+            // Bare Global("TNil") without type argument - also valid
+            Term::Global(name) if name == "TNil" => {
+                break;
+            }
+            _ => {
+                // Not a valid TList
+                return None;
+            }
+        }
+    }
+
+    Some(result)
+}
+
+/// Reduce tact_solve t goal
+///
+/// - Apply t to goal
+/// - If t fails (Error), return Error
+/// - If t succeeds, return its result
+fn try_tact_solve_reduce(ctx: &Context, t: &Term, goal: &Term) -> Option<Term> {
+    let norm_goal = normalize(ctx, goal);
+
+    // Apply t to goal
+    let d_app = Term::App(Box::new(t.clone()), Box::new(norm_goal.clone()));
+    let d = normalize(ctx, &d_app);
+
+    // Check if t succeeded
+    if let Some(conc) = try_concludes_reduce(ctx, &d) {
+        if is_error_syntax(&conc) {
+            // t failed
+            return Some(make_error_derivation());
+        }
+        // t succeeded - return its derivation
+        return Some(d);
+    }
+
+    // Couldn't evaluate concludes - return error
+    Some(make_error_derivation())
 }
 
 // =============================================================================

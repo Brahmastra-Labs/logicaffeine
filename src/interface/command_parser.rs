@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn test_parse_definition_with_type() {
         let cmd = parse_command("Definition one : Nat := Succ Zero.").unwrap();
-        if let Command::Definition { name, ty, body } = cmd {
+        if let Command::Definition { name, ty, body, .. } = cmd {
             assert_eq!(name, "one");
             assert!(ty.is_some());
             assert!(matches!(body, Term::App(..)));

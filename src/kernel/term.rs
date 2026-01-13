@@ -190,7 +190,15 @@ impl fmt::Display for Term {
                 write!(f, "λ({}:{}). {}", param, param_type, body)
             }
             Term::App(func, arg) => {
-                write!(f, "({} {})", func, arg)
+                // Arrow types (Pi with _) need inner parens when used as args
+                let arg_needs_inner_parens =
+                    matches!(arg.as_ref(), Term::Pi { param, .. } if param == "_");
+
+                if arg_needs_inner_parens {
+                    write!(f, "({} ({}))", func, arg)
+                } else {
+                    write!(f, "({} {})", func, arg)
+                }
             }
             Term::Match {
                 discriminant,
