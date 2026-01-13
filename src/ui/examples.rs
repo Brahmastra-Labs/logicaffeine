@@ -129,6 +129,7 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.write("/examples/math/hints.logos", MATH_HINTS.as_bytes()).await?;
     vfs.write("/examples/math/inversion-tactic.logos", MATH_INVERSION.as_bytes()).await?;
     vfs.write("/examples/math/operator-tactics.logos", MATH_OPERATOR.as_bytes()).await?;
+    vfs.write("/examples/math/tacticals.logos", MATH_TACTICALS.as_bytes()).await?;
 
     Ok(())
 }
@@ -213,6 +214,7 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.write("/examples/math/hints.logos", MATH_HINTS.as_bytes()).await?;
     vfs.write("/examples/math/inversion-tactic.logos", MATH_INVERSION.as_bytes()).await?;
     vfs.write("/examples/math/operator-tactics.logos", MATH_OPERATOR.as_bytes()).await?;
+    vfs.write("/examples/math/tacticals.logos", MATH_TACTICALS.as_bytes()).await?;
 
     // Base code examples (ensure they exist for all installs)
     vfs.write("/examples/code/hello-world.logos", CODE_HELLO.as_bytes()).await?;
@@ -2855,4 +2857,172 @@ Eval (concludes applied_forall).
 --   - auto fails on complex goals
 --   - Need specific control over proof steps
 --   - Working with explicit equality proofs
+"###;
+
+const MATH_TACTICALS: &str = r###"-- ============================================
+-- THE STRATEGIST: PROGRAMMABLE PROOFS
+-- ============================================
+--
+-- Phase 10: Higher-Order Tactic Combinators
+--
+-- Tacticals turn proofs into programs. Instead of:
+--   induction n.
+--   auto.
+--   auto.
+--   auto.
+--
+-- Write:
+--   induction n; repeat auto.
+--
+-- One line. Infinite power.
+
+-- ============================================
+-- TACT_TRY: THE SAFETY NET
+-- ============================================
+-- tact_try : (Syntax -> Derivation) -> Syntax -> Derivation
+--
+-- Attempts a tactic but never fails. If the tactic fails,
+-- returns the goal unchanged (identity).
+--
+-- Use case: "Try to simplify, but don't crash if you can't"
+
+-- Reflexive goal - try_refl succeeds
+Definition goal_refl : Syntax :=
+    SApp (SApp (SApp (SName "Eq") (SName "Nat"))
+        (SName "Zero")) (SName "Zero").
+
+-- Non-reflexive goal - try_refl would fail
+Definition goal_hard : Syntax :=
+    SApp (SApp (SApp (SName "Eq") (SName "Nat"))
+        (SName "Zero")) (SApp (SName "Succ") (SName "Zero")).
+
+-- tact_try always succeeds
+Definition d_try_easy : Derivation := tact_try try_refl goal_refl.
+Definition d_try_hard : Derivation := tact_try try_refl goal_hard.
+
+-- Easy goal: proves it
+Eval (concludes d_try_easy).
+
+-- Hard goal: returns unchanged (identity) - NOT Error
+Eval (concludes d_try_hard).
+
+-- ============================================
+-- TACT_REPEAT: THE LOOP
+-- ============================================
+-- tact_repeat : (Syntax -> Derivation) -> Syntax -> Derivation
+--
+-- Applies a tactic repeatedly until it fails.
+-- Returns after the last successful application.
+--
+-- Use case: "Keep simplifying until you can't simplify anymore"
+
+-- Identity tactic (always succeeds, does nothing)
+Definition tact_id : Syntax -> Derivation := fun (g : Syntax) => DAxiom g.
+
+-- tact_repeat stops when no progress is made
+Definition d_repeat : Derivation := tact_repeat tact_id goal_refl.
+Eval (concludes d_repeat).
+
+-- ============================================
+-- TACT_THEN: THE SEQUENCER (;)
+-- ============================================
+-- tact_then : (Syntax -> Derivation) -> (Syntax -> Derivation) -> Syntax -> Derivation
+--
+-- Sequence two tactics: apply first, then apply second to result.
+-- If either fails, the whole thing fails.
+--
+-- Use case: "First simplify, then prove by reflexivity"
+
+-- Sequence: try (always succeeds) ; refl
+Definition tact_combo : Syntax -> Derivation :=
+    tact_then (tact_try tact_fail) try_refl.
+
+Definition d_combo : Derivation := tact_combo goal_refl.
+Eval (concludes d_combo).
+
+-- ============================================
+-- TACT_FIRST: THE MENU
+-- ============================================
+-- tact_first : TTactics -> Syntax -> Derivation
+--
+-- Try tactics from a list until one succeeds.
+-- Returns Error if all fail.
+--
+-- TTactics = TList of (Syntax -> Derivation)
+-- TacCons and TacNil are convenience wrappers
+
+-- Build a tactic list: [tact_fail, tact_fail, try_refl]
+Definition my_tactics : TTactics :=
+    TacCons tact_fail
+    (TacCons tact_fail
+    (TacCons try_refl TacNil)).
+
+-- First will skip the failures and use try_refl
+Definition d_first : Derivation := tact_first my_tactics goal_refl.
+Eval (concludes d_first).
+
+-- All fail case
+Definition fail_tactics : TTactics := TacCons tact_fail TacNil.
+Definition d_all_fail : Derivation := tact_first fail_tactics goal_refl.
+Eval (concludes d_all_fail).
+
+-- ============================================
+-- TACT_SOLVE: THE ENFORCER
+-- ============================================
+-- tact_solve : (Syntax -> Derivation) -> Syntax -> Derivation
+--
+-- Tactic MUST completely solve the goal.
+-- If the tactic returns Error, fails.
+-- If the tactic succeeds, returns its proof.
+--
+-- Use case: "Only use this tactic if it finishes the job"
+
+-- try_refl completely solves reflexive goals
+Definition d_solve : Derivation := tact_solve try_refl goal_refl.
+Eval (concludes d_solve).
+
+-- ============================================
+-- THE NUCLEAR CODE
+-- ============================================
+-- Combine all tacticals into the ultimate tactic:
+-- "Try everything we know how to do"
+
+Definition nuclear : Syntax -> Derivation :=
+    tact_first (TacCons try_refl
+               (TacCons (tact_try try_simp)
+               (TacCons try_lia
+               (TacCons try_auto TacNil)))).
+
+-- Test it on our reflexive goal
+Definition d_nuclear : Derivation := nuclear goal_refl.
+Eval (concludes d_nuclear).
+
+-- ============================================
+-- COMBINING TACTICALS
+-- ============================================
+-- Real power: nest them!
+
+-- repeat (first [refl, simp]) - keep trying until nothing works
+Definition solve_trivial : Syntax -> Derivation :=
+    tact_repeat (tact_first (TacCons try_refl
+                            (TacCons (tact_try try_simp) TacNil))).
+
+Definition d_trivial : Derivation := solve_trivial goal_refl.
+Eval (concludes d_trivial).
+
+-- ============================================
+-- SUMMARY
+-- ============================================
+-- tact_try t     - Try t, never fail (identity on failure)
+-- tact_repeat t  - Apply t until failure
+-- tact_then t1 t2 - Sequence: t1 then t2
+-- tact_first ts  - Try list of tactics until one works
+-- tact_solve t   - t must completely prove the goal
+--
+-- With tact_orelse from Phase 98:
+-- tact_orelse t1 t2 - Try t1, if fails try t2
+-- tact_fail        - Always fail
+--
+-- These form a complete tactical language for
+-- programming proofs. God Mode achieved.
 "###;
