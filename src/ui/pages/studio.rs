@@ -25,6 +25,8 @@ use crate::interface::Repl;
 use crate::proof::hints::{suggest_hint, SuggestedTactic};
 use crate::ui::examples::seed_examples;
 use logos_core::fs::{get_platform_vfs, Vfs, DirEntry, VfsResult};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsValue;
 use std::rc::Rc;
 
 /// Parse math code into complete statements.
@@ -1430,6 +1432,21 @@ pub fn Studio() -> Element {
                         collapsed: false,
                         on_select: EventHandler::new(move |path: String| {
                             current_file.set(Some(path.clone()));
+
+                            // Update URL with file parameter for shareable links
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                let window = web_sys::window().unwrap();
+                                let history = window.history().unwrap();
+                                // Remove leading slash for cleaner URL
+                                let url_path = if path.starts_with('/') {
+                                    &path[1..]
+                                } else {
+                                    &path
+                                };
+                                let new_url = format!("/studio?file={}", url_path);
+                                let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&new_url));
+                            }
 
                             // Load file content from VFS
                             #[cfg(target_arch = "wasm32")]
