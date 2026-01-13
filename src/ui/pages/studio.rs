@@ -766,51 +766,108 @@ pub fn Studio() -> Element {
                         file_tree.set(root);
                     }
 
-                    // Load default example: Socrates theorem
-                    let default_file = "/examples/logic/prover-demo.logic";
-                    if let Ok(content) = vfs.read_to_string(default_file).await {
-                        current_file.set(Some(default_file.to_string()));
-                        input.set(content.clone());
+                    // Get file from URL query parameter, or use default
+                    let window = web_sys::window().unwrap();
+                    let location = window.location();
+                    let search = location.search().unwrap_or_default();
+                    let url_params = web_sys::UrlSearchParams::new_with_str(&search).ok();
 
-                        // Compile the theorem
-                        let theorem_result = compile_theorem_for_ui(&content);
-                        if theorem_result.error.is_none() {
-                            result.set(CompileResult {
-                                logic: theorem_result.goal_string.clone(),
-                                simple_logic: theorem_result.goal_string.clone(),
-                                kripke_logic: None,
-                                ast: None,
-                                readings: Vec::new(),
-                                simple_readings: Vec::new(),
-                                kripke_readings: Vec::new(),
-                                tokens: Vec::new(),
-                                error: None,
-                            });
-
-                            // Set up knowledge base from premises
-                            knowledge_base.write().clear();
-                            for premise in theorem_result.premises {
-                                knowledge_base.write().push(premise);
-                            }
-
-                            // Set goal for proof engine
-                            if let Some(goal) = theorem_result.goal {
-                                current_proof_expr.set(Some(goal));
-                            }
-
-                            // If derivation was found (auto-proved), show it
-                            if let Some(derivation) = theorem_result.derivation {
-                                let tree_html = format_derivation_html(&derivation);
-                                proof_text.set(tree_html);
-                                proof_status.set(ProofStatus::Success);
-                                proof_hint.set(Some(format!("Theorem '{}' proved!", theorem_result.name)));
+                    let file_to_load = url_params
+                        .and_then(|params| params.get("file"))
+                        .map(|f| {
+                            // Normalize path - ensure it starts with /
+                            if f.starts_with('/') {
+                                f
                             } else {
-                                proof_status.set(ProofStatus::Idle);
-                                proof_hint.set(Some(format!(
-                                    "Theorem '{}' ready. {} premise(s) loaded.",
-                                    theorem_result.name,
-                                    knowledge_base.read().len()
-                                )));
+                                format!("/{}", f)
+                            }
+                        })
+                        .unwrap_or_else(|| "/examples/logic/prover-demo.logic".to_string());
+
+                    // Load the file and detect mode from path/extension
+                    if let Ok(content) = vfs.read_to_string(&file_to_load).await {
+                        current_file.set(Some(file_to_load.clone()));
+
+                        let ext = file_to_load.rsplit('.').next().unwrap_or("").to_lowercase();
+                        let is_math_dir = file_to_load.contains("/math/") || file_to_load.contains("/examples/math");
+
+                        if is_math_dir || ext == "math" || ext == "vernac" {
+                            // Math mode
+                            mode.set(StudioMode::Math);
+                            math_input.set(content);
+                        } else if ext == "logos" {
+                            // Code mode - auto-run
+                            mode.set(StudioMode::Code);
+                            code_input.set(content.clone());
+                            let interp_result = interpret_for_ui(&content).await;
+                            interpreter_result.set(interp_result);
+                        } else {
+                            // Logic mode (default, handles .logic files)
+                            mode.set(StudioMode::Logic);
+                            input.set(content.clone());
+
+                            if content.contains("## Theorem:") {
+                                // Compile as theorem
+                                let theorem_result = compile_theorem_for_ui(&content);
+                                if theorem_result.error.is_none() {
+                                    result.set(CompileResult {
+                                        logic: theorem_result.goal_string.clone(),
+                                        simple_logic: theorem_result.goal_string.clone(),
+                                        kripke_logic: None,
+                                        ast: None,
+                                        readings: Vec::new(),
+                                        simple_readings: Vec::new(),
+                                        kripke_readings: Vec::new(),
+                                        tokens: Vec::new(),
+                                        error: None,
+                                    });
+
+                                    knowledge_base.write().clear();
+                                    for premise in theorem_result.premises {
+                                        knowledge_base.write().push(premise);
+                                    }
+
+                                    if let Some(goal) = theorem_result.goal {
+                                        current_proof_expr.set(Some(goal));
+                                    }
+
+                                    if let Some(derivation) = theorem_result.derivation {
+                                        let tree_html = format_derivation_html(&derivation);
+                                        proof_text.set(tree_html);
+                                        proof_status.set(ProofStatus::Success);
+                                        proof_hint.set(Some(format!("Theorem '{}' proved!", theorem_result.name)));
+                                    } else {
+                                        proof_status.set(ProofStatus::Idle);
+                                        proof_hint.set(Some(format!(
+                                            "Theorem '{}' ready. {} premise(s) loaded.",
+                                            theorem_result.name,
+                                            knowledge_base.read().len()
+                                        )));
+                                    }
+                                }
+                            } else {
+                                // Plain English sentences
+                                let sentences: Vec<&str> = content
+                                    .lines()
+                                    .filter(|line| {
+                                        let trimmed = line.trim();
+                                        !trimmed.is_empty()
+                                        && !trimmed.starts_with('#')
+                                        && !trimmed.starts_with("--")
+                                    })
+                                    .collect();
+
+                                if !sentences.is_empty() {
+                                    let all_text = sentences.join("\n");
+                                    let compiled = compile_for_ui(&all_text);
+                                    result.set(compiled);
+
+                                    let first_sentence = sentences[0];
+                                    let proof_result = compile_for_proof(first_sentence);
+                                    if let Some(expr) = proof_result.proof_expr {
+                                        current_proof_expr.set(Some(expr));
+                                    }
+                                }
                             }
                         }
                     }

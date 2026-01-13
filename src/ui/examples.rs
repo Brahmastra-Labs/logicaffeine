@@ -2917,7 +2917,7 @@ Eval (concludes d_try_hard).
 -- Use case: "Keep simplifying until you can't simplify anymore"
 
 -- Identity tactic (always succeeds, does nothing)
-Definition tact_id : Syntax -> Derivation := fun (g : Syntax) => DAxiom g.
+Definition tact_id : Syntax -> Derivation := fun g : Syntax => DAxiom g.
 
 -- tact_repeat stops when no progress is made
 Definition d_repeat : Derivation := tact_repeat tact_id goal_refl.
