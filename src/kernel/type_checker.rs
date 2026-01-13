@@ -25,6 +25,7 @@
 
 use super::context::Context;
 use super::error::{KernelError, KernelResult};
+use super::reduction::normalize;
 use super::term::{Literal, Term, Universe};
 
 /// Infer the type of a term in a context.
@@ -179,11 +180,14 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
                 check_type(ctx, case, &expected_case_type)?;
             }
 
-            // 5. Return type is Motive(discriminant)
-            Ok(Term::App(
+            // 5. Return type is Motive(discriminant), beta-reduced
+            // Without beta reduction, (λ_:T. R) x returns the un-reduced form
+            // which causes type mismatches in nested matches.
+            let return_type = Term::App(
                 Box::new(effective_motive),
                 discriminant.clone(),
-            ))
+            );
+            Ok(beta_reduce(&return_type))
         }
 
         // Literal: infer type based on literal kind
@@ -194,6 +198,10 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
                 Literal::Text(_) => Ok(Term::Global("Text".to_string())),
             }
         }
+
+        // Hole: implicit argument, cannot infer type standalone
+        // Holes are handled specially in check_type
+        Term::Hole => Err(KernelError::CannotInferHole),
 
         // Fix: fix f. body
         // The type of (fix f. body) is the type of body when f is bound to that type.
@@ -282,6 +290,25 @@ fn infer_fix_type_structurally(ctx: &Context, term: &Term) -> KernelResult<Term>
 /// we can use the Pi's parameter type instead of the Lambda's (which may be a
 /// placeholder from match case parsing).
 fn check_type(ctx: &Context, term: &Term, expected: &Term) -> KernelResult<()> {
+    // Hole as term: accept if expected is a Sort (Hole stands for a type)
+    // This allows `Eq Hole X Y` where Eq expects Type as first arg
+    if matches!(term, Term::Hole) {
+        if matches!(expected, Term::Sort(_)) {
+            return Ok(());
+        }
+        return Err(KernelError::TypeMismatch {
+            expected: format!("{}", expected),
+            found: "_".to_string(),
+        });
+    }
+
+    // Hole as expected type: accept any well-typed term
+    // This allows checking args against Hole in `(Eq Hole) X Y` intermediates
+    if matches!(expected, Term::Hole) {
+        let _ = infer_type(ctx, term)?; // Just verify term is well-typed
+        return Ok(());
+    }
+
     // Special case: Lambda with placeholder type checked against Pi
     // This handles match cases where binder types come from the expected type
     if let Term::Lambda {
@@ -315,7 +342,7 @@ fn check_type(ctx: &Context, term: &Term, expected: &Term) -> KernelResult<()> {
     }
 
     let inferred = infer_type(ctx, term)?;
-    if is_subtype(&inferred, expected) {
+    if is_subtype(ctx, &inferred, expected) {
         Ok(())
     } else {
         Err(KernelError::TypeMismatch {
@@ -470,6 +497,9 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
         // Literals are never substituted
         Term::Lit(lit) => Term::Lit(lit.clone()),
 
+        // Holes are never substituted (they're implicit type placeholders)
+        Term::Hole => Term::Hole,
+
         Term::Var(name) if name == var => replacement.clone(),
         Term::Var(name) => Term::Var(name.clone()),
 
@@ -554,8 +584,18 @@ pub fn substitute(body: &Term, var: &str, replacement: &Term) -> Term {
 /// Subtyping rules:
 /// - Sort(u1) ≤ Sort(u2) if u1 ≤ u2 (universe cumulativity)
 /// - Π(x:A). B ≤ Π(x:A'). B' if A' ≤ A (contravariant) and B ≤ B' (covariant)
-/// - For other terms, fall back to structural equality
-pub fn is_subtype(a: &Term, b: &Term) -> bool {
+/// - For other terms, normalize and compare structurally
+pub fn is_subtype(ctx: &Context, a: &Term, b: &Term) -> bool {
+    // Normalize both terms before comparison
+    // This ensures that e.g. `ReachesOne (collatzStep 2)` equals `ReachesOne 1`
+    let a_norm = normalize(ctx, a);
+    let b_norm = normalize(ctx, b);
+
+    is_subtype_normalized(ctx, &a_norm, &b_norm)
+}
+
+/// Check subtyping on already-normalized terms.
+fn is_subtype_normalized(ctx: &Context, a: &Term, b: &Term) -> bool {
     match (a, b) {
         // Universe subtyping
         (Term::Sort(u1), Term::Sort(u2)) => u1.is_subtype_of(u2),
@@ -574,10 +614,10 @@ pub fn is_subtype(a: &Term, b: &Term) -> bool {
             },
         ) => {
             // Contravariant: t2 ≤ t1 (the expected param can be more specific)
-            is_subtype(t2, t1) && {
+            is_subtype_normalized(ctx, t2, t1) && {
                 // Covariant: b1 ≤ b2 (alpha-rename to compare bodies)
                 let b2_renamed = substitute(b2, p2, &Term::Var(p1.clone()));
-                is_subtype(b1, &b2_renamed)
+                is_subtype_normalized(ctx, b1, &b2_renamed)
             }
         }
 
@@ -611,6 +651,11 @@ fn extract_inductive_name(ctx: &Context, ty: &Term) -> Option<String> {
 /// Two terms are alpha-equivalent if they are the same up to
 /// renaming of bound variables.
 fn types_equal(a: &Term, b: &Term) -> bool {
+    // Hole matches anything (it's a type wildcard)
+    if matches!(a, Term::Hole) || matches!(b, Term::Hole) {
+        return true;
+    }
+
     match (a, b) {
         (Term::Sort(u1), Term::Sort(u2)) => u1 == u2,
 

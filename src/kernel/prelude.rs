@@ -18,6 +18,7 @@ impl StandardLibrary {
     pub fn register(ctx: &mut Context) {
         Self::register_entity(ctx);
         Self::register_nat(ctx);
+        Self::register_bool(ctx);
         Self::register_true(ctx);
         Self::register_false(ctx);
         Self::register_not(ctx);
@@ -94,6 +95,22 @@ impl StandardLibrary {
                 body_type: Box::new(nat),
             },
         );
+    }
+
+    /// Bool : Type 0
+    /// true : Bool
+    /// false : Bool
+    fn register_bool(ctx: &mut Context) {
+        let bool_type = Term::Global("Bool".to_string());
+
+        // Bool : Type 0
+        ctx.add_inductive("Bool", Term::Sort(Universe::Type(0)));
+
+        // true : Bool
+        ctx.add_constructor("true", "Bool", bool_type.clone());
+
+        // false : Bool
+        ctx.add_constructor("false", "Bool", bool_type);
     }
 
     /// True : Prop
@@ -575,6 +592,16 @@ impl StandardLibrary {
         Self::register_try_cong(ctx);
         Self::register_tact_fail(ctx);
         Self::register_tact_orelse(ctx);
+        Self::register_try_ring(ctx);
+        Self::register_try_lia(ctx);
+        Self::register_try_cc(ctx);
+        Self::register_try_simp(ctx);
+        Self::register_try_omega(ctx);
+        Self::register_try_auto(ctx);
+        Self::register_try_induction(ctx);
+        Self::register_induction_helpers(ctx);
+        Self::register_try_inversion_tactic(ctx);
+        Self::register_operator_tactics(ctx);
     }
 
     /// Univ : Type 0 (representation of universes)
@@ -1110,11 +1137,103 @@ impl StandardLibrary {
                 param_type: Box::new(syntax.clone()), // ind_type
                 body_type: Box::new(Term::Pi {
                     param: "_".to_string(),
-                    param_type: Box::new(syntax), // motive
+                    param_type: Box::new(syntax.clone()), // motive
                     body_type: Box::new(Term::Pi {
                         param: "_".to_string(),
                         param_type: Box::new(derivation.clone()), // cases
-                        body_type: Box::new(derivation),
+                        body_type: Box::new(derivation.clone()),
+                    }),
+                }),
+            },
+        );
+
+        // Phase 8: Inversion (The Scalpel)
+        //
+        // DInversion : Syntax -> Derivation
+        // Proves False when no constructor can build the given hypothesis.
+        // - hyp_type: the Syntax representation of the hypothesis (e.g., SApp (SName "Even") three)
+        // - Returns proof of False if verified that all constructors are impossible
+        ctx.add_constructor(
+            "DInversion",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // =========================================================================
+        // Phase 9: The Operator (rewrite, destruct, apply)
+        // =========================================================================
+
+        // DRewrite : Derivation -> Syntax -> Syntax -> Derivation
+        // Stores: eq_proof, original_goal, new_goal
+        // Given eq_proof : Eq A x y, rewrites goal by replacing x with y
+        ctx.add_constructor(
+            "DRewrite",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(derivation.clone()), // eq_proof
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()), // original_goal
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(syntax.clone()), // new_goal
+                        body_type: Box::new(derivation.clone()),
+                    }),
+                }),
+            },
+        );
+
+        // DDestruct : Syntax -> Syntax -> Derivation -> Derivation
+        // Case analysis without induction hypotheses
+        // - ind_type: the inductive type
+        // - motive: the property to prove
+        // - cases: DCase chain with proofs for each constructor
+        ctx.add_constructor(
+            "DDestruct",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()), // ind_type
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()), // motive
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(derivation.clone()), // cases
+                        body_type: Box::new(derivation.clone()),
+                    }),
+                }),
+            },
+        );
+
+        // DApply : Syntax -> Derivation -> Syntax -> Syntax -> Derivation
+        // Manual backward chaining
+        // - hyp_name: name of hypothesis
+        // - hyp_proof: proof of the hypothesis
+        // - original_goal: the goal we started with
+        // - new_goal: the antecedent we need to prove
+        ctx.add_constructor(
+            "DApply",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()), // hyp_name
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(derivation.clone()), // hyp_proof
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(syntax.clone()), // original_goal
+                        body_type: Box::new(Term::Pi {
+                            param: "_".to_string(),
+                            param_type: Box::new(syntax), // new_goal
+                            body_type: Box::new(derivation),
+                        }),
                     }),
                 }),
             },
@@ -1262,5 +1381,411 @@ impl StandardLibrary {
         };
 
         ctx.add_declaration("tact_orelse", tact_orelse_type);
+    }
+
+    // =========================================================================
+    // RING TACTIC (POLYNOMIAL EQUALITY)
+    // =========================================================================
+
+    /// DRingSolve : Syntax -> Derivation
+    /// try_ring : Syntax -> Derivation
+    ///
+    /// Ring tactic: proves polynomial equalities by normalization.
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_ring(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DRingSolve : Syntax -> Derivation
+        // Proof constructor for ring-solved equalities
+        ctx.add_constructor(
+            "DRingSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_ring : Syntax -> Derivation
+        // Ring tactic: given a goal, try to prove it by polynomial normalization
+        let try_ring_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax),
+            body_type: Box::new(derivation),
+        };
+
+        ctx.add_declaration("try_ring", try_ring_type);
+    }
+
+    // =========================================================================
+    // LIA TACTIC (LINEAR INTEGER ARITHMETIC)
+    // =========================================================================
+
+    /// DLiaSolve : Syntax -> Derivation
+    /// try_lia : Syntax -> Derivation
+    ///
+    /// LIA tactic: proves linear inequalities by Fourier-Motzkin elimination.
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_lia(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DLiaSolve : Syntax -> Derivation
+        // Proof constructor for LIA-solved inequalities
+        ctx.add_constructor(
+            "DLiaSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_lia : Syntax -> Derivation
+        // LIA tactic: given a goal, try to prove it by linear arithmetic
+        let try_lia_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax),
+            body_type: Box::new(derivation),
+        };
+
+        ctx.add_declaration("try_lia", try_lia_type);
+    }
+
+    /// DccSolve : Syntax -> Derivation
+    /// try_cc : Syntax -> Derivation
+    ///
+    /// Congruence Closure tactic: proves equalities over uninterpreted functions.
+    /// Handles hypotheses via implications: (implies (Eq x y) (Eq (f x) (f y)))
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_cc(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DccSolve : Syntax -> Derivation
+        // Proof constructor for congruence closure proofs
+        ctx.add_constructor(
+            "DccSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_cc : Syntax -> Derivation
+        // CC tactic: given a goal, try to prove it by congruence closure
+        let try_cc_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax),
+            body_type: Box::new(derivation),
+        };
+
+        ctx.add_declaration("try_cc", try_cc_type);
+    }
+
+    /// DSimpSolve : Syntax -> Derivation
+    /// try_simp : Syntax -> Derivation
+    ///
+    /// Simplifier tactic: proves equalities by term rewriting.
+    /// Uses bottom-up rewriting with arithmetic evaluation and hypothesis substitution.
+    /// Handles: reflexivity, constant folding (2+3=5), and hypothesis-based substitution.
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_simp(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DSimpSolve : Syntax -> Derivation
+        // Proof constructor for simplifier proofs
+        ctx.add_constructor(
+            "DSimpSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_simp : Syntax -> Derivation
+        // Simp tactic: given a goal, try to prove it by simplification
+        let try_simp_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax),
+            body_type: Box::new(derivation),
+        };
+
+        ctx.add_declaration("try_simp", try_simp_type);
+    }
+
+    /// DOmegaSolve : Syntax -> Derivation
+    /// try_omega : Syntax -> Derivation
+    ///
+    /// Omega tactic: proves linear integer arithmetic with proper floor/ceil rounding.
+    /// Unlike lia (which uses rationals), omega handles integers correctly:
+    /// - x > 1 means x >= 2 (strict-to-nonstrict conversion)
+    /// - 3x <= 10 means x <= 3 (floor division)
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_omega(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DOmegaSolve : Syntax -> Derivation
+        // Proof constructor for omega-solved inequalities
+        ctx.add_constructor(
+            "DOmegaSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_omega : Syntax -> Derivation
+        // Omega tactic: given a goal, try to prove it by integer arithmetic
+        let try_omega_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax),
+            body_type: Box::new(derivation),
+        };
+
+        ctx.add_declaration("try_omega", try_omega_type);
+    }
+
+    /// DAutoSolve : Syntax -> Derivation
+    /// try_auto : Syntax -> Derivation
+    ///
+    /// Auto tactic: tries all decision procedures in sequence.
+    /// Order: simp → ring → cc → omega → lia
+    /// Returns the first successful derivation, or error if all fail.
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_auto(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // DAutoSolve : Syntax -> Derivation
+        // Proof constructor for auto-solved goals
+        ctx.add_constructor(
+            "DAutoSolve",
+            "Derivation",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(derivation.clone()),
+            },
+        );
+
+        // try_auto : Syntax -> Derivation
+        // Auto tactic: given a goal, try all tactics in sequence
+        let try_auto_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax),
+            body_type: Box::new(derivation),
+        };
+
+        ctx.add_declaration("try_auto", try_auto_type);
+    }
+
+    /// try_induction : Syntax -> Syntax -> Derivation -> Derivation
+    ///
+    /// Generic induction tactic for any inductive type.
+    /// Arguments:
+    /// - ind_type: The inductive type (SName "Nat" or SApp (SName "List") A)
+    /// - motive: The property to prove (SLam param_type body)
+    /// - cases: DCase chain with one derivation per constructor
+    ///
+    /// Returns a DElim derivation if verification passes.
+    fn register_try_induction(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // try_induction : Syntax -> Syntax -> Derivation -> Derivation
+        let try_induction_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(syntax.clone()), // ind_type
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()), // motive
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(derivation.clone()), // cases
+                    body_type: Box::new(derivation),
+                }),
+            }),
+        };
+
+        ctx.add_declaration("try_induction", try_induction_type);
+    }
+
+    /// Helper functions for building induction goals.
+    ///
+    /// These functions help construct the subgoals for induction:
+    /// - induction_base_goal: Computes the base case goal
+    /// - induction_step_goal: Computes the step case goal for a constructor
+    /// - induction_num_cases: Returns number of constructors for an inductive
+    fn register_induction_helpers(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let nat = Term::Global("Nat".to_string());
+
+        // induction_base_goal : Syntax -> Syntax -> Syntax
+        // Given ind_type and motive, returns the base case goal (first constructor)
+        ctx.add_declaration(
+            "induction_base_goal",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()),
+                    body_type: Box::new(syntax.clone()),
+                }),
+            },
+        );
+
+        // induction_step_goal : Syntax -> Syntax -> Nat -> Syntax
+        // Given ind_type, motive, constructor index, returns the case goal
+        ctx.add_declaration(
+            "induction_step_goal",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()),
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()),
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(nat),
+                        body_type: Box::new(syntax.clone()),
+                    }),
+                }),
+            },
+        );
+
+        // induction_num_cases : Syntax -> Nat
+        // Returns number of constructors for an inductive type
+        ctx.add_declaration(
+            "induction_num_cases",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax),
+                body_type: Box::new(Term::Global("Nat".to_string())),
+            },
+        );
+    }
+
+    // =========================================================================
+    // PHASE 8: INVERSION (THE SCALPEL)
+    // =========================================================================
+
+    /// try_inversion : Syntax -> Derivation
+    ///
+    /// Inversion tactic: given a hypothesis type, derives False if no constructor
+    /// can possibly build that type.
+    ///
+    /// Example: try_inversion (SApp (SName "Even") three) proves False because
+    /// neither even_zero (requires 0) nor even_succ (requires Even 1) can build Even 3.
+    ///
+    /// Computational behavior defined in reduction.rs.
+    fn register_try_inversion_tactic(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // try_inversion : Syntax -> Derivation
+        ctx.add_declaration(
+            "try_inversion",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax),
+                body_type: Box::new(derivation),
+            },
+        );
+    }
+
+    // =========================================================================
+    // PHASE 9: THE OPERATOR (rewrite, destruct, apply)
+    // =========================================================================
+
+    /// Phase 9 operator tactics for manual proof control.
+    ///
+    /// try_rewrite : Derivation -> Syntax -> Derivation
+    /// try_rewrite_rev : Derivation -> Syntax -> Derivation
+    /// try_destruct : Syntax -> Syntax -> Derivation -> Derivation
+    /// try_apply : Syntax -> Derivation -> Syntax -> Derivation
+    fn register_operator_tactics(ctx: &mut Context) {
+        let syntax = Term::Global("Syntax".to_string());
+        let derivation = Term::Global("Derivation".to_string());
+
+        // try_rewrite : Derivation -> Syntax -> Derivation
+        // Given eq_proof (concluding Eq A x y) and goal, replaces x with y in goal
+        ctx.add_declaration(
+            "try_rewrite",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(derivation.clone()), // eq_proof
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()), // goal
+                    body_type: Box::new(derivation.clone()),
+                }),
+            },
+        );
+
+        // try_rewrite_rev : Derivation -> Syntax -> Derivation
+        // Given eq_proof (concluding Eq A x y) and goal, replaces y with x in goal (reverse direction)
+        ctx.add_declaration(
+            "try_rewrite_rev",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(derivation.clone()), // eq_proof
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()), // goal
+                    body_type: Box::new(derivation.clone()),
+                }),
+            },
+        );
+
+        // try_destruct : Syntax -> Syntax -> Derivation -> Derivation
+        // Case analysis without induction hypotheses
+        ctx.add_declaration(
+            "try_destruct",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()), // ind_type
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(syntax.clone()), // motive
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(derivation.clone()), // cases
+                        body_type: Box::new(derivation.clone()),
+                    }),
+                }),
+            },
+        );
+
+        // try_apply : Syntax -> Derivation -> Syntax -> Derivation
+        // Manual backward chaining - applies hypothesis to transform goal
+        ctx.add_declaration(
+            "try_apply",
+            Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(syntax.clone()), // hyp_name
+                body_type: Box::new(Term::Pi {
+                    param: "_".to_string(),
+                    param_type: Box::new(derivation.clone()), // hyp_proof
+                    body_type: Box::new(Term::Pi {
+                        param: "_".to_string(),
+                        param_type: Box::new(syntax), // goal
+                        body_type: Box::new(derivation),
+                    }),
+                }),
+            },
+        );
     }
 }

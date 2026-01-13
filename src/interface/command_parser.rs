@@ -6,17 +6,54 @@
 //! - Check term.
 //! - Eval term.
 //! - Inductive Name := C1 : T1 | C2 : T2.
+//!
+//! # Literate Syntax (dispatched to literate_parser)
+//!
+//! - A Bool is either Yes or No.
+//! - ## To add (n: Nat) and (m: Nat) -> Nat: ...
 
 use super::command::Command;
 use super::error::ParseError;
+use super::literate_parser;
 use super::term_parser::TermParser;
 use crate::kernel::{Term, Universe};
 
 /// Parse a command from input string.
+///
+/// This function acts as a dispatcher, routing Literate syntax to the
+/// literate_parser module and Coq-style syntax to the existing parsers.
 pub fn parse_command(input: &str) -> Result<Command, ParseError> {
     let input = input.trim();
 
-    // Remove trailing period if present
+    // ============================================================
+    // LITERATE SYNTAX DISPATCH (check first)
+    // ============================================================
+
+    // 1. Literate Data Definition: "A Nat is either..." or "An Option is either..."
+    if (input.starts_with("A ") || input.starts_with("An ")) && input.contains(" is either") {
+        return literate_parser::parse_inductive(input);
+    }
+
+    // 2. Literate Function Definition: "## To add..."
+    if input.starts_with("## To ") {
+        return literate_parser::parse_definition(input);
+    }
+
+    // 3. Literate Constant Definition: "Let X be Y."
+    if input.starts_with("Let ") && input.contains(" be ") {
+        return literate_parser::parse_let_definition(input);
+    }
+
+    // 4. Literate Theorem Declaration: "## Theorem: Name"
+    if input.starts_with("## Theorem:") {
+        return literate_parser::parse_theorem(input);
+    }
+
+    // ============================================================
+    // EXISTING COQ-STYLE DISPATCH (fallback)
+    // ============================================================
+
+    // Remove trailing period if present (for Coq-style commands)
     let input = input.strip_suffix('.').unwrap_or(input).trim();
 
     if input.starts_with("Definition") {
@@ -59,6 +96,7 @@ fn parse_definition(input: &str) -> Result<Command, ParseError> {
             name,
             ty: Some(ty),
             body,
+            is_hint: false,
         })
     } else {
         // No type annotation: name := term
@@ -74,6 +112,7 @@ fn parse_definition(input: &str) -> Result<Command, ParseError> {
             name,
             ty: None,
             body,
+            is_hint: false,
         })
     }
 }

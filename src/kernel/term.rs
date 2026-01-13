@@ -147,6 +147,12 @@ pub enum Term {
     /// Hardware-native values like i64, f64, String.
     /// These compute via CPU ALU, not recursion.
     Lit(Literal),
+
+    /// Hole (implicit argument).
+    ///
+    /// Represents an argument that should be inferred by the type checker.
+    /// Used in Literate syntax like `X equals Y` where the type of X/Y is implicit.
+    Hole,
 }
 
 impl fmt::Display for Universe {
@@ -205,6 +211,9 @@ impl fmt::Display for Term {
             }
             Term::Lit(lit) => {
                 write!(f, "{}", lit)
+            }
+            Term::Hole => {
+                write!(f, "_")
             }
         }
     }

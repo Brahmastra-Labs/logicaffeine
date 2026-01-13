@@ -44,6 +44,12 @@ pub enum KernelError {
         constructor: String,
         reason: String,
     },
+
+    /// Cannot infer the type of a hole without context.
+    ///
+    /// Holes (implicit arguments) need to be checked against an expected type,
+    /// not inferred standalone.
+    CannotInferHole,
 }
 
 impl fmt::Display for KernelError {
@@ -94,6 +100,9 @@ impl fmt::Display for KernelError {
                     "Positivity violation: constructor '{}' of '{}': {}",
                     constructor, inductive, reason
                 )
+            }
+            KernelError::CannotInferHole => {
+                write!(f, "Cannot infer type of implicit argument (_) without context")
             }
         }
     }

@@ -8,10 +8,12 @@ pub enum Command {
     /// Definition name : type := body.
     ///
     /// If `ty` is None, the type is inferred from the body.
+    /// If `is_hint` is true, register as a hint for auto tactic.
     Definition {
         name: String,
         ty: Option<Term>,
         body: Term,
+        is_hint: bool,
     },
 
     /// Check term.

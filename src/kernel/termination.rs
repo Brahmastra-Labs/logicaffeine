@@ -137,7 +137,7 @@ fn check_guarded(ctx: &Context, guard_ctx: &GuardContext, term: &Term) -> Kernel
         }
 
         // Leaves: no recursive calls possible
-        Term::Sort(_) | Term::Var(_) | Term::Global(_) | Term::Lit(_) => Ok(()),
+        Term::Sort(_) | Term::Var(_) | Term::Global(_) | Term::Lit(_) | Term::Hole => Ok(()),
     }
 }
 

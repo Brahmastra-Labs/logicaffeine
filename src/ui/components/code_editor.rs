@@ -55,6 +55,8 @@ const CODE_EDITOR_STYLE: &str = r#"
     width: 100%;
     height: 100%;
     padding: 16px;
+    padding-bottom: 50%;  /* Extra space to scroll past end */
+    margin: 0;
     font-size: 14px;
     font-family: inherit;
     line-height: 1.6;
@@ -66,8 +68,10 @@ const CODE_EDITOR_STYLE: &str = r#"
     resize: none;
     white-space: pre-wrap;
     word-wrap: break-word;
+    overflow-wrap: break-word;
     overflow: auto;
     z-index: 2;
+    box-sizing: border-box;
 }
 
 .code-editor-highlight {
@@ -77,23 +81,34 @@ const CODE_EDITOR_STYLE: &str = r#"
     width: 100%;
     height: 100%;
     padding: 16px;
+    padding-bottom: 50%;  /* Extra space to scroll past end */
+    margin: 0;
     font-size: 14px;
     font-family: inherit;
     line-height: 1.6;
     color: #e8eaed;
     white-space: pre-wrap;
     word-wrap: break-word;
+    overflow-wrap: break-word;
     overflow: auto;
     pointer-events: none;
     z-index: 1;
+    box-sizing: border-box;
+    /* Hide scrollbar but keep scroll functionality for sync */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
 }
 
-/* Syntax highlighting colors */
-.tok-keyword { color: #c678dd; font-weight: 500; }
+.code-editor-highlight::-webkit-scrollbar {
+    display: none;
+}
+
+/* Syntax highlighting colors - no font-weight/style changes to keep heights identical */
+.tok-keyword { color: #c678dd; }
 .tok-type { color: #e5c07b; }
 .tok-string { color: #98c379; }
 .tok-number { color: #d19a66; }
-.tok-comment { color: #5c6370; font-style: italic; }
+.tok-comment { color: #5c6370; }
 .tok-operator { color: #56b6c2; }
 .tok-punctuation { color: #abb2bf; }
 .tok-identifier { color: #e8eaed; }
@@ -345,9 +360,14 @@ pub fn CodeEditor(
                 // Highlighted overlay
                 div { class: "code-editor-highlight",
                     for token in tokens {
-                        span {
-                            class: "{token_class(token.kind)}",
+                        if token.text.chars().all(|c| c.is_whitespace()) {
+                            // Output whitespace as raw text to match textarea rendering
                             "{token.text}"
+                        } else {
+                            span {
+                                class: "{token_class(token.kind)}",
+                                "{token.text}"
+                            }
                         }
                     }
                 }
@@ -361,7 +381,52 @@ pub fn CodeEditor(
                     spellcheck: "false",
                     autocomplete: "off",
                     autocapitalize: "off",
-                    oninput: move |evt| on_change.call(evt.value()),
+                    oninput: move |evt| {
+                        on_change.call(evt.value());
+                        // Sync scroll after input in case highlight re-renders
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let _ = js_sys::eval(r#"
+                                requestAnimationFrame(function() {
+                                    document.querySelectorAll('.code-editor-textarea').forEach(function(ta) {
+                                        var highlight = ta.previousElementSibling;
+                                        if (highlight && highlight.classList.contains('code-editor-highlight')) {
+                                            var taMax = ta.scrollHeight - ta.clientHeight;
+                                            var hlMax = highlight.scrollHeight - highlight.clientHeight;
+                                            // Cap scroll to the shorter element's max
+                                            var maxScroll = Math.min(taMax, hlMax);
+                                            if (ta.scrollTop > maxScroll) {
+                                                ta.scrollTop = maxScroll;
+                                            }
+                                            highlight.scrollTop = ta.scrollTop;
+                                            highlight.scrollLeft = ta.scrollLeft;
+                                        }
+                                    });
+                                });
+                            "#);
+                        }
+                    },
+                    onscroll: move |_| {
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let _ = js_sys::eval(r#"
+                                document.querySelectorAll('.code-editor-textarea').forEach(function(ta) {
+                                    var highlight = ta.previousElementSibling;
+                                    if (highlight && highlight.classList.contains('code-editor-highlight')) {
+                                        var taMax = ta.scrollHeight - ta.clientHeight;
+                                        var hlMax = highlight.scrollHeight - highlight.clientHeight;
+                                        // Cap scroll to the shorter element's max
+                                        var maxScroll = Math.min(taMax, hlMax);
+                                        if (ta.scrollTop > maxScroll) {
+                                            ta.scrollTop = maxScroll;
+                                        }
+                                        highlight.scrollTop = ta.scrollTop;
+                                        highlight.scrollLeft = ta.scrollLeft;
+                                    }
+                                });
+                            "#);
+                        }
+                    },
                 }
             }
         }
@@ -383,9 +448,13 @@ pub fn CodeView(
             div { class: "code-editor-highlight",
                 style: "position: relative; height: 100%; overflow: auto;",
                 for token in tokens {
-                    span {
-                        class: "{token_class(token.kind)}",
+                    if token.text.chars().all(|c| c.is_whitespace()) {
                         "{token.text}"
+                    } else {
+                        span {
+                            class: "{token_class(token.kind)}",
+                            "{token.text}"
+                        }
                     }
                 }
             }

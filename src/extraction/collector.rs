@@ -82,6 +82,6 @@ fn collect_globals(term: &Term, deps: &mut Vec<String>) {
             }
         }
         // Base cases: no dependencies
-        Term::Sort(_) | Term::Var(_) | Term::Lit(_) => {}
+        Term::Sort(_) | Term::Var(_) | Term::Lit(_) | Term::Hole => {}
     }
 }

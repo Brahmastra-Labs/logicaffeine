@@ -30,7 +30,7 @@ impl Repl {
         let cmd = parse_command(input)?;
 
         match cmd {
-            Command::Definition { name, ty, body } => {
+            Command::Definition { name, ty, body, is_hint } => {
                 // Type check the body
                 let inferred_ty = infer_type(&self.ctx, &body)?;
 
@@ -38,7 +38,12 @@ impl Repl {
                 let ty = ty.unwrap_or(inferred_ty);
 
                 // Add definition to context
-                self.ctx.add_definition(name, ty, body);
+                self.ctx.add_definition(name.clone(), ty, body);
+
+                // Register as hint if marked
+                if is_hint {
+                    self.ctx.add_hint(&name);
+                }
 
                 Ok(String::new()) // Silent success
             }
@@ -178,5 +183,6 @@ fn substitute_globals_with_vars(term: &Term, param_names: &[&str]) -> Term {
                 .map(|c| substitute_globals_with_vars(c, param_names))
                 .collect(),
         },
+        Term::Hole => Term::Hole, // Holes are unchanged
     }
 }

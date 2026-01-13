@@ -128,6 +128,9 @@ fn check_strictly_positive(inductive: &str, constructor: &str, ty: &Term) -> Ker
 
         // Fix in types (very unusual)
         Term::Fix { body, .. } => check_strictly_positive(inductive, constructor, body),
+
+        // Hole: type placeholder, no occurrences to check
+        Term::Hole => Ok(()),
     }
 }
 
@@ -155,6 +158,7 @@ fn occurs_in(inductive: &str, term: &Term) -> bool {
                 || cases.iter().any(|c| occurs_in(inductive, c))
         }
         Term::Fix { body, .. } => occurs_in(inductive, body),
+        Term::Hole => false, // Holes don't contain inductives
     }
 }
 

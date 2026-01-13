@@ -347,6 +347,7 @@ impl<'a> CodeGen<'a> {
             },
             Term::Pi { .. } => "/* type */".to_string(),
             Term::Sort(_) => "/* sort */".to_string(),
+            Term::Hole => "_".to_string(), // Type placeholder
         }
     }
 
@@ -381,6 +382,7 @@ impl<'a> CodeGen<'a> {
                 }
             }
             Term::App(f, _) => self.infer_inductive_type(f),
+            Term::Hole => None, // Holes are type placeholders
             _ => None,
         }
     }
@@ -410,7 +412,7 @@ fn term_references(term: &Term, name: &str) -> bool {
                 || cases.iter().any(|c| term_references(c, name))
         }
         // Base cases: no references
-        Term::Sort(_) | Term::Var(_) | Term::Lit(_) => false,
+        Term::Sort(_) | Term::Var(_) | Term::Lit(_) | Term::Hole => false,
     }
 }
 

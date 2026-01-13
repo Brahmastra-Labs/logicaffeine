@@ -27,6 +27,215 @@ use crate::ui::examples::seed_examples;
 use logos_core::fs::{get_platform_vfs, Vfs, DirEntry, VfsResult};
 use std::rc::Rc;
 
+/// Parse math code into complete statements.
+///
+/// Handles both Coq-style (period-terminated) and Literate syntax (block-based):
+/// - `## To ...` blocks: collect header + all indented lines until non-indented line
+/// - `A X is either:` blocks: collect header + indented variants
+/// - Traditional commands: accumulate until period-terminator
+fn parse_math_statements(code: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let lines: Vec<&str> = code.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+
+        // Skip empty lines and comments
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            i += 1;
+            continue;
+        }
+
+        // Check for Literate function definition: "## To ..."
+        if trimmed.starts_with("## To ") {
+            let mut block = String::new();
+            block.push_str(trimmed);
+            i += 1;
+
+            // Collect all indented lines (body of the function)
+            while i < lines.len() {
+                let next_line = lines[i];
+                let next_trimmed = next_line.trim();
+
+                // Empty lines within block are OK
+                if next_trimmed.is_empty() {
+                    i += 1;
+                    continue;
+                }
+
+                // Comments within block are skipped
+                if next_trimmed.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+
+                // Check if line is indented (part of block body)
+                // A line is indented if it starts with whitespace
+                let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
+
+                // Also check if it's a continuation keyword (Consider, When, Yield)
+                let is_continuation = next_trimmed.starts_with("Consider ")
+                    || next_trimmed.starts_with("When ")
+                    || next_trimmed.starts_with("Yield ");
+
+                if is_indented || is_continuation {
+                    block.push(' ');
+                    block.push_str(next_trimmed);
+                    i += 1;
+                } else {
+                    // Non-indented, non-continuation line: end of block
+                    break;
+                }
+            }
+
+            statements.push(block);
+            continue;
+        }
+
+        // Check for Literate theorem: "## Theorem: ..."
+        // Collects header + Statement: + Proof: lines as one block
+        if trimmed.starts_with("## Theorem:") {
+            let mut block = String::new();
+            block.push_str(trimmed);
+            i += 1;
+
+            // Collect indented lines (Statement: and Proof:)
+            while i < lines.len() {
+                let next_line = lines[i];
+                let next_trimmed = next_line.trim();
+
+                // Empty lines within block are OK
+                if next_trimmed.is_empty() {
+                    i += 1;
+                    continue;
+                }
+
+                // Comments within block are skipped
+                if next_trimmed.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+
+                // Check if line is indented (part of theorem block)
+                let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
+
+                // Also check for Statement: or Proof: keywords (may not be indented)
+                let is_theorem_part = next_trimmed.starts_with("Statement:")
+                    || next_trimmed.starts_with("Proof:");
+
+                if is_indented || is_theorem_part {
+                    block.push('\n');
+                    block.push_str(next_line);
+                    i += 1;
+
+                    // If we just added a Proof: line that ends with period, block is complete
+                    if next_trimmed.starts_with("Proof:") && next_trimmed.ends_with('.') {
+                        break;
+                    }
+                } else {
+                    // Non-indented, non-theorem-part line: end of block
+                    break;
+                }
+            }
+
+            statements.push(block);
+            continue;
+        }
+
+        // Check for Literate inductive: "A X is either..." or "An X is either..."
+        if (trimmed.starts_with("A ") || trimmed.starts_with("An ")) && trimmed.contains(" is either") {
+            // Check if this is a single-line definition (ends with period and no colon at end)
+            if trimmed.ends_with('.') && !trimmed.trim_end_matches('.').ends_with(':') {
+                statements.push(trimmed.to_string());
+                i += 1;
+                continue;
+            }
+
+            // Multi-line definition: collect header + indented variants
+            let mut block = String::new();
+            block.push_str(trimmed);
+            i += 1;
+
+            // Collect indented variant lines
+            while i < lines.len() {
+                let next_line = lines[i];
+                let next_trimmed = next_line.trim();
+
+                // Empty lines are OK
+                if next_trimmed.is_empty() {
+                    i += 1;
+                    continue;
+                }
+
+                // Comments are skipped
+                if next_trimmed.starts_with("--") {
+                    i += 1;
+                    continue;
+                }
+
+                // Check if indented
+                let is_indented = next_line.starts_with(' ') || next_line.starts_with('\t');
+
+                // Also accept "a Variant" or variant names starting with capital
+                let looks_like_variant = next_trimmed.starts_with("a ")
+                    || next_trimmed.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+
+                if is_indented || (looks_like_variant && !next_trimmed.starts_with("A ") && !next_trimmed.starts_with("An ")) {
+                    // For indented lines, join with " or " for the parser
+                    if !block.ends_with(':') {
+                        block.push_str(" or ");
+                    } else {
+                        block.push(' ');
+                    }
+                    block.push_str(next_trimmed.trim_end_matches('.'));
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+
+            // Ensure ends with period
+            if !block.ends_with('.') {
+                block.push('.');
+            }
+            statements.push(block);
+            continue;
+        }
+
+        // Traditional Coq-style: accumulate until period
+        let mut current_stmt = String::new();
+        while i < lines.len() {
+            let line = lines[i];
+            let trimmed = line.trim();
+
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                i += 1;
+                continue;
+            }
+
+            if !current_stmt.is_empty() {
+                current_stmt.push(' ');
+            }
+            current_stmt.push_str(trimmed);
+
+            i += 1;
+
+            // Check if statement is complete
+            if trimmed.ends_with('.') {
+                break;
+            }
+        }
+
+        if !current_stmt.is_empty() {
+            statements.push(current_stmt);
+        }
+    }
+
+    statements
+}
+
 /// Recursively load directory contents from VFS into FileNode tree
 async fn load_dir_recursive<V: Vfs>(vfs: &V, path: &str, parent: &mut FileNode) -> VfsResult<()> {
     let entries = vfs.list_dir(path).await?;
@@ -220,6 +429,7 @@ const STUDIO_STYLE: &str = r#"
 
 .studio-panel .panel-content {
     flex: 1;
+    min-height: 0;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
 }
@@ -788,42 +998,11 @@ pub fn Studio() -> Element {
 
         let code = math_input.read().clone();
 
-        // Accumulate lines into complete statements ending with '.'
-        let mut current_stmt = String::new();
+        // Parse math code into complete statements
+        // Handles both Coq-style (period-terminated) and Literate syntax (block-based)
+        let statements = parse_math_statements(&code);
 
-        for line in code.lines() {
-            let trimmed = line.trim();
-
-            // Skip empty lines and comments
-            if trimmed.is_empty() || trimmed.starts_with("--") {
-                continue;
-            }
-
-            // Accumulate the line
-            if !current_stmt.is_empty() {
-                current_stmt.push(' ');
-            }
-            current_stmt.push_str(trimmed);
-
-            // Check if statement is complete (ends with '.')
-            if trimmed.ends_with('.') {
-                let stmt = current_stmt.clone();
-                current_stmt.clear();
-
-                match math_repl.write().execute(&stmt) {
-                    Ok(output) => {
-                        math_output.write().push(ReplLine::success(stmt, output));
-                    }
-                    Err(e) => {
-                        math_output.write().push(ReplLine::error(stmt, e.to_string()));
-                    }
-                }
-            }
-        }
-
-        // Execute any remaining incomplete statement (for single-line commands)
-        if !current_stmt.is_empty() {
-            let stmt = current_stmt.trim().to_string();
+        for stmt in statements {
             match math_repl.write().execute(&stmt) {
                 Ok(output) => {
                     math_output.write().push(ReplLine::success(stmt, output));
@@ -1532,7 +1711,10 @@ pub fn Studio() -> Element {
                                 div { class: "panel-content",
                                     ReplOutput {
                                         lines: math_output.read().clone(),
-                                        on_clear: move |_| math_output.write().clear(),
+                                        on_clear: move |_| {
+                                            math_output.write().clear();
+                                            math_repl.set(Repl::new());  // Reset kernel state too
+                                        },
                                     }
                                 }
                             },

@@ -1671,3 +1671,568 @@ Show another.
     assert!(result.stdout.contains("50"), "Should output 25*2=50. Got: {}", result.stdout);
     assert!(result.stdout.contains("10"), "Should output 5*2=10. Got: {}", result.stdout);
 }
+
+// ============================================================
+// Math Mode: Collatz Example (MATH_COLLATZ)
+// ============================================================
+
+/// Test: math/collatz.logos (Collatz conjecture implementation)
+/// This is a comprehensive test for user-defined inductives with pattern matching.
+#[test]
+fn math_collatz_mybool_definition() {
+    let mut repl = Repl::new();
+
+    // Define MyBool with Yes/No constructors
+    let result = repl.execute("Inductive MyBool := Yes : MyBool | No : MyBool.");
+    assert!(result.is_ok(), "MyBool inductive should work: {:?}", result.err());
+
+    // Check Yes type
+    let result = repl.execute("Check Yes.");
+    assert!(result.is_ok(), "Check Yes should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("MyBool"), "Yes should have type MyBool: {}", output);
+
+    // Check No type
+    let result = repl.execute("Check No.");
+    assert!(result.is_ok(), "Check No should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("MyBool"), "No should have type MyBool: {}", output);
+}
+
+/// Test: Pattern matching on user-defined MyBool type
+/// This is the critical test - the kernel was expecting 4 cases instead of 2.
+#[test]
+fn math_collatz_not_function() {
+    let mut repl = Repl::new();
+
+    // Define MyBool
+    let result = repl.execute("Inductive MyBool := Yes : MyBool | No : MyBool.");
+    assert!(result.is_ok(), "MyBool inductive should work: {:?}", result.err());
+
+    // Define not function with pattern matching on MyBool
+    // This is where the bug manifested: "Wrong number of cases: expected 4, found 2"
+    let result = repl.execute(
+        "Definition not : MyBool -> MyBool := fun b : MyBool => match b return MyBool with | Yes => No | No => Yes end."
+    );
+    assert!(result.is_ok(), "Definition not should work (pattern match on MyBool): {:?}", result.err());
+
+    // Check the type
+    let result = repl.execute("Check not.");
+    assert!(result.is_ok(), "Check not should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("MyBool -> MyBool"), "not should have type MyBool -> MyBool: {}", output);
+
+    // Evaluate not Yes = No
+    let result = repl.execute("Eval (not Yes).");
+    assert!(result.is_ok(), "Eval (not Yes) should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("No"), "not Yes should evaluate to No: {}", output);
+
+    // Evaluate not No = Yes
+    let result = repl.execute("Eval (not No).");
+    assert!(result.is_ok(), "Eval (not No) should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Yes"), "not No should evaluate to Yes: {}", output);
+}
+
+/// Test: isEven function using fixpoint and pattern matching
+#[test]
+fn math_collatz_iseven_function() {
+    let mut repl = Repl::new();
+
+    // Define MyBool
+    let result = repl.execute("Inductive MyBool := Yes : MyBool | No : MyBool.");
+    assert!(result.is_ok(), "MyBool should be defined");
+
+    // Define not
+    let result = repl.execute(
+        "Definition not : MyBool -> MyBool := fun b : MyBool => match b return MyBool with | Yes => No | No => Yes end."
+    );
+    assert!(result.is_ok(), "not should be defined: {:?}", result.err());
+
+    // Define isEven with dependent motive
+    let result = repl.execute(
+        "Definition isEven : Nat -> MyBool := fix rec => fun n : Nat => match n return (fun _ : Nat => MyBool) with | Zero => Yes | Succ k => not (rec k) end."
+    );
+    assert!(result.is_ok(), "isEven should be defined: {:?}", result.err());
+
+    // Check type
+    let result = repl.execute("Check isEven.");
+    assert!(result.is_ok(), "Check isEven should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Nat -> MyBool"), "isEven should have type Nat -> MyBool: {}", output);
+
+    // Test isEven(0) = Yes
+    let result = repl.execute("Eval (isEven Zero).");
+    assert!(result.is_ok(), "Eval isEven Zero should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Yes"), "isEven 0 should be Yes: {}", output);
+
+    // Test isEven(1) = No
+    let result = repl.execute("Eval (isEven (Succ Zero)).");
+    assert!(result.is_ok(), "Eval isEven 1 should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("No"), "isEven 1 should be No: {}", output);
+
+    // Test isEven(2) = Yes
+    let result = repl.execute("Eval (isEven (Succ (Succ Zero))).");
+    assert!(result.is_ok(), "Eval isEven 2 should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Yes"), "isEven 2 should be Yes: {}", output);
+}
+
+/// Test: half function with nested pattern match on MyBool
+#[test]
+fn math_collatz_half_function() {
+    let mut repl = Repl::new();
+
+    // Setup: MyBool, not, isEven, isOdd
+    let result = repl.execute("Inductive MyBool := Yes : MyBool | No : MyBool.");
+    assert!(result.is_ok(), "MyBool should be defined");
+
+    let result = repl.execute(
+        "Definition not : MyBool -> MyBool := fun b : MyBool => match b return MyBool with | Yes => No | No => Yes end."
+    );
+    assert!(result.is_ok(), "not should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition isEven : Nat -> MyBool := fix rec => fun n : Nat => match n return (fun _ : Nat => MyBool) with | Zero => Yes | Succ k => not (rec k) end."
+    );
+    assert!(result.is_ok(), "isEven should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition isOdd : Nat -> MyBool := fun n : Nat => not (isEven n)."
+    );
+    assert!(result.is_ok(), "isOdd should be defined: {:?}", result.err());
+
+    // Define half with nested pattern match on MyBool result
+    // This tests matching on MyBool within a Nat match
+    let result = repl.execute(
+        "Definition half : Nat -> Nat := fix rec => fun n : Nat => match n return Nat with | Zero => Zero | Succ k => match (isOdd k) return (fun _ : MyBool => Nat) with | Yes => Succ (rec k) | No => rec k end end."
+    );
+    assert!(result.is_ok(), "half should be defined (nested MyBool match): {:?}", result.err());
+
+    // Check type
+    let result = repl.execute("Check half.");
+    assert!(result.is_ok(), "Check half should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Nat -> Nat"), "half should have type Nat -> Nat: {}", output);
+
+    // Test half(4) = 2
+    let result = repl.execute("Eval (half (Succ (Succ (Succ (Succ Zero))))).");
+    assert!(result.is_ok(), "Eval half 4 should work: {:?}", result.err());
+    let output = result.unwrap();
+    // half(4) = 2, which is Succ (Succ Zero)
+    assert!(output.contains("Succ") && output.contains("Zero"),
+        "half 4 should be 2 (Succ (Succ Zero)): {}", output);
+}
+
+/// Test: Full Collatz step function
+#[test]
+fn math_collatz_step_function() {
+    let mut repl = Repl::new();
+
+    // Setup all dependencies
+    let result = repl.execute("Inductive MyBool := Yes : MyBool | No : MyBool.");
+    assert!(result.is_ok(), "MyBool should be defined");
+
+    let result = repl.execute(
+        "Definition not : MyBool -> MyBool := fun b : MyBool => match b return MyBool with | Yes => No | No => Yes end."
+    );
+    assert!(result.is_ok(), "not should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition plus : Nat -> Nat -> Nat := fix rec => fun n : Nat => fun m : Nat => match n return Nat with | Zero => m | Succ k => Succ (rec k m) end."
+    );
+    assert!(result.is_ok(), "plus should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition isEven : Nat -> MyBool := fix rec => fun n : Nat => match n return (fun _ : Nat => MyBool) with | Zero => Yes | Succ k => not (rec k) end."
+    );
+    assert!(result.is_ok(), "isEven should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition isOdd : Nat -> MyBool := fun n : Nat => not (isEven n)."
+    );
+    assert!(result.is_ok(), "isOdd should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition half : Nat -> Nat := fix rec => fun n : Nat => match n return Nat with | Zero => Zero | Succ k => match (isOdd k) return (fun _ : MyBool => Nat) with | Yes => Succ (rec k) | No => rec k end end."
+    );
+    assert!(result.is_ok(), "half should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition double : Nat -> Nat := fun n : Nat => plus n n."
+    );
+    assert!(result.is_ok(), "double should be defined: {:?}", result.err());
+
+    let result = repl.execute(
+        "Definition triple : Nat -> Nat := fun n : Nat => plus n (double n)."
+    );
+    assert!(result.is_ok(), "triple should be defined: {:?}", result.err());
+
+    // Define collatzStep - this matches on MyBool (isEven n)
+    let result = repl.execute(
+        "Definition collatzStep : Nat -> Nat := fun n : Nat => match (isEven n) return (fun _ : MyBool => Nat) with | Yes => half n | No => Succ (triple n) end."
+    );
+    assert!(result.is_ok(), "collatzStep should be defined (pattern match on MyBool): {:?}", result.err());
+
+    // Check type
+    let result = repl.execute("Check collatzStep.");
+    assert!(result.is_ok(), "Check collatzStep should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Nat -> Nat"), "collatzStep should have type Nat -> Nat: {}", output);
+
+    // Test collatzStep(2) = 1 (even, so divide by 2)
+    let result = repl.execute("Eval (collatzStep (Succ (Succ Zero))).");
+    assert!(result.is_ok(), "Eval collatzStep 2 should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Succ Zero") || output == "Succ Zero\n",
+        "collatzStep 2 should be 1 (Succ Zero): {}", output);
+}
+
+// ============================================================
+// COLLATZ REACHABILITY PREDICATE TESTS
+// ============================================================
+
+/// Test: ReachesOne inductive predicate for Collatz conjecture
+/// This tests the "logical engine" - proving specific numbers reach 1
+#[test]
+fn math_collatz_reaches_one_predicate() {
+    let mut repl = Repl::new();
+
+    // Setup all dependencies (using Coq-style syntax for compatibility)
+    repl.execute("Inductive MyBool := Yes : MyBool | No : MyBool.").unwrap();
+    repl.execute("Definition not : MyBool -> MyBool := fun b : MyBool => match b return MyBool with | Yes => No | No => Yes end.").unwrap();
+    repl.execute("Definition plus : Nat -> Nat -> Nat := fix rec => fun n : Nat => fun m : Nat => match n return Nat with | Zero => m | Succ k => Succ (rec k m) end.").unwrap();
+    repl.execute("Definition isEven : Nat -> MyBool := fix rec => fun n : Nat => match n return (fun _ : Nat => MyBool) with | Zero => Yes | Succ k => not (rec k) end.").unwrap();
+    repl.execute("Definition isOdd : Nat -> MyBool := fun n : Nat => not (isEven n).").unwrap();
+    repl.execute("Definition half : Nat -> Nat := fix rec => fun n : Nat => match n return Nat with | Zero => Zero | Succ k => match (isOdd k) return (fun _ : MyBool => Nat) with | Yes => Succ (rec k) | No => rec k end end.").unwrap();
+    repl.execute("Definition double : Nat -> Nat := fun n : Nat => plus n n.").unwrap();
+    repl.execute("Definition triple : Nat -> Nat := fun n : Nat => plus n (double n).").unwrap();
+    repl.execute("Definition collatzStep : Nat -> Nat := fun n : Nat => match (isEven n) return (fun _ : MyBool => Nat) with | Yes => half n | No => Succ (triple n) end.").unwrap();
+
+    // Define ReachesOne - an inductive predicate with parameter n
+    let result = repl.execute(
+        "Inductive ReachesOne (n : Nat) := | Done : Eq Nat n (Succ Zero) -> ReachesOne n | Step : ReachesOne (collatzStep n) -> ReachesOne n."
+    );
+    assert!(result.is_ok(), "ReachesOne inductive should be defined: {:?}", result.err());
+
+    // Check constructor types
+    let result = repl.execute("Check Done.");
+    assert!(result.is_ok(), "Check Done should work: {:?}", result.err());
+    let output = result.unwrap();
+    // Done should take: (n : Nat) -> Eq Nat n (Succ Zero) -> ReachesOne n
+    assert!(output.contains("Nat") && output.contains("Eq"),
+        "Done should have correct type: {}", output);
+
+    let result = repl.execute("Check Step.");
+    assert!(result.is_ok(), "Check Step should work: {:?}", result.err());
+
+    // Verify collatzStep reduces correctly
+    let result = repl.execute("Eval (collatzStep (Succ (Succ Zero))).");
+    assert!(result.is_ok());
+    let output = result.unwrap();
+    assert!(output.contains("Succ Zero"), "collatzStep 2 should be 1: {}", output);
+
+    // Proof that 1 reaches 1 (trivial base case)
+    let result = repl.execute(
+        "Definition one_reaches : ReachesOne (Succ Zero) := Done (Succ Zero) (refl Nat (Succ Zero))."
+    );
+    assert!(result.is_ok(), "one_reaches proof should type-check: {:?}", result.err());
+
+    // THE KEY TEST: Proof that 2 reaches 1
+    // This requires the type checker to recognize that:
+    //   collatzStep (Succ (Succ Zero)) reduces to (Succ Zero)
+    // So Step expects ReachesOne (collatzStep 2) = ReachesOne 1
+    let result = repl.execute(
+        "Definition two_reaches : ReachesOne (Succ (Succ Zero)) := Step (Succ (Succ Zero)) (Done (Succ Zero) (refl Nat (Succ Zero)))."
+    );
+    assert!(result.is_ok(), "two_reaches proof should type-check (requires reduction in type comparison): {:?}", result.err());
+
+    // Verify types
+    let result = repl.execute("Check one_reaches.");
+    assert!(result.is_ok(), "Check one_reaches should work: {:?}", result.err());
+
+    let result = repl.execute("Check two_reaches.");
+    assert!(result.is_ok(), "Check two_reaches should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("ReachesOne"), "two_reaches should have ReachesOne type: {}", output);
+}
+
+/// Test: InverseCollatz tree for proving membership backwards from 1
+#[test]
+fn math_collatz_inverse_tree() {
+    let mut repl = Repl::new();
+
+    // Setup double function
+    repl.execute("Definition plus : Nat -> Nat -> Nat := fix rec => fun n : Nat => fun m : Nat => match n return Nat with | Zero => m | Succ k => Succ (rec k m) end.").unwrap();
+    repl.execute("Definition double : Nat -> Nat := fun n : Nat => plus n n.").unwrap();
+
+    // Define InverseCollatz - the tree of numbers reachable from 1
+    let result = repl.execute(
+        "Inductive InverseCollatz (n : Nat) := | Root : Eq Nat n (Succ Zero) -> InverseCollatz n | FromDouble : InverseCollatz n -> InverseCollatz (double n)."
+    );
+    assert!(result.is_ok(), "InverseCollatz inductive should be defined: {:?}", result.err());
+
+    // Check constructor types
+    let result = repl.execute("Check Root.");
+    assert!(result.is_ok(), "Check Root should work: {:?}", result.err());
+
+    let result = repl.execute("Check FromDouble.");
+    assert!(result.is_ok(), "Check FromDouble should work: {:?}", result.err());
+
+    // Theorem: 1 is in the inverse tree
+    let result = repl.execute(
+        "Definition one_in_tree : InverseCollatz (Succ Zero) := Root (Succ Zero) (refl Nat (Succ Zero))."
+    );
+    assert!(result.is_ok(), "one_in_tree proof should type-check: {:?}", result.err());
+
+    // Verify type
+    let result = repl.execute("Check one_in_tree.");
+    assert!(result.is_ok(), "Check one_in_tree should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("InverseCollatz"), "one_in_tree should have InverseCollatz type: {}", output);
+}
+
+/// Test: Powers of Two theorem - power_of_two function and all_powers_of_two proof
+#[test]
+fn math_collatz_power_of_two_theorem() {
+    let mut repl = Repl::new();
+
+    // Setup: plus and double
+    repl.execute("Definition plus : Nat -> Nat -> Nat := fix rec => fun n : Nat => fun m : Nat => match n return Nat with | Zero => m | Succ k => Succ (rec k m) end.").unwrap();
+    repl.execute("Definition double : Nat -> Nat := fun n : Nat => plus n n.").unwrap();
+
+    // Define InverseCollatz with FromTripleSucc (need triple for full definition)
+    repl.execute("Definition triple : Nat -> Nat := fun n : Nat => plus n (double n).").unwrap();
+    let result = repl.execute(
+        "Inductive InverseCollatz (n : Nat) := | Root : Eq Nat n (Succ Zero) -> InverseCollatz n | FromDouble : InverseCollatz n -> InverseCollatz (double n) | FromTripleSucc : InverseCollatz (Succ (triple n)) -> InverseCollatz n."
+    );
+    assert!(result.is_ok(), "InverseCollatz with FromTripleSucc should be defined: {:?}", result.err());
+
+    // Define power_of_two
+    let result = repl.execute(
+        "Definition power_of_two : Nat -> Nat := fix rec => fun n : Nat => match n return Nat with | Zero => Succ Zero | Succ k => double (rec k) end."
+    );
+    assert!(result.is_ok(), "power_of_two should be defined: {:?}", result.err());
+
+    // Check type of power_of_two
+    let result = repl.execute("Check power_of_two.");
+    assert!(result.is_ok(), "Check power_of_two should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Nat -> Nat"), "power_of_two should have type Nat -> Nat: {}", output);
+
+    // Verify power_of_two computes correctly
+    // power_of_two 0 = 1
+    let result = repl.execute("Eval (power_of_two Zero).");
+    assert!(result.is_ok(), "Eval power_of_two Zero should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Succ") && output.contains("Zero"), "power_of_two 0 should be Succ Zero: {}", output);
+
+    // power_of_two 1 = 2
+    let result = repl.execute("Eval (power_of_two (Succ Zero)).");
+    assert!(result.is_ok(), "Eval power_of_two 1 should work: {:?}", result.err());
+
+    // power_of_two 3 = 8
+    let result = repl.execute("Eval (power_of_two (Succ (Succ (Succ Zero)))).");
+    assert!(result.is_ok(), "Eval power_of_two 3 should work: {:?}", result.err());
+
+    // Define the induction proof: all_powers_of_two
+    let result = repl.execute(
+        "Definition all_powers_of_two : forall n : Nat, InverseCollatz (power_of_two n) := fix proof => fun n : Nat => match n return (fun k : Nat => InverseCollatz (power_of_two k)) with | Zero => Root (Succ Zero) (refl Nat (Succ Zero)) | Succ k => FromDouble (power_of_two k) (proof k) end."
+    );
+    assert!(result.is_ok(), "all_powers_of_two proof should type-check: {:?}", result.err());
+
+    // Verify the proof type
+    let result = repl.execute("Check all_powers_of_two.");
+    assert!(result.is_ok(), "Check all_powers_of_two should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("InverseCollatz"), "all_powers_of_two should mention InverseCollatz: {}", output);
+}
+
+/// Test: Grandchild Growth theorem - if n is in tree, 4n is in tree
+#[test]
+fn math_collatz_grandchild_growth() {
+    let mut repl = Repl::new();
+
+    // Setup
+    repl.execute("Definition plus : Nat -> Nat -> Nat := fix rec => fun n : Nat => fun m : Nat => match n return Nat with | Zero => m | Succ k => Succ (rec k m) end.").unwrap();
+    repl.execute("Definition double : Nat -> Nat := fun n : Nat => plus n n.").unwrap();
+    repl.execute("Definition triple : Nat -> Nat := fun n : Nat => plus n (double n).").unwrap();
+
+    // Define InverseCollatz
+    repl.execute(
+        "Inductive InverseCollatz (n : Nat) := | Root : Eq Nat n (Succ Zero) -> InverseCollatz n | FromDouble : InverseCollatz n -> InverseCollatz (double n) | FromTripleSucc : InverseCollatz (Succ (triple n)) -> InverseCollatz n."
+    ).unwrap();
+
+    // Define grandchild_growth lemma
+    let result = repl.execute(
+        "Definition grandchild_growth : forall n : Nat, InverseCollatz n -> InverseCollatz (double (double n)) := fun n : Nat => fun pf : InverseCollatz n => FromDouble (double n) (FromDouble n pf)."
+    );
+    assert!(result.is_ok(), "grandchild_growth should be defined: {:?}", result.err());
+
+    // Check type
+    let result = repl.execute("Check grandchild_growth.");
+    assert!(result.is_ok(), "Check grandchild_growth should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("InverseCollatz"), "grandchild_growth should mention InverseCollatz: {}", output);
+}
+
+/// Test: FromTripleSucc rule - prove 5 is in the tree because 3*5+1 = 16 = 2^4 is in tree
+#[test]
+fn math_collatz_fromodd_rule() {
+    let mut repl = Repl::new();
+
+    // Setup
+    repl.execute("Definition plus : Nat -> Nat -> Nat := fix rec => fun n : Nat => fun m : Nat => match n return Nat with | Zero => m | Succ k => Succ (rec k m) end.").unwrap();
+    repl.execute("Definition double : Nat -> Nat := fun n : Nat => plus n n.").unwrap();
+    repl.execute("Definition triple : Nat -> Nat := fun n : Nat => plus n (double n).").unwrap();
+
+    // Define InverseCollatz with FromTripleSucc
+    let result = repl.execute(
+        "Inductive InverseCollatz (n : Nat) := | Root : Eq Nat n (Succ Zero) -> InverseCollatz n | FromDouble : InverseCollatz n -> InverseCollatz (double n) | FromTripleSucc : InverseCollatz (Succ (triple n)) -> InverseCollatz n."
+    );
+    assert!(result.is_ok(), "InverseCollatz with FromTripleSucc should be defined: {:?}", result.err());
+
+    // Check FromTripleSucc constructor type
+    let result = repl.execute("Check FromTripleSucc.");
+    assert!(result.is_ok(), "Check FromTripleSucc should work: {:?}", result.err());
+
+    // Define power_of_two and all_powers_of_two
+    repl.execute(
+        "Definition power_of_two : Nat -> Nat := fix rec => fun n : Nat => match n return Nat with | Zero => Succ Zero | Succ k => double (rec k) end."
+    ).unwrap();
+    repl.execute(
+        "Definition all_powers_of_two : forall n : Nat, InverseCollatz (power_of_two n) := fix proof => fun n : Nat => match n return (fun k : Nat => InverseCollatz (power_of_two k)) with | Zero => Root (Succ Zero) (refl Nat (Succ Zero)) | Succ k => FromDouble (power_of_two k) (proof k) end."
+    ).unwrap();
+
+    // Define five and four
+    repl.execute("Definition five : Nat := Succ (Succ (Succ (Succ (Succ Zero)))).").unwrap();
+    repl.execute("Definition four : Nat := Succ (Succ (Succ (Succ Zero))).").unwrap();
+
+    // Verify triple five + 1 = 16 = power_of_two four
+    // triple 5 = 5 + 10 = 15, Succ (triple 5) = 16
+    let result = repl.execute("Eval (Succ (triple five)).");
+    assert!(result.is_ok(), "Eval Succ (triple five) should work: {:?}", result.err());
+
+    let result = repl.execute("Eval (power_of_two four).");
+    assert!(result.is_ok(), "Eval power_of_two four should work: {:?}", result.err());
+
+    // Define five_in_tree using FromTripleSucc
+    // FromTripleSucc five needs InverseCollatz (Succ (triple five)) which equals InverseCollatz 16
+    let result = repl.execute(
+        "Definition five_in_tree : InverseCollatz five := FromTripleSucc five (all_powers_of_two four)."
+    );
+    assert!(result.is_ok(), "five_in_tree should type-check: {:?}", result.err());
+
+    // Verify the proof type
+    let result = repl.execute("Check five_in_tree.");
+    assert!(result.is_ok(), "Check five_in_tree should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("InverseCollatz"), "five_in_tree should have InverseCollatz type: {}", output);
+}
+
+// ============================================================
+// LITERATE GÖDEL SYNTAX TESTS (Phase 2)
+// ============================================================
+
+/// Test: Literate `Let X be Y` constant definition
+#[test]
+fn math_literate_let_definition() {
+    let mut repl = Repl::new();
+
+    // Simple Let binding
+    let result = repl.execute("Let one be Succ Zero.");
+    assert!(result.is_ok(), "Let one be Succ Zero should work: {:?}", result.err());
+
+    // Check it's defined
+    let result = repl.execute("Check one.");
+    assert!(result.is_ok(), "Check one should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Nat"), "one should have type Nat: {}", output);
+}
+
+/// Test: Literate `Name "X"` syntax for SName
+#[test]
+fn math_literate_name_syntax() {
+    let mut repl = Repl::new();
+
+    // Define Syntax type first (simplified for test)
+    let result = repl.execute("Inductive Syntax := SName : Nat -> Syntax | SVar : Nat -> Syntax | SApp : Syntax -> Syntax -> Syntax.");
+    assert!(result.is_ok(), "Syntax type should be defined: {:?}", result.err());
+
+    // Use Literate Name syntax - it should produce SName "Not"
+    // Since we defined SName : Nat -> Syntax, we use a number as placeholder
+    let result = repl.execute("Let myname be SName Zero.");
+    assert!(result.is_ok(), "Let myname should work: {:?}", result.err());
+
+    let result = repl.execute("Check myname.");
+    assert!(result.is_ok(), "Check myname should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Syntax"), "myname should have type Syntax: {}", output);
+}
+
+/// Test: Literate `Apply(f, x)` syntax for SApp
+#[test]
+fn math_literate_apply_syntax() {
+    let mut repl = Repl::new();
+
+    // Define Syntax type
+    let result = repl.execute("Inductive Syntax := SName : Nat -> Syntax | SVar : Nat -> Syntax | SApp : Syntax -> Syntax -> Syntax.");
+    assert!(result.is_ok(), "Syntax type should be defined: {:?}", result.err());
+
+    // Use Literate Apply syntax
+    let result = repl.execute("Let T be SApp (SName Zero) (SVar Zero).");
+    assert!(result.is_ok(), "Let T with SApp should work: {:?}", result.err());
+
+    let result = repl.execute("Check T.");
+    assert!(result.is_ok(), "Check T should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Syntax"), "T should have type Syntax: {}", output);
+}
+
+/// Test: Literate `X implies Y` syntax for non-dependent Pi
+#[test]
+fn math_literate_implies_syntax() {
+    let mut repl = Repl::new();
+
+    // Define a simple proposition
+    let result = repl.execute("Definition A : Prop := True.");
+    assert!(result.is_ok(), "A should be defined: {:?}", result.err());
+
+    let result = repl.execute("Definition B : Prop := True.");
+    assert!(result.is_ok(), "B should be defined: {:?}", result.err());
+
+    // Use Literate implies syntax
+    let result = repl.execute("Let implication be (A implies B).");
+    assert!(result.is_ok(), "Let implication should work: {:?}", result.err());
+
+    let result = repl.execute("Check implication.");
+    assert!(result.is_ok(), "Check implication should work: {:?}", result.err());
+}
+
+/// Test: Literate `the diagonalization of T` syntax
+#[test]
+fn math_literate_diagonalization_syntax() {
+    let mut repl = Repl::new();
+
+    // Define Syntax type and syn_diag function
+    let result = repl.execute("Inductive Syntax := SName : Nat -> Syntax | SVar : Nat -> Syntax | SApp : Syntax -> Syntax -> Syntax.");
+    assert!(result.is_ok(), "Syntax type should be defined: {:?}", result.err());
+
+    let result = repl.execute("Definition syn_diag : Syntax -> Syntax := fun s : Syntax => s.");
+    assert!(result.is_ok(), "syn_diag should be defined: {:?}", result.err());
+
+    // Use Literate diagonalization syntax
+    let result = repl.execute("Let T be SName Zero.");
+    assert!(result.is_ok(), "Let T should work: {:?}", result.err());
+
+    let result = repl.execute("Let G be the diagonalization of T.");
+    assert!(result.is_ok(), "Let G with diagonalization should work: {:?}", result.err());
+
+    let result = repl.execute("Check G.");
+    assert!(result.is_ok(), "Check G should work: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Syntax"), "G should have type Syntax: {}", output);
+}

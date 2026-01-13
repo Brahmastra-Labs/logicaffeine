@@ -8,6 +8,7 @@ const REPL_OUTPUT_STYLE: &str = r#"
     display: flex;
     flex-direction: column;
     height: 100%;
+    min-height: 0;
     background: #0f1419;
     font-family: 'SF Mono', 'Fira Code', monospace;
 }
@@ -45,6 +46,7 @@ const REPL_OUTPUT_STYLE: &str = r#"
 
 .repl-history {
     flex: 1;
+    min-height: 0;
     overflow: auto;
     padding: 12px;
 }

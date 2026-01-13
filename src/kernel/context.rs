@@ -38,6 +38,10 @@ pub struct Context {
     /// Definitions are transparent - they unfold during normalization.
     /// Distinguished from declarations (axioms) which have no body.
     definitions: HashMap<String, (Term, Term)>,
+
+    /// Hint database: theorem names marked as hints for auto tactic.
+    /// When auto fails with decision procedures, it tries to apply these hints.
+    hints: Vec<String>,
 }
 
 impl Context {
@@ -50,6 +54,7 @@ impl Context {
             constructor_order: HashMap::new(),
             declarations: HashMap::new(),
             definitions: HashMap::new(),
+            hints: Vec::new(),
         }
     }
 
@@ -223,5 +228,27 @@ impl Context {
         // If it passes, add the constructor normally
         self.add_constructor(name, inductive, ty);
         Ok(())
+    }
+
+    /// Register a theorem as a hint for the auto tactic.
+    ///
+    /// Hints are theorems that auto will try to apply when decision
+    /// procedures fail. This allows auto to "learn" from proven theorems.
+    pub fn add_hint(&mut self, name: &str) {
+        if !self.hints.contains(&name.to_string()) {
+            self.hints.push(name.to_string());
+        }
+    }
+
+    /// Get all registered hints.
+    ///
+    /// Returns the names of theorems registered as hints.
+    pub fn get_hints(&self) -> &[String] {
+        &self.hints
+    }
+
+    /// Check if a theorem is registered as a hint.
+    pub fn is_hint(&self, name: &str) -> bool {
+        self.hints.contains(&name.to_string())
     }
 }
