@@ -125,6 +125,8 @@ LLMs are probabilistic—they guess. LOGOS is deterministic—it parses. When "e
   - [Distributive vs Collective](#distributive-vs-collective)
   - [Axioms & Entailment](#axioms--entailment)
   - [Proof Engine](#proof-engine)
+    - [Decision Procedure Tactics](#decision-procedure-tactics)
+    - [Tactic Combinators](#tactic-combinators)
   - [Focus Particles](#focus-particles)
   - [Morphological Rules](#morphological-rules)
   - [Intensionality](#intensionality)
@@ -1241,6 +1243,8 @@ Input:  "Many students attended."
 Output: MANY x(Student(x), Attend(x))
 ```
 
+For comprehensive coverage of arithmetic operators, numeric literals, quantified cardinals, and output formats, see [MATH.md](MATH.md).
+
 ### Event Adjectives
 
 Adjectives can have multiple readings depending on whether they modify individuals or events:
@@ -2277,6 +2281,131 @@ Eval (concludes cong_proof).                     → Eq Nat (Succ k) (Succ k')
 **Why This Matters:**
 
 `DCong` implements Leibniz's Law (substituting equals for equals) in the deep embedding. Given a context `λx. f[x]` and a proof of `a = b`, it derives `f[a] = f[b]`. This enables the step case of induction proofs: from IH `k + 0 = k`, apply congruence with `λx. Succ x` to get `Succ (k + 0) = Succ k`.
+
+#### Decision Procedure Tactics
+
+LOGOS includes automated decision procedures that can prove goals in specific mathematical domains without manual proof construction.
+
+| Tactic | Domain | Algorithm | Derivation Constructor |
+|--------|--------|-----------|------------------------|
+| `try_ring` | Polynomial equality | Normalization to canonical form | `DRingSolve` |
+| `try_lia` | Linear integer arithmetic | Fourier-Motzkin elimination | `DLiaSolve` |
+| `try_omega` | Integer arithmetic | Omega test with integer semantics | `DOmegaSolve` |
+| `try_cc` | Equality reasoning | Congruence closure (Union-Find) | `DCCSolve` |
+| `try_simp` | Term simplification | Bottom-up rewriting | `DSimpSolve` |
+
+**Ring Tactic (Polynomial Equality):**
+
+The `ring` tactic proves polynomial equalities by normalizing both sides to canonical form (sum of monomials) and comparing:
+
+```
+-- Proves automatically: 3(2k+1) + 1 = 6k + 4
+Definition goal : Syntax := Eq Int (mul 3 (add (mul 2 k) 1)) (add (mul 6 k) 4).
+Definition proof : Derivation := try_ring goal.
+Eval (concludes proof).  → goal
+```
+
+Supports: addition, subtraction, multiplication (no division).
+
+**LIA Tactic (Linear Integer Arithmetic):**
+
+The `lia` tactic proves linear inequalities using Fourier-Motzkin elimination with exact rational arithmetic:
+
+```
+-- Proves: x < x + 1 (successor relation)
+Definition goal : Syntax := Lt x (add x 1).
+Definition proof : Derivation := try_lia goal.
+
+-- Proves: 2 ≤ 5 (constant inequality)
+Definition goal2 : Syntax := Le 2 5.
+Definition proof2 : Derivation := try_lia goal2.
+```
+
+Supported relations: `Lt` (<), `Le` (≤), `Gt` (>), `Ge` (≥)
+
+Constraint: Expressions must be linear (constants, variables, c*x — no x*y).
+
+**Omega Tactic (Integer Arithmetic):**
+
+The `omega` tactic is a decision procedure for integer linear arithmetic with proper integer semantics:
+
+```
+-- Integer-aware: x > 1 converts to x >= 2
+-- Floor division: 3x <= 10 gives x <= 3
+-- Parity detection: 2x = 5 detected as unsatisfiable
+```
+
+Key difference from LIA: Uses true integer arithmetic with proper rounding, not rationals.
+
+**CC Tactic (Congruence Closure):**
+
+The `cc` tactic proves equalities over uninterpreted functions using Union-Find with congruence propagation:
+
+```
+-- Given: a = b and f(a) = c
+-- Proves: f(b) = c (by congruence)
+```
+
+Algorithm: Downey-Sethi-Tarjan E-graph construction with path compression.
+
+**Simp Tactic (Simplification):**
+
+The `simp` tactic normalizes goals by bottom-up term rewriting:
+
+```
+-- Proves: Eq 5 5 (reflexivity after simplification)
+-- Proves: Eq (add 2 3) 5 (constant folding)
+-- Handles hypothesis substitution with nested implications
+```
+
+#### Tactic Combinators
+
+LOGOS provides combinators for composing tactics into complex proof strategies:
+
+| Combinator | Type | Description |
+|------------|------|-------------|
+| `tact_fail` | `Syntax → Derivation` | Always fails (returns Error) |
+| `tact_orelse` | `Tactic → Tactic → Syntax → Derivation` | Try first; if fails, try second |
+| `tact_try` | `Tactic → Syntax → Derivation` | Attempt tactic; never fails (returns identity on failure) |
+| `tact_then` | `Tactic → Tactic → Syntax → Derivation` | Sequence two tactics (;) |
+| `tact_repeat` | `Tactic → Syntax → Derivation` | Apply repeatedly until failure or no progress |
+| `tact_first` | `TList Tactic → Syntax → Derivation` | Try list of tactics until one succeeds |
+| `tact_solve` | `Tactic → Syntax → Derivation` | Enforce tactic completely solves goal |
+
+**Example: Composite Tactic Definition:**
+
+```
+-- Define a tactic that tries reflexivity first, falls back to fail
+Definition solve_trivial : Syntax -> Derivation :=
+    tact_orelse try_refl tact_fail.
+
+-- Apply to a goal
+Definition d : Derivation := solve_trivial (Eq Nat Zero Zero).
+Eval (concludes d).  → Eq Nat Zero Zero
+```
+
+**Example: The Nuclear Option:**
+
+```
+-- A tactic that tries everything
+Definition nuclear : Syntax -> Derivation :=
+    tact_first (TacCons try_refl
+               (TacCons try_ring
+               (TacCons try_lia
+               (TacCons try_compute TacNil)))).
+```
+
+**Example: Tactic Sequencing:**
+
+```
+-- Simplify, then try reflexivity
+Definition simp_then_refl : Syntax -> Derivation :=
+    tact_then try_simp try_refl.
+```
+
+**Fixed-Point Detection:**
+
+`tact_repeat` detects fixed points to prevent infinite loops — if a tactic succeeds but makes no progress, iteration terminates.
 
 #### The Vernacular
 
