@@ -1332,3 +1332,691 @@ warning: unused import: `Substitution`
 
 warning: `logicaffeine-tests` (test "phase102_bridge") generated 5 warnings (5 duplicates)
 warning: `logicaffeine-tests` (test "phase60_proof_engine") generated 1 warning (run `cargo fix --test "phase60_proof_engine"` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27m 52s
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_base-39b43447274b84ea)
+
+running 26 tests
+test arena::tests::alloc_returns_stable_reference ... ok
+test arena::tests::alloc_slice_from_vec ... ok
+test arena::tests::alloc_slice_works ... ok
+test arena::tests::alloc_empty_slice ... ok
+test arena::tests::works_with_structs ... ok
+test error::tests::spanned_error_display ... ok
+test intern::tests::empty_symbol_resolves_to_empty_string ... ok
+test intern::tests::intern_returns_different_symbols_for_different_strings ... ok
+test intern::tests::intern_returns_same_symbol_for_same_string ... ok
+test intern::tests::is_empty_after_new ... ok
+test intern::tests::len_tracks_interned_count ... ok
+test intern::tests::not_empty_after_intern ... ok
+test intern::tests::resolve_returns_original_string ... ok
+test intern::tests::symbol_empty_is_empty_string ... ok
+test intern::tests::symbol_is_case_sensitive ... ok
+test intern::tests::symbol_equality_is_fast ... ok
+test intern::tests::symbol_index_matches_position ... ok
+test intern::tests::symbol_is_matches_interned_string ... ok
+test intern::tests::symbols_are_copy ... ok
+test span::tests::span_default_is_zero ... ok
+test span::tests::span_is_empty_for_zero_length ... ok
+test intern::tests::symbol_is_rejects_different_string ... ok
+test span::tests::span_len_returns_size ... ok
+test span::tests::span_merge_combines_ranges ... ok
+test span::tests::span_new_stores_positions ... ok
+test arena::tests::references_remain_valid_after_many_allocations ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_cli-4483427023452d72)
+
+running 6 tests
+test project::manifest::tests::create_new_manifest ... ok
+test project::manifest::tests::parse_minimal_manifest ... ok
+test project::manifest::tests::parse_full_manifest ... ok
+test project::manifest::tests::parse_path_dependency ... ok
+test project::build::tests::find_project_root_finds_largo_toml ... ok
+test project::build::tests::find_project_root_returns_none_if_not_found ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/largo-f977716a36ea7037)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_compile-7ec2d20e696a30f7)
+
+running 21 tests
+test analysis::ownership::tests::test_ownership_checker_basic ... ok
+test analysis::escape::tests::test_escape_checker_basic ... ok
+test codegen::tests::test_literal_boolean ... ok
+test codegen::tests::test_literal_nothing ... ok
+test codegen::tests::test_literal_number ... ok
+test diagnostic::tests::extract_var_from_message_works ... ok
+test diagnostic::tests::translate_e0597_creates_hotel_california_error ... ok
+test diagnostic::tests::translate_e0382_creates_friendly_error ... ok
+test diagnostic::tests::parse_rustc_json_extracts_errors ... ok
+test loader::tests::test_logos_core_scheme ... ok
+test loader::tests::test_logos_std_scheme ... ok
+test loader::tests::test_unknown_intrinsic ... ok
+test sourcemap::tests::find_nearest_span_searches_nearby ... ok
+test sourcemap::tests::source_map_builder_records_spans ... ok
+test sourcemap::tests::source_map_builder_tracks_lines ... ok
+test sourcemap::tests::source_map_stores_line_mappings ... ok
+test compile::tests::test_compile_return_statement ... ok
+test loader::tests::test_missing_file ... ok
+test compile::tests::test_compile_let_statement ... ok
+test loader::tests::test_caching ... ok
+test loader::tests::test_file_scheme_resolution ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_data-81c45d91b962f979)
+
+running 62 tests
+test crdt::causal::context::tests::test_context_add_contiguous ... ok
+test crdt::causal::context::tests::test_context_add_out_of_order ... ok
+test crdt::causal::dot::tests::test_dot_creation ... ok
+test crdt::causal::context::tests::test_context_new ... ok
+test crdt::causal::context::tests::test_context_next ... ok
+test crdt::causal::dot::tests::test_dot_equality ... ok
+test crdt::causal::dot::tests::test_dot_hash ... ok
+test crdt::causal::context::tests::test_context_merge ... ok
+test crdt::causal::vclock::tests::test_vclock_concurrent ... ok
+test crdt::causal::vclock::tests::test_vclock_dominates ... ok
+test crdt::causal::vclock::tests::test_vclock_increment ... ok
+test crdt::causal::vclock::tests::test_vclock_merge ... ok
+test crdt::causal::vclock::tests::test_vclock_new ... ok
+test crdt::delta_buffer::tests::test_buffer_multiple_deltas ... ok
+test crdt::delta_buffer::tests::test_buffer_new ... ok
+test crdt::delta_buffer::tests::test_buffer_overflow ... ok
+test crdt::delta_buffer::tests::test_buffer_overflow_partial ... ok
+test crdt::delta_buffer::tests::test_buffer_push_and_retrieve ... ok
+test crdt::delta_buffer::tests::test_buffer_since_version ... ok
+test crdt::gcounter::tests::test_gcounter_increment ... ok
+test crdt::gcounter::tests::test_gcounter_merge_commutative ... ok
+test crdt::gcounter::tests::test_gcounter_merge_disjoint ... ok
+test crdt::gcounter::tests::test_gcounter_merge_idempotent ... ok
+test crdt::gcounter::tests::test_gcounter_merge_same_replica ... ok
+test crdt::gcounter::tests::test_gcounter_new ... ok
+test crdt::lww::tests::test_lww_merge_idempotent ... ok
+test crdt::lww::tests::test_lww_merge_newer_wins ... ok
+test crdt::lww::tests::test_lww_merge_older_loses ... ok
+test crdt::lww::tests::test_lww_new ... ok
+test crdt::lww::tests::test_lww_set ... ok
+test crdt::lww::tests::test_lww_with_bool ... ok
+test crdt::lww::tests::test_lww_with_int ... ok
+test crdt::mvregister::tests::test_mvregister_concurrent ... ok
+test crdt::mvregister::tests::test_mvregister_new ... ok
+test crdt::mvregister::tests::test_mvregister_resolve ... ok
+test crdt::mvregister::tests::test_mvregister_set_get ... ok
+test crdt::ormap::tests::test_ormap_concurrent_update ... ok
+test crdt::ormap::tests::test_ormap_get_or_insert ... ok
+test crdt::ormap::tests::test_ormap_remove ... ok
+test crdt::orset::tests::test_orset_add_contains ... ok
+test crdt::orset::tests::test_orset_add_wins ... ok
+test crdt::orset::tests::test_orset_remove ... ok
+test crdt::orset::tests::test_orset_merge_commutative ... ok
+test crdt::pncounter::tests::test_pncounter_increment_decrement ... ok
+test crdt::pncounter::tests::test_pncounter_merge ... ok
+test crdt::pncounter::tests::test_pncounter_merge_commutative ... ok
+test crdt::pncounter::tests::test_pncounter_negative ... ok
+test crdt::pncounter::tests::test_pncounter_new ... ok
+test crdt::replica::tests::test_generate_replica_id_nonzero ... ok
+test crdt::replica::tests::test_generate_replica_id_unique ... ok
+test crdt::sequence::rga::tests::test_rga_append ... ok
+test crdt::sequence::rga::tests::test_rga_insert_before ... ok
+test crdt::sequence::rga::tests::test_rga_concurrent_append ... ok
+test crdt::sequence::yata::tests::test_yata_append ... ok
+test crdt::sequence::rga::tests::test_rga_remove ... ok
+test crdt::sequence::yata::tests::test_yata_concurrent ... ok
+test indexing::tests::hashmap_set_key ... ok
+test indexing::tests::hashmap_str_key ... ok
+test indexing::tests::hashmap_string_key ... ok
+test indexing::tests::vec_1_based_indexing ... ok
+test indexing::tests::vec_set_1_based ... ok
+test indexing::tests::vec_zero_index_panics - should panic ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_kernel-07f6d3acbbadf84b)
+
+running 98 tests
+test cc::tests::test_extract_equality ... ok
+test cc::tests::test_egraph_congruence ... ok
+test cc::tests::test_egraph_binary_congruence ... ok
+test cc::tests::test_decompose_goal_with_hypothesis ... ok
+test cc::tests::test_egraph_reflexive ... ok
+test cc::tests::test_egraph_nested_congruence ... ok
+test cc::tests::test_extract_binary_app ... ok
+test cc::tests::test_extract_implication ... ok
+test cc::tests::test_check_goal_with_hypothesis ... ok
+test cc::tests::test_extract_sapp ... ok
+test cc::tests::test_extract_sname ... ok
+test cc::tests::test_extract_svar ... ok
+test cc::tests::test_union_find_basic ... ok
+test cc::tests::test_union_find_transitivity ... ok
+test interface::command_parser::tests::test_parse_check ... ok
+test interface::command_parser::tests::test_parse_definition_with_type ... ok
+test interface::command_parser::tests::test_parse_definition_without_type ... ok
+test interface::command_parser::tests::test_parse_eval ... ok
+test interface::command_parser::tests::test_parse_inductive ... ok
+test interface::literate_parser::tests::test_parse_apply_syntax ... ok
+test interface::literate_parser::tests::test_parse_comparison_with_arithmetic ... ok
+test interface::literate_parser::tests::test_implicit_fixpoint_detection ... ok
+test interface::literate_parser::tests::test_parse_complex_let_with_apply ... ok
+test interface::literate_parser::tests::test_parse_diagonalization ... ok
+test interface::literate_parser::tests::test_parse_equals_infix ... ok
+test interface::literate_parser::tests::test_parse_equals_with_application ... ok
+test interface::literate_parser::tests::test_parse_existential ... ok
+test interface::literate_parser::tests::test_parse_given_lambda ... ok
+test interface::literate_parser::tests::test_parse_implies ... ok
+test interface::literate_parser::tests::test_parse_inductive_with_article ... ok
+test interface::literate_parser::tests::test_parse_infix_add ... ok
+test interface::literate_parser::tests::test_parse_infix_ge ... ok
+test interface::literate_parser::tests::test_parse_infix_gt ... ok
+test interface::literate_parser::tests::test_parse_infix_le ... ok
+test interface::literate_parser::tests::test_parse_infix_lt ... ok
+test interface::literate_parser::tests::test_parse_infix_mul ... ok
+test interface::literate_parser::tests::test_parse_infix_sub ... ok
+test interface::literate_parser::tests::test_parse_left_associative_add ... ok
+test interface::literate_parser::tests::test_parse_let_definition ... ok
+test interface::literate_parser::tests::test_parse_infix_with_sexp_mix ... ok
+test interface::literate_parser::tests::test_parse_name_syntax ... ok
+test interface::literate_parser::tests::test_parse_negative_number_preserved ... ok
+test interface::literate_parser::tests::test_parse_nullary_predicate ... ok
+test interface::literate_parser::tests::test_parse_pipe_lambda ... ok
+test interface::literate_parser::tests::test_parse_precedence_mul_over_add ... ok
+test interface::literate_parser::tests::test_parse_predicate_definition ... ok
+test interface::literate_parser::tests::test_parse_recursive_inductive ... ok
+test interface::literate_parser::tests::test_parse_simple_definition ... ok
+test interface::literate_parser::tests::test_parse_simple_inductive ... ok
+test interface::literate_parser::tests::test_parse_subtraction_not_negative ... ok
+test interface::literate_parser::tests::test_parse_the_name_syntax ... ok
+test interface::literate_parser::tests::test_parse_theorem ... ok
+test interface::literate_parser::tests::test_parse_theorem_with_complex_statement ... ok
+test interface::literate_parser::tests::test_parse_unicode_ge ... ok
+test interface::literate_parser::tests::test_parse_unicode_le ... ok
+test interface::literate_parser::tests::test_parse_variable_syntax ... ok
+test interface::term_parser::tests::test_parse_app ... ok
+test interface::term_parser::tests::test_parse_arrow ... ok
+test interface::term_parser::tests::test_parse_global ... ok
+test interface::term_parser::tests::test_parse_lambda ... ok
+test interface::term_parser::tests::test_parse_lambda_bound_var ... ok
+test interface::term_parser::tests::test_parse_parens ... ok
+test interface::term_parser::tests::test_parse_sort ... ok
+test lia::tests::test_constraint_satisfied ... ok
+test lia::tests::test_fourier_motzkin_constant ... ok
+test lia::tests::test_linear_expr_add ... ok
+test lia::tests::test_rational_arithmetic ... ok
+test lia::tests::test_linear_expr_cancel ... ok
+test lia::tests::test_x_lt_x_plus_1 ... ok
+test omega::tests::test_constraint_satisfied ... ok
+test omega::tests::test_int_expr_add ... ok
+test omega::tests::test_int_expr_cancel ... ok
+test omega::tests::test_omega_constant ... ok
+test omega::tests::test_x_lt_x_plus_1 ... ok
+test positivity::tests::test_list_cons_valid ... ok
+test positivity::tests::test_negative_inside_arrow ... ok
+test positivity::tests::test_nested_negative ... ok
+test positivity::tests::test_simple_recursive_arg ... ok
+test ring::tests::test_collatz_algebra ... ok
+test ring::tests::test_polynomial_add ... ok
+test ring::tests::test_polynomial_constant ... ok
+test ring::tests::test_polynomial_distributivity ... ok
+test ring::tests::test_polynomial_mul ... ok
+test ring::tests::test_polynomial_subtraction ... ok
+test simp::tests::test_arithmetic_add ... ok
+test simp::tests::test_arithmetic_mul ... ok
+test simp::tests::test_arithmetic_sub ... ok
+test simp::tests::test_check_goal_false_equality ... ok
+test simp::tests::test_check_goal_constant ... ok
+test simp::tests::test_check_goal_reflexive ... ok
+test simp::tests::test_simplify_constant_addition ... ok
+test simp::tests::test_simplify_nested_arithmetic ... ok
+test simp::tests::test_check_goal_with_hypothesis ... ok
+test simp::tests::test_simplify_with_substitution ... ok
+test simp::tests::test_term_to_sterm_app ... ok
+test simp::tests::test_term_to_sterm_lit ... ok
+test simp::tests::test_term_to_sterm_name ... ok
+test simp::tests::test_term_to_sterm_var ... ok
+
+test result: ok. 98 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_language-383b497eedaeda59)
+
+running 173 tests
+test analysis::dependencies::tests::multiline_abstract ... ok
+test analysis::dependencies::tests::handles_https_urls ... ok
+test analysis::dependencies::tests::no_dependencies_without_abstract ... ok
+test analysis::dependencies::tests::basic_dependency_scanning ... ok
+test analysis::dependencies::tests::ignores_links_after_abstract ... ok
+test analysis::dependencies::tests::handles_multiple_links_on_one_line ... ok
+test analysis::dependencies::tests::handles_spaces_in_alias ... ok
+test analysis::policy::tests::registry_stores_capabilities ... ok
+test analysis::policy::tests::registry_stores_predicates ... ok
+test analysis::registry::tests::registry_stores_and_retrieves ... ok
+test arena_ctx::tests::modal_builder_creates_modal ... ok
+test arena_ctx::tests::binary_builder_creates_binary_op ... ok
+test analysis::discovery::tests::discovery_parses_lww_int_field ... ok
+test arena_ctx::tests::aspectual_builder_creates_aspectual ... ok
+test arena_ctx::tests::quantifier_builder_creates_quantifier ... ok
+test analysis::discovery::tests::discovery_works_with_markdown_header ... ok
+test arena_ctx::tests::temporal_builder_creates_temporal ... ok
+test analysis::discovery::tests::discovery_finds_generic_in_definition_block ... ok
+test analysis::discovery::tests::discovery_parses_portable_enum ... ok
+test arena_ctx::tests::unary_builder_creates_unary_op ... ok
+test ast::logic::size_tests::test_ast_node_sizes ... ok
+test analysis::discovery::tests::discovery_parses_struct_with_fields ... ok
+test debug::tests::debug_world_works_with_dbg_pattern ... ok
+test debug::tests::expr_atom_display ... ok
+test debug::tests::expr_binary_op_display ... ok
+test debug::tests::expr_lambda_display ... ok
+test debug::tests::expr_modal_display ... ok
+test debug::tests::expr_predicate_display ... ok
+test debug::tests::expr_quantifier_display ... ok
+test debug::tests::expr_temporal_display ... ok
+test compile::tests::test_compile_with_unicode_format ... ok
+test debug::tests::symbol_display_with_interner ... ok
+test debug::tests::symbol_empty_displays_empty ... ok
+test debug::tests::term_constant_display ... ok
+test compile::tests::test_compile_simple_sentence ... ok
+test compile::tests::test_compile_all_scopes ... ok
+test debug::tests::term_function_display ... ok
+test debug::tests::term_group_display ... ok
+test debug::tests::term_possessed_display ... ok
+test debug::tests::term_variable_display ... ok
+test drs::tests::drs_conditional_antecedent_accessible_from_consequent ... ok
+test drs::tests::drs_enter_exit_box ... ok
+test drs::tests::drs_get_universal_referents ... ok
+test drs::tests::drs_introduce_referent_tracks_source ... ok
+test drs::tests::drs_negation_blocks_accessibility ... ok
+test drs::tests::drs_new_has_main_box ... ok
+test drs::tests::drs_pronoun_resolution_marks_used ... ok
+test drs::tests::referent_source_universal_force ... ok
+test error::tests::display_with_source_has_color_codes ... ok
+test error::tests::parse_error_has_span ... ok
+test formatter::tests::latex_binary_operators ... ok
+test formatter::tests::latex_counterfactual ... ok
+test formatter::tests::latex_lambda ... ok
+test error::tests::display_with_source_shows_line_and_underline ... ok
+test formatter::tests::latex_quantifiers ... ok
+test formatter::tests::rust_binary_operators ... ok
+test formatter::tests::latex_sanitization ... ok
+test error::tests::display_with_source_suggests_typo_fix ... ok
+test formatter::tests::rust_implication_desugaring ... ok
+test formatter::tests::rust_quantifiers_as_comments ... ok
+test formatter::tests::rust_lambda ... ok
+test formatter::tests::unicode_binary_operators ... ok
+test formatter::tests::unicode_counterfactual ... ok
+test formatter::tests::unicode_lambda ... ok
+test formatter::tests::unicode_no_sanitization ... ok
+test formatter::tests::unicode_quantifiers ... ok
+test lambda::tests::beta_reduce_nested_lambda ... ok
+test lambda::tests::beta_reduce_non_application_unchanged ... ok
+test lambda::tests::beta_reduce_preserves_unbound_variables ... ok
+test lambda::tests::beta_reduce_simple_predicate ... ok
+test lambda::tests::enumerate_scopings_no_quantifier ... ok
+test lambda::tests::factorial_basic ... ok
+test lambda::tests::enumerate_scopings_single_quantifier ... ok
+test lambda::tests::beta_reduce_with_constant ... ok
+test lambda::tests::intensional_transpiles_with_brackets ... ok
+test lambda::tests::is_opaque_verb_believes ... ok
+test lambda::tests::is_opaque_verb_normal_verbs ... ok
+test lambda::tests::is_opaque_verb_seeks ... ok
+test lambda::tests::island_constraints_reduce_permutations ... ok
+test lambda::tests::lift_proper_name_applies_predicate ... ok
+test lambda::tests::lift_proper_name_returns_lambda ... ok
+test lambda::tests::lift_quantifier_existential_returns_lambda ... ok
+test lambda::tests::lift_quantifier_existential_structure ... ok
+test lambda::tests::lift_quantifier_universal_returns_lambda ... ok
+test lambda::tests::lift_quantifier_universal_structure ... ok
+test lambda::tests::make_intensional_creates_wrapper ... ok
+test lambda::tests::multiple_quantifiers_per_island ... ok
+test lambda::tests::scope_iterator_exact_size ... ok
+test lambda::tests::scope_iterator_three_quantifiers_yields_six ... ok
+test lambda::tests::scope_iterator_no_duplicates ... ok
+test lambda::tests::substitute_respecting_opacity_allows_outside ... ok
+test lambda::tests::scope_iterator_two_quantifiers_yields_two ... ok
+test lambda::tests::substitute_respecting_opacity_blocks_inside_intensional ... ok
+test lambda::tests::test_application_formatting ... ok
+test lambda::tests::test_lambda_formatting_latex ... ok
+test lambda::tests::test_lambda_app_helper_functions ... ok
+test lambda::tests::test_lambda_formatting_unicode ... ok
+test lambda::tests::test_nested_lambda ... ok
+test lexer::tests::bus_is_not_verb ... ok
+test lexer::tests::basic_tokenization ... ok
+test lexer::tests::debug_that_token ... ok
+test lexer::tests::himself_tokenizes_as_reflexive ... ok
+test lexer::tests::iff_tokenizes_as_single_token ... ok
+test lexer::tests::is_equal_to_tokenizes_as_identity ... ok
+test lexer::tests::is_identical_to_tokenizes_as_identity ... ok
+test lexer::tests::lexer_handles_apostrophe ... ok
+test lexer::tests::lexer_produces_valid_spans ... ok
+test lexer::tests::lexer_handles_question_mark ... ok
+test lexer::tests::itself_tokenizes_as_reflexive ... ok
+test lexer::tests::ring_is_not_verb ... ok
+test parser::tests::check_any_rejects_non_matching ... ok
+test parser::tests::check_any_matches_wh_words ... ok
+test lexer::tests::possessive_apostrophe_s ... ok
+test lexer::tests::to_stay_tokenizes_correctly ... ok
+test lexer::tests::lowercase_a_is_article ... ok
+test lexer::tests::open_is_ambiguous ... ok
+test proof_convert::tests::test_convert_implication ... ok
+test parser::tests::guard_preserves_state_on_commit ... ok
+test proof_convert::tests::test_convert_predicate ... ok
+test parser::tests::guard_restores_all_fields_on_drop ... ok
+test proof_convert::tests::test_convert_universal ... ok
+test registry::tests::case_insensitive ... ok
+test registry::tests::first_word_gets_single_letter ... ok
+test registry::tests::same_word_returns_same_symbol ... ok
+test registry::tests::second_word_same_letter_gets_numbered ... ok
+test style::tests::bold_red_combines_codes ... ok
+test style::tests::red_wraps_string ... ok
+test suggest::tests::levenshtein_empty ... ok
+test suggest::tests::levenshtein_deletion ... ok
+test suggest::tests::find_similar_no_match ... ok
+test session::tests::test_session_basic ... ok
+test suggest::tests::find_similar_typo ... ok
+test suggest::tests::levenshtein_one_char_diff ... ok
+test suggest::tests::levenshtein_insertion ... ok
+test suggest::tests::levenshtein_identical ... ok
+test suggest::tests::levenshtein_transposition ... ok
+test session::tests::test_session_multiple_sentences ... ok
+test symbol_dict::tests::test_extract_connective_symbols ... ok
+test suggest::tests::find_similar_case_insensitive ... ok
+test symbol_dict::tests::test_extract_existential ... ok
+test symbol_dict::tests::test_extract_predicate_names ... ok
+test symbol_dict::tests::test_extract_quantifier_symbols ... ok
+test symbol_dict::tests::test_extract_variable_names ... ok
+test symbol_dict::tests::test_group_symbols_by_kind ... ok
+test symbol_dict::tests::test_modal_symbols ... ok
+test symbol_dict::tests::test_no_duplicate_symbols ... ok
+test symbol_dict::tests::test_symbol_has_description ... ok
+test token::tests::modals_contains_all_modal_tokens ... ok
+test token::tests::span_new_stores_positions ... ok
+test token::tests::span_default_is_zero ... ok
+test token::tests::token_has_span_field ... ok
+test token::tests::wh_words_contains_all_wh_tokens ... ok
+test view::expr_view_tests::expr_view_equality_complex ... ok
+test view::expr_view_tests::modal_vector_equality_is_bit_exact ... ok
+test view::expr_view_tests::resolve_expr_app ... ok
+test view::expr_view_tests::resolve_expr_atom ... ok
+test view::expr_view_tests::resolve_expr_binary_op ... ok
+test view::expr_view_tests::resolve_expr_identity ... ok
+test view::expr_view_tests::resolve_expr_lambda ... ok
+test view::expr_view_tests::resolve_expr_modal ... ok
+test view::expr_view_tests::resolve_expr_predicate ... ok
+test view::expr_view_tests::resolve_expr_temporal ... ok
+test view::expr_view_tests::resolve_expr_quantifier ... ok
+test view::expr_view_tests::resolve_expr_unary_op ... ok
+test view::term_view_tests::resolve_term_constant ... ok
+test view::term_view_tests::nested_function_resolve ... ok
+test view::term_view_tests::resolve_term_function ... ok
+test view::term_view_tests::resolve_term_group ... ok
+test view::term_view_tests::resolve_term_possessed ... ok
+test view::term_view_tests::resolve_term_variable ... ok
+test view::term_view_tests::term_view_equality_is_bit_exact ... ok
+test visitor::tests::expr_counter_counts_nested ... ok
+test visitor::tests::variable_collector_finds_variables ... ok
+
+test result: ok. 173 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_lexicon-269e66bb023592be)
+
+running 5 tests
+test runtime::tests::test_pluralize ... ok
+test runtime::tests::test_present_3s ... ok
+test runtime::tests::test_lexicon_loads ... ok
+test runtime::tests::test_proper_nouns ... ok
+test runtime::tests::test_intersective_adjectives ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_proof-e00d05497d28cd02)
+
+running 12 tests
+test hints::tests::test_reflexivity_hint ... ok
+test hints::tests::test_conjunction_hint ... ok
+test hints::tests::test_direct_match_hint ... ok
+test hints::tests::test_modus_ponens_hint ... ok
+test unify::tests::test_alpha_equivalence_exists ... ok
+test unify::tests::test_alpha_equivalence_forall ... ok
+test unify::tests::test_compose_substitutions ... ok
+test unify::tests::test_alpha_equivalence_nested ... ok
+test unify::tests::test_unify_different_constants ... ok
+test unify::tests::test_occurs_check ... ok
+test unify::tests::test_unify_same_constant ... ok
+test unify::tests::test_unify_var_constant ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_system-db6acf93e21d882b)
+
+running 64 tests
+test concurrency::tests::test_check_preemption_no_yield_initially ... ok
+test concurrency::tests::test_pipe_send_recv ... ok
+test concurrency::tests::test_pipe_receiver_close ... ok
+test concurrency::tests::test_pipe_sender_clone ... ok
+test concurrency::tests::test_pipe_recv_none_when_closed ... ok
+test concurrency::tests::test_pipe_try_recv_empty ... ok
+test concurrency::tests::test_pipe_is_closed ... ok
+test concurrency::tests::test_pipe_try_send_full ... ok
+test concurrency::tests::test_pipe_try_send_success ... ok
+test concurrency::tests::test_spawn_returns_task_handle ... ok
+test concurrency::tests::test_spawn_with_complex_return_type ... ok
+test concurrency::tests::test_task_handle_await_result ... ok
+test concurrency::tests::test_task_abort_with_pipe ... ok
+test concurrency::tests::test_spawn_with_captured_values ... ok
+test concurrency::tests::test_spawn_with_pipe_communication ... ok
+test concurrency::tests::test_multiple_producers_single_consumer ... ok
+test concurrency::tests::test_task_handle_is_finished_initially_false ... ok
+test crdt::sync::tests::test_synced_mutate ... ok
+test crdt::sync::tests::test_synced_get ... ok
+test distributed::tests::test_distributed_mount_empty ... ok
+test crdt::sync::tests::test_synced_creation ... ok
+test concurrency::tests::test_task_handle_abort ... ok
+test concurrency::tests::test_task_handle_creation_and_completion ... ok
+test memory::tests::test_heap_zone_alloc ... ok
+test memory::tests::test_heap_zone_alloc_slice ... ok
+test memory::tests::test_heap_zone_reset ... ok
+test memory::tests::test_heap_zone_as_slice_panics - should panic ... ok
+test concurrency::tests::test_check_preemption_yields_after_threshold ... ok
+test distributed::tests::test_distributed_persist_and_reload ... ok
+test memory::tests::test_zone_type_checks ... ok
+test memory::tests::test_mapped_zone ... ok
+test network::e2e_tests::tests::test_mesh_node_creates_successfully ... ok
+test network::e2e_tests::tests::test_mesh_node_listens_on_port ... ok
+test memory::tests::test_mapped_zone_type_checks ... ok
+test fs::tests::test_native_vfs_read_write ... ok
+test network::e2e_tests::tests::test_peer_agent_with_peer_id ... ok
+test network::e2e_tests::tests::test_mesh_node_unique_peer_ids ... ok
+test network::e2e_tests::tests::test_wire_protocol_roundtrip ... ok
+test network::e2e_tests::tests::test_two_nodes_created_concurrently ... ok
+test network::mesh::tests::test_connect_empty_fails ... ok
+test network::mesh::tests::test_listen_empty_fails ... ok
+test network::mesh::tests::test_mesh_node_creation ... ok
+test network::mesh::tests::test_peer_agent_empty_fails ... ok
+test network::mesh::tests::test_peer_agent_invalid_fails ... ok
+test network::mesh::tests::test_peer_agent_new ... ok
+test network::protocol::tests::test_protocol_name ... ok
+test memory::tests::test_mapped_zone_alloc_panics - should panic ... ok
+test distributed::tests::test_distributed_mutate ... ok
+test network::sipping::tests::test_chunk_count_empty ... ok
+test fs::tests::test_native_vfs_append ... ok
+test network::sipping::tests::test_chunk_count_small_file ... ok
+test network::sipping::tests::test_manifest_has_correct_size ... ok
+test network::wire::tests::test_decode_invalid_bytes ... ok
+test network::wire::tests::test_roundtrip ... ok
+test network::sipping::tests::test_chunk_hash_is_consistent ... ok
+test network::sipping::tests::test_custom_chunk_size ... ok
+test fs::tests::test_native_vfs_nested_dirs ... ok
+test storage::tests::test_persistent_mount_empty ... ok
+test fs::tests::test_native_vfs_list_dir ... ok
+test network::gossip::tests::test_subscriptions_registry ... ok
+test storage::tests::test_persistent_mutate ... ok
+test distributed::tests::test_distributed_compaction ... ok
+test network::e2e_tests::tests::test_server_and_client_can_listen ... ok
+test network::e2e_tests::tests::test_mdns_discovery_works ... ok
+
+test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running unittests src/lib.rs (target/debug/deps/logicaffeine_tests-5d50e70e1791b738)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/aktionsart_tests.rs (target/debug/deps/aktionsart_tests-90b2413756a081c8)
+
+running 33 tests
+test achievement_verb_find_has_achievement_class ... ok
+test accomplishment_verb_draw_has_accomplishment_class ... ok
+test achievement_verb_die_has_achievement_class ... ok
+test accomplishment_verb_build_has_accomplishment_class ... ok
+test accomplishment_verb_write_has_accomplishment_class ... ok
+test achievement_verb_win_has_achievement_class ... ok
+test activity_verb_drive_has_activity_class ... ok
+test activity_verb_run_has_activity_class ... ok
+test activity_verb_swim_has_activity_class ... ok
+test debug_hating_lookup ... ok
+test debug_verb_class_for_knowing ... ok
+test durative_classes ... ok
+test activity_progressive_produces_progressive ... ok
+test accomplishment_present_produces_habitual ... ok
+test debug_knowing_parse ... ok
+test semelfactive_progressive_produces_iterative ... ok
+test semelfactive_verb_hit_has_semelfactive_class ... ok
+test activity_present_produces_habitual ... ok
+test semelfactive_verb_knock_has_semelfactive_class ... ok
+test activity_past_produces_temporal_past_without_habitual ... ok
+test achievement_past_produces_temporal_past ... ok
+test semelfactive_verb_wag_has_semelfactive_class ... ok
+test achievement_present_produces_habitual ... ok
+test state_is_stative ... ok
+test state_past_produces_temporal_past ... ok
+test state_verb_exist_has_state_class ... ok
+test state_present_produces_simple_predication ... ok
+test state_progressive_hate_is_rejected ... ok
+test telic_classes ... ok
+test state_verb_know_has_state_class ... ok
+test state_progressive_is_rejected ... ok
+test state_verb_love_has_state_class ... ok
+test state_progressive_love_is_rejected ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/complex_combinations.rs (target/debug/deps/complex_combinations-d3d463a043b1050f)
+
+running 22 tests
+test mass_noun_comparative ... ok
+test maximal_verb_stack ... ok
+test future_perfect_passive_with_agent ... ok
+test control_with_passive_complement ... ok
+test donkey_sentence_with_ditransitive ... ok
+test focus_particle_on_pp_object ... ok
+test focus_particle_on_object ... ok
+test event_with_instrument_and_manner_and_location ... ok
+test counterfactual_with_causal_chain ... ok
+test complex_gapping_with_adjuncts ... ok
+test np_coordination_in_object_position ... ok
+test numeric_quantifier_negation_interaction ... ok
+test simple_comparative ... ok
+test presupposition_inside_conditional ... ok
+test raising_into_subject_into_object_control ... ok
+test simple_presupposition ... ok
+test simple_gapping ... ok
+test single_quantifier_has_one_reading ... ok
+test simple_counterfactual ... ok
+test two_quantifier_scope_ambiguity ... ok
+test triple_nested_relative_clause ... ok
+test relative_clause_inside_pp_inside_relative ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_any.rs (target/debug/deps/debug_any-0f23ba3d82a9396a)
+
+running 1 test
+test debug_simple_any ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_aspect.rs (target/debug/deps/debug_aspect-4a9cdfb19e25af6c)
+
+running 1 test
+test debug_aspect_chain ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_card.rs (target/debug/deps/debug_card-76449a5ca25788ea)
+
+running 2 tests
+test test_john_has_cardinality_5 ... ok
+test test_set_a_has_cardinality_5 ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_garden.rs (target/debug/deps/debug_garden-8818d26149ec3577)
+
+running 1 test
+test debug_garden_path ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_modal_relclause.rs (target/debug/deps/debug_modal_relclause-62d2b93ab86ba08c)
+
+running 7 tests
+test negative_quantifier_simple_fol ... ok
+test negative_quantifier_with_relative_clause_and_modal ... ok
+test quantified_subject_with_relative_clause_and_verb ... ok
+test simple_fol_output ... ok
+test conditional_with_quantified_antecedent ... ok
+test conditional_simple_fol ... ok
+test all_three_marketing_sentences ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_reciprocal.rs (target/debug/deps/debug_reciprocal-b720df4b27868971)
+
+running 1 test
+test debug_reciprocal ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_tense.rs (target/debug/deps/debug_tense-a33d7b9bade4ecb5)
+
+running 1 test
+test debug_tense_structures ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_bridge.rs (target/debug/deps/diagnostic_bridge-34b65747acaed883)
+
+running 11 tests
+test e2e_test_diagnostic_module_compiles ... ok
+test e2e_test_json_parsing_extracts_e0597 ... ok
+test e2e_test_translator_produces_friendly_message_for_e0382 ... ok
+test e2e_test_e0505_translation_produces_friendly_message ... ok
+test e2e_test_concurrent_mutation_translation ... ok
+test e2e_test_translator_produces_friendly_message_for_e0597 ... ok
+test e2e_test_json_parsing_extracts_e0382 ... ok
+test e2e_test_zone_escape_produces_friendly_error ... ok
+test e2e_test_use_after_move_with_function ... ok
+test e2e_test_use_after_move_simple ... ok
+test e2e_test_no_rustc_error_codes_leak_e0382 has been running for over 60 seconds
+test e2e_test_no_rustc_error_codes_leak_e0382 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 72.36s
+
+     Running tests/e2e_causal_consistency.rs (target/debug/deps/e2e_causal_consistency-48c05633cd3c9327)
+
+running 3 tests
+test e2e_test_causal_order_preserved has been running for over 60 seconds
+test e2e_test_concurrent_detection_across_nodes has been running for over 60 seconds
+test e2e_test_happens_before_chain has been running for over 60 seconds
+test e2e_test_causal_order_preserved ... ok
+test e2e_test_concurrent_detection_across_nodes ... ok
+test e2e_test_happens_before_chain ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 129.12s
+
+     Running tests/e2e_collections.rs (target/debug/deps/e2e_collections-a26278ec5b1e8fc8)

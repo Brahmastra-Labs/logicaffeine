@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["LiaError"],"fn":["extract_comparison","fourier_motzkin_unsat","goal_to_negated_constraint","reify_linear"],"struct":["Constraint","LinearExpr","Rational"]};

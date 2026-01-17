@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Language"],"fn":["CodeEditor","CodeView"],"struct":["CodeEditorProps","CodeViewProps"]};

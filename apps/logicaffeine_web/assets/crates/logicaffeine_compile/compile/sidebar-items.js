@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["CompileError"],"fn":["compile_and_run","compile_file","compile_project","compile_to_dir","compile_to_rust","compile_to_rust_checked","copy_runtime_crates"]};

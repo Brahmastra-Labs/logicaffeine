@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["AspectOperator","BinaryOpKind","Dimension","LogicExpr","LogicalType","ModalDomain","ModalFlavor","NumberKind","QuantifierKind","TemporalOperator","Term","ThematicRole","UnaryOpKind","VoiceOperator"],"struct":["CategoricalData","ModalVector","NeoEventData","NounPhrase","RelationData"]};

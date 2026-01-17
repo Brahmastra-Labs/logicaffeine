@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["MOBILE_BASE_STYLES","MOBILE_BUTTON_STYLES","MOBILE_INPUT_STYLES","MOBILE_PANEL_STYLES","MOBILE_RESIZER_STYLES","MOBILE_TAB_BAR_STYLES"],"fn":["all_mobile_styles","with_mobile_styles"],"mod":["breakpoints","media","touch"]};

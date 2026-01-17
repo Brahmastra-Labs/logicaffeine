@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["FieldType","PolicyCondition","TypeDef"],"fn":["discover_with_imports","scan_dependencies"],"mod":["dependencies","escape","ownership","policy","registry"],"struct":["CapabilityDef","Dependency","DiscoveryPass","DiscoveryResult","FieldDef","PolicyRegistry","PredicateDef","TypeRegistry","VariantDef"]};

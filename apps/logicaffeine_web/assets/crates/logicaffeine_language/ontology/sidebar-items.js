@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["check_sort_compatibility","find_bridging_wholes","get_possible_wholes","get_predicate_sort","required_sort"]};

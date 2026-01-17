@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["achievements","audio","content","game","generator","grader","learn_state","progress","srs","storage","struggle","ui","unlock"],"struct":["AstNode"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["PolicyCondition"],"struct":["CapabilityDef","PolicyRegistry","PredicateDef"]};

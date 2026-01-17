@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["apply_adverb","beta_reduce","enumerate_intensional_readings","enumerate_scopings","is_opaque_verb","lift_proper_name","lift_quantifier","make_intensional","substitute_respecting_opacity","to_event_semantics"],"struct":["ScopeIterator"]};

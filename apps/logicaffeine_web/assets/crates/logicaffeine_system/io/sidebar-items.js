@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["eprintln","print","println","read_line","show"],"trait":["Showable"]};

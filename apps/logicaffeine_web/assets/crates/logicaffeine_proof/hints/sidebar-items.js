@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["SuggestedTactic"],"fn":["suggest_hint"],"struct":["SocraticHint"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Value"],"trait":["LogosContains"],"type":["Bool","Byte","Char","Int","Map","Nat","Real","Seq","Set","Text","Tuple","Unit"]};

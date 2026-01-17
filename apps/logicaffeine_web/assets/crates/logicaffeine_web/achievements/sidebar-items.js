@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["ACHIEVEMENTS"],"fn":["check_achievements","get_achievement","unlock_achievement"],"struct":["Achievement"]};

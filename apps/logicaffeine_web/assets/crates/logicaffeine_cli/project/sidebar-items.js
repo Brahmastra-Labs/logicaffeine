@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["build","credentials","manifest","registry"],"struct":["Loader","ModuleSource"]};

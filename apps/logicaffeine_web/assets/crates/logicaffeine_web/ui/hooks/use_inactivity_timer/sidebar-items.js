@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["DEFAULT_INACTIVITY_THRESHOLD_MS"],"fn":["use_activity_resetter","use_inactivity_timer","use_is_inactive"],"struct":["InactivityState"]};

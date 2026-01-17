@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["ComboIndicator"],"struct":["ComboIndicatorProps"]};

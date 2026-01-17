@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["ProofStatus","Tactic"],"fn":["ProofPanel"],"struct":["ProofPanelProps"]};

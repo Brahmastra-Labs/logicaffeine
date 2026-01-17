@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["codegen_assertion","codegen_expr","codegen_program","codegen_stmt","codegen_term","empty_var_caps"],"struct":["RefinementContext","VariableCapabilities"]};

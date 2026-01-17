@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["FieldType","TypeDef"],"struct":["FieldDef","TypeRegistry","VariantDef"]};

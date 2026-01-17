@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["BinaryOpKind","Expr","Literal","ReadSource","SelectBranch","Stmt","TypeExpr"],"struct":["MatchArm"],"type":["Block"]};

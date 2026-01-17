@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["InferenceRule","ProofExpr","ProofTerm"],"mod":["certifier","engine","error","hints","unify"],"struct":["DerivationTree","MatchArm","ProofGoal"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["EntryKind"],"fn":["ContextView"],"struct":["ContextEntry","ContextViewProps"]};

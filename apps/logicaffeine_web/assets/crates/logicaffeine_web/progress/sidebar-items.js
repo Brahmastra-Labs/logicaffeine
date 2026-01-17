@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["calculate_level","calculate_xp_reward","xp_for_level"],"struct":["ExerciseProgress","ModuleProgress","SrsData","UserProgress"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["CredentialsError"],"fn":["credentials_path","get_token"],"struct":["Credentials"]};

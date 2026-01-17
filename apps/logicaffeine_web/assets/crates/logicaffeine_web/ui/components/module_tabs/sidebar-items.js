@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["ModuleTabs","TabButton"],"struct":["ModuleTabsProps","TabButtonProps"]};

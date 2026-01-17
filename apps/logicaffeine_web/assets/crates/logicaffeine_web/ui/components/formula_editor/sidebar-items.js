@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["FormulaEditor","LatexPreview"],"struct":["FormulaEditorProps","LatexPreviewProps"]};

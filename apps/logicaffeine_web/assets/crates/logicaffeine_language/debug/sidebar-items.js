@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["DebugWorld","WithInterner"],"trait":["DisplayWith"]};

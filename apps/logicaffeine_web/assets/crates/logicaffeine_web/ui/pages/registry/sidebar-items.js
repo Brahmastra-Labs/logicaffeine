@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["browse","package_detail"]};

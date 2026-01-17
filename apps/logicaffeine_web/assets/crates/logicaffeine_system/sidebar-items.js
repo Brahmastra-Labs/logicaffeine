@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["panic_with"],"mod":["env","file","fmt","fs","io","random","storage","time"]};

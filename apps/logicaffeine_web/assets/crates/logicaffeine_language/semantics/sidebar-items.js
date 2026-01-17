@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["apply_axioms","apply_kripke_lowering","is_privative_adjective","lookup_noun_entailments","lookup_noun_hypernyms","lookup_verb_entailment"]};

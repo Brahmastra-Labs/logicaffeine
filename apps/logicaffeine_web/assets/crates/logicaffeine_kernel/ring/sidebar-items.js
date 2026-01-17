@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["ReifyError"],"fn":["reify"],"struct":["Monomial","Polynomial"]};

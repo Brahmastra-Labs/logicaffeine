@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["scan_dependencies"],"struct":["Dependency"]};

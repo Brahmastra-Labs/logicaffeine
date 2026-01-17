@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["TextPart"],"fn":["KatexSpan","parse_latex_in_text"],"struct":["KatexSpanProps"]};

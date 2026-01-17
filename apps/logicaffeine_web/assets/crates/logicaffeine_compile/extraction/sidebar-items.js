@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["ExtractError"],"fn":["extract_program"]};

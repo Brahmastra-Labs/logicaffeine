@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["SymbolDictionary","SymbolLegend"],"struct":["SymbolDictionaryProps","SymbolLegendProps"]};

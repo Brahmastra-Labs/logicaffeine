@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["apply_mwe_pipeline","build_mwe_trie"],"struct":["MweTarget","MweTrie"]};

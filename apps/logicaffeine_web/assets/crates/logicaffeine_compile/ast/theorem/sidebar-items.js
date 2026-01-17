@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["ProofStrategy"],"struct":["TheoremBlock"]};

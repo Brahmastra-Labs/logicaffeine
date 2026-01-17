@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["GuideSidebar","SidebarMobileToggle"],"struct":["GuideSidebarProps","SectionInfo","SidebarMobileToggleProps"]};

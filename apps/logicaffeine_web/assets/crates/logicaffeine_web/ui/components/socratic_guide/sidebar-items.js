@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["GuideMode"],"fn":["SocraticGuide","get_context_hint","get_success_message"],"struct":["SocraticGuideProps"]};
