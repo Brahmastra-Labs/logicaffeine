@@ -149,11 +149,11 @@ impl Loader {
 
         match name {
             "std" => Ok(ModuleSource {
-                content: include_str!("../../../assets/std/std.md").to_string(),
+                content: include_str!("../assets/std/std.md").to_string(),
                 path: PathBuf::from("logos:std"),
             }),
             "core" => Ok(ModuleSource {
-                content: include_str!("../../../assets/std/core.md").to_string(),
+                content: include_str!("../assets/std/core.md").to_string(),
                 path: PathBuf::from("logos:core"),
             }),
             _ => Err(format!("Unknown intrinsic module: '{}'", uri)),
