@@ -8,7 +8,7 @@ publish = false
 path = "src/lib.rs"
 
 [features]
-verification = ["logicaffeine-proof/verification"]
+default = []
 
 [dev-dependencies]
 logicaffeine-base = { path = "../logicaffeine_base" }
