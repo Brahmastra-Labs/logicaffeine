@@ -16,7 +16,6 @@ readme = "README.md"
 default = ["codegen"]
 codegen = []
 interpreter-only = []
-verification = ["logicaffeine-verify"]
 
 [dependencies]
 logicaffeine-base = { version = "0.6.0", path = "../logicaffeine_base" }
@@ -25,9 +24,6 @@ logicaffeine-kernel = { version = "0.6.0", path = "../logicaffeine_kernel" }
 logicaffeine-data = { version = "0.6.0", path = "../logicaffeine_data" }
 logicaffeine-system = { version = "0.6.0", path = "../logicaffeine_system", features = ["persistence"] }
 logicaffeine-proof = { version = "0.6.0", path = "../logicaffeine_proof" }
-
-# Optional: Z3-based verification (requires Z3 installed, local builds only)
-logicaffeine-verify = { path = "../logicaffeine_verify", optional = true }
 
 # Runtime dependencies
 async-recursion = "1.1"

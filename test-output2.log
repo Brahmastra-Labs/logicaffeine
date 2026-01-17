@@ -5292,3 +5292,298 @@ test interpreter_policy_multiple_predicates ... ok
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running tests/phase_interpreter_string_concat.rs (target/debug/deps/phase_interpreter_string_concat-03e09327a828803a)
+
+running 3 tests
+test interpreter_string_concat_with_arithmetic ... ok
+test interpreter_string_concat_with_int ... ok
+test interpreter_string_concat_with_bool_expr ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_inversion.rs (target/debug/deps/phase_inversion-2182732fce7b6a5b)
+
+running 7 tests
+test test_try_inversion_exists ... ok
+test test_inversion_non_inductive_errors ... ok
+test test_dinversion_exists ... ok
+test test_inversion_nat_discriminate ... ok
+test test_inversion_eq_reflexive_not_false ... ok
+test test_inversion_eq_discriminate ... ok
+test test_inversion_false_trivial ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_kripke.rs (target/debug/deps/phase_kripke-e0f5e584b9ff854d)
+
+running 12 tests
+test kripke_nested_modals ... ok
+test kripke_possibility_uses_existential_world ... ok
+test kripke_necessity_uses_universal_world ... ok
+test kripke_necessity_basic ... ok
+test kripke_alethic_can ... ok
+test kripke_deontic_accessibility ... ok
+test kripke_possibility_basic ... ok
+test kripke_non_modal_at_actual_world ... ok
+test kripke_existential_with_necessity ... ok
+test kripke_deep_differs_from_surface ... ok
+test kripke_quantified_subject_with_modal ... ok
+test kripke_world_as_predicate_argument ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_lexer_refactor.rs (target/debug/deps/phase_lexer_refactor-928e95004aacce1e)
+
+running 19 tests
+test test_line_lexer_basic_indent ... ok
+test test_line_lexer_colon_line ... ok
+test test_line_lexer_block_header ... ok
+test test_line_lexer_blank_line_preserves_indent ... ok
+test test_line_lexer_content_spans ... ok
+test test_line_lexer_content_text ... ok
+test test_line_lexer_content_start_end ... ok
+test test_line_lexer_dedent_at_eof ... ok
+test test_line_lexer_empty_source ... ok
+test test_line_lexer_explicit_dedent ... ok
+test test_line_lexer_inconsistent_indent_error ... ok
+test test_line_lexer_mixed_tabs_spaces ... ok
+test test_line_lexer_multiple_blank_lines ... ok
+test test_line_lexer_multiple_dedents ... ok
+test test_line_lexer_nested_indent ... ok
+test test_line_lexer_no_indentation ... ok
+test test_line_lexer_only_whitespace ... ok
+test test_line_lexer_partial_dedent ... ok
+test test_line_lexer_tab_indent ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_lia.rs (target/debug/deps/phase_lia-947b6c4a0e3ff749)
+
+running 13 tests
+test test_try_lia_fails_false_constant ... ok
+test test_try_lia_constant_lt_true ... ok
+test test_try_lia_constant_le_equal ... ok
+test test_try_lia_fails_x_lt_x ... ok
+test test_dliasolve_type ... ok
+test test_try_lia_constant_le_true ... ok
+test test_try_lia_type ... ok
+test test_try_lia_fails_nonlinear ... ok
+test test_try_lia_le_reflexive ... ok
+test test_try_lia_x_le_x_plus_1 ... ok
+test test_try_lia_2x_le_2x ... ok
+test test_try_lia_x_lt_x_plus_1 ... ok
+test test_try_lia_x_minus_1_lt_x ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_auto.rs (target/debug/deps/phase_literate_auto-b5780a1e6e6dec50)
+
+running 10 tests
+test test_literate_auto_omega_integer ... ok
+test test_literate_auto_lia_le ... ok
+test test_literate_auto_omega_lt ... ok
+test test_literate_auto_lia_transitivity ... ok
+test test_literate_auto_ring ... ok
+test test_literate_auto_cc_refl ... ok
+test test_literate_auto_fails_false ... ok
+test test_literate_auto_omega_variable ... ok
+test test_literate_auto_ring_assoc ... ok
+test test_literate_auto_true ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_cc.rs (target/debug/deps/phase_literate_cc-79553bab02cc801e)
+
+running 6 tests
+test test_literate_cc_nested ... ok
+test test_literate_cc_reflexive ... ok
+test test_literate_cc_congruence ... ok
+test test_literate_cc_transitivity ... ok
+test test_literate_cc_fails_diff_func ... ok
+test test_literate_cc_binary_congruence ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_induction.rs (target/debug/deps/phase_literate_induction-91d6948edeb07267)
+
+running 9 tests
+test test_induction_wrong_bullet_count_too_few ... ok
+test test_induction_tactic_not_recognized ... ok
+test test_simple_induction_fails_gracefully ... ok
+test test_multi_tactic_in_bullet ... ok
+test test_induction_keyword_recognized ... ok
+test test_theorem_with_hint_attribute ... ok
+test test_bullet_syntax_recognized ... ok
+test test_induction_wrong_bullet_count_too_many ... ok
+test test_induction_no_bullets ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_lia.rs (target/debug/deps/phase_literate_lia-8d429d856708bdf6)
+
+running 16 tests
+test test_literate_lia_infix_ge ... ok
+test test_literate_lia_fails_false ... ok
+test test_literate_lia_constant_le ... ok
+test test_literate_lia_infix_gt ... ok
+test test_literate_lia_infix_le_reflexive ... ok
+test test_literate_lia_constant_lt ... ok
+test test_literate_lia_infix_complex ... ok
+test test_literate_lia_fails_strict_refl ... ok
+test test_literate_lia_infix_lt_constant ... ok
+test test_literate_lia_infix_lt_succ ... ok
+test test_literate_lia_infix_unicode_ge ... ok
+test test_literate_lia_infix_subtraction ... ok
+test test_literate_lia_infix_unicode_le ... ok
+test test_literate_lia_linear_coeff ... ok
+test test_literate_lia_x_lt_succ ... ok
+test test_literate_lia_reflexive_le ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_omega.rs (target/debug/deps/phase_literate_omega-d61aed15178ef0d6)
+
+running 14 tests
+test test_literate_omega_transitivity_le ... ok
+test test_literate_omega_coefficient_bound ... ok
+test test_literate_omega_strict_to_nonstrict_gt ... ok
+test test_literate_omega_ge ... ok
+test test_literate_omega_fails_false ... ok
+test test_literate_omega_constant_le ... ok
+test test_literate_omega_gt ... ok
+test test_literate_omega_constant_lt ... ok
+test test_literate_omega_strict_to_nonstrict_lt ... ok
+test test_literate_omega_variable_le ... ok
+test test_literate_omega_variable_lt ... ok
+test test_literate_omega_fails_strict_reflexive ... ok
+test test_literate_omega_transitivity_lt ... ok
+test test_literate_omega_two_coefficient_bound ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_ring.rs (target/debug/deps/phase_literate_ring-d2770bb414a40197)
+
+running 22 tests
+test test_literate_parser_term_to_syntax ... ok
+test test_literate_ring_constant_mul ... ok
+test test_literate_ring_fails_on_inequality ... ok
+test test_literate_ring_commutativity_mul ... ok
+test test_literate_ring_add_zero_identity ... ok
+test test_literate_ring_constant_arithmetic ... ok
+test test_literate_ring_distributivity ... ok
+test test_literate_ring_associativity_add ... ok
+test test_literate_ring_commutativity_add ... ok
+test test_literate_ring_collatz_algebra ... ok
+test test_literate_ring_infix_add_commutativity ... ok
+test test_literate_ring_infix_constant_arithmetic ... ok
+test test_literate_ring_infix_identity_laws ... ok
+test test_literate_ring_infix_mul_commutativity ... ok
+test test_literate_ring_infix_mul_one ... ok
+test test_literate_ring_mul_one_identity ... ok
+test test_literate_ring_infix_distributivity ... ok
+test test_literate_ring_subtraction_cancel ... ok
+test test_literate_ring_reflexivity ... ok
+test test_literate_ring_infix_collatz_step ... ok
+test test_literate_ring_infix_subtraction_cancel ... ok
+test test_literate_theorem_without_proof ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_literate_simp.rs (target/debug/deps/phase_literate_simp-e004fc816d021e86)
+
+running 13 tests
+test test_literate_simp_arithmetic ... ok
+test test_literate_simp_reflexive ... ok
+test test_literate_simp_fails_different_variables ... ok
+test test_literate_simp_complex_arithmetic ... ok
+test test_literate_simp_reflexive_function ... ok
+test test_literate_simp_subtraction ... ok
+test test_literate_simp_nested ... ok
+test test_literate_simp_unfold ... ok
+test test_literate_simp_fails_false ... ok
+test test_literate_simp_unfold_nested ... ok
+test test_literate_simp_unfold_with_zero ... ok
+test test_literate_simp_with_hyp ... ok
+test test_literate_simp_with_two_hyps ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_omega.rs (target/debug/deps/phase_omega-59c1c3575875a662)
+
+running 11 tests
+test test_domegasolve_type ... ok
+test test_omega_fails_false_inequality ... ok
+test test_omega_constant_le ... ok
+test test_omega_variable_le ... ok
+test test_omega_constant_lt ... ok
+test test_omega_fails_equal_strict ... ok
+test test_omega_strict_to_nonstrict ... ok
+test test_omega_lt_to_le ... ok
+test test_omega_variable_lt ... ok
+test test_try_omega_type ... ok
+test test_omega_coefficient_bound ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_operator.rs (target/debug/deps/phase_operator-8e3c75afbce3d4dd)
+
+running 17 tests
+test test_drewrite_exists ... ok
+test test_rewrite_in_nested_expression ... ok
+test test_rewrite_no_match_errors ... ok
+test test_ddestruct_exists ... ok
+test test_dapply_exists ... ok
+test test_destruct_nat_no_induction_hypothesis ... ok
+test test_rewrite_non_equality_errors ... ok
+test test_apply_implication_transforms_goal ... ok
+test test_apply_forall_instantiation ... ok
+test test_rewrite_rev_replaces_rhs_with_lhs ... ok
+test test_try_destruct_exists ... ok
+test test_try_rewrite_exists ... ok
+test test_try_rewrite_rev_exists ... ok
+test test_try_apply_exists ... ok
+test test_destruct_bool_generates_two_cases ... ok
+test test_apply_mismatch_errors ... ok
+test test_rewrite_replaces_lhs_with_rhs ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_ownership.rs (target/debug/deps/phase_ownership-67cc7e355e439f3b)
+
+running 8 tests
+test test_double_move ... ok
+test test_move_in_both_branches_then_use ... ok
+test test_valid_show_then_give ... ok
+test test_linear_use_after_move ... ok
+test test_use_after_move_in_branch ... ok
+test test_move_in_one_branch_ok_if_not_used ... ok
+test test_nested_control_flow ... ok
+test test_borrow_does_not_move ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_primitives_extended.rs (target/debug/deps/phase_primitives_extended-39657c461b9a2cb2)
+
+running 10 tests
+test char_literal_tokenizes ... ok
+test char_literal_space ... ok
+test char_literal_with_escape_backtick ... ok
+test char_literal_preserves_value ... ok
+test char_literal_with_escape_newline ... ok
+test char_literal_with_escape_backslash ... ok
+test char_literal_digit ... ok
+test char_literal_with_escape_tab ... ok
+test char_in_let_statement ... ok
+test byte_type_name_recognized ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_privation_modal.rs (target/debug/deps/phase_privation_modal-860f228eab9ef1b5)
+
+running 3 tests
+test lacks_can_four_interpretations ... ok
+test simple_tier_has_two_scope_readings ... ok
+test all_readings_use_neo_davidsonian_for_have ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_ring.rs (target/debug/deps/phase_ring-311dcfe1392729ba)
