@@ -1,9 +1,16 @@
 [package]
 name = "logicaffeine-cli"
 version = "0.6.0"
-edition = "2021"
-description = "CLI tool for logicaffeine (largo)"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
+description = "CLI tool for logicaffeine (largo)"
+readme = "README.md"
 
 [lib]
 name = "logicaffeine_cli"
@@ -15,12 +22,12 @@ path = "src/main.rs"
 
 [dependencies]
 # Core language crates
-logicaffeine-base = { path = "../../crates/logicaffeine_base" }
-logicaffeine-kernel = { path = "../../crates/logicaffeine_kernel" }
-logicaffeine-language = { path = "../../crates/logicaffeine_language" }
-logicaffeine-compile = { path = "../../crates/logicaffeine_compile" }
+logicaffeine-base = { version = "0.6.0", path = "../../crates/logicaffeine_base" }
+logicaffeine-kernel = { version = "0.6.0", path = "../../crates/logicaffeine_kernel" }
+logicaffeine-language = { version = "0.6.0", path = "../../crates/logicaffeine_language" }
+logicaffeine-compile = { version = "0.6.0", path = "../../crates/logicaffeine_compile" }
 
-# Optional verification
+# Optional verification (local builds only)
 logicaffeine-verify = { path = "../../crates/logicaffeine_verify", optional = true }
 
 # CLI dependencies

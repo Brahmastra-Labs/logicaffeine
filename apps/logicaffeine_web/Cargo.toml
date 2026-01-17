@@ -4,6 +4,7 @@ version = "0.6.0"
 edition = "2021"
 description = "Web-based IDE for logicaffeine"
 license = "BUSL-1.1"
+publish = false
 
 [dependencies]
 # Core crates (Tier 0-3)

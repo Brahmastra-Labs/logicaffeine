@@ -1,15 +1,22 @@
 [package]
 name = "logicaffeine-language"
 version = "0.6.0"
-edition = "2021"
-description = "Natural language to first-order logic pipeline"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
+description = "Natural language to first-order logic pipeline"
+readme = "README.md"
 build = "build.rs"
 
 [dependencies]
-logicaffeine-base = { path = "../logicaffeine_base" }
-logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
-logicaffeine-proof = { path = "../logicaffeine_proof" }
+logicaffeine-base = { version = "0.6.0", path = "../logicaffeine_base" }
+logicaffeine-lexicon = { version = "0.6.0", path = "../logicaffeine_lexicon" }
+logicaffeine-proof = { version = "0.6.0", path = "../logicaffeine_proof" }
 
 # Arena allocation
 bumpalo = "3.19"

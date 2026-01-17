@@ -1,9 +1,16 @@
 [package]
 name = "logicaffeine-compile"
 version = "0.6.0"
-edition = "2021"
-description = "LOGOS compilation pipeline - codegen and interpreter"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
+description = "LOGOS compilation pipeline - codegen and interpreter"
+readme = "README.md"
 
 [features]
 default = ["codegen"]
@@ -12,14 +19,14 @@ interpreter-only = []
 verification = ["logicaffeine-verify"]
 
 [dependencies]
-logicaffeine-base = { path = "../logicaffeine_base" }
-logicaffeine-language = { path = "../logicaffeine_language" }
-logicaffeine-kernel = { path = "../logicaffeine_kernel" }
-logicaffeine-data = { path = "../logicaffeine_data" }
-logicaffeine-system = { path = "../logicaffeine_system", features = ["persistence"] }
-logicaffeine-proof = { path = "../logicaffeine_proof" }
+logicaffeine-base = { version = "0.6.0", path = "../logicaffeine_base" }
+logicaffeine-language = { version = "0.6.0", path = "../logicaffeine_language" }
+logicaffeine-kernel = { version = "0.6.0", path = "../logicaffeine_kernel" }
+logicaffeine-data = { version = "0.6.0", path = "../logicaffeine_data" }
+logicaffeine-system = { version = "0.6.0", path = "../logicaffeine_system", features = ["persistence"] }
+logicaffeine-proof = { version = "0.6.0", path = "../logicaffeine_proof" }
 
-# Optional: Z3-based verification (requires Z3 installed)
+# Optional: Z3-based verification (requires Z3 installed, local builds only)
 logicaffeine-verify = { path = "../logicaffeine_verify", optional = true }
 
 # Runtime dependencies

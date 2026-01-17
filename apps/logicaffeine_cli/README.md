@@ -1,8 +1,20 @@
-# logicaffeine-compile
+# logicaffeine-cli
 
-LOGOS compilation pipeline - codegen and interpreter.
+CLI tool for logicaffeine (`largo`).
 
 Part of the [Logicaffeine](https://logicaffeine.com) project.
+
+## Installation
+
+```bash
+cargo install logicaffeine-cli
+```
+
+## Usage
+
+```bash
+largo --help
+```
 
 ## License
 

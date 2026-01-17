@@ -1,9 +1,16 @@
 [package]
 name = "logicaffeine-base"
 version = "0.6.0"
-edition = "2021"
-description = "Pure structural atoms for logicaffeine - arena, tokens, spans"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
+description = "Pure structural atoms for logicaffeine - arena, tokens, spans"
+readme = "README.md"
 
 [dependencies]
 bumpalo = "3.19"

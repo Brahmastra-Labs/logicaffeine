@@ -1,12 +1,19 @@
 [package]
 name = "logicaffeine-data"
 version = "0.6.0"
-edition = "2021"
-description = "WASM-safe data structures and CRDTs - NO IO"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
+description = "WASM-safe data structures and CRDTs - NO IO"
+readme = "README.md"
 
 [dependencies]
-logicaffeine-base = { path = "../logicaffeine_base" }
+logicaffeine-base = { version = "0.6.0", path = "../logicaffeine_base" }
 serde = { version = "1.0", features = ["derive"] }
 # CRITICAL: NO IO DEPENDENCIES - Lamport Invariant
 # No tokio, libp2p, std::time::SystemTime allowed

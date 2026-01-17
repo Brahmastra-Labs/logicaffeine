@@ -17,7 +17,7 @@ exclude = ["crates/logicaffeine_verify"]
 
 [workspace.package]
 authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
-license = "MIT"
+license = "BUSL-1.1"
 repository = "https://github.com/Brahmastra-Labs/logicaffeine"
 homepage = "https://logicaffeine.com"
 documentation = "https://docs.rs/logicaffeine"

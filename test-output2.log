@@ -3095,3 +3095,2200 @@ test test_stopped_with_gerund_still_presupposition ... ok
 test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
      Running tests/phase14_ontology.rs (target/debug/deps/phase14_ontology-e01230a934825df0)
+
+running 8 tests
+test test_no_metaphor_for_mental_verb_with_animate ... ok
+test test_bridging_forward_link ... ok
+test test_metaphor_wrapper_verb ... ok
+test test_metaphor_wrapper_adjective ... ok
+test test_no_metaphor_when_compatible ... ok
+test test_bridging_house_door ... ok
+test test_no_bridging_when_direct_antecedent ... ok
+test test_bridging_ambiguity_forest ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase15_negation.rs (target/debug/deps/phase15_negation-77bc5c6baefcaa3a)
+
+running 11 tests
+test test_nobody_negative_quantifier ... ok
+test test_never_negative_temporal ... ok
+test test_nothing_negative_quantifier ... ok
+test test_ever_temporal_npi ... ok
+test test_anything_standalone ... ok
+test test_anyone_npi ... ok
+test test_no_one_mwe ... ok
+test test_not_all_scope ... ok
+test test_free_choice_any ... ok
+test test_no_licenses_npi ... ok
+test test_npi_any_with_negation ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase16_aspect.rs (target/debug/deps/phase16_aspect-811514130ef9b9ec)
+
+running 4 tests
+test test_perfect_progressive_active ... ok
+test test_perfect_copular_state ... ok
+test test_modal_perfect_progressive ... ok
+test test_perfect_passive ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase17_degrees.rs (target/debug/deps/phase17_degrees-7702f0eb66e1f576)
+
+running 3 tests
+test test_clausal_comparative_ellipsis ... ok
+test test_comparative_with_measure ... ok
+test test_superlative_relative_scope ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase18_plurality.rs (target/debug/deps/phase18_plurality-2738800176b9a091)
+
+running 5 tests
+test test_forced_distributive ... ok
+test test_forced_collective ... ok
+test test_mixed_verb_with_definite_plural ... ok
+test test_mixed_verb_singular_no_fork ... ok
+test test_mixed_verb_ambiguity ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase19_group_plurals.rs (target/debug/deps/phase19_group_plurals-85e936776233ebd6)
+
+running 4 tests
+test test_cardinal_distributive_verb_single_reading ... ok
+test test_cardinal_group_structure ... ok
+test test_cardinal_collective_verb_group_reading ... ok
+test test_cardinal_mixed_verb_two_readings ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase1_garden_path.rs (target/debug/deps/phase1_garden_path-55d188324595680f)
+
+running 2 tests
+test garden_path_simple_reduced_relative ... ok
+test garden_path_reduced_relative ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase20_axioms.rs (target/debug/deps/phase20_axioms-cf937bbb8570d938)
+
+running 4 tests
+test test_analytic_entailment_bachelor ... ok
+test test_hypernym_expansion ... ok
+test test_privative_adjective_fake ... ok
+test test_verbal_entailment_murder ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase21_block_headers.rs (target/debug/deps/phase21_block_headers-8c9bcc13b45661cc)
+
+running 6 tests
+test single_hash_not_block_header ... ok
+test non_block_input_unchanged ... ok
+test main_block_detected ... ok
+test theorem_block_detected ... ok
+test block_header_preserves_content ... ok
+test definition_block_detected ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase21_imperative_verbs.rs (target/debug/deps/phase21_imperative_verbs-9da92b784de0e5bd)
+
+running 6 tests
+test parser_stays_declarative_on_theorem_block ... ok
+test parser_mode_getter_exists ... ok
+test parser_switches_mode_on_main_block ... ok
+test unknown_word_in_imperative_errors ... ok
+test unknown_word_in_declarative_succeeds ... ok
+test declarative_mode_parses_neoevent ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase21_ownership.rs (target/debug/deps/phase21_ownership-88adac91821295de)
+
+running 14 tests
+test entity_starts_owned ... ok
+test get_ownership_returns_current_state ... ok
+test moved_variable_detected ... ok
+test borrowed_variable_still_accessible ... ok
+test ownership_state_can_be_borrowed ... ok
+test give_token_recognized ... ok
+test ownership_state_can_be_moved ... ok
+test show_token_recognized ... ok
+test give_statement_marks_variable_as_moved ... ok
+test show_statement_marks_variable_as_borrowed ... ok
+test show_statement_parses ... ok
+test use_after_give_produces_error ... ok
+test give_statement_parses ... ok
+test variable_accessible_after_show ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase22_equals.rs (target/debug/deps/phase22_equals-4bd72fd6b39ab02f)
+
+running 3 tests
+test equals_is_tokenized ... ok
+test equals_distinct_from_is ... ok
+test equals_in_conditional ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase22_index.rs (target/debug/deps/phase22_index-f67c4b72f1614f43)
+
+running 9 tests
+test zero_index_error_exists ... ok
+test item_1_lexer_valid ... ok
+test item_token_recognized ... ok
+test item_followed_by_zero_tokenizes ... ok
+test items_token_recognized ... ok
+test slice_rejects_zero_start ... ok
+test slice_rejects_zero_end ... ok
+test slice_parses ... ok
+test slice_codegen ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase22_is_rejection.rs (target/debug/deps/phase22_is_rejection-d950fccb18d30d78)
+
+running 4 tests
+test x_is_5_errors_in_imperative ... ok
+test x_equals_5_accepted ... ok
+test let_x_is_5_accepted ... ok
+test x_is_true_accepted ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase22_resolution.rs (target/debug/deps/phase22_resolution-2ca0de7ee3040a50)
+
+running 3 tests
+test resolution_order_scope_before_fallback ... ok
+test resolution_shadowing_works ... ok
+test resolution_ownership_tracked ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase22_scope.rs (target/debug/deps/phase22_scope-086baa59ae624c4f)
+
+running 6 tests
+test pop_scope_removes_bindings ... ok
+test can_bind_and_lookup_variable ... ok
+test nested_scopes_shadow_outer ... ok
+test lookup_mut_can_modify_entry ... ok
+test scope_stack_starts_empty ... ok
+test shadowed_variable_restored_after_pop ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase23_blocks.rs (target/debug/deps/phase23_blocks-27c174644c0a1f82)
+
+running 12 tests
+test call_token_recognized ... ok
+test if_token_recognized ... ok
+test colon_token_generated ... ok
+test otherwise_token_recognized ... ok
+test indent_token_generated ... ok
+test dedent_token_generated ... ok
+test if_block_parses ... ok
+test call_statement_parses ... ok
+test if_else_block_parses ... ok
+test while_token_recognized ... ok
+test nested_if_blocks_parse ... ok
+test while_block_parses ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase23_parsing.rs (target/debug/deps/phase23_parsing-c2a506e7110af2fd)
+
+running 4 tests
+test return_statement_parses ... ok
+test parse_program_method_exists ... ok
+test let_statement_parses ... ok
+test set_statement_parses ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase23_stmt.rs (target/debug/deps/phase23_stmt-983b86c9d0d26b00)
+
+running 10 tests
+test stmt_if_variant_exists ... ok
+test expr_literal_variant_exists ... ok
+test stmt_call_variant_exists ... ok
+test expr_identifier_variant_exists ... ok
+test stmt_return_variant_exists ... ok
+test literal_variants_exist ... ok
+test stmt_let_variant_exists ... ok
+test stmt_set_variant_exists ... ok
+test stmt_return_with_value_variant ... ok
+test stmt_while_variant_exists ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase23_tokens.rs (target/debug/deps/phase23_tokens-37ef1d5927b585a8)
+
+running 9 tests
+test be_not_keyword_in_passive ... ok
+test return_token_recognized ... ok
+test let_be_sequence_tokenizes ... ok
+test be_token_after_let ... ok
+test assert_token_recognized ... ok
+test otherwise_token_recognized ... ok
+test let_token_recognized ... ok
+test while_token_recognized ... ok
+test set_token_recognized ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase23_types.rs (target/debug/deps/phase23_types-e910d9a9ce216a0c)
+
+running 18 tests
+test intrinsic_list_is_generic ... ok
+test type_registry_get_returns_type_def ... ok
+test type_registry_is_generic ... ok
+test parser_without_registry_returns_false ... ok
+test type_registry_new ... ok
+test parser_has_type_registry ... ok
+test type_registry_intrinsic_generics ... ok
+test discovery_pass_returns_primitives ... ok
+test type_registry_register_type ... ok
+test possessive_still_works_without_type ... ok
+test discovery_pass_ignores_non_definition_blocks ... ok
+test type_registry_with_primitives_has_bool ... ok
+test type_registry_with_primitives_has_int ... ok
+test discovery_pass_finds_enum_definition ... ok
+test discovery_pass_finds_generic_definition ... ok
+test type_registry_with_primitives_has_text ... ok
+test discovery_pass_finds_struct_definition ... ok
+test type_registry_with_primitives_has_nat ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase24_codegen.rs (target/debug/deps/phase24_codegen-b7f7685b54a64363)
+
+running 21 tests
+test codegen_identifier ... ok
+test codegen_index_1_indexed ... ok
+test codegen_index_5_becomes_4 ... ok
+test codegen_binary_add ... ok
+test codegen_binary_eq ... ok
+test codegen_let_statement ... ok
+test codegen_indentation ... ok
+test codegen_if_without_else ... ok
+test codegen_let_mutable ... ok
+test codegen_call_statement ... ok
+test codegen_literal_boolean_false ... ok
+test codegen_literal_boolean_true ... ok
+test codegen_literal_nothing ... ok
+test codegen_literal_number ... ok
+test codegen_literal_text ... ok
+test codegen_module_exists ... ok
+test codegen_program_wraps_in_main ... ok
+test codegen_return_with_value ... ok
+test codegen_return_without_value ... ok
+test codegen_set_statement ... ok
+test codegen_while_loop ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase24_wired_types.rs (target/debug/deps/phase24_wired_types-5218845bf13e963f)
+
+running 8 tests
+test compile_to_rust_return ... ok
+test compile_with_if_statement ... ok
+test compile_with_while_loop ... ok
+test compile_range_expression ... ok
+test compile_to_rust_basic_let ... ok
+test compile_assert_statement ... ok
+test compile_index_expression ... ok
+test compile_call_statement ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase25_assertions.rs (target/debug/deps/phase25_assertions-d11663e989b2a438)
+
+running 11 tests
+test codegen_assertion_exists ... ok
+test codegen_term_constant ... ok
+test codegen_term_integer ... ok
+test codegen_atom_as_boolean ... ok
+test codegen_predicate_less ... ok
+test codegen_identity_as_equality ... ok
+test codegen_predicate_greater ... ok
+test codegen_binary_and ... ok
+test codegen_binary_or ... ok
+test codegen_term_variable ... ok
+test codegen_unary_not ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase25_smoke_tests.rs (target/debug/deps/phase25_smoke_tests-2c8429cf7064429d)
+
+running 9 tests
+test test_smoke_05_performative ... ok
+test test_smoke_07_double_focus ... ok
+test test_smoke_01_adverb_scope_almost ... ok
+test test_smoke_01c_adverb_scope_barely ... ok
+test test_smoke_01b_adverb_scope_intransitive ... ok
+test test_smoke_03_donkey_anaphora ... ok
+test test_smoke_02_negation_scope_ambiguity ... ok
+test test_smoke_04_intensional_identity ... ok
+test test_smoke_06_distanced_phrasal_verb ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase25_type_expr.rs (target/debug/deps/phase25_type_expr-39ad0776d29a4fcf)
+
+running 11 tests
+test let_without_annotation_still_works ... ok
+test let_with_int_annotation ... ok
+test let_with_nested_generic ... ok
+test let_with_nat_annotation ... ok
+test let_with_option_of_text ... ok
+test let_with_result_two_params ... ok
+test let_with_bool_annotation ... ok
+test mutable_with_int_annotation ... ok
+test let_with_list_of_int ... ok
+test let_with_text_annotation ... ok
+test mutable_with_list_annotation ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase26_e2e.rs (target/debug/deps/phase26_e2e-7c03f306275ea5b9)
+
+running 5 tests
+test tests::compile_set_statement ... ok
+test tests::compile_just_return ... ok
+test tests::compile_let_statement ... ok
+test tests::compile_let_and_return ... ok
+test tests::compile_assert_greater_than ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase27_guards.rs (target/debug/deps/phase27_guards-a3ca52e62a5086f2)
+
+running 4 tests
+test reject_item_zero ... ok
+test reject_is_for_value_equality ... ok
+test accept_item_one ... ok
+test accept_equals_for_value_equality ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase28_precedence.rs (target/debug/deps/phase28_precedence-179c9037dac8baea)
+
+running 6 tests
+test explicit_grouping_with_or_first ... ok
+test and_binds_tighter_than_or ... ok
+test explicit_grouping_with_and_first ... ok
+test left_associative_or ... ok
+test left_associative_and ... ok
+test mixed_precedence_complex ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase29_runtime.rs (target/debug/deps/phase29_runtime-64769cbbd274233f)
+
+running 4 tests
+test crates_export_required_modules ... ok
+test runtime_has_type_aliases ... ok
+test runtime_has_io_functions ... ok
+test runtime_crates_are_injected ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/phase2_polarity.rs (target/debug/deps/phase2_polarity-b1a3797efff40921)
+
+running 4 tests
+test npi_any_is_existential ... ok
+test any_with_double_negation ... ok
+test free_choice_any_is_universal ... ok
+test any_in_conditional_antecedent ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase30_iteration.rs (target/debug/deps/phase30_iteration-23f0b33d04d55ffe)
+
+running 8 tests
+test test_range_loop_codegen ... ok
+test test_seq_type_annotation_codegen ... ok
+test test_empty_list_codegen ... ok
+test test_list_literal_codegen ... ok
+test test_repeat_loop_codegen ... ok
+test test_repeat_with_variable_iterator ... ok
+test test_showable_trait_exported ... ok
+test test_runtime_seq_type ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/phase31_structs.rs (target/debug/deps/phase31_structs-58ea2f37ad502e93)
+
+running 6 tests
+test test_struct_derives ... ok
+test test_field_visibility_codegen ... ok
+test test_field_access_possessive ... ok
+test test_public_field_codegen ... ok
+test test_new_constructor ... ok
+test test_struct_definition_parsed ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase32_functions.rs (target/debug/deps/phase32_functions-972df93c74ab054b)
+
+running 7 tests
+test test_function_block_tokenized ... ok
+test test_return_type_inference ... ok
+test test_unit_return_type ... ok
+test test_function_call_expression ... ok
+test test_call_statement_with_defined_function ... ok
+test test_function_codegen ... ok
+test test_function_definition_parsed ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase33_enums.rs (target/debug/deps/phase33_enums-44eb2f3241ef7b2d)
+
+running 9 tests
+test test_enum_definition_tokenized ... ok
+test test_concise_variant_syntax ... ok
+test test_unit_variants_discovered ... ok
+test test_payload_variants_discovered ... ok
+test test_variant_constructor ... ok
+test test_otherwise_clause ... ok
+test test_inspect_statement_parsed ... ok
+test test_enum_codegen ... ok
+test test_full_pattern_matching_codegen ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase34_generics.rs (target/debug/deps/phase34_generics-27f8cf44ba57e5ac)
+
+running 8 tests
+test test_generic_struct_discovered ... ok
+test test_generic_struct_codegen ... ok
+test test_three_param_generic ... ok
+test test_generic_with_builtin ... ok
+test test_generic_result_pattern ... ok
+test test_generic_instantiation ... ok
+test test_two_param_generic ... ok
+test test_generic_enum ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase35_proofs.rs (target/debug/deps/phase35_proofs-49f9c1b7f3ff5fc6)
+
+running 8 tests
+test test_trust_statement ... ok
+test test_trust_without_that ... ok
+test test_assert_in_function ... ok
+test test_trust_complex_proposition ... ok
+test test_trust_compound_logic ... ok
+test test_trust_with_causal_logic ... ok
+test test_assert_unchanged ... ok
+test test_trust_in_function ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase35_respectively.rs (target/debug/deps/phase35_respectively-42e62ff37cda70ff)
+
+running 11 tests
+test respectively_with_articles ... ok
+test respectively_present_tense ... ok
+test respectively_length_mismatch_error ... ok
+test respectively_three_elements ... ok
+test respectively_one_vs_two_mismatch ... ok
+test respectively_three_vs_two_mismatch ... ok
+test respectively_past_tense ... ok
+test respectively_basic_pairwise ... ok
+test respectively_comma_separated_subjects ... ok
+test respectively_ditransitive ... ok
+test without_respectively_not_pairwise ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase36_modules.rs (target/debug/deps/phase36_modules-98c36c1b69e62820)
+
+running 9 tests
+test test_no_dependencies_without_abstract ... ok
+test test_ignore_links_after_abstract ... ok
+test test_multiline_abstract ... ok
+test test_scan_dependencies_in_abstract ... ok
+test test_logos_std_import ... ok
+test test_from_module_lexer ... ok
+test test_loader_file_scheme ... ok
+test test_recursive_discovery_imports_types ... ok
+test test_compile_project_with_imports ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase37_cli.rs (target/debug/deps/phase37_cli-1752801220eb7b26)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase38_stdlib.rs (target/debug/deps/phase38_stdlib-3b8a2b62930ddd80)
+
+running 12 tests
+test test_now_tokenization ... ok
+test test_arrow_tokenization ... ok
+test test_random_int_codegen ... ok
+test test_time_now_codegen ... ok
+test test_native_function_parse ... ok
+test test_native_multi_param_function ... ok
+test test_result_type_mapping ... ok
+test test_seq_type_mapping ... ok
+test test_option_type_mapping ... ok
+test test_native_nullary_function ... ok
+test test_file_read_codegen ... ok
+test test_env_args_codegen ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase3_aspect.rs (target/debug/deps/phase3_aspect-e467bcb24c4136a4)
+
+running 3 tests
+test aspect_simple_passive ... ok
+test aspect_passive_with_agent ... ok
+test aspect_chain_would_have_been_being ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase3_time.rs (target/debug/deps/phase3_time-e65753526b4c2859)
+
+running 6 tests
+test single_sentence_no_precedes ... ok
+test narrative_progression_two_sentences ... ok
+test narrative_preserves_pronoun_resolution ... ok
+test event_variables_unique_across_discourse ... ok
+test narrative_progression_three_sentences ... ok
+test four_sentence_chain ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase41_event_adjectives.rs (target/debug/deps/phase41_event_adjectives-03929dd05b43adbf)
+
+running 8 tests
+test tall_dancer_only_intersective ... ok
+test skillful_teacher_two_readings ... ok
+test regular_adjective_noun_single_reading ... ok
+test young_dancer_only_intersective ... ok
+test event_reading_structure ... ok
+test beautiful_dancer_two_readings ... ok
+test graceful_singer_two_readings ... ok
+test slow_runner_two_readings ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase42_drs.rs (target/debug/deps/phase42_drs-cef2dd4b3217f01a)
+
+running 18 tests
+test drs_its_possessive_grammar_error ... ok
+test drs_generic_conditional_event_lifting ... ok
+test drs_nested_relative ... ok
+test drs_basic_donkey ... ok
+test drs_pronoun_binding ... ok
+test drs_antecedent_accessible ... ok
+test drs_conditional_donkey ... ok
+test drs_negative_donkey ... ok
+test drs_coordinated_weather_verbs ... ok
+test drs_multiple_indefinites ... ok
+test drs_weather_adjective_consequent ... ok
+test drs_pronoun_gender_mismatch ... ok
+test drs_weather_adjective_contraction ... ok
+test drs_proportional_most ... ok
+test drs_quantifier_ordering ... ok
+test drs_weather_compound_adjectives ... ok
+test drs_weather_disjunction ... ok
+test drs_weather_event_semantics ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase43_collections.rs (target/debug/deps/phase43_collections-b8941d951815c33c)
+
+running 9 tests
+test pop_statement_parses ... ok
+test push_statement_parses ... ok
+test length_expression_parses ... ok
+test pop_into_variable_parses ... ok
+test index_expression_parses ... ok
+test copy_expression_parses ... ok
+test slice_expression_parses ... ok
+test collection_operations_in_sequence ... ok
+test push_with_expression_parses ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase43_discourse_scope.rs (target/debug/deps/phase43_discourse_scope-e188c9f6e93ed7f7)
+
+running 20 tests
+test test_empty_discourse ... ok
+test test_conditional_antecedent_accessible_in_consequent ... ok
+test test_double_negation_still_blocks ... ok
+test test_backtracking_preserves_drs_state ... ok
+test test_complex_backtracking ... ok
+test test_disjunction_blocks_anaphora ... ok
+test test_negation_blocks_anaphora ... ok
+test test_multiple_accessible_most_recent ... ok
+test test_gender_mismatch_blocks ... ok
+test test_conditional_cross_sentence_strict ... ok
+test test_main_clause_indefinite_accessible ... ok
+test test_number_mismatch_blocks ... ok
+test test_proper_name_accessible ... ok
+test test_scope_error_message_explains_negation ... ok
+test test_single_sentence_discourse ... ok
+test test_telescoping_conditional ... ok
+test test_telescoping_chain ... ok
+test test_telescoping_passive_continuation ... ok
+test test_telescoping_negation_fails ... ok
+test test_telescoping_universal_succeeds ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase43_refinement.rs (target/debug/deps/phase43_refinement-de4e301fdf663c5a)
+
+running 15 tests
+test refinement_type_variant_exists ... ok
+test test_refinement_less_equal ... ok
+test test_parse_refinement_with_variable_name ... ok
+test test_multiple_refined_vars_same_scope ... ok
+test test_refinement_not_equal ... ok
+test test_refinement_less_than ... ok
+test test_refinement_and_predicate ... ok
+test test_refinement_enforced_on_set ... ok
+test test_parse_int_where_positive ... ok
+test test_refinement_greater_equal ... ok
+test test_refinement_generates_debug_assert_at_let ... ok
+test test_refinement_variable_substitution ... ok
+test test_refinement_or_predicate ... ok
+test test_refinement_while_scope ... ok
+test test_refinement_respects_block_scope ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase43_type_check.rs (target/debug/deps/phase43_type_check-b780759bbb4ff3bc)
+
+running 8 tests
+test correct_bool_type_annotation ... ok
+test nat_accepts_int_literal ... ok
+test type_mismatch_text_with_int_literal ... ok
+test type_mismatch_int_with_text_literal ... ok
+test type_mismatch_bool_with_int_literal ... ok
+test correct_int_type_annotation ... ok
+test no_type_annotation_allowed ... ok
+test correct_text_type_annotation ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase44_distributive.rs (target/debug/deps/phase44_distributive-4208243ae91b86a6)
+
+running 11 tests
+test test_is_distributive_verb_predicate ... ok
+test test_tripartite_classification_mutually_exclusive ... ok
+test test_distributive_verb_die ... ok
+test test_distributive_verb_eat ... ok
+test test_implicit_distributive_unchanged ... ok
+test test_sigma_operator_in_output ... ok
+test verify_sigma_in_definite_plural_output ... ok
+test test_explicit_distributive_verb ... ok
+test test_mixed_verb_still_forks ... ok
+test test_collective_verb_no_fork ... ok
+test verify_collective_vs_distributive_output ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase44_modal_subordination.rs (target/debug/deps/phase44_modal_subordination-5382637337656858)
+
+running 9 tests
+test test_would_standalone ... ok
+test test_may_would_subordination ... ok
+test test_multiple_referents_in_modal ... ok
+test test_negation_inside_modal ... ok
+test test_could_would_subordination ... ok
+test test_deontic_subordination ... ok
+test test_chain_subordination ... ok
+test test_might_would_subordination ... ok
+test test_different_modal_no_subordination ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase45_intension.rs (target/debug/deps/phase45_intension-8844bb1c37e6e04a)
+
+running 13 tests
+test decreasing_is_intensional_predicate ... ok
+test increasing_is_intensional_predicate ... ok
+test opaque_and_intensional_are_distinct ... ok
+test changing_is_intensional_predicate ... ok
+test rising_is_intensional_predicate ... ok
+test sleeping_is_not_intensional_predicate ... ok
+test running_is_not_intensional_predicate ... ok
+test temperature_is_rising_uses_intension ... ok
+test speed_is_increasing_uses_intension ... ok
+test price_is_changing_uses_intension ... ok
+test man_is_sleeping_is_extensional ... ok
+test dog_is_running_is_extensional ... ok
+test value_is_decreasing_uses_intension ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase45_session.rs (target/debug/deps/phase45_session-4373d50d4d1900dd)
+
+running 7 tests
+test test_modal_barrier_blocks_indicative ... ok
+test test_incremental_modal_subordination ... ok
+test test_modal_continuation_allowed ... ok
+test test_incremental_singular_anaphora ... ok
+test test_multi_turn_chain ... ok
+test test_incremental_anaphora ... ok
+test test_session_history ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase46_agents.rs (target/debug/deps/phase46_agents-02879e89b653336f)
+
+running 14 tests
+test test_await_missing_from_fails ... ok
+test test_await_missing_into_fails ... ok
+test test_agent_spawn_with_article_a ... ok
+test test_agent_spawn_basic ... ok
+test test_portable_enum_derives_serde ... ok
+test test_agent_in_function ... ok
+test test_await_binds_to_variable ... ok
+test test_send_message_basic ... ok
+test test_await_response_basic ... ok
+test test_portable_struct_derives_serde ... ok
+test test_send_missing_to_fails ... ok
+test test_spawn_missing_called_fails ... ok
+test test_send_message_with_payload ... ok
+test test_spawn_and_send_in_sequence ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase46_ellipsis.rs (target/debug/deps/phase46_ellipsis-22eb50ec4a3a1bf0)
+
+running 7 tests
+test simple_transitive_gapping_preserved ... ok
+test intransitive_gapping_preserved ... ok
+test pp_gapping_goal ... ok
+test temporal_modifier_override ... ok
+test ditransitive_gapping_theme_only ... ok
+test ditransitive_gapping_both_args ... ok
+test pp_gapping_with_np_and_pp ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase48_network.rs (target/debug/deps/phase48_network-738aaaf38ddbc87c)
+
+running 8 tests
+test test_chunk_requires_at ... ok
+test test_chunk_requires_in ... ok
+test test_manifest_requires_of ... ok
+test test_portable_file_manifest ... ok
+test test_chunk_at_index_in_zone ... ok
+test test_manifest_of_zone ... ok
+test test_chunk_with_variable_index ... ok
+test test_sipping_with_agents ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase49_crdt.rs (target/debug/deps/phase49_crdt-9c743caaa8119b87)
+
+running 16 tests
+test test_last_write_wins_text ... ok
+test test_lww_default_values ... ok
+test test_last_write_wins_bool ... ok
+test test_merge_field_level ... ok
+test test_merge_impl_only_merges_crdt_fields ... ok
+test test_increase_by_variable ... ok
+test test_gcounter_zero_increment ... ok
+test test_increase_gcounter ... ok
+test test_convergent_count_field ... ok
+test test_last_write_wins_int ... ok
+test test_shared_struct_basic ... ok
+test test_merge_struct_level ... ok
+test test_shared_with_regular_fields ... ok
+test test_shared_all_crdt_fields ... ok
+test test_shared_struct_with_multiple_fields ... ok
+test test_merge_requires_mutable ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase4_movement.rs (target/debug/deps/phase4_movement-934a9f83b3e1fff9)
+
+running 5 tests
+test topicalization_indefinite ... ok
+test topicalization_simple ... ok
+test topicalization_pronoun_subject ... ok
+test topicalization_with_adjectives ... ok
+test non_topicalized_unchanged ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase4_reciprocals.rs (target/debug/deps/phase4_reciprocals-a177ada8d895539c)
+
+running 3 tests
+test reciprocal_past_tense ... ok
+test reciprocal_with_two_entities_simple ... ok
+test reciprocal_basic_expansion ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase50_security.rs (target/debug/deps/phase50_security-9fa21b90d0b64cdd)
+
+running 14 tests
+test test_policy_references_another_predicate ... ok
+test test_capability_with_object_reference ... ok
+test test_check_includes_source_location ... ok
+test test_empty_policy_block ... ok
+test test_check_in_nested_block ... ok
+test test_multiple_capabilities_same_type ... ok
+test test_check_vs_assert_codegen ... ok
+test test_multiple_predicates_same_type ... ok
+test test_full_security_flow ... ok
+test test_check_with_capability_and_object ... ok
+test test_simple_predicate_definition ... ok
+test test_predicate_with_boolean_field ... ok
+test test_policy_with_and_condition ... ok
+test test_policy_with_or_condition ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase51_mesh.rs (target/debug/deps/phase51_mesh-992c60ec01d5bf8a)
+
+running 13 tests
+test test_connect_missing_to_fails ... ok
+test test_listen_missing_on_fails ... ok
+test test_connect_basic ... ok
+test test_listen_with_concatenation ... ok
+test test_peer_agent_at_variable ... ok
+test test_listen_with_variable ... ok
+test test_peer_agent_at_address ... ok
+test test_mesh_with_portable_types ... ok
+test test_listen_basic ... ok
+test test_connect_with_variable ... ok
+test test_peer_agent_missing_at_fails ... ok
+test test_send_to_peer_agent ... ok
+test test_server_client_workflow ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase52_sync.rs (target/debug/deps/phase52_sync-38f1fd7baeeb6dc7)
+
+running 7 tests
+test test_sync_missing_on_fails ... ok
+test test_sync_missing_topic_fails ... ok
+test test_sync_with_lww_register ... ok
+test test_sync_with_variable_topic ... ok
+test test_sync_basic_parsing ... ok
+test test_sync_with_increase ... ok
+test test_sync_requires_async_main ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase53_persistence.rs (target/debug/deps/phase53_persistence-46b092f14ffbce0d)
+
+running 23 tests
+test test_mount_missing_at_fails ... ok
+test test_mount_missing_path_fails ... ok
+test test_file_write_generates_await ... ok
+test test_file_write_requires_async_main ... ok
+test test_mount_generates_await ... ok
+test test_mount_basic_parsing ... ok
+test test_mount_lowercase_variable ... ok
+test test_file_read_requires_async_main ... ok
+test test_file_read_generates_await ... ok
+test test_mount_in_conditional ... ok
+test test_mount_missing_variable_fails ... ok
+test test_vfs_injection_for_file_read ... ok
+test test_mount_requires_async_main ... ok
+test test_mount_with_variable_path ... ok
+test test_mount_with_string_concat_path ... ok
+test test_persistent_field_access ... ok
+test test_no_vfs_for_console_read ... ok
+test test_persistent_with_increase ... ok
+test test_vfs_injection_for_file_write ... ok
+test test_persistent_with_merge ... ok
+test test_multiple_mounts ... ok
+test test_vfs_injection_for_mount ... ok
+test test_persistent_type_in_definition ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase54_concurrency.rs (target/debug/deps/phase54_concurrency-e8f03d854518fcd8)
+
+running 16 tests
+test test_launch_missing_task_fails ... ok
+test test_receive_missing_from_fails ... ok
+test test_launch_with_args ... ok
+test test_select_with_timeout ... ok
+test test_launch_token_recognized ... ok
+test test_select_basic ... ok
+test test_launch_basic ... ok
+test test_producer_consumer_pattern ... ok
+test test_pipe_token_recognized ... ok
+test test_receive_from_pipe ... ok
+test test_send_pipe_uses_into_not_to ... ok
+test test_stop_task ... ok
+test test_send_into_pipe ... ok
+test test_stop_token_recognized ... ok
+test test_try_send_nonblocking ... ok
+test test_try_receive_nonblocking ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase57_maps.rs (target/debug/deps/phase57_maps-cfd9df269945ab0d)
+
+running 4 tests
+test codegen_map_get_string_key ... ok
+test codegen_vec_get_integer_key ... ok
+test codegen_map_set_string_key ... ok
+test codegen_vec_set_integer_key ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase5_wh_movement.rs (target/debug/deps/phase5_wh_movement-7b11d9e8a2da1876)
+
+running 5 tests
+test wh_subject_extraction ... ok
+test wh_embedded_clause ... ok
+test wh_simple_still_works ... ok
+test non_wh_unchanged ... ok
+test wh_double_embedding ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase60_proof_engine.rs (target/debug/deps/phase60_proof_engine-77c964be9278424d)
+
+running 56 tests
+test test_conjunction_introduction ... ok
+test test_butler_did_it_theorem ... ok
+test test_barber_paradox_simplified_predicates ... ok
+test test_barber_paradox_with_definite_description ... ok
+test test_debug_disjunctive_syllogism_parsing ... ok
+test test_butler_theorem_natural_language ... ok
+test test_butler_theorem_parsed ... ok
+test test_butler_theorem_committed_crime ... ok
+test test_butler_did_it_phrasing ... ok
+test test_depth_limit_prevents_infinite_loop ... ok
+test test_derivation_tree_depth ... ok
+test test_derivation_tree_display ... ok
+test test_debug_modus_tollens_alternative_phrasing ... ok
+test test_disjunction_elimination ... ok
+test test_disjunction_elimination_other_direction ... ok
+test test_double_negation_elimination ... ok
+test test_disjunction_introduction ... ok
+test test_event_abstraction_basic ... ok
+test test_event_conjunction_abstraction_in_axiom ... ok
+test test_disjunction_elimination_with_predicates ... ok
+test test_debug_modus_tollens_parsing ... ok
+test test_existential_introduction ... ok
+test test_modus_ponens_chain ... ok
+test test_modus_tollens_chain_quantified_temporal ... ok
+test test_modus_tollens_chain ... ok
+test test_modus_tollens_chain_with_temporal ... ok
+test test_modus_tollens_quantified_implication ... ok
+test test_modus_tollens_simple ... ok
+test test_modus_tollens_with_predicates ... ok
+test test_no_proof_returns_error ... ok
+test test_proof_goal_with_context ... ok
+test test_occurs_check_prevents_infinite_type ... ok
+test test_modus_tollens_with_temporal_consequent ... ok
+test test_modus_tollens_temporal_predicates ... ok
+test test_prove_direct_fact ... ok
+test test_prove_with_variable_instantiation ... ok
+test test_simple_contradiction_detection ... ok
+test test_reductio_ad_absurdum_simple ... ok
+test test_quantified_mt_chain ... ok
+test test_simple_mt_chain ... ok
+test test_temporal_unification_different_operators_fails ... ok
+test test_socrates_is_mortal ... ok
+test test_temporal_unification_same_operator ... ok
+test test_temporal_unification_with_variable ... ok
+test test_temporal_mt_chain ... ok
+test test_unify_function_terms ... ok
+test test_unify_identical_constants ... ok
+test test_unify_different_constants_fails ... ok
+test test_unify_nested_functions ... ok
+test test_unify_mismatched_arity_fails ... ok
+test test_unify_mismatched_function_names_fails ... ok
+test test_unify_variable_with_constant ... ok
+test test_barber_paradox_full_debug ... ok
+test test_debug_barber_paradox_parsing ... ok
+test test_cyclic_implication_contradiction ... ok
+test test_barber_paradox_simplified ... ok
+
+test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/phase61_induction.rs (target/debug/deps/phase61_induction-dde6906b3b859835)
+
+running 11 tests
+test test_succ_is_nat ... ok
+test test_typed_var_display ... ok
+test test_peano_three ... ok
+test test_typed_var_signals_induction_type ... ok
+test test_match_expression_display ... ok
+test test_induction_base_case_axiom_exists ... ok
+test test_induction_step_case_axiom_exists ... ok
+test test_zero_is_nat ... ok
+test test_induction_on_list_fails_without_induction ... ok
+test test_induction_nat_theorem_proved_by_induction ... ok
+test test_induction_full_theorem_succeeds_with_induction ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase62_oracle.rs (target/debug/deps/phase62_oracle-fd97fec872341f62)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase63_theorem_parser.rs (target/debug/deps/phase63_theorem_parser-86c3cb628a34b99b)
+
+running 7 tests
+test test_theorem_name_extraction ... ok
+test test_theorem_direct_match ... ok
+test test_theorem_fail_missing_premise ... ok
+test test_theorem_fail_contradictory ... ok
+test test_theorem_with_universal_instantiation ... ok
+test test_parse_and_prove_socrates ... ok
+test test_theorem_chain_reasoning ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase65_event_semantics.rs (target/debug/deps/phase65_event_semantics-a276531d9efcd58d)
+
+running 4 tests
+test test_event_alpha_equivalence ... ok
+test test_copular_still_works ... ok
+test test_socrates_fears_death_full_semantics ... ok
+test test_event_chain_simple ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase66_higher_order.rs (target/debug/deps/phase66_higher_order-21c4505f718075d2)
+
+running 4 tests
+test test_beta_reduction_nested ... ok
+test test_beta_reduction_basic ... ok
+test test_no_reduction_without_application ... ok
+test test_lambda_in_premise ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase67_pattern_unification.rs (target/debug/deps/phase67_pattern_unification-2df12891851083bc)
+
+running 6 tests
+test test_multi_arg_pattern ... ok
+test test_non_pattern_fails ... ok
+test test_bare_hole ... ok
+test test_scope_violation_fails ... ok
+test test_pattern_application_after_solve ... ok
+test test_simple_pattern_unification ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase68_auto_induction.rs (target/debug/deps/phase68_auto_induction-a42a91fc39b6789a)
+
+running 4 tests
+test test_motive_inference_direct ... ok
+test test_left_identity_no_induction_needed ... ok
+test test_auto_induction_right_identity ... ok
+test test_motive_inference_triggered_in_engine ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase69_kernel_coc.rs (target/debug/deps/phase69_kernel_coc-af6ec29aad96a7b3)
+
+running 9 tests
+test test_prop_universe ... ok
+test test_sort_hierarchy ... ok
+test test_unbound_variable_fails ... ok
+test test_pi_type_well_formed ... ok
+test test_dependent_pi_type ... ok
+test test_non_function_application_fails ... ok
+test test_identity_function_type ... ok
+test test_application_type ... ok
+test test_type_mismatch_fails ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase6_complex_tense.rs (target/debug/deps/phase6_complex_tense-0fd09f2c9b25f194)
+
+running 6 tests
+test present_perfect_constraints ... ok
+test past_perfect_explicit_constraints ... ok
+test debug_had_finished ... ok
+test future_perfect_constraints ... ok
+test simple_future_constraints ... ok
+test simple_past_baseline ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase70_inductive_types.rs (target/debug/deps/phase70_inductive_types-e762cd79b27b79fb)
+
+running 6 tests
+test test_inductive_type_has_sort ... ok
+test test_nat_zero_type ... ok
+test test_nat_succ_type ... ok
+test test_type_mismatch_with_inductives ... ok
+test test_constructor_belongs_to_inductive ... ok
+test test_succ_succ_zero ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase70b_elimination.rs (target/debug/deps/phase70b_elimination-3062e8b8f29563d6)
+
+running 7 tests
+test test_constructor_order_preserved ... ok
+test test_is_zero_function ... ok
+test test_match_on_non_inductive ... ok
+test test_match_with_identity_motive ... ok
+test test_predecessor_function ... ok
+test test_case_type_mismatch ... ok
+test test_wrong_number_of_cases ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase70c_computation.rs (target/debug/deps/phase70c_computation-809a40a985f8425c)
+
+running 12 tests
+test test_beta_reduction_identity ... ok
+test test_fix_type_checks ... ok
+test test_iota_nested_succ ... ok
+test test_addition_zero_plus_zero ... ok
+test test_beta_reduction_const ... ok
+test test_addition_zero_plus_n ... ok
+test test_addition_one_plus_zero ... ok
+test test_addition_two_plus_three ... ok
+test test_iota_reduction_succ_case ... ok
+test test_addition_one_plus_one ... ok
+test test_iota_reduction_zero_case ... ok
+test test_multiplication_two_times_three ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase71_cumulativity.rs (target/debug/deps/phase71_cumulativity-a58ab10efc21d16a)
+
+running 7 tests
+test test_proof_irrelevance_equality ... ok
+test test_cumulativity_transitive ... ok
+test test_type0_subtype_of_type1 ... ok
+test test_proof_irrelevance_basic ... ok
+test test_prop_subtype_of_type ... ok
+test test_nat_in_type1_context ... ok
+test test_type_not_subtype_of_prop ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase72_kernel_prelude.rs (target/debug/deps/phase72_kernel_prelude-e502c99adb7dc207)
+
+running 8 tests
+test test_eq_type ... ok
+test test_or_type ... ok
+test test_eq_nat_zero_zero ... ok
+test test_refl_one_equals_one ... ok
+test test_true_and_false ... ok
+test test_refl_proves_equality ... ok
+test test_nat_in_prelude ... ok
+test test_and_type ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase73_certifier.rs (target/debug/deps/phase73_certifier-74bc77b3746f0635)
+
+running 3 tests
+test test_certify_axiom ... ok
+test test_certify_conjunction_intro ... ok
+test test_certify_modus_ponens ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase74_certify_quantifiers.rs (target/debug/deps/phase74_certify_quantifiers-adfe469b6b3e4ef7)
+
+running 2 tests
+test test_certify_universal_inst_simple ... ok
+test test_certify_universal_inst_with_modus_ponens ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase75_certify_intro.rs (target/debug/deps/phase75_certify_intro-e1f0c55ab2df3d8a)
+
+running 2 tests
+test test_certify_universal_intro_trivial ... ok
+test test_certify_universal_intro_with_local_var ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase76_certify_induction.rs (target/debug/deps/phase76_certify_induction-3586359edb6dc77e)
+
+running 2 tests
+test test_certify_induction_trivial ... ok
+test test_certify_induction_with_ih ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase77_certify_exists.rs (target/debug/deps/phase77_certify_exists-ef5de92a838a3675)
+
+running 3 tests
+test test_certify_existential_intro_concrete_witness ... ok
+test test_ex_type_in_prelude ... ok
+test test_certify_existential_intro_simple ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase78_e2e_verification.rs (target/debug/deps/phase78_e2e_verification-18e51110537d2452)
+
+running 4 tests
+test test_verification_fails_for_unprovable ... ok
+test test_trivial_verification ... ok
+test test_socrates_full_pipeline_verification ... ok
+test test_chain_reasoning_verification ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase79_termination.rs (target/debug/deps/phase79_termination-b0162763f25d76cd)
+
+running 8 tests
+test test_nested_negative_rejected ... ok
+test test_accept_positive_inductive_list ... ok
+test test_reject_negative_inductive ... ok
+test test_reject_non_decreasing_in_match ... ok
+test test_accept_standard_library_inductives ... ok
+test test_reject_simple_infinite_loop ... ok
+test test_accept_valid_structural_recursion ... ok
+test test_addition_still_works ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase7_semantics.rs (target/debug/deps/phase7_semantics-0440fc7351566382)
+
+running 5 tests
+test generalized_quantifier_many ... ok
+test good_thief_subsective ... ok
+test intersective_unchanged ... ok
+test subsective_adjective_small_elephant ... ok
+test subsective_adjective_large_mouse ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase80_equality_rewriting.rs (target/debug/deps/phase80_equality_rewriting-f9b6c71c0e263893)
+
+running 6 tests
+test test_rewrite_wrong_direction_fails ... ok
+test test_equality_transitivity ... ok
+test test_equality_symmetry ... ok
+test test_rewrite_in_implication ... ok
+test test_concrete_equality_rewrite ... ok
+test test_leibniz_rewrite ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase81_computation.rs (target/debug/deps/phase81_computation-79e5c1c9ccaf7a04)
+
+running 10 tests
+test test_iota_reduction_succ_case ... ok
+test test_iota_reduction_nested ... ok
+test test_iota_reduction_zero_case ... ok
+test test_prove_zero_plus_n_is_n ... ok
+test test_reflexivity_simple ... ok
+test test_fix_does_not_unfold_on_variable ... ok
+test test_fix_unfolds_on_constructor ... ok
+test test_reflexivity_nested_ctor ... ok
+test test_prove_one_plus_one_is_two ... ok
+test test_prove_two_plus_one_is_three ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase82_delta_reduction.rs (target/debug/deps/phase82_delta_reduction-d1c032db20dabf40)
+
+running 8 tests
+test test_is_definition_query ... ok
+test test_axiom_does_not_unfold ... ok
+test test_get_definition_body ... ok
+test test_constructor_does_not_delta_reduce ... ok
+test test_definition_in_application ... ok
+test test_definition_equality_by_computation ... ok
+test test_definition_unfolds_during_normalization ... ok
+test test_nested_definitions ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase83_vernacular.rs (target/debug/deps/phase83_vernacular-a4333f04d6d80b4b)
+
+running 16 tests
+test test_check_application ... ok
+test test_eval_nested_application ... ok
+test test_definition_command ... ok
+test test_definition_without_type ... ok
+test test_eval_lambda_application ... ok
+test test_eval_definition ... ok
+test test_check_constructor ... ok
+test test_check_definition ... ok
+test test_inductive_with_arguments ... ok
+test test_type_error ... ok
+test test_parse_arrow_type ... ok
+test test_definition_with_lambda ... ok
+test test_eval_constructor ... ok
+test test_parse_nested_application ... ok
+test test_undefined_name_error ... ok
+test test_inductive_explicit_constructors ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase84_extraction.rs (target/debug/deps/phase84_extraction-7b008882abfd36bc)
+
+running 9 tests
+test test_extract_inductive_is_extractable ... ok
+test test_extract_undefined_name ... ok
+test test_extract_nat_enum ... ok
+test test_extract_bool_enum ... ok
+test test_extract_simple_definition ... ok
+test test_transitive_dependencies ... ok
+test test_extract_add_function ... ok
+test test_extract_double_function ... ok
+test test_extract_is_zero ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase84_extraction_e2e.rs (target/debug/deps/phase84_extraction_e2e-2650e52a09a075bd)
+
+running 3 tests
+test test_e2e_add_execution ... ok
+test test_e2e_nat_values ... ok
+test test_e2e_is_zero_execution ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.97s
+
+     Running tests/phase85_zones.rs (target/debug/deps/phase85_zones-93748b156275b094)
+
+running 12 tests
+test test_zone_missing_called_fails ... ok
+test test_zone_missing_name_fails ... ok
+test test_zone_missing_colon_fails ... ok
+test test_zone_default_capacity ... ok
+test test_zone_with_control_flow ... ok
+test test_zone_mapped_from_file ... ok
+test test_zone_in_function ... ok
+test test_zone_heap_basic ... ok
+test test_zone_creates_block_scope ... ok
+test test_zone_with_multiple_statements ... ok
+test test_zone_with_size_mb ... ok
+test test_zone_with_size_kb ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase86_kernel_primitives.rs (target/debug/deps/phase86_kernel_primitives-6e9a9a34ea150ffa)
+
+running 17 tests
+test test_check_integer_literal ... ok
+test test_check_negative_integer ... ok
+test test_function_with_two_ints ... ok
+test test_add_type ... ok
+test test_check_large_integer ... ok
+test test_instant_large_computation ... ok
+test test_complex_expression ... ok
+test test_int_type_exists ... ok
+test test_nested_operations ... ok
+test test_primitive_mod ... ok
+test test_primitive_add ... ok
+test test_partial_application ... ok
+test test_function_with_int ... ok
+test test_primitive_div ... ok
+test test_primitive_mul ... ok
+test test_type_error_add_nat ... ok
+test test_primitive_sub ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase87_reflection.rs (target/debug/deps/phase87_reflection-06a5863e90b821f3)
+
+running 23 tests
+test test_build_application ... ok
+test test_build_var ... ok
+test test_sapp_constructor ... ok
+test test_build_pi_type ... ok
+test test_is_closed_true ... ok
+test test_build_identity ... ok
+test test_sglobal_constructor ... ok
+test test_is_closed_false ... ok
+test test_size_app ... ok
+test test_size_nested ... ok
+test test_size_var ... ok
+test test_syntax_type_error ... ok
+test test_svar_constructor ... ok
+test test_ssort_constructor ... ok
+test test_slam_constructor ... ok
+test test_spi_constructor ... ok
+test test_size_lambda ... ok
+test test_syntax_type ... ok
+test test_univ_type ... ok
+test test_size_sort ... ok
+test test_utype_application ... ok
+test test_uprop_constructor ... ok
+test test_utype_constructor ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase88_substitution.rs (target/debug/deps/phase88_substitution-1fb4d878e13f6e31)
+
+running 28 tests
+test test_lift_nested_lambda ... ok
+test test_lift_lambda_body_free ... ok
+test test_lift_global ... ok
+test test_lift_var_bound ... ok
+test test_lift_type_error ... ok
+test test_lift_lambda_body_bound ... ok
+test test_lift_app ... ok
+test test_lift_var_at_cutoff ... ok
+test test_lift_sort ... ok
+test test_lift_pi ... ok
+test test_lift_var_free ... ok
+test test_subst_app ... ok
+test test_subst_global ... ok
+test test_lift_var_free_larger ... ok
+test test_subst_const_function ... ok
+test test_subst_lambda_body_free ... ok
+test test_subst_pi_both_positions ... ok
+test test_subst_identity_application ... ok
+test test_subst_var_match ... ok
+test test_subst_lambda_body_bound ... ok
+test test_subst_lambda_replacement_lifted ... ok
+test test_subst_var_no_match_less ... ok
+test test_subst_type_error ... ok
+test test_subst_nested_lambda ... ok
+test test_subst_sort ... ok
+test test_syn_lift_type ... ok
+test test_subst_var_no_match_greater ... ok
+test test_syn_subst_type ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase89_computation.rs (target/debug/deps/phase89_computation-9e61f9864d85b276)
+
+running 21 tests
+test test_beta_const ... ok
+test test_beta_capture_avoidance ... ok
+test test_step_beta_redex ... ok
+test test_beta_type_error ... ok
+test test_beta_identity_complex_arg ... ok
+test test_step_app_global_stuck ... ok
+test test_step_app_var_stuck ... ok
+test test_beta_identity ... ok
+test test_beta_nested_bound ... ok
+test test_beta_nested_free ... ok
+test test_step_church_numeral ... ok
+test test_step_nested_app_left ... ok
+test test_step_sort_value ... ok
+test test_step_lambda_value ... ok
+test test_step_pi_value ... ok
+test test_step_type_error ... ok
+test test_step_global_stuck ... ok
+test test_step_const_redex ... ok
+test test_step_var_stuck ... ok
+test test_syn_beta_type ... ok
+test test_syn_step_type ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase8_degrees.rs (target/debug/deps/phase8_degrees-4e44ed09b3141046)
+
+running 5 tests
+test real_measurement ... ok
+test absolute_measurement ... ok
+test comparative_with_measure_phrase ... ok
+test integer_count ... ok
+test symbolic_cardinality ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase90_bounded_eval.rs (target/debug/deps/phase90_bounded_eval-6e88f0581bf85285)
+
+running 16 tests
+test test_eval_stuck_app ... ok
+test test_eval_already_normal_var ... ok
+test test_eval_already_normal_lambda ... ok
+test test_eval_negative_fuel ... ok
+test test_eval_stops_at_normal_form ... ok
+test test_eval_multi_step ... ok
+test test_eval_partial_fuel ... ok
+test test_eval_type_error_fuel ... ok
+test test_eval_already_normal_sort ... ok
+test test_eval_church_application ... ok
+test test_eval_stuck_global ... ok
+test test_eval_zero_fuel ... ok
+test test_syn_eval_type ... ok
+test test_eval_single_step ... ok
+test test_eval_sufficient_fuel ... ok
+test test_eval_type_error_term ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase91_quote.rs (target/debug/deps/phase91_quote-84ffdefe9caabfa9)
+
+running 21 tests
+test test_diag_simple ... ok
+test test_quote_slit ... ok
+test test_quote_sglobal ... ok
+test test_quote_ssort_uprop ... ok
+test test_quote_sname ... ok
+test test_quote_ssort_utype ... ok
+test test_quote_slam ... ok
+test test_quote_sapp ... ok
+test test_quote_spi ... ok
+test test_quote_svar ... ok
+test test_diag_nested ... ok
+test test_quote_increases_size ... ok
+test test_quote_svar_nonzero ... ok
+test test_quote_type_error ... ok
+test test_slit_construction ... ok
+test test_slit_type ... ok
+test test_slit_type_error ... ok
+test test_sname_construction ... ok
+test test_sname_type_error ... ok
+test test_sname_type ... ok
+test test_syn_quote_type ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase92_inference.rs (target/debug/deps/phase92_inference-95fedee7998cf8ea)
+
+running 19 tests
+test test_concludes_daxiom_simple ... ok
+test test_concludes_univ_elim ... ok
+test test_concludes_type_error ... ok
+test test_concludes_type ... ok
+test test_concludes_univ_elim_invalid_not_forall ... ok
+test test_concludes_modus_ponens_invalid_not_implication ... ok
+test test_concludes_daxiom_complex ... ok
+test test_concludes_modus_ponens_valid ... ok
+test test_concludes_modus_ponens_invalid_antecedent_mismatch ... ok
+test test_daxiom_constructor ... ok
+test test_daxiom_type_error ... ok
+test test_dmodusponens_constructor ... ok
+test test_dmodusponens_type_error ... ok
+test test_concludes_univ_intro ... ok
+test test_concludes_modus_ponens_chained ... ok
+test test_derivation_type ... ok
+test test_dunivelim_constructor ... ok
+test test_dunivelim_type_error ... ok
+test test_dunivintro_constructor ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase93_diagonal_lemma.rs (target/debug/deps/phase93_diagonal_lemma-a1dae0b88c9634d8)
+
+running 15 tests
+test test_fixed_point_simple_predicate ... ok
+test test_fixed_point_equivalence ... ok
+test test_quine_foundation ... ok
+test test_syn_diag_different_var ... ok
+test test_fixed_point_godel_sentence ... ok
+test test_syn_diag_matches_manual ... ok
+test test_syn_diag_closed_term ... ok
+test test_syn_diag_idempotent_on_closed ... ok
+test test_syn_diag_app_self ... ok
+test test_syn_diag_nested_app ... ok
+test test_syn_diag_type ... ok
+test test_syn_diag_type_error ... ok
+test test_syn_diag_preserves_size_growth ... ok
+test test_syn_diag_var ... ok
+test test_syn_diag_under_lambda ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase94_godel_sentence.rs (target/debug/deps/phase94_godel_sentence-9213bcd9b244a06f)
+
+running 15 tests
+test test_henkin_sentence ... ok
+test test_godel_template_type ... ok
+test test_godel_template_structure ... ok
+test test_godel_sentence_contains_not ... ok
+test test_liar_template ... ok
+test test_godel_sentence_type ... ok
+test test_godel_sentence_contains_provable ... ok
+test test_godel_sentence_contains_self_reference ... ok
+test test_godel_sentence_is_fixed_point ... ok
+test test_provable_applied_to_syntax ... ok
+test test_provable_witnesses_axiom ... ok
+test test_provable_definition ... ok
+test test_provable_g_type ... ok
+test test_not_provable_g_type ... ok
+test test_provable_type_error ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase95_incompleteness.rs (target/debug/deps/phase95_incompleteness-2d4edc3cb3825cd0)
+
+running 13 tests
+test test_quoted_consistent_type ... ok
+test test_godel_i_as_type_alias ... ok
+test test_not_provable_false_from_consistent ... ok
+test test_provable_sname_false_type ... ok
+test test_godel_i_statement_welltyped ... ok
+test test_consistent_definition ... ok
+test test_consistent_requires_provable ... ok
+test test_godel_ii_statement_welltyped ... ok
+test test_consistent_unfolds ... ok
+test test_godel_i_components ... ok
+test test_sname_false_type ... ok
+test test_sname_type_error ... ok
+test test_reflection_type ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase96_tactics.rs (target/debug/deps/phase96_tactics-cff25a139c7b0e3c)
+
+running 15 tests
+test test_drefl_construction ... ok
+test test_drefl_type ... ok
+test test_tactic_proof_is_verified ... ok
+test test_try_refl_on_complex_term ... ok
+test test_drefl_type_error_second_arg ... ok
+test test_concludes_drefl ... ok
+test test_drefl_type_error_first_arg ... ok
+test test_try_refl_on_inequality ... ok
+test test_try_refl_on_equality_same ... ok
+test test_concludes_drefl_equals_expected ... ok
+test test_try_refl_type ... ok
+test test_try_refl_on_application ... ok
+test test_try_refl_type_error ... ok
+test test_try_refl_on_non_equality ... ok
+test test_try_refl_with_type0 ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase97_deep_induction.rs (target/debug/deps/phase97_deep_induction-2f8ab5a36fb07d64)
+
+running 11 tests
+test test_dinduction_construction ... ok
+test test_dinduction_type_error_step ... ok
+test test_dinduction_type ... ok
+test test_concludes_dinduction_simple ... ok
+test test_dinduction_type_error_motive ... ok
+test test_dinduction_wrong_base_returns_error ... ok
+test test_dinduction_wrong_step_returns_error ... ok
+test test_dinduction_type_error_base ... ok
+test test_concludes_dinduction_returns_forall ... ok
+test test_build_step_formula_structure ... ok
+test test_manual_induction_proof_n_equals_n ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase98_strategist.rs (target/debug/deps/phase98_strategist-cd64dd2f0df31e8b)
+
+running 42 tests
+test test_tact_fail_type ... ok
+test test_solve_trivial_fails_on_inequality ... ok
+test test_solve_trivial_definition ... ok
+test test_nuclear_code_reflexive ... ok
+test test_tact_first_exists ... ok
+test test_tact_fail_returns_error ... ok
+test test_tact_fail_type_error ... ok
+test test_tact_first_empty_list ... ok
+test test_tact_first_all_fail ... ok
+test test_composite_tactic_with_then ... ok
+test test_tact_orelse_both_fail ... ok
+test test_tact_first_type ... ok
+test test_tact_first_tries_until_success ... ok
+test test_tact_orelse_type_error_first_arg ... ok
+test test_tact_orelse_first_succeeds ... ok
+test test_tact_orelse_type_error_goal ... ok
+test test_tact_orelse_type ... ok
+test test_tact_orelse_type_error_second_arg ... ok
+test test_tact_repeat_immediate_failure_returns_identity ... ok
+test test_tact_repeat_applies_until_failure ... ok
+test test_tact_repeat_exists ... ok
+test test_tact_orelse_chaining ... ok
+test test_tact_first_first_succeeds ... ok
+test test_tact_orelse_first_fails_second_succeeds ... ok
+test test_tact_solve_exists ... ok
+test test_tact_repeat_no_infinite_loop ... ok
+test test_tact_orelse_partial_application ... ok
+test test_tact_repeat_type ... ok
+test test_tact_solve_rejects_failure ... ok
+test test_tact_then_exists ... ok
+test test_tact_solve_type ... ok
+test test_tact_solve_accepts_complete_proof ... ok
+test test_tact_solve_rejects_partial_progress ... ok
+test test_tact_try_exists ... ok
+test test_tact_try_never_fails ... ok
+test test_tact_try_failure_becomes_identity ... ok
+test test_tact_then_both_succeed ... ok
+test test_tact_then_type ... ok
+test test_tact_then_first_fails ... ok
+test test_tact_try_type ... ok
+test test_tact_try_success_passes_through ... ok
+test test_tact_then_second_fails ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/phase99_solver.rs (target/debug/deps/phase99_solver-34e5051ef66a7c70)
+
+running 23 tests
+test test_dcompute_type ... ok
+test test_syn_eval_add ... ok
+test test_dcompute_type_error ... ok
+test test_solve_arith_type ... ok
+test test_syn_eval_mod ... ok
+test test_syn_eval_div_by_zero ... ok
+test test_solve_arith_computation ... ok
+test test_solve_arith_fails ... ok
+test test_syn_eval_nested_arithmetic ... ok
+test test_syn_eval_partial_application ... ok
+test test_syn_eval_div ... ok
+test test_solve_arith_reflexive ... ok
+test test_syn_eval_mul ... ok
+test test_syn_eval_sub ... ok
+test test_try_compute_fails_on_inequality ... ok
+test test_try_compute_complex_expression ... ok
+test test_syn_eval_non_literal_args ... ok
+test test_try_compute_both_sides_compute ... ok
+test test_try_compute_fails_on_non_equality ... ok
+test test_try_compute_type ... ok
+test test_try_compute_type_error ... ok
+test test_try_compute_ten_plus_ten ... ok
+test test_try_compute_one_plus_one ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase9_conversion.rs (target/debug/deps/phase9_conversion-fdaaf696642d7e4f)
+
+running 4 tests
+test noun_to_verb_with_modal ... ok
+test noun_to_verb_emailed ... ok
+test noun_to_verb_google ... ok
+test noun_to_verb_tabled ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase9_structured_concurrency.rs (target/debug/deps/phase9_structured_concurrency-77a81d7dc3fcd6ba)
+
+running 13 tests
+test test_concurrent_missing_colon_fails ... ok
+test test_concurrent_missing_all_fails ... ok
+test test_concurrent_in_function ... ok
+test test_concurrent_with_single_statement ... ok
+test test_nested_parallel_blocks ... ok
+test test_parallel_basic ... ok
+test test_parallel_in_function ... ok
+test test_concurrent_destructures_let_bindings ... ok
+test test_concurrent_basic ... ok
+test test_parallel_destructures_let_bindings ... ok
+test test_parallel_missing_colon_fails ... ok
+test test_parallel_three_tasks_uses_threads ... ok
+test test_parallel_uses_closure_syntax ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_auto.rs (target/debug/deps/phase_auto-49c7f35616edcfb9)
+
+running 10 tests
+test test_auto_true ... ok
+test test_auto_lia_le ... ok
+test test_auto_omega_lt ... ok
+test test_auto_fails_false ... ok
+test test_auto_ring_comm ... ok
+test test_auto_cc_reflexive ... ok
+test test_dautosolve_type ... ok
+test test_try_auto_type ... ok
+test test_auto_fails_unprovable ... ok
+test test_auto_omega_integer_specific ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_barber_updated.rs (target/debug/deps/phase_barber_updated-302eedf4f48dcb72)
+
+running 4 tests
+test test_simple_man_premise ... ok
+test test_definite_man_premise ... ok
+test test_barber_parsing_only ... ok
+test test_barber_paradox_updated_formulation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/phase_cc.rs (target/debug/deps/phase_cc-7241ba9ea2dc455f)
+
+running 9 tests
+test test_cc_reflexivity ... ok
+test test_dccsolve_type ... ok
+test test_cc_nested_functions ... ok
+test test_try_cc_type ... ok
+test test_cc_fails_without_hypothesis ... ok
+test test_cc_fails_different_functions ... ok
+test test_cc_congruence_from_hypothesis ... ok
+test test_cc_congruence_binary ... ok
+test test_cc_transitivity_chain ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_causal.rs (target/debug/deps/phase_crdt_causal-df606b5ea362bcb6)
+
+running 34 tests
+test test_delta_buffer_overflow_partial ... ok
+test test_delta_buffer_new ... ok
+test test_delta_buffer_multiple_deltas ... ok
+test test_delta_buffer_push_and_retrieve ... ok
+test test_delta_buffer_since_version ... ok
+test test_delta_buffer_overflow ... ok
+test test_delta_crdt_trait_exists ... ok
+test test_dot_context_add_contiguous ... ok
+test test_dot_context_add_out_of_order ... ok
+test test_dot_context_has_seen_after_next ... ok
+test test_dot_context_merge ... ok
+test test_dot_context_merge_commutative ... ok
+test test_dot_context_new ... ok
+test test_dot_context_next ... ok
+test test_dot_context_serialization ... ok
+test test_dot_creation ... ok
+test test_dot_equality ... ok
+test test_dot_hash ... ok
+test test_dot_serialization ... ok
+test test_gcounter_uses_u64_replica ... ok
+test test_gcounter_with_u64_replica_id ... ok
+test test_replica_id_is_u64 ... ok
+test test_replica_id_unique ... ok
+test test_vclock_concurrent ... ok
+test test_vclock_dominates ... ok
+test test_vclock_dominates_empty ... ok
+test test_vclock_dominates_partial ... ok
+test test_vclock_increment ... ok
+test test_vclock_merge_associative ... ok
+test test_vclock_merge_commutative ... ok
+test test_vclock_merge_idempotent ... ok
+test test_vclock_new ... ok
+test test_vclock_not_concurrent ... ok
+test test_vclock_serialization ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_concurrent.rs (target/debug/deps/phase_crdt_concurrent-41c1b6a8c3380824)
+
+running 14 tests
+test test_lww_concurrent_writes ... ok
+test test_gcounter_concurrent_merge_order_independence ... ok
+test test_lww_merge_order_independence ... ok
+test test_mvregister_causal_overwrite ... ok
+test test_mvregister_conflict_then_resolve ... ok
+test test_orset_concurrent_add_remove ... ok
+test test_mvregister_concurrent_writes ... ok
+test test_orset_interleaved_add_remove_add ... ok
+test test_orset_concurrent_from_multiple_replicas ... ok
+test test_pncounter_concurrent_same_replica_merge ... ok
+test test_vclock_concurrent_detection ... ok
+test test_gcounter_concurrent_increments ... ok
+test test_pncounter_concurrent_inc_dec ... ok
+test test_vclock_concurrent_increments ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_delta.rs (target/debug/deps/phase_crdt_delta-8b807df948035fcc)
+
+running 21 tests
+test test_delta_since_empty_version ... ok
+test test_delta_since_current_version_is_empty ... ok
+test test_ormap_delta_insert ... ok
+test test_mvregister_delta_set ... ok
+test test_mvregister_delta_preserves_conflicts ... ok
+test test_orset_delta_add_multiple ... ok
+test test_orset_delta_add ... ok
+test test_ormap_delta_nested_update ... ok
+test test_orset_delta_remove ... ok
+test test_pncounter_delta_decrement ... ok
+test test_orset_delta_serialization ... ok
+test test_pncounter_delta_increment ... ok
+test test_pncounter_delta_multiple_ops ... ok
+test test_pncounter_delta_serialization ... ok
+test test_rga_delta_append ... ok
+test test_rga_delta_insert ... ok
+test test_rga_delta_remove ... ok
+test test_version_increments_on_mutation ... ok
+test test_version_tracks_all_replicas ... ok
+test test_yata_delta_append ... ok
+test test_yata_delta_insert ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_edge_cases.rs (target/debug/deps/phase_crdt_edge_cases-bd28ed4f8fd2f94b)
+
+running 21 tests
+test test_dotcontext_multiple_replicas ... ok
+test test_gcounter_large_increment ... ok
+test test_dotcontext_gap_then_fill ... ok
+test test_gcounter_value_with_no_local_increments ... ok
+test test_gcounter_zero_increment ... ok
+test test_lww_exact_timestamp_tiebreak ... ok
+test test_lww_newer_always_wins ... ok
+test test_mvregister_empty_then_set ... ok
+test test_merge_self_is_idempotent ... ok
+test test_mvregister_sequential_overwrites ... ok
+test test_orset_add_after_remove ... ok
+test test_orset_duplicate_add_same_replica ... ok
+test test_orset_add_wins_vs_remove_wins_same_scenario ... ok
+test test_orset_remove_nonexistent ... ok
+test test_pncounter_i64_boundaries ... ok
+test test_pncounter_zero_operations ... ok
+test test_vclock_concurrent_vs_dominates ... ok
+test test_vclock_dominates_empty ... ok
+test test_pncounter_alternating_inc_dec ... ok
+test test_vclock_get_nonexistent_replica ... ok
+test test_mvregister_many_concurrent_values ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_language.rs (target/debug/deps/phase_crdt_language-8ab8a1b1bb399c3f)
+
+running 19 tests
+test e2e_test_codegen_shared_sequence_type ... ok
+test e2e_test_codegen_shared_set_type ... ok
+test e2e_test_codegen_resolve_statement ... ok
+test e2e_test_codegen_tally_type ... ok
+test e2e_test_codegen_append_statement ... ok
+test e2e_test_codegen_add_to_set_statement ... ok
+test e2e_test_codegen_divergent_type ... ok
+test e2e_test_codegen_decrease_statement ... ok
+test e2e_test_tokenize_append ... ok
+test e2e_test_tokenize_decrease ... ok
+test e2e_test_tokenize_divergent ... ok
+test e2e_test_tokenize_shared_set ... ok
+test e2e_test_tokenize_resolve ... ok
+test e2e_test_tokenize_shared_sequence ... ok
+test e2e_test_tokenize_tally ... ok
+test e2e_test_divergent_values_e2e has been running for over 60 seconds
+test e2e_test_shared_sequence_append_e2e has been running for over 60 seconds
+test e2e_test_shared_set_contains_e2e has been running for over 60 seconds
+test e2e_test_tally_e2e has been running for over 60 seconds
+test e2e_test_tally_e2e ... ok
+test e2e_test_shared_sequence_append_e2e ... ok
+test e2e_test_shared_set_contains_e2e ... ok
+test e2e_test_divergent_values_e2e ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 193.17s
+
+     Running tests/phase_crdt_mvregister.rs (target/debug/deps/phase_crdt_mvregister-467b18ff33824d09)
+
+running 13 tests
+test test_mvregister_concurrent_values ... ok
+test test_mvregister_merge_commutative ... ok
+test test_mvregister_new ... ok
+test test_mvregister_merge_idempotent ... ok
+test test_mvregister_resolve_propagates ... ok
+test test_mvregister_resolve ... ok
+test test_mvregister_sequential_overwrites ... ok
+test test_mvregister_set_get ... ok
+test test_mvregister_serialization ... ok
+test test_mvregister_serialization_with_conflict ... ok
+test test_mvregister_set_overwrites ... ok
+test test_mvregister_three_way_concurrent ... ok
+test test_mvregister_with_integers ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_ormap.rs (target/debug/deps/phase_crdt_ormap-b22a40b6f6a1f265)
+
+running 14 tests
+test test_ormap_get_nonexistent ... ok
+test test_ormap_contains_key ... ok
+test test_ormap_concurrent_update ... ok
+test test_ormap_keys ... ok
+test test_ormap_concurrent_add_remove ... ok
+test test_ormap_concurrent_add_different_keys ... ok
+test test_ormap_get_or_insert ... ok
+test test_ormap_merge_idempotent ... ok
+test test_ormap_nested_conflict_resolution ... ok
+test test_ormap_merge_commutative ... ok
+test test_ormap_new ... ok
+test test_ormap_remove ... ok
+test test_ormap_with_mvregister ... ok
+test test_ormap_serialization ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_orset.rs (target/debug/deps/phase_crdt_orset-1a181187e61aa073)
+
+running 16 tests
+test test_orset_add ... ok
+test test_orset_add_duplicate ... ok
+test test_orset_iter ... ok
+test test_orset_add_wins_default ... ok
+test test_orset_add_wins_explicit ... ok
+test test_orset_add_multiple ... ok
+test test_orset_add_wins_multiple_replicas ... ok
+test test_orset_merge_idempotent ... ok
+test test_orset_merge_commutative ... ok
+test test_orset_merge_associative ... ok
+test test_orset_new ... ok
+test test_orset_remove ... ok
+test test_orset_remove_nonexistent ... ok
+test test_orset_remove_wins ... ok
+test test_orset_serialization ... ok
+test test_orset_with_integers ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_pncounter.rs (target/debug/deps/phase_crdt_pncounter-bb5733152c57b638)
+
+running 13 tests
+test test_pncounter_decrement ... ok
+test test_pncounter_increment_decrement_interleaved ... ok
+test test_pncounter_increment ... ok
+test test_pncounter_merge_associative ... ok
+test test_pncounter_merge_commutative ... ok
+test test_pncounter_merge_idempotent ... ok
+test test_pncounter_merge_disjoint ... ok
+test test_pncounter_merge_complex ... ok
+test test_pncounter_merge_same_replica ... ok
+test test_pncounter_negative ... ok
+test test_pncounter_new ... ok
+test test_pncounter_with_replica_id ... ok
+test test_pncounter_serialization ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_sequence.rs (target/debug/deps/phase_crdt_sequence-9111228e613904d4)
+
+running 18 tests
+test test_rga_append ... ok
+test test_rga_insert_before ... ok
+test test_rga_concurrent_append ... ok
+test test_rga_concurrent_remove ... ok
+test test_rga_insert_after ... ok
+test test_rga_concurrent_insert ... ok
+test test_rga_get ... ok
+test test_rga_merge_idempotent ... ok
+test test_rga_new ... ok
+test test_rga_merge_commutative ... ok
+test test_rga_remove ... ok
+test test_yata_append ... ok
+test test_rga_serialization ... ok
+test test_yata_concurrent_insert_same_position ... ok
+test test_yata_insert ... ok
+test test_yata_interleaving ... ok
+test test_yata_new ... ok
+test test_yata_serialization ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_serialization.rs (target/debug/deps/phase_crdt_serialization-a5c47c8e11f62a31)
+
+running 12 tests
+test test_empty_crdt_serialization ... ok
+test test_delta_buffer_serialization ... ok
+test test_corrupt_orset_handling ... ok
+test test_complex_nested_state ... ok
+test test_lww_serialization_preserves_timestamp ... ok
+test test_malformed_data_handling ... ok
+test test_merge_after_deserialization ... ok
+test test_dotcontext_serialization ... ok
+test test_orset_merge_after_deserialization ... ok
+test test_orset_string_serialization ... ok
+test test_vclock_serialization_many_replicas ... ok
+test test_large_orset_serialization ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_crdt_stress.rs (target/debug/deps/phase_crdt_stress-2d6fc8680de5b3d2)
+
+running 15 tests
+test test_gcounter_many_replicas ... ok
+test test_delta_buffer_partial_recovery ... ok
+test test_dotcontext_sparse_dots ... ok
+test test_delta_buffer_overflow ... ok
+test test_pncounter_large_values ... ok
+test test_mvregister_many_concurrent_values ... ok
+test test_dotcontext_many_out_of_order ... ok
+test test_orset_1000_elements ... ok
+test test_dotcontext_compaction ... ok
+test test_vclock_comparison_at_scale ... ok
+test test_vclock_many_replicas ... ok
+test test_orset_merge_large_sets ... ok
+test test_repeated_add_remove_cycles ... ok
+test test_gcounter_high_frequency_increments ... ok
+test test_pncounter_many_operations ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/phase_crdt_variants.rs (target/debug/deps/phase_crdt_variants-356fd017c54b58b7)
+
+running 14 tests
+test test_collaborative_sequence_codegen ... ok
+test test_shared_sequence_yata_modifier_codegen ... ok
+test test_shared_sequence_default_rga_codegen ... ok
+test test_shared_map_codegen ... ok
+test test_ormap_alias_codegen ... ok
+test test_all_crdt_types_in_struct_codegen ... ok
+test test_shared_set_removewins_codegen ... ok
+test test_shared_set_default_addwins_codegen ... ok
+test test_shared_set_explicit_addwins_codegen ... ok
+test test_shared_sequence_yata_e2e ... ok
+test test_shared_set_removewins_e2e ... ok
+test test_collaborative_sequence_e2e ... ok
+test test_shared_set_addwins_e2e ... ok
+test test_mixed_crdt_operations_e2e ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.08s
+
+     Running tests/phase_hints.rs (target/debug/deps/phase_hints-bb907b474cae92bd)
+
+running 6 tests
+test test_hint_theorem_accessible ... ok
+test test_auto_tries_hints ... ok
+test test_is_hint ... ok
+test test_hint_attribute_parses ... ok
+test test_multiple_hints ... ok
+test test_hint_without_proof ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_induction.rs (target/debug/deps/phase_induction-e017333d89f87381)
+
+running 11 tests
+test test_induction_step_goal_type ... ok
+test test_induction_base_goal_type ... ok
+test test_induction_nat_step_goal ... ok
+test test_induction_nat_num_cases ... ok
+test test_induction_num_cases_type ... ok
+test test_induction_non_inductive_type ... ok
+test test_induction_bool_num_cases ... ok
+test test_induction_nat_zero_base ... ok
+test test_try_induction_type ... ok
+test test_induction_wrong_case_count ... ok
+test test_induction_nat_complete ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_interpreter_crdt.rs (target/debug/deps/phase_interpreter_crdt-97ddff50caebc6b4)
+
+running 6 tests
+test interpreter_crdt_decrease_simple ... ok
+test interpreter_crdt_increase_variable_amount ... ok
+test interpreter_crdt_increase_simple ... ok
+test interpreter_crdt_decrease_negative_result ... ok
+test interpreter_crdt_multiple_fields ... ok
+test interpreter_crdt_increase_multiple ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_interpreter_features.rs (target/debug/deps/phase_interpreter_features-ca0a8b651671babb)
+
+running 4 tests
+test interpreter_from_parameter_syntax ... ok
+test interpreter_string_concat_bool ... ok
+test interpreter_set_iteration ... ok
+test interpreter_crdt_merge ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_interpreter_policy.rs (target/debug/deps/phase_interpreter_policy-2198376c7c5ccf01)
+
+running 6 tests
+test interpreter_policy_predicate_different_values ... ok
+test interpreter_policy_bool_field_fails ... ok
+test interpreter_policy_predicate_passes ... ok
+test interpreter_policy_predicate_fails ... ok
+test interpreter_policy_bool_field ... ok
+test interpreter_policy_multiple_predicates ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase_interpreter_string_concat.rs (target/debug/deps/phase_interpreter_string_concat-03e09327a828803a)

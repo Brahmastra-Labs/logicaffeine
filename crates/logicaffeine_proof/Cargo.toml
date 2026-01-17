@@ -1,18 +1,25 @@
 [package]
 name = "logicaffeine-proof"
 version = "0.6.0"
-edition = "2021"
-description = "Backward-chaining proof engine with Socratic hints"
+edition.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 license = "BUSL-1.1"
+description = "Backward-chaining proof engine with Socratic hints"
+readme = "README.md"
 
 [features]
 default = []
 verification = ["logicaffeine-verify"]
 
 [dependencies]
-logicaffeine-base = { path = "../logicaffeine_base" }
-logicaffeine-kernel = { path = "../logicaffeine_kernel" }
+logicaffeine-base = { version = "0.6.0", path = "../logicaffeine_base" }
+logicaffeine-kernel = { version = "0.6.0", path = "../logicaffeine_kernel" }
 # CRITICAL: NO LANGUAGE DEPENDENCY - Liskov Invariant
 
-# Optional: Z3-based oracle (requires Z3 installed)
+# Optional: Z3-based oracle (requires Z3 installed, local builds only)
 logicaffeine-verify = { path = "../logicaffeine_verify", optional = true }
