@@ -2020,3 +2020,181 @@ test e2e_test_happens_before_chain ... ok
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 129.12s
 
      Running tests/e2e_collections.rs (target/debug/deps/e2e_collections-a26278ec5b1e8fc8)
+
+running 18 tests
+test e2e_copy_creates_independent ... ok
+test e2e_empty_list ... ok
+test e2e_list_literal ... ok
+test e2e_length_of_list ... ok
+test e2e_index_1based ... ok
+test e2e_index_last_element ... ok
+test e2e_length_after_pop ... ok
+test e2e_list_in_function ... ok
+test e2e_length_after_push ... ok
+test e2e_index_with_variable ... ok
+test e2e_pop_after_push ... ok
+test e2e_pop_from_list ... ok
+test e2e_push_to_list ... ok
+test e2e_slice_inclusive ... ok
+test e2e_push_to_empty ... ok
+test e2e_slice_full_list ... ok
+test e2e_slice_single_element ... ok
+test e2e_set_item_of_list ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.92s
+
+     Running tests/e2e_comparisons.rs (target/debug/deps/e2e_comparisons-4233b5f9e91e6692)
+
+running 12 tests
+test e2e_at_most_boundary ... ok
+test e2e_equals_true ... ok
+test e2e_less_than_false ... ok
+test e2e_less_than_true ... ok
+test e2e_equals_false ... ok
+test e2e_greater_than_true ... ok
+test e2e_symbolic_gt ... ok
+test e2e_greater_than_false ... ok
+test e2e_at_least_boundary ... ok
+test e2e_symbolic_lt ... ok
+test e2e_symbolic_lteq_and_gteq ... ok
+test e2e_not_equals ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.76s
+
+     Running tests/e2e_concurrency.rs (target/debug/deps/e2e_concurrency-2f7f497a5115e164)
+
+running 9 tests
+test e2e_launch_simple_task ... ok
+test e2e_launch_task_with_arg ... ok
+test e2e_pipe_create ... ok
+test e2e_try_receive_nonblocking ... ok
+test e2e_select_timeout_only ... ok
+test e2e_try_send_nonblocking ... ok
+test e2e_pipe_send_receive ... ok
+test e2e_producer_consumer ... ok
+test e2e_stop_task ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.73s
+
+     Running tests/e2e_control_flow.rs (target/debug/deps/e2e_control_flow-491f9e9f7ef6eec2)
+
+running 12 tests
+test e2e_multiple_sequential_if ... ok
+test e2e_while_in_if ... ok
+test e2e_nested_if ... ok
+test e2e_deeply_nested ... ok
+test e2e_if_otherwise ... ok
+test e2e_compound_condition_and ... ok
+test e2e_if_in_while ... ok
+test e2e_if_true_branch ... ok
+test e2e_while_loop_sum ... ok
+test e2e_while_single_iteration ... ok
+test e2e_while_zero_iterations ... ok
+test e2e_condition_with_expr ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.78s
+
+     Running tests/e2e_crdt.rs (target/debug/deps/e2e_crdt-43376cff7e1ecd04)
+
+running 30 tests
+test e2e_crdt_with_regular_fields has been running for over 60 seconds
+test e2e_divergent_merge has been running for over 60 seconds
+test e2e_divergent_overwrite has been running for over 60 seconds
+test e2e_divergent_resolve has been running for over 60 seconds
+test e2e_divergent_set_show has been running for over 60 seconds
+test e2e_gcounter_increment has been running for over 60 seconds
+test e2e_gcounter_increment_by_variable has been running for over 60 seconds
+test e2e_gcounter_multiple_increments has been running for over 60 seconds
+test e2e_gcounter_value_after_merge has been running for over 60 seconds
+test e2e_lww_bool_set has been running for over 60 seconds
+test e2e_lww_bool_set ... ok
+test e2e_divergent_resolve ... ok
+test e2e_divergent_set_show ... ok
+test e2e_lww_int_set has been running for over 60 seconds
+test e2e_lww_int_set ... ok
+test e2e_gcounter_increment_by_variable ... ok
+test e2e_lww_text_set ... ok
+test e2e_merge_field_level ... ok
+test e2e_divergent_overwrite ... ok
+test e2e_merge_struct_level ... ok
+test e2e_mixed_crdt_struct has been running for over 60 seconds
+test e2e_shared_sequence_append has been running for over 60 seconds
+test e2e_shared_sequence_empty has been running for over 60 seconds
+test e2e_shared_set_add has been running for over 60 seconds
+test e2e_mixed_crdt_struct ... ok
+test e2e_shared_set_add_duplicate has been running for over 60 seconds
+test e2e_shared_sequence_append ... ok
+test e2e_shared_sequence_empty ... ok
+test e2e_shared_set_contains_false has been running for over 60 seconds
+test e2e_divergent_merge ... ok
+test e2e_shared_set_add ... ok
+test e2e_shared_set_contains_true has been running for over 60 seconds
+test e2e_shared_set_add_duplicate ... ok
+test e2e_shared_set_merge has been running for over 60 seconds
+test e2e_shared_set_contains_false ... ok
+test e2e_shared_set_contains_true ... ok
+test e2e_shared_set_merge ... ok
+test e2e_gcounter_value_after_merge ... ok
+test e2e_shared_set_remove ... ok
+test e2e_shared_set_remove_then_contains ... ok
+test e2e_shared_struct_with_mixed_fields ... ok
+test e2e_tally_decrease_only ... ok
+test e2e_crdt_with_regular_fields ... ok
+test e2e_tally_decrease_to_negative ... ok
+test e2e_tally_increase_decrease ... ok
+test e2e_tally_merge ... ok
+test e2e_tally_multiple_operations ... ok
+test e2e_gcounter_increment ... ok
+test e2e_gcounter_multiple_increments ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 360.69s
+
+     Running tests/e2e_edge_cases.rs (target/debug/deps/e2e_edge_cases-7715614dd6561e25)
+
+running 10 tests
+test e2e_deeply_nested_parens has been running for over 60 seconds
+test e2e_division_truncation has been running for over 60 seconds
+test e2e_empty_list_length has been running for over 60 seconds
+test e2e_empty_string has been running for over 60 seconds
+test e2e_large_number has been running for over 60 seconds
+test e2e_negative_number has been running for over 60 seconds
+test e2e_operator_precedence has been running for over 60 seconds
+test e2e_single_element_list has been running for over 60 seconds
+test e2e_unicode_in_strings has been running for over 60 seconds
+test e2e_zero has been running for over 60 seconds
+test e2e_division_truncation ... ok
+test e2e_single_element_list ... ok
+test e2e_operator_precedence ... ok
+test e2e_unicode_in_strings ... ok
+test e2e_deeply_nested_parens ... ok
+test e2e_empty_list_length ... ok
+test e2e_negative_number ... ok
+test e2e_zero ... ok
+test e2e_empty_string ... ok
+test e2e_large_number ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 163.63s
+
+     Running tests/e2e_enums.rs (target/debug/deps/e2e_enums-ab77e906670e352a)
+
+running 8 tests
+test e2e_enum_in_function has been running for over 60 seconds
+test e2e_enum_payload_variant has been running for over 60 seconds
+test e2e_enum_return has been running for over 60 seconds
+test e2e_enum_unit_variant has been running for over 60 seconds
+test e2e_inspect_otherwise has been running for over 60 seconds
+test e2e_inspect_simple has been running for over 60 seconds
+test e2e_inspect_with_binding has been running for over 60 seconds
+test e2e_nested_inspect has been running for over 60 seconds
+test e2e_enum_payload_variant ... ok
+test e2e_inspect_simple ... ok
+test e2e_inspect_otherwise ... ok
+test e2e_nested_inspect ... ok
+test e2e_enum_in_function ... ok
+test e2e_inspect_with_binding ... ok
+test e2e_enum_unit_variant ... ok
+test e2e_enum_return ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 108.21s
+
+     Running tests/e2e_expressions.rs (target/debug/deps/e2e_expressions-d64acf1d41447fc5)
