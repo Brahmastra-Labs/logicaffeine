@@ -2198,3 +2198,900 @@ test e2e_enum_return ... ok
 test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 108.21s
 
      Running tests/e2e_expressions.rs (target/debug/deps/e2e_expressions-d64acf1d41447fc5)
+
+running 15 tests
+test e2e_arithmetic_add has been running for over 60 seconds
+test e2e_arithmetic_divide has been running for over 60 seconds
+test e2e_arithmetic_multiply has been running for over 60 seconds
+test e2e_arithmetic_nested has been running for over 60 seconds
+test e2e_arithmetic_subtract has been running for over 60 seconds
+test e2e_boolean_false has been running for over 60 seconds
+test e2e_boolean_true has been running for over 60 seconds
+test e2e_complex_arithmetic has been running for over 60 seconds
+test e2e_division_truncation has been running for over 60 seconds
+test e2e_large_number has been running for over 60 seconds
+test e2e_arithmetic_divide ... ok
+test e2e_boolean_true ... ok
+test e2e_complex_arithmetic ... ok
+test e2e_left_associative ... ok
+test e2e_large_number ... ok
+test e2e_arithmetic_nested ... ok
+test e2e_boolean_false ... ok
+test e2e_arithmetic_subtract ... ok
+test e2e_division_truncation ... ok
+test e2e_arithmetic_add ... ok
+test e2e_arithmetic_multiply ... ok
+test e2e_negative_via_subtraction ... ok
+test e2e_operator_precedence ... ok
+test e2e_text_literal ... ok
+test e2e_zero_literal ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 147.51s
+
+     Running tests/e2e_functions.rs (target/debug/deps/e2e_functions-392311bf34f32278)
+
+running 12 tests
+test e2e_function_no_params ... ok
+test e2e_function_single_param ... ok
+test e2e_function_returns_bool ... ok
+test e2e_function_three_params ... ok
+test e2e_function_returns_seq ... ok
+test e2e_function_two_params ... ok
+test e2e_function_with_if ... ok
+test e2e_function_multiple_calls ... ok
+test e2e_nested_function_calls ... ok
+test e2e_recursive_factorial ... ok
+test e2e_function_returns_text ... ok
+test e2e_function_with_loop ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.23s
+
+     Running tests/e2e_gossip.rs (target/debug/deps/e2e_gossip-92e0df8f6f71e128)
+
+running 2 tests
+test e2e_test_gossip_sync_compiles ... ok
+test e2e_test_crdt_gossip_convergence ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 32.12s
+
+     Running tests/e2e_gossip_edge_cases.rs (target/debug/deps/e2e_gossip_edge_cases-fd43081bbffc3ae2)
+
+running 4 tests
+test e2e_test_rapid_publish_before_mesh ... ok
+test e2e_test_late_rejoin_sync has been running for over 60 seconds
+test e2e_test_multiple_topics_isolation has been running for over 60 seconds
+test e2e_test_three_node_same_topic has been running for over 60 seconds
+test e2e_test_multiple_topics_isolation ... ok
+test e2e_test_late_rejoin_sync ... ok
+test e2e_test_three_node_same_topic ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 65.55s
+
+     Running tests/e2e_integration.rs (target/debug/deps/e2e_integration-aad66ad0a5f93d1b)
+
+running 6 tests
+test e2e_nested_loops_sum ... ok
+test e2e_gcd ... ok
+test e2e_filter_pattern ... ok
+test e2e_accumulator_sum ... ok
+test e2e_fibonacci ... ok
+test e2e_bubble_sort ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.70s
+
+     Running tests/e2e_iteration.rs (target/debug/deps/e2e_iteration-6e454f3a2ee14391)
+
+running 8 tests
+test e2e_repeat_modifies_external ... ok
+test e2e_repeat_single_element ... ok
+test e2e_range_single_value ... ok
+test e2e_repeat_empty_list ... ok
+test e2e_repeat_for_in_list ... ok
+test e2e_repeat_nested_loops ... ok
+test e2e_repeat_for_range ... ok
+test e2e_repeat_builds_list ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.51s
+
+     Running tests/e2e_logical.rs (target/debug/deps/e2e_logical-3dfbf7435c82caec)
+
+running 8 tests
+test e2e_or_first_true ... ok
+test e2e_or_second_true ... ok
+test e2e_or_both_false ... ok
+test e2e_and_both_true ... ok
+test e2e_and_first_false ... ok
+test e2e_chained_or ... ok
+test e2e_and_second_false ... ok
+test e2e_chained_and ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.11s
+
+     Running tests/e2e_maps.rs (target/debug/deps/e2e_maps-51728045d8c53eb6)
+
+running 8 tests
+test e2e_map_mixed_syntax ... ok
+test e2e_map_bracket_get ... ok
+test e2e_map_bracket_set ... ok
+test e2e_map_create_empty ... ok
+test e2e_map_overwrite_key ... ok
+test e2e_map_set_and_get ... ok
+test e2e_map_multiple_keys ... ok
+test e2e_map_with_text_values ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.66s
+
+     Running tests/e2e_mesh.rs (target/debug/deps/e2e_mesh-c4f0c8ce447ff4b0)
+
+running 6 tests
+test e2e_peer_agent_compiles ... ok
+test e2e_sleep_with_variable ... ok
+test e2e_connect_compiles ... ok
+test e2e_sleep_compiles ... ok
+test e2e_listen_compiles ... ok
+test e2e_network_ping_pong ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 17.17s
+
+     Running tests/e2e_multi_node.rs (target/debug/deps/e2e_multi_node-fb5c78309c2f7755)
+
+running 3 tests
+test e2e_test_node_join_mid_session ... ok
+test e2e_test_three_node_convergence ... ok
+test e2e_test_concurrent_writes_before_sync ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 56.26s
+
+     Running tests/e2e_network_partition.rs (target/debug/deps/e2e_network_partition-895cb83d80686991)
+
+running 4 tests
+test e2e_test_partition_and_heal ... ok
+test e2e_test_late_joiner_after_mutations ... ok
+test e2e_test_concurrent_mutations_during_partition ... ok
+test e2e_test_repeated_mutation_cycles has been running for over 60 seconds
+test e2e_test_repeated_mutation_cycles ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 64.90s
+
+     Running tests/e2e_policy.rs (target/debug/deps/e2e_policy-0b1ab3708f3aba39)
+
+running 10 tests
+test e2e_capability_non_owner_fails ... ok
+test e2e_check_error_message ... ok
+test e2e_predicate_fails ... ok
+test e2e_and_condition_passes ... ok
+test e2e_or_condition_passes ... ok
+test e2e_assert_passes ... ok
+test e2e_capability_owner_passes ... ok
+test e2e_capability_admin_passes ... ok
+test e2e_predicate_passes ... ok
+test e2e_predicate_composition ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 21.04s
+
+     Running tests/e2e_primitives.rs (target/debug/deps/e2e_primitives-06d6289f905017b9)
+
+running 13 tests
+test e2e_byte_comparison ... ok
+test e2e_byte_function_param ... ok
+test e2e_char_comparison_equal ... ok
+test e2e_byte_arithmetic ... ok
+test e2e_byte_in_seq ... ok
+test e2e_char_comparison_not_equal ... ok
+test e2e_byte_type ... ok
+test e2e_char_escape_newline ... ok
+test e2e_char_with_type ... ok
+test e2e_char_literal ... ok
+test e2e_char_in_seq ... ok
+test e2e_char_digit ... ok
+test e2e_byte_zero ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.56s
+
+     Running tests/e2e_refinement.rs (target/debug/deps/e2e_refinement-bc19c61f7a06b417)
+
+running 6 tests
+test e2e_refinement_compound_and_valid ... ok
+test e2e_refinement_compound_and_violation ... ok
+test e2e_refinement_valid_positive ... ok
+test e2e_refinement_boundary_value ... ok
+test e2e_refinement_violation_at_let ... ok
+test e2e_refinement_violation_at_set ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.25s
+
+     Running tests/e2e_sets.rs (target/debug/deps/e2e_sets-8f790a162af54f72)
+
+running 9 tests
+test e2e_set_union ... ok
+test e2e_set_intersection ... ok
+test e2e_set_not_contains ... ok
+test e2e_set_iteration ... ok
+test e2e_set_contains_int ... ok
+test e2e_set_contains_natural ... ok
+test e2e_set_creation_and_add ... ok
+test e2e_set_remove ... ok
+test e2e_set_deduplication ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 20.05s
+
+     Running tests/e2e_structs.rs (target/debug/deps/e2e_structs-a42a4bfbf5a888b1)
+
+running 8 tests
+test e2e_struct_field_mutation ... ok
+test e2e_nested_field_access ... ok
+test e2e_struct_in_collection ... ok
+test e2e_struct_with_init ... ok
+test e2e_struct_return ... ok
+test e2e_struct_constructor ... ok
+test e2e_struct_field_access ... ok
+test e2e_struct_in_function ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.45s
+
+     Running tests/e2e_studio_examples.rs (target/debug/deps/e2e_studio_examples-a7158389c28eddf8)
+
+running 84 tests
+test code_bubble_sort ... ok
+test code_basics_variables ... ok
+test code_basics_control_flow ... ok
+test code_channels_example ... ok
+test code_concurrency_parallel ... ok
+test code_advanced_refinement ... ok
+test code_advanced_assertions ... ok
+test code_collections ... ok
+test code_advanced_functions_example ... ok
+test code_basics_operators ... ok
+test code_crdt_counters_example ... ok
+test code_crdt_merge ... ok
+test code_crdt_tally ... ok
+test code_enums_example ... ok
+test code_fizzbuzz ... ok
+test code_enums_patterns ... ok
+test code_factorial ... ok
+test code_fibonacci ... ok
+test code_error_handling ... ok
+test code_generics_maps_example ... ok
+test code_hello_world ... ok
+test logic_multi_sentence_numbered_output ... ok
+test logic_prover_barber_paradox ... ok
+test logic_prover_chain_reasoning ... ok
+test logic_prover_disjunctive_syllogism ... ok
+test logic_prover_leibniz_identity ... ok
+test logic_prover_modus_tollens ... ok
+test logic_prover_socrates_mortality ... ok
+test logic_prover_trivial_proof ... ok
+test logic_quantifier_dog_chased_cat ... ok
+test logic_quantifier_every_student_read_book ... ok
+test logic_quantifier_no_student_failed_every ... ok
+test logic_quantifier_professor_supervises ... ok
+test logic_quantifier_teacher_praised ... ok
+test logic_simple_every_cat_sleeps ... ok
+test logic_simple_john_loves_mary ... ok
+test logic_simple_no_student_failed ... ok
+test logic_simple_some_dogs_bark ... ok
+test logic_simple_the_quick_brown_fox ... ok
+test logic_single_sentence_no_numbering ... ok
+test logic_tense_john_was_running ... ok
+test logic_tense_mary_has_eaten ... ok
+test logic_tense_she_had_been_sleeping ... ok
+test logic_tense_they_have_been_working ... ok
+test logic_tense_train_will_arrive ... ok
+test math_boolean_logic ... ok
+test math_collatz_fromodd_rule ... ok
+test math_collatz_grandchild_growth ... ok
+test math_collatz_half_function ... ok
+test math_collatz_inverse_tree ... ok
+test math_collatz_iseven_function ... ok
+test math_collatz_mybool_definition ... ok
+test math_collatz_not_function ... ok
+test math_collatz_power_of_two_theorem ... ok
+test math_collatz_reaches_one_predicate ... ok
+test math_collatz_step_function ... ok
+test math_functions ... ok
+test math_list_ops ... ok
+test math_literate_apply_syntax ... ok
+test math_literate_diagonalization_syntax ... ok
+test math_literate_implies_syntax ... ok
+test math_literate_let_definition ... ok
+test math_literate_name_syntax ... ok
+test math_natural_numbers ... ok
+test math_pairs ... ok
+test math_prop_logic ... ok
+test parse_tree_every_cat_sleeps ... ok
+test parse_tree_future_tense ... ok
+test parse_tree_john_loves_mary ... ok
+test parse_tree_no_student_failed ... ok
+test parse_tree_past_progressive ... ok
+test parse_tree_perfect_aspect ... ok
+test parse_tree_quantifier_scope ... ok
+test parse_tree_quick_brown_fox ... ok
+test parse_tree_some_dogs_bark ... ok
+test code_maps_example ... ok
+test code_ownership_example ... ok
+test code_policies_example ... ok
+test code_sum_list ... ok
+test code_tasks_example ... ok
+test code_struct_demo ... ok
+test code_prime_check ... ok
+test code_sets_example ... ok
+test code_zones_example ... ok
+
+test result: ok. 84 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 46.60s
+
+     Running tests/e2e_tuples.rs (target/debug/deps/e2e_tuples-a0f22dbfdefb8e07)
+
+running 13 tests
+test e2e_tuple_bracket_access_middle ... ok
+test e2e_tuple_creation ... ok
+test e2e_tuple_item_of_last ... ok
+test e2e_tuple_item_of_middle ... ok
+test e2e_tuple_bracket_access_first ... ok
+test e2e_pair_second_element ... ok
+test e2e_tuple_item_of_first ... ok
+test e2e_tuple_access_in_arithmetic ... ok
+test e2e_pair_creation ... ok
+test e2e_tuple_bracket_access_last ... ok
+test e2e_tuple_natural_access_in_arithmetic ... ok
+test e2e_tuple_mixed_types ... ok
+test e2e_tuple_with_float ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.50s
+
+     Running tests/e2e_types.rs (target/debug/deps/e2e_types-36e79c4c33a73ddc)
+
+running 8 tests
+test e2e_let_with_int_type ... ok
+test e2e_seq_of_text ... ok
+test e2e_function_typed_return ... ok
+test e2e_new_seq_of_text ... ok
+test e2e_let_with_seq_type ... ok
+test e2e_let_with_text_type ... ok
+test e2e_new_seq_of_int ... ok
+test e2e_let_with_bool_type ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.95s
+
+     Running tests/e2e_variables.rs (target/debug/deps/e2e_variables-f26430b4b960a2e3)
+
+running 3 tests
+test e2e_set_mutates ... ok
+test e2e_let_and_show ... ok
+test e2e_multiple_variables ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.82s
+
+     Running tests/e2e_zones.rs (target/debug/deps/e2e_zones-6b1663f948e3f1a5)
+
+running 10 tests
+test e2e_zone_default_capacity ... ok
+test e2e_zone_with_size_kb ... ok
+test e2e_multiple_sequential_zones ... ok
+test e2e_zone_with_size_mb ... ok
+test e2e_zone_in_function_body ... ok
+test e2e_zone_with_conditional ... ok
+test e2e_zone_scope_isolation ... ok
+test e2e_nested_zones ... ok
+test e2e_zone_basic_allocation ... ok
+test e2e_function_with_zone_called_twice ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.48s
+
+     Running tests/gq_test.rs (target/debug/deps/gq_test-60870087ff124e1c)
+
+running 4 tests
+test test_many_people_agree ... ok
+test test_most_birds_can_fly ... ok
+test test_few_students_study ... ok
+test test_all_vs_most_body_structure ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/grand_challenge_mergesort.rs (target/debug/deps/grand_challenge_mergesort-e8a5bad387594d78)
+
+running 13 tests
+test compound_condition_and ... ok
+test compound_condition_multiple_and ... ok
+test comparison_symbol_lt ... ok
+test comparison_symbol_lteq ... ok
+test comparison_at_least_parses ... ok
+test comparison_at_most_parses ... ok
+test comparison_greater_than_parses ... ok
+test comparison_less_than_parses ... ok
+test loop_with_index_and_condition ... ok
+test mergesort_function_compiles ... ok
+test merge_function_compiles ... ok
+test full_mergesort_compiles ... ok
+test e2e_mergesort_runs_correctly ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 26.95s
+
+     Running tests/integration_tests.rs (target/debug/deps/integration_tests-1ecc133288abbeed)
+
+running 143 tests
+test cardinal_three_produces_cardinal_quantifier ... ok
+test all_produces_universal_quantifier ... ok
+test at_least_two_produces_atleast_quantifier ... ok
+test biconditional_produces_iff ... ok
+test collective_verb_no_distributive_wrapper ... ok
+test at_most_five_produces_atmost_quantifier ... ok
+test biconditional_complex ... ok
+test causal_chain_explicit ... ok
+test causal_because_order ... ok
+test causal_because ... ok
+test comparative_produces_comparative_variant ... ok
+test comparative_adjective_construction ... ok
+test compile_preserves_surface_scope ... ok
+test complex_causative_with_quantifiers ... ok
+test complex_comparative_with_quantifiers ... ok
+test complex_control_chain_nested ... ok
+test complex_control_verb_with_quantifier ... ok
+test complex_focus_with_quantifier ... ok
+test complex_ditransitive_with_quantifier ... ok
+test complex_presupposition_with_quantifier ... ok
+test complex_past_progressive_with_quantifier ... ok
+test complex_reflexive_with_quantifier ... ok
+test complex_modal_quantifier_relative ... ok
+test complex_passive_quantifier_combination ... ok
+test complex_reciprocal_with_quantifier ... ok
+test conditional_produces_binary_op_implies ... ok
+test complex_temporal_anchor_with_quantifier ... ok
+test counterfactual_produces_counterfactual_variant ... ok
+test counterfactual_conditional_complex ... ok
+test deixis_distal_that_as_determiner ... ok
+test deixis_plural_these ... ok
+test deixis_plural_those ... ok
+test coordination_of_nps_as_subject ... ok
+test definite_article_russell_expansion ... ok
+test deixis_proximal_this ... ok
+test different_words_get_different_symbols ... ok
+test davidsonian_event_semantics ... ok
+test discourse_definite_coreference_chain ... ok
+test discourse_donkey_anaphora_across_sentences ... ok
+test discourse_batch_three_sentences ... ok
+test discourse_indefinite_introduces_entity ... ok
+test discourse_multiple_same_gender_entities ... ok
+test discourse_plural_coordination_they ... ok
+test ditransitive_double_object ... ok
+test discourse_object_pronoun_resolution ... ok
+test discourse_three_sentence_pronoun_chain ... ok
+test discourse_reflexive_anaphora_chain ... ok
+test ditransitive_send ... ok
+test discourse_gender_agreement ... ok
+test ditransitive_tell ... ok
+test few_produces_few_quantifier ... ok
+test event_with_multiple_pp_modifiers ... ok
+test future_perfect_tense ... ok
+test focus_particle_on_object ... ok
+test full_aspect_chain_with_negation ... ok
+test focus_only_produces_focus_variant ... ok
+test future_tense_produces_temporal_future_operator ... ok
+test gerund_as_object ... ok
+test gapping_basic ... ok
+test generic_bare_plural ... ok
+test donkey_sentence_basic ... ok
+test gerund_as_subject ... ok
+test identity_produces_identity_variant ... ok
+test intransitive_verb_produces_unary_predicate ... ok
+test indirect_speech_act_request ... ok
+test mass_noun_measurement_much ... ok
+test long_distance_wh_movement ... ok
+test indefinite_article_existential ... ok
+test mass_noun_little ... ok
+test mass_noun_much ... ok
+test latex_format_uses_latex_operators ... ok
+test modal_can_produces_modal_operator ... ok
+test mixed_quantifiers_at_least_at_most ... ok
+test modal_must_produces_modal_operator ... ok
+test most_produces_most_quantifier ... ok
+test negative_existential ... ok
+test no_quantifier_has_one_scope_reading ... ok
+test no_produces_universal_with_negation ... ok
+test nested_contact_clauses ... ok
+test numeric_quantifier_with_distributive_verb ... ok
+test non_intersective_fake ... ok
+test parsing_center_embedded_relative ... ok
+test object_control_with_passive_complement ... ok
+test parsing_long_distance_dependency ... ok
+test parsing_coordination_ambiguity ... ok
+test parsing_complex_relative_attachment ... ok
+test parsing_deep_embedding ... ok
+test parsing_double_relative_clause ... ok
+test parsing_np_coordination_with_relative ... ok
+test parsing_pied_piping ... ok
+test parsing_reduced_relative_with_passive ... ok
+test passive_with_agent ... ok
+test passive_without_agent ... ok
+test past_progressive_has_both_operators ... ok
+test past_tense_regular_verb ... ok
+test past_tense_produces_temporal_past_operator ... ok
+test plural_collective_met ... ok
+test plural_definite_sigma_distributive ... ok
+test plural_definite_sigma_collective ... ok
+test possession_apostrophe_s ... ok
+test pp_ambiguity_multiple_prepositions ... ok
+test pp_attachment_in_np_restriction ... ok
+test pragmatics_genuine_ability_question ... ok
+test pp_ambiguity_returns_multiple_readings ... ok
+test pp_in_quantifier_restriction ... ok
+test pragmatics_genuine_yes_no_question ... ok
+test progressive_aspect_produces_aspectual_operator ... ok
+test present_tense_has_no_temporal_operator ... ok
+test pragmatics_indirect_request_with_quantifier ... ok
+test pragmatics_full_pipeline_complex ... ok
+test pragmatics_passive_request ... ok
+test pragmatics_please_marker ... ok
+test pp_attachment_nested ... ok
+test pragmatics_would_request ... ok
+test presupposition_stop ... ok
+test pragmatics_indirect_request_with_relative ... ok
+test raising_mixed_with_control ... ok
+test raising_verb_seems ... ok
+test reflexive_binds_to_subject ... ok
+test relative_clause_modifying_quantified_object ... ok
+test same_word_gets_same_symbol ... ok
+test scopal_adverb_almost ... ok
+test relative_clause_basic ... ok
+test relative_clause_with_object ... ok
+test same_lemma_different_tenses_produce_correct_operators ... ok
+test relative_clause_with_ditransitive ... ok
+test scope_multiple_existentials ... ok
+test scope_quantifier_modal_interaction ... ok
+test scope_quantifier_in_object_position ... ok
+test scope_quantifier_with_negation ... ok
+test scope_nested_quantifier_in_relative_clause ... ok
+test scope_two_quantifiers_both_readings ... ok
+test some_produces_existential_quantifier ... ok
+test single_quantifier_has_one_scope_reading ... ok
+test scope_two_quantifiers_surface_vs_inverse ... ok
+test subject_control_want ... ok
+test superlative_produces_superlative_variant ... ok
+test scope_three_quantifiers_produces_multiple_readings ... ok
+test temporal_adverb_yesterday_produces_anchor ... ok
+test transitive_verb_produces_binary_predicate ... ok
+test wh_question_produces_question_variant ... ok
+test yes_no_question_produces_yes_no_variant ... ok
+test unicode_format_uses_unicode_operators ... ok
+
+test result: ok. 143 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/intensionality_tests.rs (target/debug/deps/intensionality_tests-b0ec44ca9c354dfc)
+
+running 11 tests
+test fear_produces_two_readings ... ok
+test believe_exists_produces_two_readings ... ok
+test mass_noun_milk_uses_sigma ... ok
+test need_doctor_produces_two_readings ... ok
+test mass_noun_water_uses_sigma ... ok
+test kick_ball_produces_single_reading ... ok
+test definite_with_opaque_is_de_re_only ... ok
+test proper_name_with_opaque_is_de_re_only ... ok
+test love_produces_single_reading ... ok
+test de_dicto_uses_up_arrow_notation ... ok
+test seek_unicorn_produces_two_readings ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/interpreter_tests.rs (target/debug/deps/interpreter_tests-3bb791d51b8aac5e)
+
+running 8 tests
+test interpret_multiple_statements_per_line ... ok
+test interpret_give_to_verb_function ... ok
+test interpret_contextual_keywords_as_variables ... ok
+test interpret_simple_set_intersection ... ok
+test interpret_simple_set_union ... ok
+test interpret_give_copy_to_verb_function ... ok
+test interpret_show_to_verb_function ... ok
+test interpret_set_operations ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/learn_state_tests.rs (target/debug/deps/learn_state_tests-c4cd1727f555eb59)
+
+running 19 tests
+test test_collapse_module ... ok
+test test_expand_module ... ok
+test test_focus_era ... ok
+test test_focus_state_default ... ok
+test test_initial_focus_is_none ... ok
+test test_expand_module_also_focuses_era ... ok
+test test_initial_tab_is_lesson ... ok
+test test_is_era_visible_when_focused ... ok
+test test_is_era_visible_when_no_focus ... ok
+test test_module_tab_state_module_id ... ok
+test test_reset_exercise ... ok
+test test_tab_mode_default_is_lesson ... ok
+test test_tab_mode_labels ... ok
+test test_tab_modes_all_four_exist ... ok
+test test_tab_switch ... ok
+test test_tab_switch_resets_exercise_index ... ok
+test test_tab_switch_resets_submitted ... ok
+test test_unfocus_clears_expanded_module ... ok
+test test_unfocus_clears_focus ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/modal_scope_tests.rs (target/debug/deps/modal_scope_tests-280bf08c3bec6b35)
+
+running 23 tests
+test may_permission_narrow_scope ... ok
+test can_polysemy_ability_vs_permission ... ok
+test may_polysemy_permission_vs_possibility ... ok
+test can_ability_narrow_scope ... ok
+test modal_scope_cannot_narrow ... ok
+test could_default_narrow_scope ... ok
+test lacks_scope_ambiguity ... ok
+test lacks_in_relative_clause ... ok
+test could_polysemy_narrow_vs_wide_scope ... ok
+test lacks_basic_transformation ... ok
+test modal_scope_could_narrow ... ok
+test modal_scope_epistemic_might_wide ... ok
+test modal_scope_few_can_narrow ... ok
+test modal_scope_most_can_narrow ... ok
+test modal_scope_no_can_narrow ... ok
+test modal_scope_root_can_narrow ... ok
+test unaccusative_break_intransitive ... ok
+test modal_scope_root_must_narrow ... ok
+test modal_scope_root_should_narrow ... ok
+test no_user_lacks_key_marketing ... ok
+test unaccusative_intransitive_theme_subject ... ok
+test unaccusative_melt_intransitive ... ok
+test unaccusative_transitive_agent_subject ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/parser_fixes_test.rs (target/debug/deps/parser_fixes_test-2c21f5e26648f31a)
+
+running 6 tests
+test test_both_and_correlative ... ok
+test test_weather_verb_it_rains ... ok
+test test_weather_verb_in_conditional ... ok
+test test_copula_adjective_preserves_subject ... ok
+test test_copula_adjective_simple ... ok
+test test_copula_adjective_the_ground ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase100_the_summit.rs (target/debug/deps/phase100_the_summit-a40882f075b8e83b)
+
+running 15 tests
+test test_dcong_type_error_context ... ok
+test test_dcong_type ... ok
+test test_dcong_fails_on_non_lambda_context ... ok
+test test_dcong_add_congruence ... ok
+test test_dcong_succ_congruence ... ok
+test test_dcong_type_error_proof ... ok
+test test_dcong_fails_on_non_equality_proof ... ok
+test test_try_cong_basic ... ok
+test test_dcong_nested_context ... ok
+test test_dcong_chaining ... ok
+test test_dcong_with_computed_equality ... ok
+test test_try_cong_type ... ok
+test test_step_case_pattern ... ok
+test test_try_cong_type_error ... ok
+test test_induction_with_congruence_structure ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase101a_poly_inductive.rs (target/debug/deps/phase101a_poly_inductive-43cfe21737b2efec)
+
+running 19 tests
+test test_error_empty_parameter_list ... ok
+test test_error_missing_colon_in_param ... ok
+test test_instantiate_nil_nat ... ok
+test test_instantiate_list_nat ... ok
+test test_either_type_sort ... ok
+test test_definition_using_list ... ok
+test test_instantiate_either ... ok
+test test_eval_list_construction ... ok
+test test_either_left_type ... ok
+test test_parameter_with_arrow_type ... ok
+test test_monomorphic_with_args_still_works ... ok
+test test_parse_polymorphic_inductive_list ... ok
+test test_parse_two_parameter_inductive ... ok
+test test_instantiate_cons_nat ... ok
+test test_monomorphic_still_works ... ok
+test test_polymorphic_cons_type ... ok
+test test_polymorphic_list_type_sort ... ok
+test test_polymorphic_nil_type ... ok
+test test_type_error_wrong_arity ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase101b_generic_elim.rs (target/debug/deps/phase101b_generic_elim-6dc3a0b4fcdd4853)
+
+running 13 tests
+test test_delim_type ... ok
+test test_dcase_type ... ok
+test test_dcase_type_error ... ok
+test test_dcaseend_type ... ok
+test test_delim_type_error_cases ... ok
+test test_delim_type_error_motive ... ok
+test test_build_case_chain ... ok
+test test_delim_nat_type_check ... ok
+test test_delim_wrong_case_conclusion ... ok
+test test_delim_nat_concludes ... ok
+test test_delim_wrong_number_of_cases ... ok
+test test_delim_unknown_inductive ... ok
+test test_delim_list_type_check ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase101c_list_ops.rs (target/debug/deps/phase101c_list_ops-6c89a614155535c1)
+
+running 16 tests
+test test_length_nil ... ok
+test test_define_list ... ok
+test test_id_function ... ok
+test test_length_two ... ok
+test test_list_nat_values ... ok
+test test_length_singleton ... ok
+test test_length_type ... ok
+test test_append_cons_left ... ok
+test test_map_nil ... ok
+test test_append_type ... ok
+test test_map_type ... ok
+test test_append_nil_left ... ok
+test test_map_succ ... ok
+test test_append_two_lists ... ok
+test test_length_append ... ok
+test test_map_preserves_length ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/phase101d_theorems.rs (target/debug/deps/phase101d_theorems-0c58e8fc11ed4fc5)
+
+running 14 tests
+test test_append_nil_r_theorem_statement ... ok
+test test_length_append_longer_lists ... ok
+test test_append_assoc_step_case ... ok
+test test_delim_list_structure ... ok
+test test_append_nil_r_base_case ... ok
+test test_append_assoc_base_case ... ok
+test test_length_append_step_case ... ok
+test test_append_length_property ... ok
+test test_length_append_base_case ... ok
+test test_map_id_base_case ... ok
+test test_map_composition ... ok
+test test_map_id_longer_list ... ok
+test test_append_nil_r_step_case ... ok
+test test_map_id_step_case ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/phase102_bridge.rs (target/debug/deps/phase102_bridge-004853f01a5082e9)
+
+running 11 tests
+test test_runtime_inductive_display_nested ... ok
+test test_interpreter_with_kernel_context ... ok
+test test_runtime_inductive_succ ... ok
+test test_runtime_inductive_equality ... ok
+test test_interpreter_get_constructors ... ok
+test test_runtime_inductive_list ... ok
+test test_runtime_inductive_zero ... ok
+test e2e_is_one_of_creates_inductive ... ok
+test e2e_recursive_inductive ... ok
+test e2e_is_either_creates_inductive ... ok
+test e2e_nested_inductive_inspect ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.15s
+
+     Running tests/phase103_generics.rs (target/debug/deps/phase103_generics-ed4fad541b7845b1)
+
+running 11 tests
+test test_parse_multi_param_generic ... ok
+test test_parse_polymorphic_list ... ok
+test e2e_polymorphic_either_right ... ok
+test e2e_polymorphic_list_text ... ok
+test e2e_polymorphic_either ... ok
+test e2e_recursive_polymorphic_list ... ok
+test e2e_polymorphic_tree ... ok
+test e2e_nested_polymorphic_inspect ... ok
+test e2e_polymorphic_list_int ... ok
+test e2e_polymorphic_option_int ... ok
+test e2e_polymorphic_option_text ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.29s
+
+     Running tests/phase10_ellipsis.rs (target/debug/deps/phase10_ellipsis-57709534798bf23f)
+
+running 4 tests
+test modal_ellipsis_can_too ... ok
+test ellipsis_with_object ... ok
+test negative_ellipsis_does_not ... ok
+test vp_ellipsis_does_too ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase10_io.rs (target/debug/deps/phase10_io-c3537cb08dd4187d)
+
+running 17 tests
+test test_read_file_tokens ... ok
+test test_read_console_tokens ... ok
+test test_read_missing_from_fails ... ok
+test test_read_from_console_codegen ... ok
+test test_read_and_write_file ... ok
+test test_read_from_console_without_article ... ok
+test test_read_missing_source_fails ... ok
+test test_read_from_file_variable_path ... ok
+test test_io_in_function ... ok
+test test_read_from_file_codegen ... ok
+test test_io_in_conditional ... ok
+test test_io_in_loop ... ok
+test test_write_file_tokens ... ok
+test test_write_missing_to_fails ... ok
+test test_write_missing_file_fails ... ok
+test test_write_to_file_codegen ... ok
+test test_write_variable_to_file ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase10b_sluicing.rs (target/debug/deps/phase10b_sluicing-f9af3430c0133d7f)
+
+running 4 tests
+test sluicing_with_negation ... ok
+test sluicing_object_what ... ok
+test sluicing_basic_who ... ok
+test sluicing_mid_sentence ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase11_metaphor.rs (target/debug/deps/phase11_metaphor-e6bcd43a7e95066d)
+
+running 4 tests
+test metaphor_time_money ... ok
+test metaphor_juliet_sun ... ok
+test literal_john_man ... ok
+test literal_king_bald ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase11_sorts.rs (target/debug/deps/phase11_sorts-aa7ca2876e3ac74a)
+
+running 6 tests
+test sort_compatibility ... ok
+test sort_lookup_human ... ok
+test sort_lookup_physical ... ok
+test sort_lookup_abstract ... ok
+test sort_lookup_celestial ... ok
+test literal_copula_preserved ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase12_ambiguity.rs (target/debug/deps/phase12_ambiguity-e9f362bd6de02d6b)
+
+running 8 tests
+test forest_preserves_all_valid_parses ... ok
+test classic_time_flies ... ok
+test lexical_ambiguity_duck ... ok
+test unambiguous_sentence_single_reading ... ok
+test pp_attachment_both_readings_include_pp ... ok
+test ambiguous_bear_noun_verb ... ok
+test ambiguous_love_preserved ... ok
+test structural_ambiguity_pp_attachment ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase13_mwe.rs (target/debug/deps/phase13_mwe-aa0c7498fa3a3084)
+
+running 16 tests
+test test_ice_cream_compound ... ok
+test test_indefinite_article_with_mwe ... ok
+test test_indefinite_article_at_start ... ok
+test test_kick_the_bucket_idiom ... ok
+test test_engine_alone_not_merged ... ok
+test test_fire_engine_compound ... ok
+test test_indefinite_article_with_unknown_word ... ok
+test test_compound_with_definite_article ... ok
+test test_fire_alone_not_merged ... ok
+test test_give_up_phrasal_verb ... ok
+test test_stopped_intransitive ... ok
+test test_mwe_pipeline_token_merging ... ok
+test test_stopped_with_definite_noun_subject ... ok
+test test_united_states_proper ... ok
+test test_kicks_the_bucket_present ... ok
+test test_stopped_with_gerund_still_presupposition ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/phase14_ontology.rs (target/debug/deps/phase14_ontology-e01230a934825df0)

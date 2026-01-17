@@ -49,9 +49,9 @@ jobs:
 
       - name: Copy static files to output root
         run: |
-          cp apps/logicaffeine_web/assets/robots.txt apps/logicaffeine_web/target/dx/logos/release/web/public/
-          cp apps/logicaffeine_web/assets/sitemap.xml apps/logicaffeine_web/target/dx/logos/release/web/public/
-          cp apps/logicaffeine_web/assets/_redirects apps/logicaffeine_web/target/dx/logos/release/web/public/
+          cp apps/logicaffeine_web/assets/robots.txt target/dx/logicaffeine-web/release/web/public/
+          cp apps/logicaffeine_web/assets/sitemap.xml target/dx/logicaffeine-web/release/web/public/
+          cp apps/logicaffeine_web/assets/_redirects target/dx/logicaffeine-web/release/web/public/
 
       - name: Install Wrangler
         run: npm install -g wrangler
@@ -62,4 +62,4 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           echo "Deploying to Cloudflare Pages..."
-          wrangler pages deploy apps/logicaffeine_web/target/dx/logos/release/web/public --project-name=logicaffeine --branch=main --commit-dirty=true
+          wrangler pages deploy target/dx/logicaffeine-web/release/web/public --project-name=logicaffeine --branch=main --commit-dirty=true
