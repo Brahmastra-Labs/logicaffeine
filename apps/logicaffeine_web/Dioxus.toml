@@ -1,0 +1,14 @@
+[application]
+name = "logos"
+default_platform = "web"
+asset_dir = "assets"
+
+[web.app]
+title = "LOGOS Studio"
+
+[web.resource]
+dev = []
+style = []
+
+[web.watcher]
+index_on_404 = true

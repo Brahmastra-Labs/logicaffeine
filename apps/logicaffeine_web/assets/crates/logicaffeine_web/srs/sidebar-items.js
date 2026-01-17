@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ResponseQuality"],"fn":["calculate_next_review","is_due","sm2_update"]};

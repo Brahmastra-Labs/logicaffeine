@@ -299,14 +299,14 @@ sorter.sort(&mut list);            // &mut list
 ## Quick Start
 
 ```rust
-use logos::compile;
+use logicaffeine_language::compile;
 
 // Logic mode
 let proof = compile("All men are mortal.");
 // → ∀x(Man(x) → Mortal(x))
 
 // Imperative mode
-use logos::compile::compile_to_rust;
+use logicaffeine_compile::compile::compile_to_rust;
 
 let code = compile_to_rust("## Main\nReturn 42.");
 // → fn main() -> i64 { 42 }

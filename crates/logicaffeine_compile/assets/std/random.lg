@@ -1,0 +1,7 @@
+# Random
+
+Standard library for random number generation.
+
+## To native randomInt (min: Int) and (max: Int) -> Int
+
+## To native randomFloat -> Real

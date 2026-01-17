@@ -6,6 +6,9 @@ Cargo.lock
 dist/
 .dioxus/
 
+# Generated crate docs (built in CI)
+apps/logicaffeine_web/public/crates/
+
 # Node
 node_modules/
 .wrangler/

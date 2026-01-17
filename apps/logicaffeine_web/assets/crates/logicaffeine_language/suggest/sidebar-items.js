@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["KNOWN_WORDS"],"fn":["find_similar","levenshtein"]};

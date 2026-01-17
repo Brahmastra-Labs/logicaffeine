@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["OutputFormat"],"fn":["LogicOutput","highlight_logic"],"struct":["LogicOutputProps"]};

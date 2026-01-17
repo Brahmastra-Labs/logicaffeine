@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Aspect","Case","Definiteness","Feature","Gender","Number","Polarity","Sort","Time","VerbClass"],"struct":["AdjectiveMetadata","CanonicalMapping","MorphologicalRule","NounMetadata","VerbEntry","VerbMetadata"]};

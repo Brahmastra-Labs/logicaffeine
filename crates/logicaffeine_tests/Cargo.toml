@@ -1,0 +1,27 @@
+[package]
+name = "logicaffeine-tests"
+version = "0.6.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+verification = ["logicaffeine-proof/verification"]
+
+[dev-dependencies]
+logicaffeine-base = { path = "../logicaffeine_base" }
+logicaffeine-kernel = { path = "../logicaffeine_kernel" }
+logicaffeine-language = { path = "../logicaffeine_language" }
+logicaffeine-compile = { path = "../logicaffeine_compile" }
+logicaffeine-proof = { path = "../logicaffeine_proof" }
+logicaffeine-data = { path = "../logicaffeine_data" }
+logicaffeine-system = { path = "../logicaffeine_system", features = ["full"] }
+logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
+logicaffeine-web = { path = "../../apps/logicaffeine_web" }
+tempfile = "3"
+futures = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+bincode = "1"
+serde = { version = "1", features = ["derive"] }

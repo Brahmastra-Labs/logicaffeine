@@ -1,0 +1,9 @@
+[package]
+name = "logicaffeine-base"
+version = "0.6.0"
+edition = "2021"
+description = "Pure structural atoms for logicaffeine - arena, tokens, spans"
+license = "BUSL-1.1"
+
+[dependencies]
+bumpalo = "3.19"

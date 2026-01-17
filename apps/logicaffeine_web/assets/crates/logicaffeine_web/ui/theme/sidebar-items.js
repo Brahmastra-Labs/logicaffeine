@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["css_variables"],"mod":["colors","font_family","font_size","radius","spacing"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["STerm"],"fn":["check_goal"],"type":["Substitution"]};

@@ -1,0 +1,7 @@
+# File
+
+Standard library for file I/O operations.
+
+## To native read (path: Text) -> Result of Text and Text
+
+## To native write (path: Text) and (content: Text) -> Result of Unit and Text

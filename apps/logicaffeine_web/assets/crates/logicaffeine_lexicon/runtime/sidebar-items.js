@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["gerund","past_tense","pluralize","present_3s"],"struct":["AdjectiveEntry","LexiconData","LexiconIndex","NounEntry","VerbEntry"]};

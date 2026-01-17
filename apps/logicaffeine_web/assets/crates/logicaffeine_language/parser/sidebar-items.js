@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ModalPreference","NegativeScopeMode","ParserMode","ResolvedPronoun"],"struct":["EventTemplate","Parser","ParserGuard"],"trait":["ClauseParsing","ImperativeVerbParsing","LogicVerbParsing","ModalParsing","NounParsing","PragmaticsParsing","QuantifierParsing","QuestionParsing"]};

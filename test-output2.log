@@ -1,0 +1,1334 @@
+warning: unused variable: `ctor_name`
+    --> crates/logicaffeine_kernel/src/interface/literate_parser.rs:1061:17
+     |
+1061 |             let ctor_name = self.parse_ident()?;
+     |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ctor_name`
+     |
+     = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `hint_marker`
+    --> crates/logicaffeine_kernel/src/reduction.rs:1788:9
+     |
+1788 |     let hint_marker = make_sapp(make_sname("Hint"), make_sname(hint_name));
+     |         ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hint_marker`
+
+warning: unused variable: `p`
+    --> crates/logicaffeine_kernel/src/reduction.rs:1818:35
+     |
+1818 |         if let Term::App(pi_ctor, p) = outer.as_ref() {
+     |                                   ^ help: if this is intentional, prefix it with an underscore: `_p`
+
+warning: unused variable: `param`
+    --> crates/logicaffeine_kernel/src/reduction.rs:3891:20
+     |
+3891 |         Term::Pi { param, param_type, body_type } => {
+     |                    ^^^^^ help: try ignoring the field: `param: _`
+
+warning: unused variable: `ty`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4366:10
+     |
+4366 |     let (ty, lhs, rhs) = match extract_eq_components_from_syntax(&eq_conclusion) {
+     |          ^^ help: if this is intentional, prefix it with an underscore: `_ty`
+
+warning: unused variable: `ctx`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4435:5
+     |
+4435 |     ctx: &Context,
+     |     ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+
+warning: unused variable: `forall_body`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4529:17
+     |
+4529 |     if let Some(forall_body) = extract_forall_body(&hyp_conclusion) {
+     |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_forall_body`
+
+warning: unused variable: `hyp_name`
+    --> crates/logicaffeine_kernel/src/reduction.rs:4574:5
+     |
+4574 |     hyp_name: &Term,
+     |     ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_hyp_name`
+
+warning: unused variable: `bound`
+   --> crates/logicaffeine_kernel/src/lia.rs:529:21
+    |
+529 |                 let bound = bound.scale(
+    |                     ^^^^^ help: if this is intentional, prefix it with an underscore: `_bound`
+
+warning: unused variable: `ctor_name`
+   --> crates/logicaffeine_kernel/src/termination.rs:219:17
+    |
+219 |     for (case, (ctor_name, ctor_type)) in cases.iter().zip(constructors.iter()) {
+    |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_ctor_name`
+
+warning: function `make_svar` is never used
+    --> crates/logicaffeine_kernel/src/reduction.rs:1711:4
+     |
+1711 | fn make_svar(n: i64) -> Term {
+     |    ^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: function `sterm_to_term` is never used
+   --> crates/logicaffeine_kernel/src/simp.rs:100:4
+    |
+100 | fn sterm_to_term(st: &STerm) -> Term {
+    |    ^^^^^^^^^^^^^
+
+warning: `logicaffeine-kernel` (lib) generated 12 warnings
+warning: field `regular` is never read
+  --> crates/logicaffeine_language/build.rs:62:5
+   |
+56 | struct VerbDefinition {
+   |        -------------- field in this struct
+...
+62 |     regular: bool,
+   |     ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: field `regular` is never read
+   --> crates/logicaffeine_language/build.rs:120:5
+    |
+117 | struct AdjectiveDefinition {
+    |        ------------------- field in this struct
+...
+120 |     regular: bool,
+    |     ^^^^^^^
+
+warning: field `features` is never read
+   --> crates/logicaffeine_language/build.rs:140:5
+    |
+133 | struct MweEntry {
+    |        -------- field in this struct
+...
+140 |     features: Vec<String>,
+    |     ^^^^^^^^
+
+   Compiling logicaffeine-proof v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_proof)
+warning: `logicaffeine-language` (build script) generated 3 warnings
+   Compiling logicaffeine-tests v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_tests)
+   Compiling logicaffeine-system v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_system)
+   Compiling logicaffeine-data v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_data)
+   Compiling logicaffeine-lexicon v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_lexicon)
+   Compiling logicaffeine-kernel v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_kernel)
+   Compiling logicaffeine-base v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_base)
+warning: unused import: `compose_substitutions`
+  --> crates/logicaffeine_proof/src/engine.rs:33:39
+   |
+33 |     apply_subst_to_expr, beta_reduce, compose_substitutions, unify_exprs, unify_pattern,
+   |                                       ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `idx`
+   --> crates/logicaffeine_proof/src/engine.rs:679:14
+    |
+679 |         for (idx, impl_expr) in implications {
+    |              ^^^ help: if this is intentional, prefix it with an underscore: `_idx`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `antecedent`
+   --> crates/logicaffeine_proof/src/engine.rs:680:39
+    |
+680 |             if let ProofExpr::Implies(antecedent, consequent) = &impl_expr {
+    |                                       ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_antecedent`
+
+warning: unused variable: `consequent`
+   --> crates/logicaffeine_proof/src/engine.rs:680:51
+    |
+680 |             if let ProofExpr::Implies(antecedent, consequent) = &impl_expr {
+    |                                                   ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_consequent`
+
+warning: unused variable: `idx`
+   --> crates/logicaffeine_proof/src/engine.rs:858:14
+    |
+858 |         for (idx, forall_expr) in universals {
+    |              ^^^ help: if this is intentional, prefix it with an underscore: `_idx`
+
+warning: unused variable: `variable`
+   --> crates/logicaffeine_proof/src/engine.rs:859:40
+    |
+859 |             if let ProofExpr::ForAll { variable, body } = &forall_expr {
+    |                                        ^^^^^^^^ help: try ignoring the field: `variable: _`
+
+warning: unused variable: `body`
+   --> crates/logicaffeine_proof/src/engine.rs:859:50
+    |
+859 |             if let ProofExpr::ForAll { variable, body } = &forall_expr {
+    |                                                  ^^^^ help: try ignoring the field: `body: _`
+
+warning: unused variable: `from`
+    --> crates/logicaffeine_proof/src/engine.rs:1537:26
+     |
+1537 |                     for (from, to) in &substitutions {
+     |                          ^^^^ help: if this is intentional, prefix it with an underscore: `_from`
+
+warning: unused variable: `name`
+    --> crates/logicaffeine_proof/src/engine.rs:1775:43
+     |
+1775 |             if let ProofExpr::Predicate { name, args, world } = expr {
+     |                                           ^^^^ help: try ignoring the field: `name: _`
+
+warning: unused variable: `world`
+    --> crates/logicaffeine_proof/src/engine.rs:1775:55
+     |
+1775 |             if let ProofExpr::Predicate { name, args, world } = expr {
+     |                                                       ^^^^^ help: try ignoring the field: `world: _`
+
+warning: unused variable: `ante`
+    --> crates/logicaffeine_proof/src/engine.rs:1823:43
+     |
+1823 |                 if let ProofExpr::Implies(ante, cons) = expr {
+     |                                           ^^^^ help: if this is intentional, prefix it with an underscore: `_ante`
+
+warning: unused variable: `neg_cons2`
+    --> crates/logicaffeine_proof/src/engine.rs:2648:55
+     |
+2648 | ...                   if let ProofExpr::Not(neg_cons2) = cons2.as_ref() {
+     |                                             ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_neg_cons2`
+
+warning: unused variable: `body`
+   --> crates/logicaffeine_proof/src/hints.rs:119:39
+    |
+119 |         ProofExpr::ForAll { variable, body } => {
+    |                                       ^^^^ help: try ignoring the field: `body: _`
+
+warning: unused variable: `body`
+   --> crates/logicaffeine_proof/src/hints.rs:129:39
+    |
+129 |         ProofExpr::Exists { variable, body } => {
+    |                                       ^^^^ help: try ignoring the field: `body: _`
+
+warning: unused variable: `bound_vars`
+    --> crates/logicaffeine_proof/src/unify.rs:1385:43
+     |
+1385 | fn rename_vars_to_bound(expr: &ProofExpr, bound_vars: &[String]) -> ProofExpr {
+     |                                           ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_bound_vars`
+
+warning: method `rename_term_vars` is never used
+    --> crates/logicaffeine_proof/src/engine.rs:3069:8
+     |
+177  | impl BackwardChainer {
+     | -------------------- method in this implementation
+...
+3069 |     fn rename_term_vars(&mut self, term: &ProofTerm) -> ProofTerm {
+     |        ^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: unused variable: `mid`
+    --> crates/logicaffeine_kernel/src/interface/literate_parser.rs:2506:30
+     |
+2506 |             if let Term::App(mid, lhs) = *outer {
+     |                              ^^^ help: if this is intentional, prefix it with an underscore: `_mid`
+
+   Compiling logicaffeine-language v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_language)
+warning: unused variable: `xp1`
+   --> crates/logicaffeine_kernel/src/lia.rs:732:13
+    |
+732 |         let xp1 = x.add(&one);
+    |             ^^^ help: if this is intentional, prefix it with an underscore: `_xp1`
+
+warning: `logicaffeine-proof` (lib test) generated 16 warnings (15 duplicates) (run `cargo fix --lib -p logicaffeine-proof --tests` to apply 1 suggestion)
+warning: `logicaffeine-proof` (lib) generated 16 warnings (1 duplicate)
+warning: `logicaffeine-kernel` (lib test) generated 14 warnings (12 duplicates)
+warning: unused import: `Gender`
+  --> crates/logicaffeine_language/src/parser/clause.rs:25:27
+   |
+25 | use crate::drs::{BoxType, Gender, Number};
+   |                           ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Span`
+  --> crates/logicaffeine_language/src/parser/verb.rs:38:31
+   |
+38 | use crate::token::{FocusKind, Span, TokenType};
+   |                               ^^^^
+
+warning: unused import: `BoxType`
+  --> crates/logicaffeine_language/src/parser/mod.rs:65:23
+   |
+65 | use crate::drs::{Drs, BoxType, WorldState};
+   |                       ^^^^^^^
+
+warning: unused import: `crate::ast::stmt::SelectBranch`
+    --> crates/logicaffeine_language/src/parser/mod.rs:2532:13
+     |
+2532 |         use crate::ast::stmt::SelectBranch;
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::ast::Expr`
+    --> crates/logicaffeine_language/src/parser/mod.rs:3583:13
+     |
+3583 |         use crate::ast::Expr;
+     |             ^^^^^^^^^^^^^^^^
+
+warning: unused import: `self`
+   --> crates/logicaffeine_language/src/compile.rs:907:18
+    |
+907 | use crate::ast::{self, Stmt};
+    |                  ^^^^
+
+warning: unused import: `super::dependencies::scan_dependencies`
+  --> crates/logicaffeine_language/src/analysis/discovery.rs:23:5
+   |
+23 | use super::dependencies::scan_dependencies;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unreachable pattern
+     --> /Users/tristen/logicaffeine/logicaffeine/target/debug/build/logicaffeine-language-ae39661a715eccdb/out/lexicon_data.rs:10319:9
+      |
+10175 |         "speaker" => Some(crate::lexicon::Sort::Physical),
+      |         --------- matches all the relevant values
+...
+10319 |         "speaker" => Some(crate::lexicon::Sort::Human),
+      |         ^^^^^^^^^ no value can reach this
+      |
+      = note: `#[warn(unreachable_patterns)]` on by default
+
+warning: unused variable: `symbol`
+   --> crates/logicaffeine_language/src/parser/noun.rs:285:17
+    |
+285 |             let symbol = capitalize_first(noun_str);
+    |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_symbol`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `number`
+   --> crates/logicaffeine_language/src/parser/noun.rs:286:17
+    |
+286 |             let number = if noun_str.ends_with('s') && !noun_str.ends_with("ss") {
+    |                 ^^^^^^ help: if this is intentional, prefix it with an underscore: `_number`
+
+warning: unused variable: `unknown`
+    --> crates/logicaffeine_language/src/parser/verb.rs:1117:17
+     |
+1117 |             let unknown = self.interner.intern("?");
+     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_unknown`
+
+warning: unused variable: `was_definite_article`
+    --> crates/logicaffeine_language/src/parser/mod.rs:6498:42
+     |
+6498 |                     let (obj_quantifier, was_definite_article) = if self.check_npi_quantifier() {
+     |                                          ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_was_definite_article`
+
+warning: unused variable: `unknown`
+    --> crates/logicaffeine_language/src/parser/mod.rs:6889:17
+     |
+6889 |             let unknown = self.interner.intern("?");
+     |                 ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_unknown`
+
+warning: unused variable: `is_person`
+    --> crates/logicaffeine_language/src/parser/mod.rs:7991:32
+     |
+7991 |         let (restriction_name, is_person) = match npi_token {
+     |                                ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_is_person`
+
+warning: unused variable: `term_arena`
+   --> crates/logicaffeine_language/src/semantics/axioms.rs:221:5
+    |
+221 |     term_arena: &'a Arena<Term<'a>>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_term_arena`
+
+warning: unused variable: `term_arena`
+   --> crates/logicaffeine_language/src/semantics/axioms.rs:250:5
+    |
+250 |     term_arena: &'a Arena<Term<'a>>,
+    |     ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_term_arena`
+
+warning: unused variable: `expr`
+   --> crates/logicaffeine_language/src/transpile.rs:178:31
+    |
+178 |             Term::Proposition(expr) => write!(w, "[proposition]"),
+    |                               ^^^^ help: if this is intentional, prefix it with an underscore: `_expr`
+
+warning: unused variable: `subject_type`
+   --> crates/logicaffeine_language/src/analysis/discovery.rs:294:42
+    |
+294 |     fn parse_atomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+    |                                          ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_subject_type`
+
+warning: unused variable: `object_type`
+   --> crates/logicaffeine_language/src/analysis/discovery.rs:294:64
+    |
+294 |     fn parse_atomic_condition(&mut self, subject_type: Symbol, object_type: Option<Symbol>) -> PolicyCondition {
+    |                                                                ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_object_type`
+
+warning: method `measure_next_line_indent` is never used
+    --> crates/logicaffeine_language/src/lexer.rs:1146:8
+     |
+328  | impl<'a> Lexer<'a> {
+     | ------------------ method in this implementation
+...
+1146 |     fn measure_next_line_indent(&self, from_pos: usize) -> Option<usize> {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` on by default
+
+warning: field `pending_cardinal` is never read
+   --> crates/logicaffeine_language/src/parser/mod.rs:253:16
+    |
+221 | pub struct Parser<'a, 'ctx, 'int> {
+    |            ------ field in this struct
+...
+253 |     pub(super) pending_cardinal: Option<u32>,
+    |                ^^^^^^^^^^^^^^^^
+
+warning: methods `try_parse_binary_op` and `check_any` are never used
+    --> crates/logicaffeine_language/src/parser/mod.rs:4843:8
+     |
+272  | impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+     | ------------------------------------------- methods in this implementation
+...
+4843 |     fn try_parse_binary_op(&mut self) -> Option<BinaryOpKind> {
+     |        ^^^^^^^^^^^^^^^^^^^
+...
+8127 |     fn check_any(&self, kinds: &[TokenType]) -> bool {
+     |        ^^^^^^^^^
+
+warning: constant `COPULAS` is never used
+ --> crates/logicaffeine_language/src/parser/common.rs:9:11
+  |
+9 | pub const COPULAS: &[TokenType] = &[
+  |           ^^^^^^^
+
+warning: function `group_by_island` is never used
+   --> crates/logicaffeine_language/src/lambda.rs:469:4
+    |
+469 | fn group_by_island<'a>(quantifiers: Vec<QuantifierInfo<'a>>) -> Vec<Vec<QuantifierInfo<'a>>> {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `extract_quantifiers` is never used
+   --> crates/logicaffeine_language/src/lambda.rs:582:4
+    |
+582 | fn extract_quantifiers<'a>(
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `rebuild_with_scope_order` is never used
+   --> crates/logicaffeine_language/src/lambda.rs:613:4
+    |
+613 | fn rebuild_with_scope_order<'a>(
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `verb` is never read
+   --> crates/logicaffeine_language/src/lambda.rs:828:5
+    |
+827 | struct IntensionalContext {
+    |        ------------------ field in this struct
+828 |     verb: Symbol,
+    |     ^^^^
+    |
+    = note: `IntensionalContext` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: methods `parse_enum_variants`, `parse_variant_fields_natural`, `parse_variant_fields_concise`, `parse_struct_fields`, and `consume_field_type` are never used
+   --> crates/logicaffeine_language/src/analysis/discovery.rs:615:8
+    |
+45  | impl<'a> DiscoveryPass<'a> {
+    | -------------------------- methods in this implementation
+...
+615 |     fn parse_enum_variants(&mut self) -> Vec<VariantDef> {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+679 |     fn parse_variant_fields_natural(&mut self) -> Vec<FieldDef> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+725 |     fn parse_variant_fields_concise(&mut self) -> Vec<FieldDef> {
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+818 |     fn parse_struct_fields(&mut self) -> Vec<FieldDef> {
+    |        ^^^^^^^^^^^^^^^^^^^
+...
+823 |     fn consume_field_type(&mut self) -> FieldType {
+    |        ^^^^^^^^^^^^^^^^^^
+
+warning: method `try_parse_binary_op` is never used
+    --> crates/logicaffeine_language/src/parser/mod.rs:4843:8
+     |
+272  | impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
+     | ------------------------------------------- method in this implementation
+...
+4843 |     fn try_parse_binary_op(&mut self) -> Option<BinaryOpKind> {
+     |        ^^^^^^^^^^^^^^^^^^^
+
+   Compiling logicaffeine-compile v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/crates/logicaffeine_compile)
+warning: `logicaffeine-language` (lib) generated 28 warnings (run `cargo fix --lib -p logicaffeine-language` to apply 7 suggestions)
+warning: `logicaffeine-language` (lib test) generated 28 warnings (27 duplicates)
+warning: field `pause_receive` is never read
+   --> crates/logicaffeine_system/src/network/mesh.rs:742:13
+    |
+740 |     pub struct MeshTestControl {
+    |                --------------- field in this struct
+741 |         pub pause_publish: AtomicBool,
+742 |         pub pause_receive: AtomicBool,
+    |             ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `pause_network` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:756:12
+    |
+756 |     pub fn pause_network() {
+    |            ^^^^^^^^^^^^^
+
+warning: function `resume_network` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:760:12
+    |
+760 |     pub fn resume_network() {
+    |            ^^^^^^^^^^^^^^
+
+warning: function `get_retry_count` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:772:12
+    |
+772 |     pub fn get_retry_count() -> u32 {
+    |            ^^^^^^^^^^^^^^^
+
+warning: function `reset_retry_count` is never used
+   --> crates/logicaffeine_system/src/network/mesh.rs:776:12
+    |
+776 |     pub fn reset_retry_count() {
+    |            ^^^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-system` (lib test) generated 5 warnings
+warning: unused import: `Block`
+  --> crates/logicaffeine_compile/src/analysis/escape.rs:28:36
+   |
+28 | use crate::ast::stmt::{Stmt, Expr, Block};
+   |                                    ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `PolicyRegistry`
+  --> crates/logicaffeine_compile/src/compile.rs:76:71
+   |
+76 | use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
+   |                                                                       ^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_compile/src/analysis/escape.rs:325:13
+    |
+325 |         let mut interner = Interner::new();
+    |             ----^^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: unused variable: `tasks`
+   --> crates/logicaffeine_compile/src/codegen.rs:303:28
+    |
+303 |         Stmt::Concurrent { tasks } => true,
+    |                            ^^^^^ help: try ignoring the field: `tasks: _`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `interner`
+    --> crates/logicaffeine_compile/src/codegen.rs:1407:43
+     |
+1407 | fn infer_rust_type_from_expr(expr: &Expr, interner: &Interner) -> String {
+     |                                           ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_interner`
+
+   Compiling logicaffeine-web v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/apps/logicaffeine_web)
+   Compiling logicaffeine-cli v0.6.0 (/Users/tristen/logicaffeine/logicaffeine/apps/logicaffeine_cli)
+warning: `logicaffeine-compile` (lib test) generated 5 warnings (run `cargo fix --lib -p logicaffeine-compile --tests` to apply 3 suggestions)
+warning: `logicaffeine-compile` (lib) generated 4 warnings (4 duplicates)
+warning: unused import: `std::io::Read`
+   --> apps/logicaffeine_cli/src/project/registry.rs:157:13
+    |
+157 |         use std::io::Read;
+    |             ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::fs::File`
+   --> apps/logicaffeine_cli/src/project/registry.rs:234:9
+    |
+234 |     use std::fs::File;
+    |         ^^^^^^^^^^^^^
+
+warning: unused import: `std::io::Write`
+   --> apps/logicaffeine_cli/src/project/registry.rs:235:9
+    |
+235 |     use std::io::Write;
+    |         ^^^^^^^^^^^^^^
+
+warning: `logicaffeine-cli` (lib) generated 3 warnings (2 duplicates) (run `cargo fix --lib -p logicaffeine-cli` to apply 1 suggestion)
+warning: `logicaffeine-cli` (lib test) generated 3 warnings (1 duplicate) (run `cargo fix --lib -p logicaffeine-cli --tests` to apply 2 suggestions)
+warning: unused import: `crate::ui::theme`
+  --> apps/logicaffeine_web/src/ui/app.rs:24:5
+   |
+24 | use crate::ui::theme;
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::collections::HashSet`
+  --> apps/logicaffeine_web/src/ui/pages/learn.rs:37:5
+   |
+37 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `GitHubUser`
+  --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:21:60
+   |
+21 | use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
+   |                                                            ^^^^^^^^^^
+
+warning: unused import: `crate::ui::router::Route`
+  --> apps/logicaffeine_web/src/ui/pages/registry/package_detail.rs:17:5
+   |
+17 | use crate::ui::router::Route;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `ProofCompileResult` and `TheoremCompileResult`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:25:38
+   |
+25 |     interpret_for_ui, CompileResult, ProofCompileResult, TheoremCompileResult,
+   |                                      ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `SuggestedTactic`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:30:27
+   |
+30 |     hints::{suggest_hint, SuggestedTactic},
+   |                           ^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::ui::examples::seed_examples`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:48:5
+   |
+48 | use crate::ui::examples::seed_examples;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `DirEntry` and `get_platform_vfs`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:49:31
+   |
+49 | use logicaffeine_system::fs::{get_platform_vfs, Vfs, DirEntry, VfsResult};
+   |                               ^^^^^^^^^^^^^^^^       ^^^^^^^^
+
+warning: unused import: `std::rc::Rc`
+  --> apps/logicaffeine_web/src/ui/pages/studio.rs:52:5
+   |
+52 | use std::rc::Rc;
+   |     ^^^^^^^^^^^
+
+warning: unused import: `crate::ui::router::Route`
+  --> apps/logicaffeine_web/src/ui/pages/guide/mod.rs:12:5
+   |
+12 | use crate::ui::router::Route;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `search`
+   --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:521:25
+    |
+521 | async fn fetch_packages(search: Option<&str>) -> Result<Vec<RegistryPackage>, String> {
+    |                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_search`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `name`
+   --> apps/logicaffeine_web/src/ui/pages/registry/package_detail.rs:449:32
+    |
+449 | async fn fetch_package_details(name: &str) -> Result<PackageDetails, String> {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_name`
+
+warning: unused variable: `token`
+   --> apps/logicaffeine_web/src/ui/state.rs:398:34
+    |
+398 | fn save_registry_auth_to_storage(token: &str, user: &GitHubUser) {
+    |                                  ^^^^^ help: if this is intentional, prefix it with an underscore: `_token`
+
+warning: unused variable: `user`
+   --> apps/logicaffeine_web/src/ui/state.rs:398:47
+    |
+398 | fn save_registry_auth_to_storage(token: &str, user: &GitHubUser) {
+    |                                               ^^^^ help: if this is intentional, prefix it with an underscore: `_user`
+
+warning: unused variable: `module_id_for_scroll`
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1355:69
+     |
+1355 | ...                   let module_id_for_scroll = module_id.clone();
+     |                           ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_module_id_for_scroll`
+
+warning: unused variable: `exercises_since_retry`
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1546:13
+     |
+1546 |     let mut exercises_since_retry = use_signal(|| 0usize);
+     |             ^^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_exercises_since_retry`
+
+warning: variable does not need to be mutable
+    --> apps/logicaffeine_web/src/ui/pages/learn.rs:1546:9
+     |
+1546 |     let mut exercises_since_retry = use_signal(|| 0usize);
+     |         ----^^^^^^^^^^^^^^^^^^^^^
+     |         |
+     |         help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:299:9
+    |
+299 |     let mut auth_state = use_context::<RegistryAuthState>();
+    |         ----^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `total_exercises`
+   --> apps/logicaffeine_web/src/ui/pages/profile.rs:221:9
+    |
+221 |     let total_exercises: usize = engine.eras()
+    |         ^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_total_exercises`
+
+warning: constant `REGISTRY_API_URL` is never used
+  --> apps/logicaffeine_web/src/ui/pages/registry/browse.rs:24:7
+   |
+24 | const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+   |       ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: constant `REGISTRY_API_URL` is never used
+  --> apps/logicaffeine_web/src/ui/pages/registry/package_detail.rs:21:7
+   |
+21 | const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
+   |       ^^^^^^^^^^^^^^^^
+
+warning: function `load_dir_recursive` is never used
+   --> apps/logicaffeine_web/src/ui/pages/studio.rs:264:10
+    |
+264 | async fn load_dir_recursive<V: Vfs>(vfs: &V, path: &str, parent: &mut FileNode) -> VfsResult<()> {
+    |          ^^^^^^^^^^^^^^^^^^
+
+warning: function `App` should have a snake case name
+   --> apps/logicaffeine_web/src/ui/app.rs:394:8
+    |
+394 | pub fn App() -> Element {
+    |        ^^^ help: convert the identifier to snake case: `app`
+    |
+    = note: `#[warn(non_snake_case)]` on by default
+
+warning: `logicaffeine-web` (lib test) generated 23 warnings (13 duplicates) (run `cargo fix --lib -p logicaffeine-web --tests` to apply 10 suggestions)
+warning: `logicaffeine-web` (lib) generated 23 warnings (10 duplicates) (run `cargo fix --lib -p logicaffeine-web` to apply 2 suggestions)
+warning: function `parse_to_view` is never used
+  --> crates/logicaffeine_tests/tests/common/mod.rs:26:8
+   |
+26 | pub fn parse_to_view(input: &str) -> ExprView<'static> {
+   |        ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: struct `CompileResult` is never constructed
+   --> crates/logicaffeine_tests/tests/common/mod.rs:133:12
+    |
+133 | pub struct CompileResult {
+    |            ^^^^^^^^^^^^^
+
+warning: function `compile_logos` is never used
+   --> crates/logicaffeine_tests/tests/common/mod.rs:143:8
+    |
+143 | pub fn compile_logos(source: &str) -> CompileResult {
+    |        ^^^^^^^^^^^^^
+
+warning: struct `InterpreterTestResult` is never constructed
+   --> crates/logicaffeine_tests/tests/common/mod.rs:332:12
+    |
+332 | pub struct InterpreterTestResult {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `run_interpreter` is never used
+   --> crates/logicaffeine_tests/tests/common/mod.rs:340:8
+    |
+340 | pub fn run_interpreter(source: &str) -> InterpreterTestResult {
+    |        ^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_integration") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_types") generated 5 warnings
+warning: unexpected `cfg` condition value: `cli`
+ --> crates/logicaffeine_tests/tests/phase37_cli.rs:7:8
+  |
+7 | #![cfg(feature = "cli")]
+  |        ^^^^^^^^^^^^^^^
+  |
+  = note: expected values for `feature` are: `verification`
+  = help: consider adding `cli` as a feature in `Cargo.toml`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: `logicaffeine-tests` (test "phase37_cli") generated 1 warning
+warning: function `assert_output` is never used
+   --> crates/logicaffeine_tests/tests/common/mod.rs:275:8
+    |
+275 | pub fn assert_output(source: &str, expected: &str) {
+    |        ^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_mesh") generated 6 warnings (5 duplicates)
+warning: unused import: `Term`
+  --> crates/logicaffeine_tests/tests/phase80_equality_rewriting.rs:18:39
+   |
+18 | use logicaffeine_kernel::{infer_type, Term};
+   |                                       ^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase80_equality_rewriting") generated 1 warning (run `cargo fix --test "phase80_equality_rewriting"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase48_network") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_enums") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_variables") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase51_mesh") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_interpreter_policy") generated 4 warnings (4 duplicates)
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:114:9
+    |
+114 |     use std::thread;
+    |         ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:115:9
+    |
+115 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:79:9
+   |
+79 |     let mut child_a = Command::new(&result_a.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:87:9
+   |
+87 |     let mut child_b = Command::new(&result_b.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:161:9
+    |
+161 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:167:9
+    |
+167 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:256:9
+    |
+256 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:264:9
+    |
+264 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_causal_consistency.rs:272:9
+    |
+272 |     let mut child_c = Command::new(&result_c.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: fields `stderr` and `rust_code` are never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:135:9
+    |
+133 | pub struct CompileResult {
+    |            ------------- fields in this struct
+134 |     pub binary_path: std::path::PathBuf,
+135 |     pub stderr: String,
+    |         ^^^^^^
+136 |     pub success: bool,
+137 |     pub rust_code: String,
+    |         ^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_causal_consistency") generated 14 warnings (4 duplicates) (run `cargo fix --test "e2e_causal_consistency"` to apply 9 suggestions)
+warning: unused variable: `body_type`
+  --> crates/logicaffeine_tests/tests/phase70b_elimination.rs:83:13
+   |
+83 |             body_type,
+   |             ^^^^^^^^^-
+   |             |
+   |             help: try removing the field
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: `logicaffeine-tests` (test "phase70b_elimination") generated 1 warning (run `cargo fix --test "phase70b_elimination"` to apply 1 suggestion)
+warning: unused import: `logicaffeine_language::mwe`
+ --> crates/logicaffeine_tests/tests/phase32_functions.rs:9:5
+  |
+9 | use logicaffeine_language::mwe;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused variable: `has_say_with_one_arg`
+  --> crates/logicaffeine_tests/tests/phase5_wh_movement.rs:56:9
+   |
+56 |     let has_say_with_one_arg = output.contains("S(J)") || output.contains("Say(J)");
+   |         ^^^^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_has_say_with_one_arg`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: `logicaffeine-tests` (test "phase32_functions") generated 1 warning (run `cargo fix --test "phase32_functions"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase5_wh_movement") generated 1 warning
+warning: `logicaffeine-tests` (test "phase10_io") generated 6 warnings (6 duplicates)
+warning: unused import: `std::io::Write`
+   --> crates/logicaffeine_tests/tests/grand_challenge_mergesort.rs:297:9
+    |
+297 |     use std::io::Write;
+    |         ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "grand_challenge_mergesort") generated 1 warning (run `cargo fix --test "grand_challenge_mergesort"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_iteration") generated 5 warnings (5 duplicates)
+warning: unused import: `CompileError`
+  --> crates/logicaffeine_tests/tests/diagnostic_bridge.rs:10:54
+   |
+10 | use logicaffeine_compile::compile::{compile_and_run, CompileError};
+   |                                                      ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: function `assert_friendly_error` is never used
+  --> crates/logicaffeine_tests/tests/diagnostic_bridge.rs:23:4
+   |
+23 | fn assert_friendly_error(error: &str, expected_contains: &[&str], forbidden_patterns: &[&str]) {
+   |    ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: function `parse_to_view` is never used
+  --> crates/logicaffeine_tests/tests/common/mod.rs:26:8
+   |
+26 | pub fn parse_to_view(input: &str) -> ExprView<'static> {
+   |        ^^^^^^^^^^^^^
+
+warning: unused import: `compile_all_scopes`
+ --> crates/logicaffeine_tests/tests/modal_scope_tests.rs:1:54
+  |
+1 | use logicaffeine_language::{compile, compile_simple, compile_all_scopes, compile_forest};
+  |                                                      ^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_interpreter_crdt") generated 4 warnings (4 duplicates)
+warning: unused import: `assert_output`
+  --> crates/logicaffeine_tests/tests/e2e_studio_examples.rs:12:14
+   |
+12 | use common::{assert_output, run_logos};
+   |              ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_interpreter_string_concat") generated 4 warnings (4 duplicates)
+warning: `logicaffeine-tests` (test "diagnostic_bridge") generated 8 warnings (5 duplicates) (run `cargo fix --test "diagnostic_bridge"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "modal_scope_tests") generated 1 warning (run `cargo fix --test "modal_scope_tests"` to apply 1 suggestion)
+warning: struct `CompileResult` is never constructed
+   --> crates/logicaffeine_tests/tests/common/mod.rs:133:12
+    |
+133 | pub struct CompileResult {
+    |            ^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_studio_examples") generated 6 warnings (4 duplicates) (run `cargo fix --test "e2e_studio_examples"` to apply 1 suggestion)
+warning: unused import: `compile_with_world_state`
+ --> crates/logicaffeine_tests/tests/integration_tests.rs:6:58
+  |
+6 | use logicaffeine_language::{compile, compile_all_scopes, compile_with_world_state, compile_with_discourse, compile_discourse, compile_amb...
+  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `Token`
+ --> crates/logicaffeine_tests/tests/phase22_equals.rs:2:36
+  |
+2 | use logicaffeine_language::{Lexer, Token, TokenType};
+  |                                    ^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase22_equals") generated 1 warning (run `cargo fix --test "phase22_equals"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_primitives") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "integration_tests") generated 6 warnings (5 duplicates) (run `cargo fix --test "integration_tests"` to apply 1 suggestion)
+warning: unused import: `Merge`
+   --> crates/logicaffeine_tests/tests/phase_crdt_ormap.rs:176:47
+    |
+176 |     use logicaffeine_data::crdt::{MVRegister, Merge, ORMap};
+    |                                               ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_crdt_ormap") generated 1 warning (run `cargo fix --test "phase_crdt_ormap"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "e2e_functions") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase49_crdt") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase53_persistence") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase_interpreter_features") generated 4 warnings (4 duplicates)
+warning: `logicaffeine-tests` (test "phase54_concurrency") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "phase85_zones") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_logical") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase103_generics") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase46_agents") generated 6 warnings (6 duplicates)
+warning: function `assert_delta_crdt` is never used
+   --> crates/logicaffeine_tests/tests/phase_crdt_causal.rs:368:8
+    |
+368 |     fn assert_delta_crdt<T: DeltaCrdt>() {}
+    |        ^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_crdt_causal") generated 1 warning
+warning: unused variable: `has_passive`
+   --> crates/logicaffeine_tests/tests/torture_tests.rs:514:17
+    |
+514 |             let has_passive = output.contains("Pass") || output.contains("Agent");
+    |                 ^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_has_passive`
+    |
+    = note: `#[warn(unused_variables)]` on by default
+
+warning: `logicaffeine-tests` (test "torture_tests") generated 1 warning
+warning: unused import: `assert_runs`
+ --> crates/logicaffeine_tests/tests/e2e_concurrency.rs:6:25
+  |
+6 | use common::{run_logos, assert_runs, assert_output};
+  |                         ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_concurrency") generated 6 warnings (5 duplicates) (run `cargo fix --test "e2e_concurrency"` to apply 1 suggestion)
+warning: unused import: `DerivationTree`
+  --> crates/logicaffeine_tests/tests/phase68_auto_induction.rs:15:22
+   |
+15 |     BackwardChainer, DerivationTree, InferenceRule, ProofExpr, ProofTerm,
+   |                      ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `logicaffeine_proof::unify::beta_reduce`
+   --> crates/logicaffeine_tests/tests/phase68_auto_induction.rs:252:9
+    |
+252 |     use logicaffeine_proof::unify::beta_reduce;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase68_auto_induction") generated 2 warnings (run `cargo fix --test "phase68_auto_induction"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "phase52_sync") generated 6 warnings (6 duplicates)
+warning: unused import: `Merge`
+   --> crates/logicaffeine_tests/tests/phase_crdt_orset.rs:244:35
+    |
+244 |     use logicaffeine_data::crdt::{Merge, ORSet};
+    |                                   ^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase_crdt_orset") generated 1 warning (run `cargo fix --test "phase_crdt_orset"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase_crdt_variants") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase9_structured_concurrency") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_structs") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_crdt") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "aktionsart_tests") generated 5 warnings (5 duplicates)
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_gossip_edge_cases.rs:119:9
+    |
+119 |     use std::thread;
+    |         ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_gossip_edge_cases.rs:120:9
+    |
+120 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "e2e_gossip_edge_cases") generated 7 warnings (5 duplicates) (run `cargo fix --test "e2e_gossip_edge_cases"` to apply 2 suggestions)
+warning: unused import: `assert_runs`
+  --> crates/logicaffeine_tests/tests/e2e_policy.rs:10:29
+   |
+10 | use common::{assert_output, assert_runs, assert_panics};
+   |                             ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_policy") generated 6 warnings (5 duplicates) (run `cargo fix --test "e2e_policy"` to apply 1 suggestion)
+warning: unused import: `DerivationTree`
+  --> crates/logicaffeine_tests/tests/phase61_induction.rs:14:22
+   |
+14 |     BackwardChainer, DerivationTree, InferenceRule, MatchArm, ProofExpr, ProofTerm,
+   |                      ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `logicaffeine_proof::error::ProofError`
+  --> crates/logicaffeine_tests/tests/phase61_induction.rs:16:5
+   |
+16 | use logicaffeine_proof::error::ProofError;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `logicaffeine-tests` (test "phase61_induction") generated 2 warnings (run `cargo fix --test "phase61_induction"` to apply 2 suggestions)
+warning: unused import: `common::assert_runs`
+  --> crates/logicaffeine_tests/tests/e2e_control_flow.rs:72:5
+   |
+72 | use common::assert_runs;
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: function `empty_registry` is never used
+  --> crates/logicaffeine_tests/tests/phase24_codegen.rs:29:4
+   |
+29 | fn empty_registry(interner: &mut Interner) -> TypeRegistry {
+   |    ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-tests` (test "e2e_control_flow") generated 6 warnings (5 duplicates) (run `cargo fix --test "e2e_control_flow"` to apply 1 suggestion)
+warning: `logicaffeine-tests` (test "phase24_codegen") generated 1 warning
+warning: `logicaffeine-tests` (test "e2e_zones") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_maps") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_collections") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase50_security") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_comparisons") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_expressions") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_edge_cases") generated 5 warnings (5 duplicates)
+warning: unused import: `SymbolEntry`
+ --> crates/logicaffeine_tests/tests/symbol_dict_tests.rs:6:59
+  |
+6 | use logicaffeine_language::symbol_dict::{extract_symbols, SymbolEntry, SymbolKind};
+  |                                                           ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "symbol_dict_tests") generated 1 warning (run `cargo fix --test "symbol_dict_tests"` to apply 1 suggestion)
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:126:9
+    |
+126 |     use std::thread;
+    |         ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:127:9
+    |
+127 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:85:9
+   |
+85 |     let mut child_a = Command::new(&result_a.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:93:9
+   |
+93 |     let mut child_b = Command::new(&result_b.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:181:9
+    |
+181 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:187:9
+    |
+187 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:259:9
+    |
+259 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:268:9
+    |
+268 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:348:9
+    |
+348 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_network_partition.rs:356:9
+    |
+356 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: field `rust_code` is never read
+   --> crates/logicaffeine_tests/tests/common/mod.rs:137:9
+    |
+133 | pub struct CompileResult {
+    |            ------------- field in this struct
+...
+137 |     pub rust_code: String,
+    |         ^^^^^^^^^
+
+warning: unused import: `std::thread`
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:238:9
+    |
+238 |     use std::thread;
+    |         ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `std::time::Duration`
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:239:9
+    |
+239 |     use std::time::Duration;
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:105:9
+    |
+105 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:113:9
+    |
+113 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:121:9
+    |
+121 |     let mut child_c = Command::new(&result_c.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:203:9
+    |
+203 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:212:9
+    |
+212 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:299:9
+    |
+299 |     let mut child_a = Command::new(&result_a.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:305:9
+    |
+305 |     let mut child_b = Command::new(&result_b.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> crates/logicaffeine_tests/tests/e2e_multi_node.rs:311:9
+    |
+311 |     let mut child_c = Command::new(&result_c.binary_path)
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `logicaffeine-tests` (test "e2e_network_partition") generated 15 warnings (4 duplicates) (run `cargo fix --test "e2e_network_partition"` to apply 10 suggestions)
+warning: `logicaffeine-tests` (test "e2e_multi_node") generated 15 warnings (5 duplicates) (run `cargo fix --test "e2e_multi_node"` to apply 10 suggestions)
+warning: function `empty_registry` is never used
+  --> crates/logicaffeine_tests/tests/phase57_maps.rs:20:4
+   |
+20 | fn empty_registry(interner: &mut Interner) -> TypeRegistry {
+   |    ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `logicaffeine-tests` (test "phase57_maps") generated 1 warning
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_gossip.rs:72:9
+   |
+72 |     let mut child_a = Command::new(&result_a.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+  --> crates/logicaffeine_tests/tests/e2e_gossip.rs:81:9
+   |
+81 |     let mut child_b = Command::new(&result_b.binary_path)
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: `logicaffeine-tests` (test "e2e_gossip") generated 7 warnings (5 duplicates) (run `cargo fix --test "e2e_gossip"` to apply 2 suggestions)
+warning: `logicaffeine-tests` (test "e2e_refinement") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase_crdt_language") generated 6 warnings (6 duplicates)
+warning: `logicaffeine-tests` (test "e2e_tuples") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "e2e_sets") generated 5 warnings (5 duplicates)
+warning: unused import: `Substitution`
+  --> crates/logicaffeine_tests/tests/phase60_proof_engine.rs:17:46
+   |
+17 | use logicaffeine_proof::unify::{unify_terms, Substitution};
+   |                                              ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `logicaffeine-tests` (test "phase102_bridge") generated 5 warnings (5 duplicates)
+warning: `logicaffeine-tests` (test "phase60_proof_engine") generated 1 warning (run `cargo fix --test "phase60_proof_engine"` to apply 1 suggestion)

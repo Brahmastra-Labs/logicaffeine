@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PackageError","RegistryError"],"fn":["create_tarball","is_git_dirty"],"struct":["PublishMetadata","PublishResult","RegistryClient","UserInfo"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SECTIONS"],"enum":["ExampleMode"],"fn":["get_all_sections","get_parts","get_section_by_id","get_sections_by_part"],"struct":["CodeExample","Section"]};

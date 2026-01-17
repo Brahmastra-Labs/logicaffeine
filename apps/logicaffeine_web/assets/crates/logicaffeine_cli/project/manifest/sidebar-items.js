@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DependencySpec","ManifestError"],"struct":["DependencyDetail","Manifest","Package"]};

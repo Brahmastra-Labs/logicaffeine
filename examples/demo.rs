@@ -1,4 +1,4 @@
-use logos::{compile, compile_all_scopes, compile_with_options, CompileOptions, OutputFormat};
+use logicaffeine_language::{compile, compile_all_scopes, compile_with_options, CompileOptions, OutputFormat};
 
 fn main() {
     println!("═══════════════════════════════════════════════════════════════════");

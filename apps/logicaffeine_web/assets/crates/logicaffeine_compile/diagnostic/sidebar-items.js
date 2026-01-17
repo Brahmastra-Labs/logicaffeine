@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RustcMessage"],"fn":["get_error_code","get_primary_span","parse_rustc_json","translate_diagnostics"],"struct":["DiagnosticBridge","LogosError","RustcCode","RustcDiagnostic","RustcSpan","RustcSpanText"]};

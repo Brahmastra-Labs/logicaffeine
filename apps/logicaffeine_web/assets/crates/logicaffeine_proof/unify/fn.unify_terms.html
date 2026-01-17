@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Unify two terms, returning the Most General Unifier (MGU)."><title>unify_terms in logicaffeine_proof::unify - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1a91846b.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="logicaffeine_proof" data-themes="" data-resource-suffix="" data-rustdoc-version="1.88.0 (6b00bc388 2025-06-23)" data-channel="1.88.0" data-search-js="search-f7877310.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7ef8a74a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc fn"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../logicaffeine_proof/index.html">logicaffeine_<wbr>proof</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">unify_<wbr>terms</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#arguments" title="Arguments">Arguments</a></li><li><a href="#returns" title="Returns">Returns</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#see-also" title="See Also">See Also</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="index.html">In logicaffeine_<wbr>proof::<wbr>unify</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">logicaffeine_proof</a>::<wbr><a href="index.html">unify</a></div><h1>Function <span class="fn">unify_terms</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/logicaffeine_proof/unify.rs.html#532-536">Source</a> </span></div><pre class="rust item-decl"><code>pub fn unify_terms(t1: &amp;<a class="enum" href="../enum.ProofTerm.html" title="enum logicaffeine_proof::ProofTerm">ProofTerm</a>, t2: &amp;<a class="enum" href="../enum.ProofTerm.html" title="enum logicaffeine_proof::ProofTerm">ProofTerm</a>) -&gt; <a class="type" href="../error/type.ProofResult.html" title="type logicaffeine_proof::error::ProofResult">ProofResult</a>&lt;<a class="type" href="type.Substitution.html" title="type logicaffeine_proof::unify::Substitution">Substitution</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Unify two terms, returning the Most General Unifier (MGU).</p>
+<p>The MGU is the smallest substitution that makes both terms identical.
+Uses Robinson’s algorithm with occurs check.</p>
+<h2 id="arguments"><a class="doc-anchor" href="#arguments">§</a>Arguments</h2>
+<ul>
+<li><code>t1</code> - The first term (often a pattern with variables)</li>
+<li><code>t2</code> - The second term (often a ground term or another pattern)</li>
+</ul>
+<h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
+<ul>
+<li><code>Ok(subst)</code> - A substitution that unifies the terms</li>
+<li><code>Err(OccursCheck)</code> - If unification would create an infinite term</li>
+<li><code>Err(SymbolMismatch)</code> - If function/constant names differ</li>
+<li><code>Err(ArityMismatch)</code> - If argument counts differ</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>logicaffeine_proof::{ProofTerm, unify::unify_terms};
+
+<span class="kw">let </span>pattern = ProofTerm::Function(
+    <span class="string">"Mortal"</span>.into(),
+    <span class="macro">vec!</span>[ProofTerm::Variable(<span class="string">"x"</span>.into())]
+);
+<span class="kw">let </span>target = ProofTerm::Function(
+    <span class="string">"Mortal"</span>.into(),
+    <span class="macro">vec!</span>[ProofTerm::Constant(<span class="string">"Socrates"</span>.into())]
+);
+
+<span class="kw">let </span>subst = unify_terms(<span class="kw-2">&amp;</span>pattern, <span class="kw-2">&amp;</span>target).unwrap();
+<span class="macro">assert_eq!</span>(
+    subst.get(<span class="string">"x"</span>),
+    <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>ProofTerm::Constant(<span class="string">"Socrates"</span>.into()))
+);</code></pre></div>
+<h2 id="see-also"><a class="doc-anchor" href="#see-also">§</a>See Also</h2>
+<ul>
+<li><a href="fn.unify_exprs.html" title="fn logicaffeine_proof::unify::unify_exprs"><code>unify_exprs</code></a> - Unifies expressions (handles quantifiers, connectives)</li>
+<li><a href="fn.apply_subst_to_term.html" title="fn logicaffeine_proof::unify::apply_subst_to_term"><code>apply_subst_to_term</code></a> - Applies the resulting substitution</li>
+</ul>
+</div></details></section></div></main></body></html>

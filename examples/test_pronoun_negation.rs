@@ -6,7 +6,7 @@ Given: He was not caught.
 Prove: The butler did not do it.
 Proof: Auto.
 "#;
-    let result = logos::compile_theorem_for_ui(source);
+    let result = logicaffeine_compile::compile_theorem_for_ui(source);
     println!("Name: {}", result.name);
     println!("Premises:");
     for (i, p) in result.premises.iter().enumerate() {

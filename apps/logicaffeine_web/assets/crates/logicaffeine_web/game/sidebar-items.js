@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["StreakStatus"],"fn":["calculate_xp_reward","check_level_up_freeze_grants","is_sunday","level_title","update_combo","update_streak","xp_progress_to_next_level"],"struct":["ComboResult","FreezeGrant","XpReward"]};

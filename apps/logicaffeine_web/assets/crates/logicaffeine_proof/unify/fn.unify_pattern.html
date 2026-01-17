@@ -1,0 +1,32 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Attempt higher-order pattern unification (Miller patterns)."><title>unify_pattern in logicaffeine_proof::unify - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1a91846b.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="logicaffeine_proof" data-themes="" data-resource-suffix="" data-rustdoc-version="1.88.0 (6b00bc388 2025-06-23)" data-channel="1.88.0" data-search-js="search-f7877310.js" data-settings-js="settings-5514c975.js" ><script src="../../static.files/storage-4e99c027.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7ef8a74a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc fn"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../logicaffeine_proof/index.html">logicaffeine_<wbr>proof</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">unify_<wbr>pattern</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#miller-patterns" title="Miller Patterns">Miller Patterns</a></li><li><a href="#why-this-matters" title="Why This Matters">Why This Matters</a></li><li><a href="#returns" title="Returns">Returns</a></li><li><a href="#example" title="Example">Example</a></li><li><a href="#see-also" title="See Also">See Also</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="index.html">In logicaffeine_<wbr>proof::<wbr>unify</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">logicaffeine_proof</a>::<wbr><a href="index.html">unify</a></div><h1>Function <span class="fn">unify_pattern</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/logicaffeine_proof/unify.rs.html#1200-1204">Source</a> </span></div><pre class="rust item-decl"><code>pub fn unify_pattern(
+    lhs: &amp;<a class="enum" href="../enum.ProofExpr.html" title="enum logicaffeine_proof::ProofExpr">ProofExpr</a>,
+    rhs: &amp;<a class="enum" href="../enum.ProofExpr.html" title="enum logicaffeine_proof::ProofExpr">ProofExpr</a>,
+) -&gt; <a class="type" href="../error/type.ProofResult.html" title="type logicaffeine_proof::error::ProofResult">ProofResult</a>&lt;<a class="type" href="type.ExprSubstitution.html" title="type logicaffeine_proof::unify::ExprSubstitution">ExprSubstitution</a>&gt;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Attempt higher-order pattern unification (Miller patterns).</p>
+<p>Given <code>lhs</code> and <code>rhs</code>, if <code>lhs</code> is of the form <code>Hole(h)(args...)</code> where
+args are distinct <code>BoundVarRef</code>s, solves: <code>h = λargs. rhs</code>.</p>
+<h2 id="miller-patterns"><a class="doc-anchor" href="#miller-patterns">§</a>Miller Patterns</h2>
+<p>A Miller pattern is a meta-variable applied to distinct bound variables:</p>
+<ul>
+<li><code>?P(x)</code> is a valid pattern</li>
+<li><code>?F(x, y)</code> is a valid pattern (x ≠ y)</li>
+<li><code>?G(x, x)</code> is NOT valid (duplicate variable)</li>
+<li><code>?H(f(x))</code> is NOT valid (non-variable argument)</li>
+</ul>
+<h2 id="why-this-matters"><a class="doc-anchor" href="#why-this-matters">§</a>Why This Matters</h2>
+<p>Higher-order pattern unification is decidable and has unique most general
+solutions, unlike full higher-order unification. This restriction enables
+automatic motive inference for structural induction.</p>
+<h2 id="returns"><a class="doc-anchor" href="#returns">§</a>Returns</h2>
+<ul>
+<li><code>Ok(subst)</code> - An <a href="type.ExprSubstitution.html" title="type logicaffeine_proof::unify::ExprSubstitution"><code>ExprSubstitution</code></a> mapping hole names to lambdas</li>
+<li><code>Err(PatternNotDistinct)</code> - If pattern has duplicate variables</li>
+<li><code>Err(NotAPattern)</code> - If arguments aren’t bound variable references</li>
+<li><code>Err(ScopeViolation)</code> - If RHS uses variables not in pattern scope</li>
+</ul>
+<h2 id="example"><a class="doc-anchor" href="#example">§</a>Example</h2><div class="example-wrap"><pre class="language-text"><code>unify_pattern(?P(x), Even(x))
+→ { &quot;P&quot; ↦ λx. Even(x) }</code></pre></div><h2 id="see-also"><a class="doc-anchor" href="#see-also">§</a>See Also</h2>
+<ul>
+<li><a href="type.ExprSubstitution.html" title="type logicaffeine_proof::unify::ExprSubstitution"><code>ExprSubstitution</code></a> - The result type for hole solutions</li>
+<li><a href="../error/enum.ProofError.html#variant.PatternNotDistinct" title="variant logicaffeine_proof::error::ProofError::PatternNotDistinct"><code>ProofError::PatternNotDistinct</code></a> - Duplicate variable error</li>
+</ul>
+</div></details></section></div></main></body></html>

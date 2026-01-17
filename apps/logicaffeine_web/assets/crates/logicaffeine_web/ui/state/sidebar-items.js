@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LicensePlan","Role","StudioMode"],"struct":["AppState","ChatMessage","FileNode","GitHubUser","LicenseState","MathDocument","MathFormula","PackageDetails","PackageVersion","RegistryAuthState","RegistryPackage","ReplLine"]};

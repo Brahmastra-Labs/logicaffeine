@@ -1,0 +1,18 @@
+[package]
+name = "logicaffeine-proof"
+version = "0.6.0"
+edition = "2021"
+description = "Backward-chaining proof engine with Socratic hints"
+license = "BUSL-1.1"
+
+[features]
+default = []
+verification = ["logicaffeine-verify"]
+
+[dependencies]
+logicaffeine-base = { path = "../logicaffeine_base" }
+logicaffeine-kernel = { path = "../logicaffeine_kernel" }
+# CRITICAL: NO LANGUAGE DEPENDENCY - Liskov Invariant
+
+# Optional: Z3-based oracle (requires Z3 installed)
+logicaffeine-verify = { path = "../logicaffeine_verify", optional = true }

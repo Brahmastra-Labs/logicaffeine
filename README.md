@@ -127,6 +127,10 @@ LLMs are probabilistic—they guess. LOGOS is deterministic—it parses. When "e
   - [Proof Engine](#proof-engine)
     - [Decision Procedure Tactics](#decision-procedure-tactics)
     - [Tactic Combinators](#tactic-combinators)
+    - [Structural Proof Tactics](#structural-proof-tactics)
+    - [Hint Database](#hint-database)
+    - [Derivation Constructors Reference](#derivation-constructors-reference)
+    - [Safety Guarantees](#safety-guarantees)
   - [Focus Particles](#focus-particles)
   - [Morphological Rules](#morphological-rules)
   - [Intensionality](#intensionality)
@@ -175,20 +179,23 @@ No installation required—[launch the interactive playground at logicaffeine.co
 # Build the project
 cargo build
 
-# Launch the interactive web UI
-cargo run
+# Run the CLI
+cargo run --features cli
 
-# Run the test suite (1000+ tests)
+# Launch the web IDE (requires dioxus-cli)
+dx serve --bin logicaffeine_web
+
+# Run tests (skips slow e2e by default)
+cargo test -- --skip e2e
+
+# Run all tests including e2e
 cargo test
-
-# Run a specific test
-cargo test --test e2e_functions
 ```
 
 ### Library Usage
 
 ```rust
-use logos::{compile, compile_to_rust, compile_all_scopes};
+use logicaffeine_language::{compile, compile_to_rust, compile_all_scopes};
 
 // Logic Mode: English → First-Order Logic
 let fol = compile("All men are mortal.").unwrap();
@@ -1427,7 +1434,7 @@ LOGOS includes a native proof engine that constructs derivation trees explaining
 The proof engine uses backward chaining: starting from the goal, it searches for inference rules whose conclusions match, then recursively proves their premises.
 
 ```rust
-use logos::proof::{BackwardChainer, ProofExpr, ProofTerm};
+use logicaffeine_proof::{BackwardChainer, ProofExpr, ProofTerm};
 
 let mut engine = BackwardChainer::new();
 
@@ -1601,7 +1608,7 @@ Prop : Type₁ : Type₂ : Type₃ : ...
 
 **Example: Polymorphic Identity Function**
 ```rust
-use logos::kernel::{Term, Universe, Context, infer_type};
+use logicaffeine_kernel::{Term, Universe, Context, infer_type};
 
 // λA:Type. λx:A. x
 let id = Term::Lambda {
@@ -1638,7 +1645,7 @@ Succ : Nat → Nat               -- Introduction: unary constructor
 
 **Example: Defining Peano Naturals**
 ```rust
-use logos::kernel::{Term, Universe, Context};
+use logicaffeine_kernel::{Term, Universe, Context};
 
 let mut ctx = Context::new();
 
@@ -1819,7 +1826,7 @@ The kernel includes a standard library of fundamental logical types:
 
 **Example: Proving Equality**
 ```rust
-use logos::kernel::prelude::with_prelude;
+use logicaffeine_kernel::prelude::with_prelude;
 
 let ctx = with_prelude();
 
@@ -2407,6 +2414,169 @@ Definition simp_then_refl : Syntax -> Derivation :=
 
 `tact_repeat` detects fixed points to prevent infinite loops — if a tactic succeeds but makes no progress, iteration terminates.
 
+#### Structural Proof Tactics
+
+Beyond decision procedures, LOGOS provides tactics for structural reasoning:
+
+| Tactic | Purpose | Example Use |
+|--------|---------|-------------|
+| `try_auto` | Automatic selection with hint database | General-purpose proving |
+| `try_induction` | Structural induction on Nat, List, etc. | `∀n. n + 0 = n` |
+| `try_inversion` | Derive contradictions from impossible patterns | `Succ n = Zero → False` |
+| `try_rewrite` | Rewrite goal using equality (L→R) | Substitute equals |
+| `try_rewrite_rev` | Rewrite goal using equality (R→L) | Reverse substitution |
+| `try_destruct` | Case analysis on inductive term | Pattern match on Nat |
+| `try_apply` | Apply hypothesis or lemma to goal | Use proven theorem |
+
+**Induction Tactic:**
+
+```
+-- Prove: ∀n. n + 0 = n
+Definition motive : Syntax := λn. Eq Nat (add n Zero) n.
+Definition base : Derivation := (* proof that 0 + 0 = 0 *)
+Definition step : Derivation := (* proof that k + 0 = k → Succ k + 0 = Succ k *)
+
+Definition proof : Derivation := try_induction motive base step.
+```
+
+**Inversion Tactic:**
+
+```
+-- From Succ n = Zero, derive anything (contradiction)
+Definition impossible : Syntax := Eq Nat (Succ n) Zero.
+Definition d : Derivation := try_inversion impossible.
+-- Proves: False (the equation is impossible)
+```
+
+**Rewrite Tactics:**
+
+```
+-- Given: eq_proof proves (Eq Nat a b)
+-- Goal: P(a)
+-- After try_rewrite eq_proof: Goal becomes P(b)
+
+Definition rewritten := try_rewrite eq_proof goal.
+```
+
+#### Hint Database
+
+The `auto` tactic maintains a database of hints—previously proven theorems it can apply automatically.
+
+**Registering Hints:**
+
+```
+-- Prove a lemma
+Definition add_zero_r : ∀n. n + 0 = n := (* proof *).
+
+-- Register as hint
+Hint add_zero_r.
+
+-- Now auto will try add_zero_r when other tactics fail
+Definition goal : Syntax := Eq Nat (add k Zero) k.
+Definition proof : Derivation := try_auto goal.  -- Uses hint!
+```
+
+**Auto Tactic Search Order:**
+
+1. `try_refl` - Reflexivity
+2. `try_compute` - Computational equality
+3. `try_ring` - Polynomial equality
+4. `try_lia` - Linear integer arithmetic
+5. `try_cc` - Congruence closure
+6. `try_simp` - Simplification
+7. **Hint database** - Registered theorems
+8. Fail if nothing works
+
+**Why Hints Matter:**
+
+Without hints, `auto` only knows built-in decision procedures. With hints, it learns from your proofs—each registered lemma extends its capabilities.
+
+#### Derivation Constructors Reference
+
+The kernel's proof system uses derivation constructors to build certified proofs:
+
+**Core Inference Rules:**
+
+| Constructor | Type | Rule |
+|-------------|------|------|
+| `DAxiom` | `Syntax → Derivation` | Introduce axiom |
+| `DModusPonens` | `Derivation → Derivation → Derivation` | From P and P→Q, derive Q |
+| `DUnivIntro` | `Derivation → Derivation` | From P, derive ∀x.P |
+| `DUnivElim` | `Derivation → Syntax → Derivation` | From ∀x.P, derive P[t/x] |
+| `DRefl` | `Syntax → Syntax → Derivation` | Prove Eq T a a |
+
+**Computational Rules:**
+
+| Constructor | Type | Rule |
+|-------------|------|------|
+| `DCompute` | `Syntax → Derivation` | Prove equality by evaluation |
+| `DCong` | `Syntax → Derivation → Derivation` | From a = b, derive f(a) = f(b) |
+
+**Structural Rules:**
+
+| Constructor | Type | Rule |
+|-------------|------|------|
+| `DInduction` | `Syntax → Derivation → Derivation → Derivation` | Induction with motive, base, step |
+| `DCase` | `Derivation → Derivation → Derivation` | Case analysis |
+| `DElim` | `Syntax → Derivation → Derivation` | Elimination rule |
+| `DInversion` | `Syntax → Derivation` | Inversion principle |
+| `DDestruct` | `Syntax → Derivation` | Destructuring |
+
+**Decision Procedure Rules:**
+
+| Constructor | Type | Rule |
+|-------------|------|------|
+| `DRingSolve` | `Syntax → Derivation` | Ring tactic proof |
+| `DLiaSolve` | `Syntax → Derivation` | LIA tactic proof |
+| `DOmegaSolve` | `Syntax → Derivation` | Omega tactic proof |
+| `DCCSolve` | `Syntax → Derivation` | Congruence closure proof |
+| `DSimpSolve` | `Syntax → Derivation` | Simplification proof |
+| `DAutoSolve` | `Syntax → Derivation` | Auto tactic proof |
+
+**Rewriting Rules:**
+
+| Constructor | Type | Rule |
+|-------------|------|------|
+| `DRewrite` | `Derivation → Syntax → Derivation` | Rewrite using equality |
+| `DApply` | `Derivation → Derivation` | Apply hypothesis |
+
+#### Safety Guarantees
+
+The kernel enforces two critical safety properties that prevent logical inconsistency:
+
+**Strict Positivity:**
+
+Inductive types must satisfy strict positivity—the type being defined cannot appear in negative position (left of an arrow) in constructor arguments.
+
+```
+-- VALID: Nat appears only positively
+Inductive Nat := Zero : Nat | Succ : Nat → Nat.  ✓
+
+-- INVALID: Bad appears negatively (left of arrow)
+Inductive Bad := MkBad : (Bad → False) → Bad.   ✗
+```
+
+Why it matters: Negative occurrences enable Curry's paradox—the type-theoretic equivalent of Russell's paradox. Without positivity checking, you could prove `False` and the entire system becomes unsound.
+
+**Termination Checking:**
+
+Recursive functions (fixpoints) must be structurally decreasing—each recursive call must be on a syntactically smaller argument.
+
+```
+-- VALID: Recursive call on k, which is smaller than Succ k
+fix add. λm n. match m { Zero → n | Succ k → Succ (add k n) }  ✓
+
+-- INVALID: Recursive call on same or larger argument
+fix loop. λn. loop n                                            ✗
+fix grow. λn. grow (Succ n)                                     ✗
+```
+
+Why it matters: Non-terminating proofs can "prove" anything. Without termination checking, `fix f. f : False` would type-check, breaking soundness.
+
+**The Guardian:**
+
+These checks are enforced by the Guardian—a safety layer that audits all inductive definitions and fixpoints before they enter the kernel. Rejected definitions produce clear error messages explaining the violation.
+
 #### The Vernacular
 
 The kernel supports a text-based command interface:
@@ -2850,7 +3020,7 @@ The subordinate modal must have equal or higher force to maintain the hypothetic
 LOGOS supports session-based evaluation for multi-turn interactions via the `Session` API:
 
 ```rust
-use logos::Session;
+use logicaffeine_language::Session;
 
 let mut session = Session::new();
 
@@ -3395,8 +3565,11 @@ Reflexives must be bound within their local domain (Binding Principle A).
 The `largo` command-line tool manages LOGOS projects:
 
 ```bash
-# Install the CLI
-cargo install logicaffeine --features cli
+# Build CLI locally
+cargo build --features cli
+
+# Or install from source
+cargo install --path . --features cli
 
 # Create a new project
 largo new my-project
@@ -3512,21 +3685,27 @@ let latex = compile_with_options("All cats sleep.", options).unwrap();
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Key Modules
+### Crate Architecture
 
-| Module | Purpose |
-|--------|---------|
-| `lexer.rs` | Tokenization with POS tagging |
-| `parser/` | Recursive descent parser (8 sub-modules) |
-| `ast/` | Arena-allocated abstract syntax tree |
-| `transpile.rs` | AST → FOL string conversion |
-| `codegen.rs` | AST → Rust code generation |
-| `compile.rs` | End-to-end compilation orchestration |
-| `lambda.rs` | Scope enumeration via λ-calculus |
-| `drs.rs` | Discourse Representation Structures |
-| `session.rs` | Multi-turn evaluation with persistent DRS |
-| `proof/` | Backward-chaining proof engine with unification |
-| `logos_core/` | Runtime library for generated code |
+Logicaffeine uses a tiered crate design:
+
+| Tier | Crate | Purpose |
+|------|-------|---------|
+| 0 | `logicaffeine_base` | Arena allocation, tokens, spans |
+| 0 | `logicaffeine_kernel` | Pure type theory (Calculus of Constructions) |
+| 0 | `logicaffeine_data` | CRDTs, data structures (WASM-safe, no IO) |
+| 1 | `logicaffeine_lexicon` | English vocabulary (compiled from lexicon.json) |
+| 1 | `logicaffeine_system` | Platform IO: networking, persistence, VFS |
+| 2 | `logicaffeine_language` | Parser, AST, FOL transpiler |
+| 2 | `logicaffeine_compile` | Rust codegen, interpreter |
+| 3 | `logicaffeine_proof` | Backward-chaining proof engine |
+| 3 | `logicaffeine_verify` | Z3 verification (optional, excluded from workspace) |
+
+**Applications:**
+- `apps/logicaffeine_cli` - The `largo` command-line tool
+- `apps/logicaffeine_web` - Browser-based IDE (Dioxus/WASM)
+
+The main `logos` crate re-exports all functionality for backwards compatibility.
 
 ### Design Highlights
 

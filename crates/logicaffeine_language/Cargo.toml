@@ -1,0 +1,23 @@
+[package]
+name = "logicaffeine-language"
+version = "0.6.0"
+edition = "2021"
+description = "Natural language to first-order logic pipeline"
+license = "BUSL-1.1"
+build = "build.rs"
+
+[dependencies]
+logicaffeine-base = { path = "../logicaffeine_base" }
+logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
+logicaffeine-proof = { path = "../logicaffeine_proof" }
+
+# Arena allocation
+bumpalo = "3.19"
+
+[build-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[features]
+default = []
+dynamic-lexicon = ["logicaffeine-lexicon/dynamic-lexicon"]

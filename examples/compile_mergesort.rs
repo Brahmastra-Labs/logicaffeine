@@ -1,4 +1,4 @@
-use logos::compile::compile_to_rust;
+use logicaffeine_compile::compile::compile_to_rust;
 
 fn main() {
     let source = r#"## To Merge (left: Seq of Int) and (right: Seq of Int) -> Seq of Int:

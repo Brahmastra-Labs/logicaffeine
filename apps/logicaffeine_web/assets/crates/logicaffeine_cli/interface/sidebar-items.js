@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Command","InterfaceError","ParseError"],"fn":["parse_command"],"mod":["literate_parser"],"struct":["Repl","TermParser"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["walk_expr","walk_np","walk_term"],"trait":["Visitor"]};

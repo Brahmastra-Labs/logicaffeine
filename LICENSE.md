@@ -3,8 +3,8 @@ Business Source License 1.1
 Parameters
 
 Licensor:             Brahmastra Labs LLC
-Licensed Work:        Logos 0.1.0
-                      The Licensed Work is (c) 2025 Brahmastra Labs LLC
+Licensed Work:        Logos 0.6.0
+                      The Licensed Work is (c) 2026 Brahmastra Labs LLC
 Additional Use Grant: You may make use of the Licensed Work, provided that
                       you may not use the Licensed Work for a Logic Service
                       unless you are an individual or an organization with

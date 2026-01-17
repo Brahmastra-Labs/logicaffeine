@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["KripkeFormatter","LatexFormatter","RustFormatter","SimpleFOLFormatter","UnicodeFormatter"],"trait":["LogicFormatter"]};

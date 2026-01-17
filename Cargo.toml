@@ -1,75 +1,50 @@
-[package]
-name = "logos"
-version = "0.5.5"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "crates/logicaffeine_base",
+    "crates/logicaffeine_lexicon",
+    "crates/logicaffeine_kernel",
+    "crates/logicaffeine_data",
+    "crates/logicaffeine_system",
+    "crates/logicaffeine_language",
+    "crates/logicaffeine_proof",
+    "crates/logicaffeine_compile",
+    "crates/logicaffeine_tests",
+    "apps/logicaffeine_cli",
+    "apps/logicaffeine_web",
+]
+exclude = ["crates/logicaffeine_verify"]
+
+[workspace.package]
 authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
-license = "BUSL-1.1"
-description = "English-to-Logic Transpiler targeting Logicaffeine notation"
+license = "MIT"
 repository = "https://github.com/Brahmastra-Labs/logicaffeine"
 homepage = "https://logicaffeine.com"
-keywords = ["logic", "transpiler", "natural-language", "fol", "compiler"]
-categories = ["compilers", "development-tools"]
-build = "build.rs"
+documentation = "https://docs.rs/logicaffeine"
+keywords = ["logic", "proof-assistant", "theorem-prover", "first-order-logic", "formal-methods"]
+categories = ["mathematics", "compilers", "science"]
+edition = "2021"
+rust-version = "1.75"
 
-[[bin]]
-name = "logos"
-path = "src/main.rs"
+[workspace.lints.rust]
+missing_docs = "warn"
 
-[[bin]]
-name = "largo"
-path = "src/main.rs"
-required-features = ["cli"]
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+bare_urls = "warn"
 
-[workspace]
-exclude = ["logos_core", "logos_verification"]
-
-[dependencies]
-bumpalo = "3.19.1"
-dioxus = { version = "0.6", features = ["web", "router"] }
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-web-sys = { version = "0.3", features = [
-    "Document", "Element", "HtmlElement", "Window", "History",
-    "HtmlDivElement", "Event", "KeyboardEvent", "InputEvent",
-    "Storage", "Navigator", "Clipboard", "UrlSearchParams",
-    "IntersectionObserver", "IntersectionObserverInit", "IntersectionObserverEntry",
-    "DomRect", "ScrollIntoViewOptions", "ScrollBehavior", "ScrollLogicalPosition",
-    "ScrollToOptions"
-] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-getrandom = { version = "0.2", features = ["js"] }
-rand = "0.8"
-include_dir = "0.7"
-gloo-timers = { version = "0.3", features = ["futures"] }
-gloo-net = "0.6"
-wasm-bindgen-futures = "0.4"
-# Phase 55: logos_core for VFS and Persistent<T> in interpreter
-logos_core = { path = "./logos_core" }
-# Phase 55: async-recursion for clean async interpreter
-async-recursion = "1.1"
-clap = { version = "4.4", features = ["derive"], optional = true }
-toml = { version = "0.8", optional = true }
-ureq = { version = "2.9", features = ["json"], optional = true }
-flate2 = { version = "1.0", optional = true }
-tar = { version = "0.4", optional = true }
-dirs = { version = "5.0", optional = true }
-logos_verification = { path = "./logos_verification", optional = true }
-
-[features]
-default = []
-cli = ["clap", "toml", "ureq", "flate2", "tar", "dirs"]
-verification = ["logos_verification"]
-
-[build-dependencies]
+[workspace.dependencies]
+bumpalo = "3.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-[dev-dependencies]
-tempfile = "3"
-toml = "0.8"
-bincode = "1.3"
-futures = "0.3"
+# KNUTH DOCUMENTATION STANDARD (Section 1.8)
+[workspace.metadata.docs.rs]
+all-features = false
+features = ["cli"]
+cargo-args = ["--workspace"]
+rustdoc-args = ["--document-private-items", "--enable-index-page", "-Zunstable-options"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [profile]
 

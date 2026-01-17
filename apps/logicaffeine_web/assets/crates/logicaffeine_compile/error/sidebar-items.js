@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ParseErrorKind"],"fn":["socratic_explanation"],"struct":["ParseError"]};

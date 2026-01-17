@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-01-17
+
+Initial crates.io release with lockstep versioning.
+
+### Changed
+
+- Synchronized all crate versions to 0.6.0 (lockstep versioning)
+- Added CHANGELOG.md to every crate
+- Added VERSIONING.md with release process documentation
+
 ## [0.5.5] - 2026-01-01
 
 First public release.

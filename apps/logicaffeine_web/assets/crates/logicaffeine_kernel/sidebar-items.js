@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["KernelError","Literal","Term","Universe"],"fn":["infer_type","is_subtype","normalize"],"mod":["cc","interface","lia","omega","positivity","prelude","ring","simp","termination"],"struct":["Context"],"type":["KernelResult"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["parse_definition","parse_inductive","parse_let_definition","parse_theorem"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["VfsError"],"fn":["get_platform_vfs"],"struct":["DirEntry","NativeVfs"],"trait":["Vfs"],"type":["PlatformVfs","VfsResult"]};

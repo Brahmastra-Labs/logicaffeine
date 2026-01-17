@@ -1,0 +1,21 @@
+[package]
+name = "logicaffeine-lexicon"
+version = "0.6.0"
+edition = "2021"
+description = "English vocabulary types and compile-time lexicon lookup for logicaffeine"
+license = "BUSL-1.1"
+
+[dependencies]
+logicaffeine-base = { path = "../logicaffeine_base" }
+
+# For dynamic-lexicon feature (runtime JSON loading)
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+rand = { version = "0.8", optional = true }
+
+[features]
+default = []
+dynamic-lexicon = ["serde", "serde_json", "rand"]
+
+[package.metadata.docs.rs]
+features = ["dynamic-lexicon"]

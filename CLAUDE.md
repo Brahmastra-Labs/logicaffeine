@@ -96,7 +96,7 @@ Changes to lexicon.json require `cargo build` to regenerate.
 cargo test           # Run tests
 cargo build          # Build
 cargo run            # REPL mode
-./generate-docs.sh   # Regenerate docs
+./scripts/generate-docs.sh   # Regenerate docs
 ```
 
 ## Feature Flags
@@ -190,7 +190,7 @@ Compare source code against documentation:
 
 ### 3. Checklist
 
-Before running `./generate-docs.sh`:
+Before running `./scripts/generate-docs.sh`:
 - [ ] Table of Contents matches actual phases
 - [ ] All test phases have `add_test_description` entries
 - [ ] All src/*.rs files have `add_file` entries
@@ -201,7 +201,7 @@ Before running `./generate-docs.sh`:
 
 ### 4. Verification
 
-After running `./generate-docs.sh`:
+After running `./scripts/generate-docs.sh`:
 ```bash
 # Verify new content appears
 grep -n "Phase 13\|Phase 14\|<new-feature>" LOGOS_DOCUMENTATION.md

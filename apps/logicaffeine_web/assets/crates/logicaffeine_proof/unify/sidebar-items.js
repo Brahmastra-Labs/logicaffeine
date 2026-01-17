@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["apply_subst_to_expr","apply_subst_to_term","beta_reduce","compose_substitutions","unify_exprs","unify_pattern","unify_terms"],"type":["ExprSubstitution","Substitution"]};

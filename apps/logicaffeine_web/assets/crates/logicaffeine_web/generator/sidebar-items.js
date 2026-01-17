@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AnswerType"],"struct":["Challenge","Generator"]};

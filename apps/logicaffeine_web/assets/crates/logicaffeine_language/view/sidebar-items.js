@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ExprView","NumberKindView","TermView"],"struct":["NounPhraseView"],"trait":["Resolve"]};

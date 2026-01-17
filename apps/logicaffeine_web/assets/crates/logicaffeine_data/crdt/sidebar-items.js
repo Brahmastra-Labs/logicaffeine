@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["generate_replica_id"],"mod":["causal","sequence"],"struct":["AddWins","DeltaBuffer","GCounter","LWWRegister","MVRegister","ORMap","ORSet","PNCounter","RemoveWins"],"trait":["DeltaCrdt","Merge","SetBias"],"type":["ReplicaId"]};

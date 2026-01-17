@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["StruggleReason"],"struct":["StruggleConfig","StruggleDetector"]};

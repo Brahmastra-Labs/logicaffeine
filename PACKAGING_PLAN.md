@@ -1,5 +1,6 @@
 # Logicaffeine: Tiered Crates Architecture Plan
-
+ REMEMBER STRANGLER FIG
+ 
 ## 1. Executive Vision
 
 To elevate `logicaffeine` from a monolithic research prototype into a **production-grade language ecosystem**. We adopt a **"Tiered Crates"** architecture that respects natural module coupling boundaries, enabling users to pull in only what they need while keeping tightly-coupled modules together.

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BoxType","Case","Gender","Number","OwnershipState","ReferentSource","ScopeError","ScopePath","TimeRelation"],"struct":["Drs","DrsBox","ModalContext","Referent","TelescopeCandidate","TimeConstraint","WorldState"]};

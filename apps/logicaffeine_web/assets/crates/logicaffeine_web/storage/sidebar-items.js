@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["clear","load_raw","save_raw"]};

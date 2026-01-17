@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SymbolKind"],"fn":["extract_symbols","group_symbols_by_kind"],"struct":["SymbolEntry"]};

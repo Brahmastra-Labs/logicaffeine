@@ -1,0 +1,113 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Reusable mobile tab bar styles - use for any tabbed interface on mobile"><title>MOBILE_TAB_BAR_STYLES in logicaffeine_web::ui::responsive - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../static.files/rustdoc-1a91846b.css"><meta name="rustdoc-vars" data-root-path="../../../" data-static-root-path="../../../static.files/" data-current-crate="logicaffeine_web" data-themes="" data-resource-suffix="" data-rustdoc-version="1.88.0 (6b00bc388 2025-06-23)" data-channel="1.88.0" data-search-js="search-f7877310.js" data-settings-js="settings-5514c975.js" ><script src="../../../static.files/storage-4e99c027.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../../static.files/main-7ef8a74a.js"></script><noscript><link rel="stylesheet" href="../../../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../../../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../../../static.files/favicon-044be391.svg"></head><body class="rustdoc constant"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../logicaffeine_web/index.html">logicaffeine_<wbr>web</a><span class="version">0.6.0</span></h2></div><div class="sidebar-elems"><div id="rustdoc-modnav"><h2><a href="index.html">In logicaffeine_<wbr>web::<wbr>ui::<wbr>responsive</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../index.html">logicaffeine_web</a>::<wbr><a href="../index.html">ui</a>::<wbr><a href="index.html">responsive</a></div><h1>Constant <span class="constant">MOBILE_TAB_BAR_STYLES</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../src/logicaffeine_web/ui/responsive.rs.html#199-310">Source</a> </span></div><pre class="rust item-decl"><code>pub const MOBILE_TAB_BAR_STYLES: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.88.0/std/primitive.str.html">str</a> = r#&quot;
+/* Mobile Tab Bar Container */
+.mobile-tabs {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .mobile-tabs {
+        display: flex;
+        gap: 4px;
+        padding: 8px var(--mobile-padding, 12px);
+        background: rgba(0, 0, 0, 0.4);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        flex-shrink: 0;
+        /* Hide scrollbar but keep functionality */
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .mobile-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Individual Tab Button */
+    .mobile-tab {
+        flex: 1;
+        min-width: 0;
+        padding: 10px 8px;
+        border: none;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        color: #888;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        min-height: var(--touch-min, 44px);
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-tab-icon {
+        font-size: 18px;
+        line-height: 1;
+    }
+
+    .mobile-tab-label {
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100%;
+    }
+
+    .mobile-tab:active {
+        background: rgba(255, 255, 255, 0.15);
+        transform: scale(0.97);
+    }
+
+    .mobile-tab.active {
+        background: rgba(102, 126, 234, 0.25);
+        color: #e8e8e8;
+        border: 1px solid rgba(102, 126, 234, 0.4);
+    }
+
+    /* Tab indicator dots (optional, for swipe hint) */
+    .mobile-tab-indicator {
+        display: flex;
+        justify-content: center;
+        gap: 6px;
+        padding: 6px;
+        background: rgba(0, 0, 0, 0.2);
+    }
+
+    .mobile-tab-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        transition: all 0.2s ease;
+    }
+
+    .mobile-tab-dot.active {
+        background: #667eea;
+        width: 18px;
+        border-radius: 3px;
+    }
+}
+
+/* Landscape mobile - horizontal tab layout */
+@media (max-height: 500px) and (orientation: landscape) {
+    .mobile-tabs {
+        padding: 4px 8px;
+    }
+
+    .mobile-tab {
+        padding: 6px 12px;
+        flex-direction: row;
+        gap: 6px;
+        min-height: 36px;
+    }
+
+    .mobile-tab-icon {
+        font-size: 16px;
+    }
+}
+&quot;#;</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Reusable mobile tab bar styles - use for any tabbed interface on mobile</p>
+</div></details></section></div></main></body></html>

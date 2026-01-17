@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["logic_expr_to_proof_expr","term_to_proof_term"]};

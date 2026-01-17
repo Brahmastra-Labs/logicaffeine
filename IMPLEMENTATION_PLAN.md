@@ -41,7 +41,7 @@ Create the `/logos/` directory with standalone `Cargo.toml`:
 name = "logos"
 version = "0.1.0"
 edition = "2021"
-authors = ["Logicaffeine Team"]
+authors = ["Tristen Harr <tristen@brahmastra-labs.com>"]
 license = "BSL"
 description = "English-to-Logic Transpiler targeting Logicaffeine notation"
 
