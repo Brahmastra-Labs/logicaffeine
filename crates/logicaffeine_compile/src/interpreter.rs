@@ -34,6 +34,8 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use async_recursion::async_recursion;
 
@@ -43,6 +45,10 @@ use crate::analysis::{PolicyRegistry, PolicyCondition};
 
 // VFS imports for async file operations
 use logicaffeine_system::fs::Vfs;
+
+/// Callback type for streaming output from the interpreter.
+/// Called each time `Show` executes with the output line.
+pub type OutputCallback = Rc<RefCell<dyn FnMut(String)>>;
 
 /// Runtime values during LOGOS interpretation.
 ///
@@ -95,6 +101,19 @@ pub enum RuntimeValue {
     },
     /// Unit/void value representing absence of a meaningful value.
     Nothing,
+    /// Duration in nanoseconds (signed for negative offsets like "5 minutes early").
+    Duration(i64),
+    /// Date as days since Unix epoch (1970-01-01).
+    Date(i32),
+    /// Moment as nanoseconds since Unix epoch.
+    Moment(i64),
+    /// Calendar span with separate month and day components.
+    /// Months and days are kept separate because they're incommensurable
+    /// (1 month = 28-31 days depending on the month).
+    Span { months: i32, days: i32 },
+    /// Time-of-day as nanoseconds from midnight (00:00:00).
+    /// Range: 0 to 86_399_999_999_999 (just under 24 hours).
+    Time(i64),
 }
 
 impl RuntimeValue {
@@ -115,6 +134,11 @@ impl RuntimeValue {
             RuntimeValue::Struct { .. } => "Struct",
             RuntimeValue::Inductive { inductive_type, .. } => inductive_type.as_str(),
             RuntimeValue::Nothing => "Nothing",
+            RuntimeValue::Duration(_) => "Duration",
+            RuntimeValue::Date(_) => "Date",
+            RuntimeValue::Moment(_) => "Moment",
+            RuntimeValue::Span { .. } => "Span",
+            RuntimeValue::Time(_) => "Time",
         }
     }
 
@@ -189,6 +213,108 @@ impl RuntimeValue {
                 }
             }
             RuntimeValue::Nothing => "nothing".to_string(),
+            RuntimeValue::Duration(nanos) => {
+                // Format durations nicely based on magnitude
+                let abs_nanos = nanos.unsigned_abs();
+                let sign = if *nanos < 0 { "-" } else { "" };
+                if abs_nanos >= 3_600_000_000_000 {
+                    // Hours
+                    format!("{}{}h", sign, abs_nanos / 3_600_000_000_000)
+                } else if abs_nanos >= 60_000_000_000 {
+                    // Minutes
+                    format!("{}{}min", sign, abs_nanos / 60_000_000_000)
+                } else if abs_nanos >= 1_000_000_000 {
+                    // Seconds
+                    format!("{}{}s", sign, abs_nanos / 1_000_000_000)
+                } else if abs_nanos >= 1_000_000 {
+                    // Milliseconds
+                    format!("{}{}ms", sign, abs_nanos / 1_000_000)
+                } else if abs_nanos >= 1_000 {
+                    // Microseconds
+                    format!("{}{}μs", sign, abs_nanos / 1_000)
+                } else {
+                    // Nanoseconds
+                    format!("{}{}ns", sign, abs_nanos)
+                }
+            }
+            RuntimeValue::Date(days) => {
+                // Convert days since epoch to YYYY-MM-DD format
+                // Using Howard Hinnant's algorithm
+                let z = *days as i64 + 719468; // shift epoch
+                let era = if z >= 0 { z } else { z - 146096 } / 146097;
+                let doe = z - era * 146097;
+                let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+                let y = yoe + era * 400;
+                let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+                let mp = (5 * doy + 2) / 153;
+                let d = doy - (153 * mp + 2) / 5 + 1;
+                let m = mp + if mp < 10 { 3 } else { -9 };
+                let year = y + if m <= 2 { 1 } else { 0 };
+                format!("{:04}-{:02}-{:02}", year, m, d)
+            }
+            RuntimeValue::Moment(nanos) => {
+                // Convert nanoseconds since epoch to ISO-8601-like datetime
+                let total_seconds = *nanos / 1_000_000_000;
+                let days = (total_seconds / 86400) as i32;
+                let day_seconds = total_seconds % 86400;
+                let hours = day_seconds / 3600;
+                let minutes = (day_seconds % 3600) / 60;
+
+                // Convert days since epoch to YYYY-MM-DD using Howard Hinnant's algorithm
+                let z = days as i64 + 719468;
+                let era = if z >= 0 { z } else { z - 146096 } / 146097;
+                let doe = z - era * 146097;
+                let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+                let y = yoe + era * 400;
+                let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+                let mp = (5 * doy + 2) / 153;
+                let d = doy - (153 * mp + 2) / 5 + 1;
+                let m = mp + if mp < 10 { 3 } else { -9 };
+                let year = y + if m <= 2 { 1 } else { 0 };
+
+                format!("{:04}-{:02}-{:02} {:02}:{:02}", year, m, d, hours, minutes)
+            }
+            RuntimeValue::Span { months, days } => {
+                // Format span with years, months, and days
+                let mut parts = Vec::new();
+
+                // Extract years from months
+                let years = *months / 12;
+                let remaining_months = *months % 12;
+
+                if years != 0 {
+                    parts.push(if years.abs() == 1 {
+                        format!("{} year", years)
+                    } else {
+                        format!("{} years", years)
+                    });
+                }
+
+                if remaining_months != 0 {
+                    parts.push(if remaining_months.abs() == 1 {
+                        format!("{} month", remaining_months)
+                    } else {
+                        format!("{} months", remaining_months)
+                    });
+                }
+
+                if *days != 0 || parts.is_empty() {
+                    parts.push(if days.abs() == 1 {
+                        format!("{} day", days)
+                    } else {
+                        format!("{} days", days)
+                    });
+                }
+
+                parts.join(" and ")
+            }
+            RuntimeValue::Time(nanos) => {
+                // Convert nanoseconds from midnight to HH:MM format
+                let total_seconds = *nanos / 1_000_000_000;
+                let hours = total_seconds / 3600;
+                let minutes = (total_seconds % 3600) / 60;
+                format!("{:02}:{:02}", hours, minutes)
+            }
         }
     }
 }
@@ -241,6 +367,8 @@ pub struct Interpreter<'a> {
     kernel_ctx: Option<Arc<crate::kernel::Context>>,
     /// Policy registry for security predicate/capability checks.
     policy_registry: Option<PolicyRegistry>,
+    /// Optional callback for streaming output (called on each Show)
+    output_callback: Option<OutputCallback>,
 }
 
 impl<'a> Interpreter<'a> {
@@ -254,6 +382,7 @@ impl<'a> Interpreter<'a> {
             vfs: None,
             kernel_ctx: None,
             policy_registry: None,
+            output_callback: None,
         }
     }
 
@@ -276,6 +405,21 @@ impl<'a> Interpreter<'a> {
     pub fn with_policies(mut self, registry: PolicyRegistry) -> Self {
         self.policy_registry = Some(registry);
         self
+    }
+
+    /// Set a callback for streaming output.
+    /// The callback is called each time `Show` executes, with the output line.
+    pub fn with_output_callback(mut self, callback: OutputCallback) -> Self {
+        self.output_callback = Some(callback);
+        self
+    }
+
+    /// Internal helper to emit output (calls callback if set, always adds to output vec)
+    fn emit_output(&mut self, line: String) {
+        if let Some(ref callback) = self.output_callback {
+            (callback.borrow_mut())(line.clone());
+        }
+        self.output.push(line);
     }
 
     /// Phase 102: Check if a name is a kernel inductive type.
@@ -588,7 +732,7 @@ impl<'a> Interpreter<'a> {
                 if let Expr::Identifier(sym) = recipient {
                     let name = self.interner.resolve(*sym);
                     if name == "show" {
-                        self.output.push(obj_val.to_display_string());
+                        self.emit_output(obj_val.to_display_string());
                     } else {
                         self.call_function_with_values(*sym, vec![obj_val]).await?;
                     }
@@ -827,9 +971,32 @@ impl<'a> Interpreter<'a> {
             Stmt::LetPeerAgent { .. } => {
                 Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
             }
-            Stmt::Sleep { .. } => {
-                // Phase 55: Sleep could be implemented with gloo-timers on WASM
-                Err("Sleep is not yet supported in the interpreter.".to_string())
+            Stmt::Sleep { milliseconds } => {
+                let val = self.evaluate_expr(milliseconds).await?;
+                let nanos = match val {
+                    RuntimeValue::Duration(nanos) => nanos,
+                    RuntimeValue::Int(ms) => ms * 1_000_000, // Convert ms to nanos
+                    _ => return Err(format!("Sleep requires Duration or Int, got {}", val.type_name())),
+                };
+
+                if nanos > 0 {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        // Use tokio re-exported from logicaffeine_system
+                        logicaffeine_system::tokio::time::sleep(
+                            std::time::Duration::from_nanos(nanos as u64)
+                        ).await;
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // On WASM, use gloo-timers for async sleep
+                        let millis = (nanos / 1_000_000) as u32;
+                        if millis > 0 {
+                            gloo_timers::future::TimeoutFuture::new(millis).await;
+                        }
+                    }
+                }
+                Ok(ControlFlow::Continue)
             }
             Stmt::Sync { .. } => {
                 Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
@@ -961,6 +1128,37 @@ impl<'a> Interpreter<'a> {
             Expr::Literal(lit) => self.evaluate_literal(lit),
 
             Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                // Handle temporal builtins
+                match name {
+                    "today" => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            use std::time::{SystemTime, UNIX_EPOCH};
+                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                            let days = (duration.as_secs() / 86400) as i32;
+                            return Ok(RuntimeValue::Date(days));
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            return Ok(RuntimeValue::Date(0)); // Placeholder for WASM
+                        }
+                    }
+                    "now" => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            use std::time::{SystemTime, UNIX_EPOCH};
+                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                            let nanos = duration.as_nanos() as i64;
+                            return Ok(RuntimeValue::Moment(nanos));
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            return Ok(RuntimeValue::Moment(0)); // Placeholder for WASM
+                        }
+                    }
+                    _ => {}
+                }
                 self.lookup(*sym).cloned()
             }
 
@@ -1212,6 +1410,11 @@ impl<'a> Interpreter<'a> {
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),
             Literal::Char(c) => Ok(RuntimeValue::Char(*c)),
+            Literal::Duration(nanos) => Ok(RuntimeValue::Duration(*nanos)),
+            Literal::Date(days) => Ok(RuntimeValue::Date(*days)),
+            Literal::Moment(nanos) => Ok(RuntimeValue::Moment(*nanos)),
+            Literal::Span { months, days } => Ok(RuntimeValue::Span { months: *months, days: *days }),
+            Literal::Time(nanos) => Ok(RuntimeValue::Time(*nanos)),
         }
     }
 
@@ -1245,6 +1448,13 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", a, b))),
             (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(format!("{}{}", a, other.to_display_string()))),
             (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
+            // Duration arithmetic
+            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Duration(a + b)),
+            // Date + Span → Date (calendar-aware)
+            (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
+                let result_days = Self::date_add_span(*days, *months, *span_days);
+                Ok(RuntimeValue::Date(result_days))
+            }
             _ => Err(format!("Cannot add {} and {}", left.type_name(), right.type_name())),
         }
     }
@@ -1260,6 +1470,13 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a - b)),
             (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 - b)),
             (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a - *b as f64)),
+            // Duration subtraction
+            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Duration(a - b)),
+            // Date - Span → Date (calendar-aware)
+            (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
+                let result_days = Self::date_add_span(*days, -*months, -*span_days);
+                Ok(RuntimeValue::Date(result_days))
+            }
             _ => Err(format!("Cannot subtract {} from {}", right.type_name(), left.type_name())),
         }
     }
@@ -1316,12 +1533,91 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    /// Add months and days to a date (calendar-aware).
+    /// Uses Howard Hinnant's date algorithms for correct month-end handling.
+    fn date_add_span(days_since_epoch: i32, months: i32, days: i32) -> i32 {
+        // Convert days since epoch to (year, month, day)
+        // Using Howard Hinnant's algorithm (same as in to_display_string)
+        let z = days_since_epoch + 719468;
+        let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+        let doe = (z - era * 146097) as u32;
+        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+        let y = yoe as i32 + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let mut year = y + if m <= 2 { 1 } else { 0 };
+        let mut month = m as i32;
+        let mut day = d as i32;
+
+        // Add months
+        let total_months = (year * 12 + month - 1) + months;
+        year = total_months / 12;
+        month = total_months % 12 + 1;
+        if month <= 0 {
+            month += 12;
+            year -= 1;
+        }
+
+        // Clamp day to valid range for new month
+        let days_in_month = Self::days_in_month(year, month);
+        if day > days_in_month {
+            day = days_in_month;
+        }
+
+        // Convert back to days since epoch
+        let yp = year - if month <= 2 { 1 } else { 0 };
+        let era2 = if yp >= 0 { yp / 400 } else { (yp - 399) / 400 };
+        let yoe2 = (yp - era2 * 400) as u32;
+        let mp2 = if month > 2 { month as u32 - 3 } else { month as u32 + 9 };
+        let doy2 = (153 * mp2 + 2) / 5 + day as u32 - 1;
+        let doe2 = yoe2 * 365 + yoe2 / 4 - yoe2 / 100 + doy2;
+        let result = era2 * 146097 + doe2 as i32 - 719468;
+
+        // Add days
+        result + days
+    }
+
+    /// Get the number of days in a given month (1-indexed).
+    fn days_in_month(year: i32, month: i32) -> i32 {
+        match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 => {
+                // Leap year check
+                let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+                if is_leap { 29 } else { 28 }
+            }
+            _ => 30, // Fallback
+        }
+    }
+
     fn apply_comparison<F>(&self, left: RuntimeValue, right: RuntimeValue, cmp: F) -> Result<RuntimeValue, String>
     where
         F: Fn(i64, i64) -> bool,
     {
         match (&left, &right) {
             (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            // Duration comparison (nanoseconds)
+            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            // Date comparison (days)
+            (RuntimeValue::Date(a), RuntimeValue::Date(b)) => Ok(RuntimeValue::Bool(cmp(*a as i64, *b as i64))),
+            // Moment comparison (nanoseconds)
+            (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            // Time-of-day comparison (nanoseconds from midnight)
+            (RuntimeValue::Time(a), RuntimeValue::Time(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            // Moment vs Time: extract time-of-day from Moment
+            (RuntimeValue::Moment(m), RuntimeValue::Time(t)) => {
+                let nanos_per_day = 86_400_000_000_000i64;
+                let moment_tod = *m % nanos_per_day;
+                Ok(RuntimeValue::Bool(cmp(moment_tod, *t)))
+            }
+            (RuntimeValue::Time(t), RuntimeValue::Moment(m)) => {
+                let nanos_per_day = 86_400_000_000_000i64;
+                let moment_tod = *m % nanos_per_day;
+                Ok(RuntimeValue::Bool(cmp(*t, moment_tod)))
+            }
             _ => Err(format!("Cannot compare {} and {}", left.type_name(), right.type_name())),
         }
     }
@@ -1334,6 +1630,14 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
             (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
             (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+            // Temporal type equality
+            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => a == b,
+            (RuntimeValue::Date(a), RuntimeValue::Date(b)) => a == b,
+            (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => a == b,
+            (RuntimeValue::Span { months: m1, days: d1 }, RuntimeValue::Span { months: m2, days: d2 }) => {
+                m1 == m2 && d1 == d2
+            }
+            (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
             // Phase 102: Inductive equality - same type, same constructor, equal args
             (RuntimeValue::Inductive { inductive_type: t1, constructor: c1, args: a1 },
              RuntimeValue::Inductive { inductive_type: t2, constructor: c2, args: a2 }) => {
@@ -1354,7 +1658,7 @@ impl<'a> Interpreter<'a> {
             "show" => {
                 for arg in args {
                     let val = self.evaluate_expr(arg).await?;
-                    self.output.push(val.to_display_string());
+                    self.emit_output(val.to_display_string());
                 }
                 return Ok(RuntimeValue::Nothing);
             }
@@ -1474,7 +1778,7 @@ impl<'a> Interpreter<'a> {
         // Handle built-in "show"
         if func_name == "show" {
             for val in args {
-                self.output.push(val.to_display_string());
+                self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
         }

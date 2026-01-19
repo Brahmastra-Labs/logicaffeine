@@ -36,7 +36,7 @@
 
 use logicaffeine_base::Interner;
 use crate::lexicon::{self, Aspect, Definiteness, Lexicon, Time};
-use crate::token::{BlockType, FocusKind, MeasureKind, Span, Token, TokenType};
+use crate::token::{BlockType, CalendarUnit, FocusKind, MeasureKind, Span, Token, TokenType};
 
 // ============================================================================
 // Stage 1: Line Lexer (Spec §2.5.2)
@@ -697,6 +697,16 @@ impl<'a> Lexer<'a> {
                     skip_count = 1;
                     word_start = i + 2;
                 }
+                // Special handling for '-' in ISO-8601 dates (YYYY-MM-DD)
+                '-' if Self::is_date_hyphen(&current_word, &chars, char_idx) => {
+                    // This hyphen is part of a date, include it in the word
+                    current_word.push(c);
+                }
+                // Special handling for ':' in time literals (9:30am, 11:45pm)
+                ':' if Self::is_time_colon(&current_word, &chars, char_idx) => {
+                    // This colon is part of a time, include it in the word
+                    current_word.push(c);
+                }
                 '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
                     if !current_word.is_empty() {
                         items.push(WordItem {
@@ -1181,6 +1191,88 @@ impl<'a> Lexer<'a> {
         lexicon::word_to_number(&word.to_lowercase())
     }
 
+    /// Check if a hyphen at the current position is part of an ISO-8601 date.
+    ///
+    /// Detects patterns like:
+    /// - "2026-" followed by "05-20" → first hyphen of date
+    /// - "2026-05-" followed by "20" → second hyphen of date
+    fn is_date_hyphen(current_word: &str, chars: &[char], char_idx: usize) -> bool {
+        // Current word must be all digits (year or year-month)
+        let word_chars: Vec<char> = current_word.chars().collect();
+
+        // Check for first hyphen pattern: YYYY- followed by MM-DD
+        if word_chars.len() == 4 && word_chars.iter().all(|c| c.is_ascii_digit()) {
+            // Check if followed by exactly 2 digits, hyphen, 2 digits
+            if char_idx + 5 < chars.len()
+                && chars[char_idx + 1].is_ascii_digit()
+                && chars[char_idx + 2].is_ascii_digit()
+                && chars[char_idx + 3] == '-'
+                && chars[char_idx + 4].is_ascii_digit()
+                && chars[char_idx + 5].is_ascii_digit()
+            {
+                return true;
+            }
+        }
+
+        // Check for second hyphen pattern: YYYY-MM- followed by DD
+        if word_chars.len() == 7
+            && word_chars[0..4].iter().all(|c| c.is_ascii_digit())
+            && word_chars[4] == '-'
+            && word_chars[5..7].iter().all(|c| c.is_ascii_digit())
+        {
+            // Check if followed by exactly 2 digits
+            if char_idx + 2 < chars.len()
+                && chars[char_idx + 1].is_ascii_digit()
+                && chars[char_idx + 2].is_ascii_digit()
+            {
+                // Make sure we're not followed by more digits (would be a longer number)
+                let next_not_digit = char_idx + 3 >= chars.len()
+                    || !chars[char_idx + 3].is_ascii_digit();
+                if next_not_digit {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a colon is part of a time literal (e.g., 9:30am, 11:45pm).
+    ///
+    /// Detects patterns like:
+    /// - "9:" followed by "30am" or "30pm"
+    /// - "11:" followed by "45pm"
+    fn is_time_colon(current_word: &str, chars: &[char], char_idx: usize) -> bool {
+        // Current word must be 1-2 digits (hour)
+        let word_chars: Vec<char> = current_word.chars().collect();
+        if word_chars.is_empty() || word_chars.len() > 2 {
+            return false;
+        }
+        if !word_chars.iter().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+
+        // Check if followed by exactly 2 digits and then "am" or "pm"
+        if char_idx + 4 < chars.len()
+            && chars[char_idx + 1].is_ascii_digit()
+            && chars[char_idx + 2].is_ascii_digit()
+        {
+            // Check for "am" or "pm" suffix
+            let next_two: String = chars[char_idx + 3..char_idx + 5].iter().collect();
+            let lower = next_two.to_lowercase();
+            if lower == "am" || lower == "pm" {
+                // Make sure we're not followed by more alphabetic chars
+                let after_suffix = char_idx + 5 >= chars.len()
+                    || !chars[char_idx + 5].is_alphabetic();
+                if after_suffix {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     fn is_numeric_literal(word: &str) -> bool {
         if word.is_empty() {
             return false;
@@ -1209,6 +1301,151 @@ impl<'a> Lexer<'a> {
             }
         }
         false
+    }
+
+    /// Parse a duration literal with SI suffix.
+    ///
+    /// Returns Some((nanoseconds, unit_str)) if the word is a valid duration literal,
+    /// None otherwise.
+    ///
+    /// Supported suffixes:
+    /// - ns: nanoseconds
+    /// - us, μs: microseconds
+    /// - ms: milliseconds
+    /// - s, sec: seconds
+    /// - min: minutes
+    /// - h, hr: hours
+    fn parse_duration_literal(word: &str) -> Option<(i64, &str)> {
+        if word.is_empty() || !word.chars().next()?.is_ascii_digit() {
+            return None;
+        }
+
+        // SI suffix table with multipliers to nanoseconds
+        const SUFFIXES: &[(&str, i64)] = &[
+            ("ns", 1),
+            ("μs", 1_000),
+            ("us", 1_000),
+            ("ms", 1_000_000),
+            ("sec", 1_000_000_000),
+            ("s", 1_000_000_000),
+            ("min", 60_000_000_000),
+            ("hr", 3_600_000_000_000),
+            ("h", 3_600_000_000_000),
+        ];
+
+        // Try each suffix (longer suffixes first to avoid partial matches)
+        for (suffix, multiplier) in SUFFIXES {
+            if word.ends_with(suffix) {
+                let num_part = &word[..word.len() - suffix.len()];
+                // Parse the numeric part (may have underscore separators)
+                let cleaned: String = num_part.chars().filter(|c| *c != '_').collect();
+                if let Ok(n) = cleaned.parse::<i64>() {
+                    return Some((n.saturating_mul(*multiplier), *suffix));
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Parse an ISO-8601 date literal (YYYY-MM-DD).
+    ///
+    /// Returns Some(days_since_epoch) if the word is a valid date literal,
+    /// None otherwise.
+    fn parse_date_literal(word: &str) -> Option<i32> {
+        // Must match pattern: YYYY-MM-DD
+        if word.len() != 10 {
+            return None;
+        }
+
+        let bytes = word.as_bytes();
+
+        // Check format: 4 digits, hyphen, 2 digits, hyphen, 2 digits
+        if bytes[4] != b'-' || bytes[7] != b'-' {
+            return None;
+        }
+
+        // Parse year, month, day
+        let year: i32 = word[0..4].parse().ok()?;
+        let month: u32 = word[5..7].parse().ok()?;
+        let day: u32 = word[8..10].parse().ok()?;
+
+        // Basic validation
+        if month < 1 || month > 12 || day < 1 || day > 31 {
+            return None;
+        }
+
+        // Convert to days since Unix epoch using Howard Hinnant's algorithm
+        // https://howardhinnant.github.io/date_algorithms.html
+        let y = if month <= 2 { year - 1 } else { year };
+        let era = if y >= 0 { y / 400 } else { (y - 399) / 400 };
+        let yoe = (y - era * 400) as u32;
+        let m = month;
+        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        let days = era * 146097 + doe as i32 - 719468;
+
+        Some(days)
+    }
+
+    /// Parse a time-of-day literal.
+    ///
+    /// Supported formats:
+    /// - 12-hour with am/pm: "4pm", "9am", "12pm"
+    /// - 12-hour with minutes: "9:30am", "11:45pm"
+    /// - Special words: "noon" (12:00), "midnight" (00:00)
+    ///
+    /// Returns Some(nanos_from_midnight) if valid, None otherwise.
+    fn parse_time_literal(word: &str) -> Option<i64> {
+        let lower = word.to_lowercase();
+
+        // Handle special time words
+        if lower == "noon" {
+            return Some(12i64 * 3600 * 1_000_000_000);
+        }
+        if lower == "midnight" {
+            return Some(0);
+        }
+
+        // Handle 12-hour formats: "4pm", "9am", "9:30am", "11:45pm"
+        let is_pm = lower.ends_with("pm");
+        let is_am = lower.ends_with("am");
+
+        if !is_pm && !is_am {
+            return None;
+        }
+
+        // Strip the am/pm suffix
+        let time_part = &lower[..lower.len() - 2];
+
+        // Check for hour:minute format
+        let (hour, minute): (i64, i64) = if let Some(colon_idx) = time_part.find(':') {
+            let hour_str = &time_part[..colon_idx];
+            let min_str = &time_part[colon_idx + 1..];
+            let h: i64 = hour_str.parse().ok()?;
+            let m: i64 = min_str.parse().ok()?;
+            (h, m)
+        } else {
+            // Just hour: "4pm", "9am"
+            let h: i64 = time_part.parse().ok()?;
+            (h, 0)
+        };
+
+        // Validate ranges
+        if hour < 1 || hour > 12 || minute < 0 || minute > 59 {
+            return None;
+        }
+
+        // Convert to 24-hour format
+        let hour_24 = if is_am {
+            if hour == 12 { 0 } else { hour }  // 12am = midnight = 0
+        } else {
+            if hour == 12 { 12 } else { hour + 12 }  // 12pm = noon = 12, 4pm = 16
+        };
+
+        // Convert to nanoseconds from midnight
+        let nanos = (hour_24 * 3600 + minute * 60) * 1_000_000_000;
+        Some(nanos)
     }
 
     fn classify_with_lookahead(&mut self, word: &str) -> TokenType {
@@ -1279,6 +1516,25 @@ impl<'a> Lexer<'a> {
 
         if let Some(n) = Self::word_to_number(&lower) {
             return TokenType::Cardinal(n);
+        }
+
+        // Check for duration literal first (e.g., "500ms", "2s", "50ns")
+        if let Some((nanos, unit)) = Self::parse_duration_literal(word) {
+            let unit_sym = self.interner.intern(unit);
+            return TokenType::DurationLiteral {
+                nanos,
+                original_unit: unit_sym,
+            };
+        }
+
+        // Check for ISO-8601 date literal (e.g., "2026-05-20")
+        if let Some(days) = Self::parse_date_literal(word) {
+            return TokenType::DateLiteral { days };
+        }
+
+        // Check for time-of-day literal (e.g., "4pm", "9:30am", "noon", "midnight")
+        if let Some(nanos_from_midnight) = Self::parse_time_literal(word) {
+            return TokenType::TimeLiteral { nanos_from_midnight };
         }
 
         if Self::is_numeric_literal(word) {
@@ -1433,6 +1689,8 @@ impl<'a> Lexer<'a> {
             "at" if self.mode == LexerMode::Imperative => return TokenType::At,
             // "into" for pipe send (must come before is_preposition check)
             "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
+            // Temporal span operator (must come before is_preposition check)
+            "before" => return TokenType::Before,
             _ => {}
         }
 
@@ -1569,6 +1827,14 @@ impl<'a> Lexer<'a> {
             "removewins" => return TokenType::RemoveWins,
             "addwins" => return TokenType::AddWins,
             "yata" => return TokenType::YATA,
+            // Calendar time unit words (Span expressions)
+            "day" | "days" => return TokenType::CalendarUnit(CalendarUnit::Day),
+            "week" | "weeks" => return TokenType::CalendarUnit(CalendarUnit::Week),
+            "month" | "months" => return TokenType::CalendarUnit(CalendarUnit::Month),
+            "year" | "years" => return TokenType::CalendarUnit(CalendarUnit::Year),
+            // Span-related keywords (note: "before" is handled earlier to avoid preposition conflict)
+            "ago" => return TokenType::Ago,
+            "hence" => return TokenType::Hence,
             "if" => return TokenType::If,
             "only" => return TokenType::Focus(FocusKind::Only),
             "even" => return TokenType::Focus(FocusKind::Even),

@@ -466,7 +466,7 @@ pub fn CodeView(
 
         div { class: "code-editor",
             div { class: "code-editor-highlight",
-                style: "position: relative; height: 100%; overflow: auto;",
+                style: "position: relative; height: 100%; overflow: auto; pointer-events: auto;",
                 for token in tokens {
                     if token.text.chars().all(|c| c.is_whitespace()) {
                         "{token.text}"

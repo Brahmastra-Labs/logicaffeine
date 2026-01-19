@@ -1787,6 +1787,27 @@ impl<'a> LiterateParser<'a> {
                     Box::new(Term::Lit(Literal::Text("Error_Float".to_string()))),
                 )
             }
+            Term::Lit(Literal::Duration(_d)) => {
+                // Duration literals - treat as error for ring (ring doesn't handle durations)
+                Term::App(
+                    Box::new(Term::Global("SName".to_string())),
+                    Box::new(Term::Lit(Literal::Text("Error_Duration".to_string()))),
+                )
+            }
+            Term::Lit(Literal::Date(_d)) => {
+                // Date literals - treat as error for ring (ring doesn't handle dates)
+                Term::App(
+                    Box::new(Term::Global("SName".to_string())),
+                    Box::new(Term::Lit(Literal::Text("Error_Date".to_string()))),
+                )
+            }
+            Term::Lit(Literal::Moment(_m)) => {
+                // Moment literals - treat as error for ring (ring doesn't handle moments)
+                Term::App(
+                    Box::new(Term::Global("SName".to_string())),
+                    Box::new(Term::Lit(Literal::Text("Error_Moment".to_string()))),
+                )
+            }
             Term::Lit(Literal::Text(s)) => {
                 // Text literals become SLit (wrapped in SName for now)
                 Term::App(

@@ -213,6 +213,9 @@ pub fn infer_type(ctx: &Context, term: &Term) -> KernelResult<Term> {
                 Literal::Int(_) => Ok(Term::Global("Int".to_string())),
                 Literal::Float(_) => Ok(Term::Global("Float".to_string())),
                 Literal::Text(_) => Ok(Term::Global("Text".to_string())),
+                Literal::Duration(_) => Ok(Term::Global("Duration".to_string())),
+                Literal::Date(_) => Ok(Term::Global("Date".to_string())),
+                Literal::Moment(_) => Ok(Term::Global("Moment".to_string())),
             }
         }
 

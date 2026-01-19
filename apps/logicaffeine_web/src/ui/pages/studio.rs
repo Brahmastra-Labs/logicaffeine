@@ -20,9 +20,10 @@
 //! Accessed via [`Route::Studio`](crate::ui::router::Route::Studio).
 
 use dioxus::prelude::*;
+use std::cell::RefCell;
 use logicaffeine_compile::{
     compile_for_ui, compile_for_proof, compile_theorem_for_ui, generate_rust_code,
-    interpret_for_ui, CompileResult, ProofCompileResult, TheoremCompileResult,
+    interpret_for_ui, interpret_streaming, CompileResult, ProofCompileResult, TheoremCompileResult,
     interpreter::InterpreterResult,
 };
 use logicaffeine_proof::{
@@ -1038,14 +1039,26 @@ pub fn Studio() -> Element {
         }
     };
 
-    // Code mode: Run button handler (interpret)
+    // Code mode: Run button handler (interpret) with streaming output
     let handle_code_run = move |_| {
         let code = code_input.read().clone();
         // Switch to Output tab (Panel2) on mobile and switch to Output mode
         active_tab.set(MobileTab::Panel2);
         code_output_mode.set(CodeOutputMode::Interpret);
+        // Clear previous output
+        interpreter_result.set(InterpreterResult {
+            lines: vec![],
+            error: None,
+        });
         spawn(async move {
-            let result = interpret_for_ui(&code).await;
+            // Create streaming callback that updates the signal as output arrives
+            let callback = Rc::new(RefCell::new(move |line: String| {
+                // Update the signal with the new line
+                interpreter_result.write().lines.push(line);
+            }));
+
+            let result = interpret_streaming(&code, callback).await;
+            // Set final result (includes any error)
             interpreter_result.set(result);
         });
     };

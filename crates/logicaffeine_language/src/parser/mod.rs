@@ -1906,6 +1906,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 crate::ast::Literal::Boolean(_) => Some("Bool"),
                 crate::ast::Literal::Nothing => Some("Unit"),
                 crate::ast::Literal::Char(_) => Some("Char"),
+                crate::ast::Literal::Duration(_) => Some("Duration"),
+                crate::ast::Literal::Date(_) => Some("Date"),
+                crate::ast::Literal::Moment(_) => Some("Moment"),
+                crate::ast::Literal::Span { .. } => Some("Span"),
+                crate::ast::Literal::Time(_) => Some("Time"),
             },
             _ => None, // Can't infer type for non-literals yet
         }
@@ -4356,8 +4361,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             TokenType::Number(sym) => {
+                let num_str = self.interner.resolve(*sym).to_string();
                 self.advance();
-                let num_str = self.interner.resolve(*sym);
+
+                // Check if followed by CalendarUnit → Span literal
+                if let TokenType::CalendarUnit(unit) = self.peek().kind {
+                    return self.parse_span_literal_from_num(&num_str);
+                }
+
                 // Check if it's a float (contains decimal point)
                 if num_str.contains('.') {
                     let num = num_str.parse::<f64>().unwrap_or(0.0);
@@ -4380,6 +4391,49 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let ch = char_str.chars().next().unwrap_or('\0');
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Char(ch))))
+            }
+
+            // Duration literals: 500ms, 2s, 50ns
+            TokenType::DurationLiteral { nanos, .. } => {
+                let nanos = *nanos;
+                self.advance();
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Duration(nanos))))
+            }
+
+            // Date literals: 2026-05-20
+            // Also handles "DATE at TIME" → Moment
+            TokenType::DateLiteral { days } => {
+                let days = *days;
+                self.advance();
+
+                // Check for "at TIME" to create a Moment
+                if self.check(&TokenType::At) {
+                    self.advance(); // consume "at"
+
+                    // Expect a TimeLiteral
+                    if let TokenType::TimeLiteral { nanos_from_midnight } = self.peek().kind {
+                        let time_nanos = nanos_from_midnight;
+                        self.advance(); // consume time literal
+
+                        // Convert to Moment: days * 86400 * 1e9 + time_nanos
+                        let moment_nanos = (days as i64) * 86_400_000_000_000 + time_nanos;
+                        return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Moment(moment_nanos))));
+                    } else {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedExpression,
+                            span: self.current_span(),
+                        });
+                    }
+                }
+
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Date(days))))
+            }
+
+            // Time-of-day literals: 4pm, 9:30am, noon, midnight
+            TokenType::TimeLiteral { nanos_from_midnight } => {
+                let nanos = *nanos_from_midnight;
+                self.advance();
+                Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Time(nanos))))
             }
 
             // Handle 'nothing' literal
@@ -4860,6 +4914,76 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             _ => None,
         }
+    }
+
+    /// Parse a Span literal starting from a number that was already consumed.
+    /// Handles patterns like: "3 days", "2 months", "1 year and 3 days"
+    fn parse_span_literal_from_num(&mut self, first_num_str: &str) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::Literal;
+        use crate::token::CalendarUnit;
+
+        let first_num = first_num_str.parse::<i32>().unwrap_or(0);
+
+        // We expect a CalendarUnit after the number
+        let unit = match self.peek().kind {
+            TokenType::CalendarUnit(u) => u,
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "calendar unit (day, week, month, year)".to_string() },
+                    span: self.current_span(),
+                });
+            }
+        };
+        self.advance(); // consume the CalendarUnit
+
+        // Accumulate months and days
+        let mut total_months: i32 = 0;
+        let mut total_days: i32 = 0;
+
+        // Apply the first unit
+        match unit {
+            CalendarUnit::Day => total_days += first_num,
+            CalendarUnit::Week => total_days += first_num * 7,
+            CalendarUnit::Month => total_months += first_num,
+            CalendarUnit::Year => total_months += first_num * 12,
+        }
+
+        // Check for "and" followed by more Number + CalendarUnit
+        while self.check(&TokenType::And) {
+            self.advance(); // consume "and"
+
+            // Expect another Number
+            let next_num = match &self.peek().kind {
+                TokenType::Number(sym) => {
+                    let num_str = self.interner.resolve(*sym).to_string();
+                    self.advance();
+                    num_str.parse::<i32>().unwrap_or(0)
+                }
+                _ => break, // Not a number, backtrack is complex so just stop
+            };
+
+            // Expect another CalendarUnit
+            let next_unit = match self.peek().kind {
+                TokenType::CalendarUnit(u) => {
+                    self.advance();
+                    u
+                }
+                _ => break, // Not a unit, backtrack is complex so just stop
+            };
+
+            // Apply the unit
+            match next_unit {
+                CalendarUnit::Day => total_days += next_num,
+                CalendarUnit::Week => total_days += next_num * 7,
+                CalendarUnit::Month => total_months += next_num,
+                CalendarUnit::Year => total_months += next_num * 12,
+            }
+        }
+
+        Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Span {
+            months: total_months,
+            days: total_days,
+        })))
     }
 
     /// Phase 32: Parse function call expression: f(x, y, ...)

@@ -27,6 +27,7 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.create_dir_all("/examples/code/networking").await?;
     vfs.create_dir_all("/examples/code/advanced").await?;
     vfs.create_dir_all("/examples/code/native").await?;
+    vfs.create_dir_all("/examples/code/temporal").await?;
 
     // For existing installs, only seed new advanced examples (skip base examples)
     if !is_fresh_install {
@@ -107,6 +108,9 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.write("/examples/code/advanced/refinement.logos", CODE_ADVANCED_REFINEMENT.as_bytes()).await?;
     vfs.write("/examples/code/advanced/assertions.logos", CODE_ADVANCED_ASSERTIONS.as_bytes()).await?;
 
+    // NEW: Temporal types example
+    vfs.write("/examples/code/temporal/durations.logos", CODE_TEMPORAL.as_bytes()).await?;
+
     // Seed Math mode examples (vernacular/theorem proving)
     vfs.write("/examples/math/natural-numbers.logos", MATH_NAT.as_bytes()).await?;
     vfs.write("/examples/math/boolean-logic.logos", MATH_BOOL.as_bytes()).await?;
@@ -142,6 +146,7 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     vfs.create_dir_all("/examples/code/concurrency").await?;
     vfs.create_dir_all("/examples/code/networking").await?;
     vfs.create_dir_all("/examples/code/advanced").await?;
+    vfs.create_dir_all("/examples/code/temporal").await?;
 
     // Type system
     vfs.write("/examples/code/types/enums.logos", CODE_ENUMS.as_bytes()).await?;
@@ -178,6 +183,8 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
     // Native-only (concurrency)
     vfs.write("/examples/code/native/tasks.logos", CODE_TASKS.as_bytes()).await?;
     vfs.write("/examples/code/native/channels.logos", CODE_CHANNELS.as_bytes()).await?;
+    // Temporal types
+    vfs.write("/examples/code/temporal/durations.logos", CODE_TEMPORAL.as_bytes()).await?;
 
     // Logic examples (force update for existing installs)
     vfs.write("/examples/logic/barber-paradox.logic", LOGIC_BARBER.as_bytes()).await?;
@@ -1987,6 +1994,161 @@ Show "Withdrew 50 from 100: " + result.
 Show "Process with trust:".
 Let doubled be process(5).
 Show "5 doubled: " + doubled.
+"#;
+
+// ============================================================
+// Temporal Types Example
+// ============================================================
+
+const CODE_TEMPORAL: &str = r#"## Main
+
+Show "=== Duration Literals (SI Units) ===".
+Let nano be 50ns.
+Show nano.
+
+Let micro be 100us.
+Show micro.
+
+Let milli be 500ms.
+Show milli.
+
+Let sec be 1s.
+Show sec.
+
+Show "".
+Show "=== Sleep with Duration Variables ===".
+
+Let short_pause be 200ms.
+Let medium_pause be 500ms.
+
+Show "Starting...".
+Sleep short_pause.
+Show "After 200ms pause".
+Sleep medium_pause.
+Show "After 500ms pause".
+Sleep short_pause.
+Show "Done with variable sleeps!".
+
+Show "".
+Show "=== Duration Math ===".
+Let a be 500ms.
+Let b be 500ms.
+Let total be a + b.
+Show "500ms + 500ms =".
+Show total.
+
+Let fast be 100ms.
+Let doubled be fast + fast.
+Show "100ms doubled =".
+Show doubled.
+
+Show "".
+Show "=== Duration Comparisons ===".
+Let quick be 100ms.
+Let slow be 1s.
+
+If quick < slow:
+    Show "100ms is less than 1s".
+
+If slow > quick:
+    Show "1s is greater than 100ms".
+
+Show "".
+Show "=== Date Literals ===".
+Let graduation be 2026-05-20.
+Show graduation.
+
+Let epoch be 1970-01-01.
+Show epoch.
+
+Let new_year be 2026-01-01.
+Show new_year.
+
+Show "".
+Show "=== Date Comparisons ===".
+If graduation > epoch:
+    Show "Graduation is after the Unix epoch".
+
+If new_year < graduation:
+    Show "New Year comes before graduation".
+
+Show "".
+Show "=== Calendar Spans ===".
+Let vacation be 2 weeks.
+Show vacation.
+
+Let project be 3 months.
+Show project.
+
+Let sprint be 2 weeks and 3 days.
+Show sprint.
+
+Let long_project be 1 year and 2 months and 5 days.
+Show long_project.
+
+Show "".
+Show "=== Today Builtin ===".
+Let current_date be today.
+Show "Today's date:".
+Show current_date.
+
+Show "".
+Show "=== Date + Span Arithmetic ===".
+Let start be 2026-01-15.
+Let deadline be start + 2 months.
+Show "Start + 2 months =".
+Show deadline.
+
+Let exam be 2026-05-20.
+Let reminder be exam - 3 days.
+Show "Exam - 3 days =".
+Show reminder.
+
+Let project_start be 2026-01-10.
+Let project_end be project_start + 1 month and 5 days.
+Show "Project end:".
+Show project_end.
+
+Show "".
+Show "=== Time-of-Day Literals ===".
+Let morning be 9am.
+Show morning.
+
+Let afternoon be 4pm.
+Show afternoon.
+
+Let lunch be noon.
+Show lunch.
+
+Let late_night be midnight.
+Show late_night.
+
+Let meeting_time be 9:30am.
+Show meeting_time.
+
+Show "".
+Show "=== Date + Time (Moments) ===".
+Let meeting be 2026-05-20 at 4pm.
+Show "Meeting moment:".
+Show meeting.
+
+Let conference be 2026-03-15 at 9:30am.
+Show "Conference:".
+Show conference.
+
+Show "".
+Show "=== Time Comparisons ===".
+Let early be 9am.
+Let late be 5pm.
+
+If early < late:
+    Show "9am is before 5pm".
+
+If late > noon:
+    Show "5pm is after noon".
+
+Show "".
+Show "All temporal tests complete!".
 "#;
 
 // ============================================================

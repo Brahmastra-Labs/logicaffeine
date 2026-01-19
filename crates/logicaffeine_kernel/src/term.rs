@@ -16,6 +16,12 @@ pub enum Literal {
     Float(f64),
     /// UTF-8 string
     Text(String),
+    /// Duration in nanoseconds (signed for negative offsets like "5 min early")
+    Duration(i64),
+    /// Calendar date as days since Unix epoch (i32 gives ±5.8 million year range)
+    Date(i32),
+    /// Instant in time as nanoseconds since Unix epoch (UTC)
+    Moment(i64),
 }
 
 impl Eq for Literal {}
@@ -26,8 +32,63 @@ impl fmt::Display for Literal {
             Literal::Int(n) => write!(f, "{}", n),
             Literal::Float(x) => write!(f, "{}", x),
             Literal::Text(s) => write!(f, "{:?}", s),
+            Literal::Duration(nanos) => {
+                // Display in most human-readable unit
+                let abs = nanos.unsigned_abs();
+                let sign = if *nanos < 0 { "-" } else { "" };
+                if abs >= 3_600_000_000_000 {
+                    write!(f, "{}{}h", sign, abs / 3_600_000_000_000)
+                } else if abs >= 60_000_000_000 {
+                    write!(f, "{}{}min", sign, abs / 60_000_000_000)
+                } else if abs >= 1_000_000_000 {
+                    write!(f, "{}{}s", sign, abs / 1_000_000_000)
+                } else if abs >= 1_000_000 {
+                    write!(f, "{}{}ms", sign, abs / 1_000_000)
+                } else if abs >= 1_000 {
+                    write!(f, "{}{}μs", sign, abs / 1_000)
+                } else {
+                    write!(f, "{}{}ns", sign, abs)
+                }
+            }
+            Literal::Date(days) => {
+                // Convert days since epoch to ISO-8601 date
+                // Unix epoch is 1970-01-01 (day 0)
+                // We use a simple algorithm for display purposes
+                let days = *days as i64;
+                let (year, month, day) = days_to_ymd(days);
+                write!(f, "{:04}-{:02}-{:02}", year, month, day)
+            }
+            Literal::Moment(nanos) => {
+                // Convert to ISO-8601 datetime
+                let secs = nanos / 1_000_000_000;
+                let days = secs / 86400;
+                let time_secs = secs % 86400;
+                let hours = time_secs / 3600;
+                let mins = (time_secs % 3600) / 60;
+                let secs_rem = time_secs % 60;
+                let (year, month, day) = days_to_ymd(days);
+                write!(f, "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+                       year, month, day, hours, mins, secs_rem)
+            }
         }
     }
+}
+
+/// Convert days since Unix epoch to (year, month, day).
+fn days_to_ymd(days: i64) -> (i64, u8, u8) {
+    // Civil date from days since epoch using the algorithm from Howard Hinnant
+    // https://howardhinnant.github.io/date_algorithms.html
+    let z = days + 719468;
+    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    (year, m as u8, d as u8)
 }
 
 /// Universe levels in the type hierarchy.

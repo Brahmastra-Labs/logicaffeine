@@ -1771,8 +1771,11 @@ fn term_to_syntax(term: &Term) -> Option<Term> {
 
         Term::Lit(Literal::Text(s)) => Some(make_sname(s)),
 
-        // Float literals - skip for now as they're rarely used in proofs
-        Term::Lit(Literal::Float(_)) => None,
+        // Float, Duration, Date, and Moment literals - skip for now as they're rarely used in proofs
+        Term::Lit(Literal::Float(_))
+        | Term::Lit(Literal::Duration(_))
+        | Term::Lit(Literal::Date(_))
+        | Term::Lit(Literal::Moment(_)) => None,
 
         // Match expressions, Fix, and Hole are complex - skip for now
         Term::Match { .. } | Term::Fix { .. } | Term::Hole => None,

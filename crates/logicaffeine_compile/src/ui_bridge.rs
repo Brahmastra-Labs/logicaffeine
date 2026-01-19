@@ -738,6 +738,100 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     }
 }
 
+/// Interpret LOGOS imperative code with streaming output.
+///
+/// The `on_output` callback is called each time `Show` executes, allowing
+/// real-time output display like a REPL. The callback receives the output line.
+///
+/// # Example
+/// ```ignore
+/// use std::rc::Rc;
+/// use std::cell::RefCell;
+///
+/// let lines = Rc::new(RefCell::new(Vec::new()));
+/// let lines_clone = lines.clone();
+///
+/// interpret_streaming(source, Rc::new(RefCell::new(move |line: String| {
+///     lines_clone.borrow_mut().push(line);
+/// }))).await;
+/// ```
+pub async fn interpret_streaming<F>(input: &str, on_output: std::rc::Rc<std::cell::RefCell<F>>) -> InterpreterResult
+where
+    F: FnMut(String) + 'static,
+{
+    use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
+    use crate::interpreter::OutputCallback;
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    let (type_registry, policy_registry) = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        (result.types, result.policies)
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut world_state = drs::WorldState::new();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+
+    match parser.parse_program() {
+        Ok(stmts) => {
+            // Create the callback wrapper that calls the user's callback
+            let callback: OutputCallback = std::rc::Rc::new(std::cell::RefCell::new(move |line: String| {
+                (on_output.borrow_mut())(line);
+            }));
+
+            let mut interp = crate::interpreter::Interpreter::new(&interner)
+                .with_policies(policy_registry)
+                .with_output_callback(callback);
+
+            match interp.run(&stmts).await {
+                Ok(()) => InterpreterResult {
+                    lines: interp.output,
+                    error: None,
+                },
+                Err(e) => InterpreterResult {
+                    lines: interp.output,
+                    error: Some(e),
+                },
+            }
+        }
+        Err(e) => {
+            let advice = socratic_explanation(&e, &interner);
+            InterpreterResult {
+                lines: vec![],
+                error: Some(advice),
+            }
+        }
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Theorem Verification (Kernel-certified)
 // ═══════════════════════════════════════════════════════════════════

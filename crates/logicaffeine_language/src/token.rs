@@ -63,6 +63,18 @@ pub enum MeasureKind {
     Little,
 }
 
+/// Calendar time units for Span expressions.
+///
+/// These represent variable-length calendar durations, as opposed to
+/// fixed SI time units (ns, ms, s, etc.) used in Duration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CalendarUnit {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
 /// Document structure block type markers.
 ///
 /// LOGOS uses markdown-style `## Header` syntax to delimit different
@@ -426,6 +438,38 @@ pub enum TokenType {
 
     // Numeric Literals (prover-ready: stores raw string for symbolic math)
     Number(Symbol),
+
+    /// Duration literal with SI suffix: 500ms, 2s, 50ns
+    /// Stores the value normalized to nanoseconds and preserves the original unit.
+    DurationLiteral {
+        nanos: i64,
+        original_unit: Symbol,
+    },
+
+    /// Date literal in ISO-8601 format: 2026-05-20
+    /// Stores days since Unix epoch (1970-01-01).
+    DateLiteral {
+        days: i32,
+    },
+
+    /// Time-of-day literal: 4pm, 9:30am, noon, midnight
+    /// Stores nanoseconds from midnight (00:00:00).
+    TimeLiteral {
+        nanos_from_midnight: i64,
+    },
+
+    /// Calendar time unit word: day, week, month, year (or plurals)
+    /// Used in Span expressions like "3 days" or "2 months and 5 days"
+    CalendarUnit(CalendarUnit),
+
+    /// Postfix operator for relative past time: "3 days ago"
+    Ago,
+
+    /// Postfix operator for relative future time: "3 days hence"
+    Hence,
+
+    /// Binary operator for span subtraction from a date: "3 days before 2026-05-20"
+    Before,
 
     /// String literal: `"hello world"`
     StringLiteral(Symbol),

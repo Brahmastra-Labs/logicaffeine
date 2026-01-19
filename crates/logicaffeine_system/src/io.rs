@@ -187,6 +187,32 @@ impl Showable for logicaffeine_data::Value {
     }
 }
 
+// Temporal types: Duration with human-readable formatting
+impl Showable for std::time::Duration {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let nanos = self.as_nanos();
+        if nanos >= 3_600_000_000_000 {
+            // Hours
+            write!(f, "{}h", nanos / 3_600_000_000_000)
+        } else if nanos >= 60_000_000_000 {
+            // Minutes
+            write!(f, "{}min", nanos / 60_000_000_000)
+        } else if nanos >= 1_000_000_000 {
+            // Seconds
+            write!(f, "{}s", nanos / 1_000_000_000)
+        } else if nanos >= 1_000_000 {
+            // Milliseconds
+            write!(f, "{}ms", nanos / 1_000_000)
+        } else if nanos >= 1_000 {
+            // Microseconds
+            write!(f, "{}μs", nanos / 1_000)
+        } else {
+            // Nanoseconds
+            write!(f, "{}ns", nanos)
+        }
+    }
+}
+
 /// The Show verb - prints value with natural formatting
 /// Takes a reference to avoid moving the value.
 pub fn show<T: Showable>(value: &T) {

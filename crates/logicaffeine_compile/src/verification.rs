@@ -219,6 +219,10 @@ impl<'a> VerificationPass<'a> {
             Expr::Literal(Literal::Boolean(_)) => VerifyType::Bool,
             Expr::Literal(Literal::Text(_)) => VerifyType::Object,
             Expr::Literal(Literal::Nothing) => VerifyType::Object,
+            // Temporal types map to Int for Z3 (nanoseconds/days are just integers)
+            Expr::Literal(Literal::Duration(_)) => VerifyType::Int,
+            Expr::Literal(Literal::Date(_)) => VerifyType::Int,
+            Expr::Literal(Literal::Moment(_)) => VerifyType::Int,
             Expr::BinaryOp { op, .. } => {
                 match op {
                     // Comparison operators produce Bool
@@ -369,6 +373,12 @@ impl<'a> VerificationPass<'a> {
             Expr::Literal(Literal::Boolean(b)) => Some(VerifyExpr::bool(*b)),
             Expr::Literal(Literal::Text(_)) => None,
             Expr::Literal(Literal::Nothing) => None,
+            // Temporal types map to Int (nanoseconds/days are just integers for Z3)
+            Expr::Literal(Literal::Duration(nanos)) => Some(VerifyExpr::int(*nanos)),
+            Expr::Literal(Literal::Date(days)) => Some(VerifyExpr::int(*days as i64)),
+            Expr::Literal(Literal::Moment(nanos)) => Some(VerifyExpr::int(*nanos)),
+            Expr::Literal(Literal::Float(_)) => None,
+            Expr::Literal(Literal::Char(_)) => None,
 
             Expr::Identifier(sym) => {
                 let name = self.interner.resolve(*sym);
@@ -425,6 +435,10 @@ impl<'a> VerificationPass<'a> {
             Expr::Literal(Literal::Nothing) => None,
             Expr::Literal(Literal::Float(_)) => None, // Float not directly supported
             Expr::Literal(Literal::Char(_)) => None, // Char not directly supported
+            // Temporal types map to Int (nanoseconds/days are just integers for Z3)
+            Expr::Literal(Literal::Duration(nanos)) => Some(VerifyExpr::int(*nanos)),
+            Expr::Literal(Literal::Date(days)) => Some(VerifyExpr::int(*days as i64)),
+            Expr::Literal(Literal::Moment(nanos)) => Some(VerifyExpr::int(*nanos)),
 
             Expr::Identifier(sym) => {
                 let name = self.interner.resolve(*sym);

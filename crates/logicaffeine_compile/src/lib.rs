@@ -136,7 +136,7 @@ pub use verification::VerificationPass;
 // Re-export UI types at crate root for convenience
 pub use ui_bridge::{
     compile_for_ui, compile_for_proof, compile_theorem_for_ui, verify_theorem,
-    interpret_for_ui, CompileResult, ProofCompileResult, TheoremCompileResult,
+    interpret_for_ui, interpret_streaming, CompileResult, ProofCompileResult, TheoremCompileResult,
     AstNode, TokenInfo, TokenCategory,
 };
 #[cfg(feature = "codegen")]

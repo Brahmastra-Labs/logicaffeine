@@ -1413,6 +1413,11 @@ fn infer_rust_type_from_expr(expr: &Expr, interner: &Interner) -> String {
             Literal::Boolean(_) => "bool".to_string(),
             Literal::Char(_) => "char".to_string(),
             Literal::Nothing => "()".to_string(),
+            Literal::Duration(_) => "std::time::Duration".to_string(),
+            Literal::Date(_) => "LogosDate".to_string(),
+            Literal::Moment(_) => "LogosMoment".to_string(),
+            Literal::Span { .. } => "LogosSpan".to_string(),
+            Literal::Time(_) => "LogosTime".to_string(),
         },
         // For identifiers and complex expressions, let Rust infer
         _ => "_".to_string(),
@@ -1603,12 +1608,20 @@ pub fn codegen_stmt<'a>(
                      indent_str, var_name, addr_str).unwrap();
         }
 
-        // Phase 51: Sleep for milliseconds
+        // Phase 51: Sleep - supports Duration literals or milliseconds
         Stmt::Sleep { milliseconds } => {
-            let ms_str = codegen_expr(milliseconds, interner, synced_vars);
-            // Use tokio async sleep
-            writeln!(output, "{}tokio::time::sleep(std::time::Duration::from_millis({} as u64)).await;",
-                     indent_str, ms_str).unwrap();
+            let expr_str = codegen_expr(milliseconds, interner, synced_vars);
+            let inferred_type = infer_rust_type_from_expr(milliseconds, interner);
+
+            if inferred_type == "std::time::Duration" {
+                // Duration type: use directly (already a std::time::Duration)
+                writeln!(output, "{}tokio::time::sleep({}).await;",
+                         indent_str, expr_str).unwrap();
+            } else {
+                // Assume milliseconds (integer) - legacy behavior
+                writeln!(output, "{}tokio::time::sleep(std::time::Duration::from_millis({} as u64)).await;",
+                         indent_str, expr_str).unwrap();
+            }
         }
 
         // Phase 52/56: Sync CRDT variable on topic
@@ -2664,6 +2677,16 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
                 c => format!("'{}'", c),
             }
         }
+        // Temporal literals: Duration stored as nanoseconds (i64)
+        Literal::Duration(nanos) => format!("std::time::Duration::from_nanos({}u64)", nanos),
+        // Date stored as days since Unix epoch (i32)
+        Literal::Date(days) => format!("LogosDate({})", days),
+        // Moment stored as nanoseconds since Unix epoch (i64)
+        Literal::Moment(nanos) => format!("LogosMoment({})", nanos),
+        // Span stored as (months, days) - separate because they're incommensurable
+        Literal::Span { months, days } => format!("LogosSpan::new({}, {})", months, days),
+        // Time-of-day stored as nanoseconds from midnight
+        Literal::Time(nanos) => format!("LogosTime({})", nanos),
     }
 }
 

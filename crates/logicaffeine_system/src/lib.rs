@@ -15,6 +15,7 @@
 
 // === Always Available (Core IO) ===
 pub mod io;
+pub mod temporal;
 
 // Native-only core modules
 #[cfg(not(target_arch = "wasm32"))]
@@ -58,6 +59,7 @@ pub use tokio;
 
 // Re-export commonly used items
 pub use io::{show, read_line, println, eprintln, print, Showable};
+pub use temporal::{LogosDate, LogosMoment, LogosSpan};
 
 /// Panic with a custom message (used by generated LOGOS code)
 pub fn panic_with(reason: &str) -> ! {

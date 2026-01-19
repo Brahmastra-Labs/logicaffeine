@@ -670,4 +670,16 @@ pub enum Literal {
     Nothing,
     /// Character literal
     Char(char),
+    /// Duration literal (nanoseconds, signed for negative offsets like "5 minutes early")
+    Duration(i64),
+    /// Date literal (days since Unix epoch 1970-01-01)
+    Date(i32),
+    /// Moment literal (nanoseconds since Unix epoch)
+    Moment(i64),
+    /// Calendar span (months, days) - NOT flattened to seconds
+    /// Months and days are kept separate because they're incommensurable.
+    Span { months: i32, days: i32 },
+    /// Time-of-day literal (nanoseconds from midnight)
+    /// Range: 0 to 86_399_999_999_999 (just under 24 hours)
+    Time(i64),
 }

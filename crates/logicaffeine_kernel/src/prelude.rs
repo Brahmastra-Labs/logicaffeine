@@ -36,6 +36,9 @@ impl StandardLibrary {
     /// Int : Type 0 (64-bit signed integer)
     /// Float : Type 0 (64-bit floating point)
     /// Text : Type 0 (UTF-8 string)
+    /// Duration : Type 0 (nanoseconds, i64 - physical time)
+    /// Date : Type 0 (days since epoch, i32 - calendar date)
+    /// Moment : Type 0 (nanoseconds since epoch, i64 - instant in UTC)
     ///
     /// add, sub, mul, div, mod : Int -> Int -> Int
     fn register_primitives(ctx: &mut Context) {
@@ -43,6 +46,11 @@ impl StandardLibrary {
         ctx.add_inductive("Int", Term::Sort(Universe::Type(0)));
         ctx.add_inductive("Float", Term::Sort(Universe::Type(0)));
         ctx.add_inductive("Text", Term::Sort(Universe::Type(0)));
+
+        // Temporal types (opaque, no constructors)
+        ctx.add_inductive("Duration", Term::Sort(Universe::Type(0)));
+        ctx.add_inductive("Date", Term::Sort(Universe::Type(0)));
+        ctx.add_inductive("Moment", Term::Sort(Universe::Type(0)));
 
         let int = Term::Global("Int".to_string());
 
@@ -63,6 +71,122 @@ impl StandardLibrary {
         ctx.add_declaration("mul", bin_int_type.clone());
         ctx.add_declaration("div", bin_int_type.clone());
         ctx.add_declaration("mod", bin_int_type);
+
+        // Temporal operations
+        let duration = Term::Global("Duration".to_string());
+        let date = Term::Global("Date".to_string());
+        let moment = Term::Global("Moment".to_string());
+        let bool_type = Term::Global("Bool".to_string());
+
+        // Duration -> Duration -> Duration
+        let bin_duration_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(duration.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(duration.clone()),
+                body_type: Box::new(duration.clone()),
+            }),
+        };
+
+        // Duration -> Int -> Duration
+        let duration_int_duration_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(duration.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(int.clone()),
+                body_type: Box::new(duration.clone()),
+            }),
+        };
+
+        // Duration arithmetic: add, sub, mul, div
+        ctx.add_declaration("add_duration", bin_duration_type.clone());
+        ctx.add_declaration("sub_duration", bin_duration_type.clone());
+        ctx.add_declaration("mul_duration", duration_int_duration_type.clone());
+        ctx.add_declaration("div_duration", duration_int_duration_type);
+
+        // Date -> Int -> Date (add days offset)
+        let date_int_date_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(date.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(int.clone()),
+                body_type: Box::new(date.clone()),
+            }),
+        };
+        ctx.add_declaration("date_add_days", date_int_date_type);
+
+        // Date -> Date -> Int (difference in days)
+        let date_date_int_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(date.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(date.clone()),
+                body_type: Box::new(int.clone()),
+            }),
+        };
+        ctx.add_declaration("date_sub_date", date_date_int_type);
+
+        // Moment -> Duration -> Moment
+        let moment_duration_moment_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(moment.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(duration.clone()),
+                body_type: Box::new(moment.clone()),
+            }),
+        };
+        ctx.add_declaration("moment_add_duration", moment_duration_moment_type);
+
+        // Moment -> Moment -> Duration
+        let moment_moment_duration_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(moment.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(moment.clone()),
+                body_type: Box::new(duration.clone()),
+            }),
+        };
+        ctx.add_declaration("moment_sub_moment", moment_moment_duration_type);
+
+        // Comparison operations: X -> X -> Bool
+        let date_date_bool_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(date.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(date),
+                body_type: Box::new(bool_type.clone()),
+            }),
+        };
+        ctx.add_declaration("date_lt", date_date_bool_type);
+
+        let moment_moment_bool_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(moment.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(moment),
+                body_type: Box::new(bool_type.clone()),
+            }),
+        };
+        ctx.add_declaration("moment_lt", moment_moment_bool_type);
+
+        let duration_duration_bool_type = Term::Pi {
+            param: "_".to_string(),
+            param_type: Box::new(duration.clone()),
+            body_type: Box::new(Term::Pi {
+                param: "_".to_string(),
+                param_type: Box::new(duration),
+                body_type: Box::new(bool_type),
+            }),
+        };
+        ctx.add_declaration("duration_lt", duration_duration_bool_type);
     }
 
     /// Entity : Type 0
