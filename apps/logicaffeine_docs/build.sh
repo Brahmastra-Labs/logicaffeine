@@ -34,6 +34,16 @@ done
 # Copy rustdoc assets
 cp -r target/doc/static.files apps/logicaffeine_docs/dist/
 
+# Copy search index (required for search functionality)
+if [ -d "target/doc/search.index" ]; then
+    cp -r target/doc/search.index apps/logicaffeine_docs/dist/
+fi
+
+# Copy src-files.js (required for source navigation)
+if [ -f "target/doc/src-files.js" ]; then
+    cp target/doc/src-files.js apps/logicaffeine_docs/dist/
+fi
+
 # Generate filtered crates.js with only our crates
 CRATE_LIST=$(printf '"%s",' "${CRATES[@]}" | sed 's/,$//')
 echo "window.ALL_CRATES = [$CRATE_LIST];" > apps/logicaffeine_docs/dist/crates.js
