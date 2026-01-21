@@ -1,10 +1,13 @@
 //! Theme state management with localStorage persistence.
 //!
-//! Provides a reactive theme system with 4 nature-inspired themes:
+//! Provides a reactive theme system with 7 nature-inspired themes:
 //! - Sunrise: Warm dawn colors (coral, gold, amber)
 //! - Violet: Twilight mystical (lavender, magenta, soft pink)
 //! - Ocean: Deep sea calm (turquoise, aqua, seafoam)
-//! - Mountain: Earth grounded (forest green, stone, muted gold) - default
+//! - Mountain: Clean tech (cyan, indigo) - default
+//! - Rose: Warm pink/rose tones
+//! - Forest: Deep green earth tones
+//! - Ember: Red/orange fire tones
 //!
 //! # Usage
 //!
@@ -36,6 +39,12 @@ pub enum Theme {
     /// Midnight tech - cyan accent, minimal, cutting-edge (default)
     #[default]
     Mountain,
+    /// Warm pink - rose, blush, coral pink
+    Rose,
+    /// Deep green - forest, emerald, moss
+    Forest,
+    /// Fire tones - red, orange, amber
+    Ember,
 }
 
 impl Theme {
@@ -46,6 +55,9 @@ impl Theme {
             Theme::Violet => "Violet",
             Theme::Ocean => "Ocean",
             Theme::Mountain => "Mountain",
+            Theme::Rose => "Rose",
+            Theme::Forest => "Forest",
+            Theme::Ember => "Ember",
         }
     }
 
@@ -56,12 +68,23 @@ impl Theme {
             Theme::Violet => "violet",
             Theme::Ocean => "ocean",
             Theme::Mountain => "mountain",
+            Theme::Rose => "rose",
+            Theme::Forest => "forest",
+            Theme::Ember => "ember",
         }
     }
 
     /// Returns an iterator over all themes.
     pub fn all() -> impl Iterator<Item = Theme> {
-        [Theme::Sunrise, Theme::Violet, Theme::Ocean, Theme::Mountain].into_iter()
+        [
+            Theme::Mountain,
+            Theme::Sunrise,
+            Theme::Violet,
+            Theme::Ocean,
+            Theme::Rose,
+            Theme::Forest,
+            Theme::Ember,
+        ].into_iter()
     }
 
     /// Returns the CSS variables for this theme.
@@ -77,6 +100,8 @@ impl Theme {
                 --accent-tertiary: #fef3c7;
                 --accent-primary-rgb: 249, 115, 22;
                 --accent-secondary-rgb: 251, 191, 36;
+                --accent-border: rgba(249, 115, 22, 0.3);
+                --accent-glow: rgba(249, 115, 22, 0.2);
             "#,
             // Violet: Soft, sophisticated dusk (less intense purple)
             Theme::Violet => r#"
@@ -88,6 +113,8 @@ impl Theme {
                 --accent-tertiary: #e9d5ff;
                 --accent-primary-rgb: 167, 139, 250;
                 --accent-secondary-rgb: 240, 171, 252;
+                --accent-border: rgba(167, 139, 250, 0.3);
+                --accent-glow: rgba(167, 139, 250, 0.2);
             "#,
             // Ocean: Cool, calm depths
             Theme::Ocean => r#"
@@ -99,6 +126,8 @@ impl Theme {
                 --accent-tertiary: #a5f3fc;
                 --accent-primary-rgb: 34, 211, 238;
                 --accent-secondary-rgb: 45, 212, 191;
+                --accent-border: rgba(34, 211, 238, 0.3);
+                --accent-glow: rgba(34, 211, 238, 0.2);
             "#,
             // Mountain (default): Clean, cutting-edge tech
             Theme::Mountain => r#"
@@ -110,6 +139,47 @@ impl Theme {
                 --accent-tertiary: #f0f0f0;
                 --accent-primary-rgb: 0, 212, 255;
                 --accent-secondary-rgb: 129, 140, 248;
+                --accent-border: rgba(0, 212, 255, 0.3);
+                --accent-glow: rgba(0, 212, 255, 0.2);
+            "#,
+            // Rose: Warm pink/rose tones
+            Theme::Rose => r#"
+                --bg-gradient-start: #0d0909;
+                --bg-gradient-mid: #1a1015;
+                --bg-gradient-end: #0d0909;
+                --accent-primary: #f472b6;
+                --accent-secondary: #fb7185;
+                --accent-tertiary: #fce7f3;
+                --accent-primary-rgb: 244, 114, 182;
+                --accent-secondary-rgb: 251, 113, 133;
+                --accent-border: rgba(244, 114, 182, 0.3);
+                --accent-glow: rgba(244, 114, 182, 0.2);
+            "#,
+            // Forest: Deep green earth tones
+            Theme::Forest => r#"
+                --bg-gradient-start: #090d09;
+                --bg-gradient-mid: #0f1a12;
+                --bg-gradient-end: #090d09;
+                --accent-primary: #4ade80;
+                --accent-secondary: #86efac;
+                --accent-tertiary: #dcfce7;
+                --accent-primary-rgb: 74, 222, 128;
+                --accent-secondary-rgb: 134, 239, 172;
+                --accent-border: rgba(74, 222, 128, 0.3);
+                --accent-glow: rgba(74, 222, 128, 0.2);
+            "#,
+            // Ember: Red/orange fire tones
+            Theme::Ember => r#"
+                --bg-gradient-start: #0d0808;
+                --bg-gradient-mid: #1a0f0c;
+                --bg-gradient-end: #0d0808;
+                --accent-primary: #ef4444;
+                --accent-secondary: #f97316;
+                --accent-tertiary: #fef2f2;
+                --accent-primary-rgb: 239, 68, 68;
+                --accent-secondary-rgb: 249, 115, 22;
+                --accent-border: rgba(239, 68, 68, 0.3);
+                --accent-glow: rgba(239, 68, 68, 0.2);
             "#,
         }
     }
@@ -149,7 +219,10 @@ impl ThemeState {
             Theme::Mountain => Theme::Sunrise,
             Theme::Sunrise => Theme::Violet,
             Theme::Violet => Theme::Ocean,
-            Theme::Ocean => Theme::Mountain,
+            Theme::Ocean => Theme::Rose,
+            Theme::Rose => Theme::Forest,
+            Theme::Forest => Theme::Ember,
+            Theme::Ember => Theme::Mountain,
         };
         self.set_theme(next);
     }

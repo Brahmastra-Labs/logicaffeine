@@ -1,7 +1,6 @@
 //! Compact theme selector component.
 //!
-//! Provides icon buttons for switching between the four nature-inspired themes:
-//! Sunrise, Violet, Ocean, and Mountain.
+//! Provides a dropdown selector for switching between the nature-inspired themes.
 //!
 //! # Usage
 //!
@@ -18,148 +17,210 @@ use crate::ui::theme_state::{Theme, ThemeState};
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const THEME_PICKER_STYLE: &str = r#"
-.theme-picker {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    background: rgba(255, 255, 255, 0.04);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+.theme-dropdown {
+    position: relative;
+    display: inline-block;
 }
 
-.theme-btn {
+.theme-dropdown-btn {
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
+    gap: 8px;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
     cursor: pointer;
     transition: all 0.2s ease;
-    color: var(--text-tertiary);
-    position: relative;
+    color: var(--text-secondary);
+    font-size: 14px;
+    font-weight: 500;
+    min-width: 140px;
 }
 
-.theme-btn:hover {
+.theme-dropdown-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.12);
+    color: var(--text-primary);
+}
+
+.theme-dropdown-btn .theme-icon {
+    color: var(--accent-primary);
+}
+
+.theme-dropdown-btn .theme-name {
+    flex: 1;
+    text-align: left;
+}
+
+.theme-dropdown-btn .chevron {
+    transition: transform 0.2s ease;
+}
+
+.theme-dropdown.open .chevron {
+    transform: rotate(180deg);
+}
+
+.theme-dropdown-menu {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    right: 0;
+    margin-bottom: 4px;
+    background: rgba(15, 15, 20, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 6px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(8px);
+    transition: all 0.2s ease;
+    z-index: 1000;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.theme-dropdown.open .theme-dropdown-menu {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+.theme-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    color: var(--text-secondary);
+    border: none;
+    background: transparent;
+    width: 100%;
+    font-size: 14px;
+    text-align: left;
+}
+
+.theme-option:hover {
     background: rgba(255, 255, 255, 0.08);
     color: var(--text-primary);
 }
 
-.theme-btn.active {
-    background: rgba(var(--accent-primary-rgb), 0.2);
+.theme-option.active {
+    background: rgba(var(--accent-primary-rgb), 0.15);
     color: var(--accent-primary);
 }
 
-.theme-btn.sunrise { --btn-color: #ff7f50; }
-.theme-btn.violet { --btn-color: #e6b3ff; }
-.theme-btn.ocean { --btn-color: #40e0d0; }
-.theme-btn.mountain { --btn-color: #22c55e; }
-
-.theme-btn.active.sunrise { background: rgba(255, 127, 80, 0.2); color: #ff7f50; }
-.theme-btn.active.violet { background: rgba(230, 179, 255, 0.2); color: #e6b3ff; }
-.theme-btn.active.ocean { background: rgba(64, 224, 208, 0.2); color: #40e0d0; }
-.theme-btn.active.mountain { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
-
-.theme-tooltip {
-    position: absolute;
-    bottom: -32px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.9);
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 500;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: opacity 0.15s ease, visibility 0.15s ease;
-    pointer-events: none;
-    z-index: 100;
+.theme-option .option-icon {
+    width: 20px;
+    display: flex;
+    justify-content: center;
 }
 
-.theme-btn:hover .theme-tooltip {
-    opacity: 1;
-    visibility: visible;
-}
+.theme-option.sunrise .option-icon { color: #f97316; }
+.theme-option.violet .option-icon { color: #a78bfa; }
+.theme-option.ocean .option-icon { color: #22d3ee; }
+.theme-option.mountain .option-icon { color: #00d4ff; }
+.theme-option.rose .option-icon { color: #f472b6; }
+.theme-option.forest .option-icon { color: #4ade80; }
+.theme-option.ember .option-icon { color: #ef4444; }
 
-/* Mobile: Vertical layout */
+/* Mobile adjustments */
 @media (max-width: 768px) {
-    .theme-picker.mobile {
-        flex-direction: column;
-        padding: 8px;
+    .theme-dropdown-btn {
+        padding: 10px 14px;
+        min-width: 150px;
     }
 
-    .theme-picker.mobile .theme-btn {
-        width: 44px;
-        height: 44px;
-    }
-
-    .theme-picker.mobile .theme-tooltip {
-        bottom: auto;
-        left: calc(100% + 8px);
-        transform: none;
+    .theme-option {
+        padding: 12px 14px;
     }
 }
 "#;
 
-/// Compact theme picker with icon buttons.
+fn theme_icon(theme: Theme) -> IconVariant {
+    match theme {
+        Theme::Sunrise => IconVariant::Sunrise,
+        Theme::Violet => IconVariant::Moon,
+        Theme::Ocean => IconVariant::Wave,
+        Theme::Mountain => IconVariant::Mountain,
+        Theme::Rose => IconVariant::Flower,
+        Theme::Forest => IconVariant::Leaf,
+        Theme::Ember => IconVariant::Fire,
+    }
+}
+
+fn theme_class(theme: Theme) -> &'static str {
+    match theme {
+        Theme::Sunrise => "sunrise",
+        Theme::Violet => "violet",
+        Theme::Ocean => "ocean",
+        Theme::Mountain => "mountain",
+        Theme::Rose => "rose",
+        Theme::Forest => "forest",
+        Theme::Ember => "ember",
+    }
+}
+
+/// Compact theme picker with dropdown selector.
 #[component]
-pub fn ThemePicker(
-    /// Use vertical mobile layout
-    #[props(default = false)]
-    mobile: bool,
-) -> Element {
+pub fn ThemePicker() -> Element {
     let mut theme_state = use_context::<ThemeState>();
     let current_theme = theme_state.current();
+    let mut is_open = use_signal(|| false);
 
-    let picker_class = if mobile {
-        "theme-picker mobile"
+    let dropdown_class = if *is_open.read() {
+        "theme-dropdown open"
     } else {
-        "theme-picker"
+        "theme-dropdown"
     };
 
     rsx! {
         style { "{THEME_PICKER_STYLE}" }
 
-        div { class: "{picker_class}",
-            // Sunrise theme button
+        div {
+            class: "{dropdown_class}",
+
             button {
-                class: if current_theme == Theme::Sunrise { "theme-btn sunrise active" } else { "theme-btn sunrise" },
-                onclick: move |_| theme_state.set_theme(Theme::Sunrise),
-                title: "Sunrise theme",
-                Icon { variant: IconVariant::Sunrise, size: IconSize::Medium }
-                span { class: "theme-tooltip", "Sunrise" }
+                class: "theme-dropdown-btn",
+                onclick: move |_| {
+                    let current = *is_open.read();
+                    is_open.set(!current);
+                },
+
+                span { class: "theme-icon",
+                    Icon { variant: theme_icon(current_theme), size: IconSize::Medium }
+                }
+                span { class: "theme-name", "{current_theme.name()}" }
+                span { class: "chevron",
+                    Icon { variant: IconVariant::ChevronDown, size: IconSize::Small }
+                }
             }
 
-            // Violet theme button
-            button {
-                class: if current_theme == Theme::Violet { "theme-btn violet active" } else { "theme-btn violet" },
-                onclick: move |_| theme_state.set_theme(Theme::Violet),
-                title: "Violet theme",
-                Icon { variant: IconVariant::Moon, size: IconSize::Medium }
-                span { class: "theme-tooltip", "Violet" }
-            }
-
-            // Ocean theme button
-            button {
-                class: if current_theme == Theme::Ocean { "theme-btn ocean active" } else { "theme-btn ocean" },
-                onclick: move |_| theme_state.set_theme(Theme::Ocean),
-                title: "Ocean theme",
-                Icon { variant: IconVariant::Wave, size: IconSize::Medium }
-                span { class: "theme-tooltip", "Ocean" }
-            }
-
-            // Mountain theme button (default)
-            button {
-                class: if current_theme == Theme::Mountain { "theme-btn mountain active" } else { "theme-btn mountain" },
-                onclick: move |_| theme_state.set_theme(Theme::Mountain),
-                title: "Mountain theme",
-                Icon { variant: IconVariant::Mountain, size: IconSize::Medium }
-                span { class: "theme-tooltip", "Mountain" }
+            div { class: "theme-dropdown-menu",
+                for theme in Theme::all() {
+                    {
+                        let is_active = theme == current_theme;
+                        let option_class = if is_active {
+                            format!("theme-option {} active", theme_class(theme))
+                        } else {
+                            format!("theme-option {}", theme_class(theme))
+                        };
+                        rsx! {
+                            button {
+                                class: "{option_class}",
+                                onclick: move |_| {
+                                    theme_state.set_theme(theme);
+                                    is_open.set(false);
+                                },
+                                span { class: "option-icon",
+                                    Icon { variant: theme_icon(theme), size: IconSize::Medium }
+                                }
+                                span { "{theme.name()}" }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -171,12 +232,7 @@ pub fn ThemeCycleButton() -> Element {
     let mut theme_state = use_context::<ThemeState>();
     let current_theme = theme_state.current();
 
-    let icon = match current_theme {
-        Theme::Sunrise => IconVariant::Sunrise,
-        Theme::Violet => IconVariant::Moon,
-        Theme::Ocean => IconVariant::Wave,
-        Theme::Mountain => IconVariant::Mountain,
-    };
+    let icon = theme_icon(current_theme);
 
     rsx! {
         button {

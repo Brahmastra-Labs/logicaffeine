@@ -267,7 +267,7 @@ const CORE_CRATES: &[CrateInfo] = &[
         name: "logicaffeine_kernel",
         description: "Runtime kernel for executing LOGOS programs with built-in inference.",
         is_core: true,
-        crates_io: None,
+        crates_io: Some("https://crates.io/crates/logicaffeine-kernel"),
     },
     CrateInfo {
         name: "logicaffeine_proof",

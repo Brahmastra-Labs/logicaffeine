@@ -99,6 +99,8 @@ pub enum IconVariant {
     Moon,
     Wave,
     Mountain,
+    Leaf,
+    Flower,
 }
 
 impl IconVariant {
@@ -221,6 +223,12 @@ impl IconVariant {
 
             // Mountain - theme icon for earth/grounded
             IconVariant::Mountain => r#"<path stroke-linecap="round" stroke-linejoin="round" d="M3 19h18M5 19l4-7 3 4 4-8 4 11"/>"#,
+
+            // Leaf - theme icon for forest/nature
+            IconVariant::Leaf => r#"<path stroke-linecap="round" stroke-linejoin="round" d="M6 21c3-3 6-3 9-6 3-3 6-9 6-12-3 0-9 3-12 6-3 3-3 6-6 9m6-9 3 3M3 21l3-3"/>"#,
+
+            // Flower - theme icon for rose/bloom
+            IconVariant::Flower => r#"<path stroke-linecap="round" stroke-linejoin="round" d="M12 7a5 5 0 0 0-5 5c0 2.76 2.24 5 5 5s5-2.24 5-5a5 5 0 0 0-5-5Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v4m0 10v4M7.05 7.05 9.88 9.88m4.24 4.24 2.83 2.83M3 12h4m10 0h4M7.05 16.95l2.83-2.83m4.24-4.24 2.83-2.83"/>"#,
         }
     }
 }

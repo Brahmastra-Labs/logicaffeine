@@ -141,8 +141,8 @@ a {
     border-bottom-left-radius: var(--radius-sm);
     font-family: var(--font-mono);
     font-size: var(--font-heading-sm);
-    color: #00d4ff;
-    text-shadow: 0 0 20px rgba(0, 212, 255, 0.3);
+    color: var(--accent-primary);
+    text-shadow: 0 0 20px var(--accent-glow);
 }
 
 .message.error {
@@ -245,8 +245,8 @@ a {
 }
 
 .reveal-btn.active {
-    background: linear-gradient(135deg, rgba(96,165,250,0.2), rgba(167,139,250,0.2));
-    border-color: rgba(167,139,250,0.4);
+    background: linear-gradient(135deg, rgba(var(--accent-primary-rgb),0.2), rgba(var(--accent-secondary-rgb),0.2));
+    border-color: rgba(var(--accent-secondary-rgb),0.4);
     color: var(--text-primary);
 }
 
@@ -271,9 +271,9 @@ a {
 .revealed-logic {
     font-family: var(--font-mono);
     font-size: var(--font-heading-sm);
-    color: var(--color-accent-blue);
+    color: var(--accent-primary);
     padding: var(--spacing-md);
-    background: rgba(96, 165, 250, 0.08);
+    background: rgba(var(--accent-primary-rgb), 0.08);
     border-radius: var(--radius-md);
     margin: var(--spacing-md) 0;
 }
@@ -282,10 +282,10 @@ a {
 .socratic-hint-box {
     margin-top: var(--spacing-lg);
     padding: var(--spacing-lg);
-    background: linear-gradient(135deg, rgba(167,139,250,0.08), rgba(96,165,250,0.08));
-    border: 1px solid rgba(167,139,250,0.2);
+    background: linear-gradient(135deg, rgba(var(--accent-secondary-rgb),0.08), rgba(var(--accent-primary-rgb),0.08));
+    border: 1px solid rgba(var(--accent-secondary-rgb),0.2);
     border-radius: var(--radius-lg);
-    border-left: 4px solid var(--color-accent-purple);
+    border-left: 4px solid var(--accent-secondary);
 }
 
 .hint-header {
@@ -295,7 +295,7 @@ a {
     margin-bottom: var(--spacing-sm);
     font-size: var(--font-caption-md);
     font-weight: 600;
-    color: var(--color-accent-purple);
+    color: var(--accent-secondary);
 }
 
 .hint-text {
@@ -348,7 +348,7 @@ a {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--color-accent-blue), var(--color-accent-purple));
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
     border-radius: 2px;
     transition: width 0.3s ease;
 }
