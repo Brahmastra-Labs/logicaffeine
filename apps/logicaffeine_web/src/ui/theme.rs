@@ -253,6 +253,16 @@ pub fn css_variables() -> &'static str {
         --radius-lg: 12px;
         --radius-xl: 16px;
         --radius-full: 9999px;
+
+        /* Theme defaults (Mountain) */
+        --bg-gradient-start: #070a12;
+        --bg-gradient-mid: #0b1022;
+        --bg-gradient-end: #070a12;
+        --accent-primary: #22c55e;
+        --accent-secondary: #94a3b8;
+        --accent-tertiary: #d4a574;
+        --accent-primary-rgb: 34, 197, 94;
+        --accent-secondary-rgb: 148, 163, 184;
     }
     "#
 }

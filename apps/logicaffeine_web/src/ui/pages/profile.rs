@@ -12,6 +12,7 @@
 
 use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::progress::UserProgress;
 use crate::content::ContentEngine;
 
@@ -307,7 +308,9 @@ pub fn Profile() -> Element {
                         div { class: "achievements-grid",
                             for achievement in progress.achievements.iter() {
                                 div { class: "achievement-badge",
-                                    div { class: "achievement-icon", "🏆" }
+                                    div { class: "achievement-icon",
+                                        Icon { variant: IconVariant::Trophy, size: IconSize::Large, color: "#fbbf24" }
+                                    }
                                     div { class: "achievement-name", "{achievement}" }
                                 }
                             }
@@ -317,19 +320,27 @@ pub fn Profile() -> Element {
                     // Show locked achievements
                     div { class: "achievements-grid", style: "margin-top: var(--spacing-lg);",
                         div { class: "achievement-badge locked",
-                            div { class: "achievement-icon", "🎯" }
+                            div { class: "achievement-icon",
+                                Icon { variant: IconVariant::Target, size: IconSize::Large, color: "#60a5fa" }
+                            }
                             div { class: "achievement-name", "First Blood" }
                         }
                         div { class: "achievement-badge locked",
-                            div { class: "achievement-icon", "🔥" }
+                            div { class: "achievement-icon",
+                                Icon { variant: IconVariant::Fire, size: IconSize::Large, color: "#f97316" }
+                            }
                             div { class: "achievement-name", "7-Day Streak" }
                         }
                         div { class: "achievement-badge locked",
-                            div { class: "achievement-icon", "💯" }
+                            div { class: "achievement-icon",
+                                Icon { variant: IconVariant::Star, size: IconSize::Large, color: "#a78bfa" }
+                            }
                             div { class: "achievement-name", "Perfect Score" }
                         }
                         div { class: "achievement-badge locked",
-                            div { class: "achievement-icon", "🧠" }
+                            div { class: "achievement-icon",
+                                Icon { variant: IconVariant::Brain, size: IconSize::Large, color: "#f472b6" }
+                            }
                             div { class: "achievement-name", "Logic Master" }
                         }
                     }

@@ -76,6 +76,9 @@ pub mod storage;
 pub mod struggle;
 pub mod unlock;
 
+// SEO and sitemap
+pub mod sitemap;
+
 // UI module
 pub mod ui;
 

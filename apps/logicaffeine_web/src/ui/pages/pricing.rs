@@ -17,7 +17,9 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::footer::Footer;
 use crate::ui::state::LicenseState;
+use crate::ui::seo::{JsonLdMultiple, organization_schema, product_schema, breadcrumb_schema, BreadcrumbItem};
 
 const PRICING_STYLE: &str = r#"
 * { box-sizing: border-box; }
@@ -674,8 +676,20 @@ pub fn Pricing() -> Element {
         crate::ui::state::LicensePlan::Enterprise => "Enterprise",
     };
 
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Pricing", path: "/pricing" },
+    ];
+
+    let schemas = vec![
+        organization_schema(),
+        product_schema(),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
         style { "{PRICING_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "pricing",
             div { class: "bg-orb orb1" }
@@ -964,6 +978,8 @@ pub fn Pricing() -> Element {
                     }
                 }
             }
+
+            Footer {}
         }
     }
 }

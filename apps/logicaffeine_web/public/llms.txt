@@ -1,0 +1,115 @@
+# LOGICAFFEINE
+
+> Turn everyday English into rigorous First-Order Logic
+
+## What is LOGICAFFEINE?
+
+LOGICAFFEINE is an English-to-First-Order-Logic transpiler. It parses natural language sentences and outputs formal logic formulas in Unicode or LaTeX notation.
+
+The tool helps users:
+- Debug arguments and reasoning
+- Learn formal logic interactively
+- Verify logical structures
+- Translate between natural language and formal notation
+
+## Key Features
+
+### Natural Language Parsing
+Parse English sentences into First-Order Logic (FOL). Handle quantifiers, connectives, predicates, and more.
+
+Example:
+- Input: "All humans are mortal"
+- Output: ∀x(Human(x) → Mortal(x))
+
+### Multiple Output Formats
+- Unicode symbols (∀, ∃, →, ∧, ∨, ¬)
+- LaTeX notation (\forall, \exists, \rightarrow)
+- Simple FOL representation
+
+### Interactive Learning
+Progressive curriculum from basic syllogisms to advanced modal logic. Exercises with immediate feedback and adaptive hints.
+
+### Studio Playground
+Real-time translation with syntax highlighting, AST visualization, and proof assistance.
+
+## Main Pages
+
+### /
+Landing page - marketing homepage with feature highlights
+
+### /learn
+Interactive curriculum for learning First-Order Logic. Covers:
+- Era 1: First Steps (Introduction, Syllogistic Logic, Fallacies)
+- Era 2: Building Blocks (Propositional Logic, Proofs)
+- Era 3: Expanding Horizons (Quantificational, Modal, Deontic, Belief Logic)
+- Era 4: Mastery (Ethics, Metalogic, History, Deviant Logic, Philosophy)
+
+### /studio
+Logic playground with three modes:
+- Logic Mode: Translate English to FOL
+- Code Mode: Execute imperative .logos programs
+- Math Mode: Vernacular theorem proving
+
+### /guide
+Documentation and tutorials covering:
+- LOGICAFFEINE syntax
+- Lexicon configuration
+- First-Order Logic concepts
+- Example translations
+
+### /pricing
+Commercial licensing information. Free for individuals and organizations under 25 employees.
+
+### /crates
+Technical documentation for Rust crates:
+- logos: Core transpiler
+- logos_core: Runtime library
+- logos_verification: Z3 static verification
+
+### /news
+Release notes, tutorials, and announcements.
+
+### /roadmap
+Development roadmap with upcoming features.
+
+### /registry
+Package registry for community-contributed logic modules.
+
+## Technical Details
+
+### Supported Logic Systems
+- Classical propositional logic
+- First-order predicate logic
+- Modal logic (necessity, possibility)
+- Deontic logic (obligation, permission)
+- Epistemic logic (belief, knowledge)
+- Temporal logic (past, future, always)
+
+### Parser Architecture
+Pipeline: Input → Lexer → Parser → AST → Transpiler → FOL Output
+
+### Lexicon System
+Vocabulary database (lexicon.json) defining:
+- Verbs with Vendler class and transitivity
+- Nouns with animacy and number
+- Adjectives with intersective/subsective properties
+
+## Links
+
+- Website: https://logicaffeine.com
+- GitHub: https://github.com/Brahmastra-Labs/logicaffeine
+- Documentation: https://logicaffeine.com/guide
+- API Crates: https://logicaffeine.com/crates
+
+## Contact
+
+- Email: tristen@brahmastra-labs.com
+- Support: https://logicaffeine.com/pricing
+
+## Organization
+
+LOGICAFFEINE is developed by Brahmastra Labs.
+
+---
+
+This file is optimized for AI search engines and LLM indexing. For human-readable documentation, visit https://logicaffeine.com/guide

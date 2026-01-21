@@ -22,6 +22,7 @@ use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{LicenseState, RegistryAuthState};
 use crate::ui::theme;
+use crate::ui::theme_state::{ThemeState, theme_css};
 
 /// Global CSS including design tokens, reset styles, and common component styles.
 const GLOBAL_STYLE: &str = r#"
@@ -384,16 +385,18 @@ a {
 
 /// Root application component.
 ///
-/// Sets up global context providers for license and registry authentication,
+/// Sets up global context providers for license, registry authentication, and theme,
 /// triggers license revalidation on mount, and renders the router.
 ///
 /// # Context Providers
 ///
 /// - [`LicenseState`] - Manages subscription validation
 /// - [`RegistryAuthState`] - Manages GitHub OAuth for package registry
+/// - [`ThemeState`] - Manages theme selection with localStorage persistence
 pub fn App() -> Element {
     let license_state = use_context_provider(LicenseState::new);
     let _registry_auth = use_context_provider(RegistryAuthState::new);
+    let theme_state = use_context_provider(ThemeState::new);
 
     use_effect(move || {
         let mut license_state = license_state.clone();
@@ -404,8 +407,17 @@ pub fn App() -> Element {
         });
     });
 
+    // Generate dynamic theme CSS
+    let current_theme = theme_state.current();
+    let dynamic_theme_css = theme_css(current_theme);
+
     rsx! {
         style { "{GLOBAL_STYLE}" }
-        Router::<Route> {}
+        style { "{dynamic_theme_css}" }
+        div {
+            "data-theme": "{current_theme.data_attr()}",
+            id: "app-root",
+            Router::<Route> {}
+        }
     }
 }

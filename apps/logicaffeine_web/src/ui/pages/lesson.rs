@@ -5,6 +5,7 @@ use crate::ui::components::xp_popup::XpPopup;
 use crate::ui::components::combo_indicator::ComboIndicator;
 use crate::ui::components::achievement_toast::AchievementToast;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, Challenge, AnswerType};
 use crate::grader::{check_answer, GradeResult};
@@ -678,7 +679,11 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
                                     }
                                 }
                                 if mistakes_in_module() == 0 && total_exercises > 0 {
-                                    p { style: "color: #fbbf24;", "🏆 Flawless! No mistakes!" }
+                                    p {
+                                        style: "color: #fbbf24; display: flex; align-items: center; gap: 8px; justify-content: center;",
+                                        Icon { variant: IconVariant::Trophy, size: IconSize::Medium, color: "#fbbf24" }
+                                        "Flawless! No mistakes!"
+                                    }
                                 }
 
                                 if session_mode == SessionMode::Testing && !results_clone.is_empty() {

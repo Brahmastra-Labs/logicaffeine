@@ -11,6 +11,7 @@
 
 use dioxus::prelude::*;
 use crate::game::StreakStatus;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const STREAK_STYLE: &str = r#"
 .streak-display {
@@ -86,31 +87,33 @@ const STREAK_STYLE: &str = r#"
 
 #[component]
 pub fn StreakDisplay(streak: u32, status: StreakStatus, freezes: u8) -> Element {
-    let (class, icon, text) = match status {
+    let (class, icon_variant, icon_color, text) = match status {
         StreakStatus::Active { days } => {
-            ("streak-display streak-active", "🔥", format!("{} day streak", days))
+            ("streak-display streak-active", IconVariant::Fire, "#f97316", format!("{} day streak", days))
         }
         StreakStatus::AtRisk => {
-            ("streak-display streak-at-risk", "⚠️", "Streak at risk!".to_string())
+            ("streak-display streak-at-risk", IconVariant::Warning, "#f87171", "Streak at risk!".to_string())
         }
         StreakStatus::Frozen => {
-            ("streak-display streak-frozen", "🛡️", format!("{} days (frozen)", streak))
+            ("streak-display streak-frozen", IconVariant::Shield, "#38bdf8", format!("{} days (frozen)", streak))
         }
         StreakStatus::Lost { was } => {
-            ("streak-display streak-lost", "💔", format!("Lost {} day streak", was))
+            ("streak-display streak-lost", IconVariant::HeartBroken, "#9ca3af", format!("Lost {} day streak", was))
         }
     };
 
     rsx! {
         style { "{STREAK_STYLE}" }
         div { class: "{class}",
-            span { class: "streak-icon", "{icon}" }
+            span { class: "streak-icon",
+                Icon { variant: icon_variant, size: IconSize::Medium, color: icon_color }
+            }
             span { class: "streak-count", "{text}" }
             div { class: "freeze-tokens",
                 for i in 0..3u8 {
                     span {
                         class: if i < freezes { "freeze-token" } else { "freeze-token empty" },
-                        "🛡️"
+                        Icon { variant: IconVariant::Shield, size: IconSize::Small, color: "#38bdf8" }
                     }
                 }
             }

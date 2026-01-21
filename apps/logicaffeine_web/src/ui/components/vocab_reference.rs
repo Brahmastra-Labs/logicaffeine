@@ -4,6 +4,7 @@
 //! and vocabulary terms, accessible from anywhere in the learning experience.
 
 use dioxus::prelude::*;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const VOCAB_REFERENCE_STYLE: &str = r#"
 .vocab-reference-toggle {
@@ -406,7 +407,11 @@ pub fn VocabReference(props: VocabReferenceProps) -> Element {
                 show_attention.set(false);
             },
             title: "Symbol & Vocabulary Reference",
-            if *is_open.read() { "×" } else { "📖" }
+            if *is_open.read() {
+                Icon { variant: IconVariant::Close, size: IconSize::Large }
+            } else {
+                Icon { variant: IconVariant::Book, size: IconSize::Large }
+            }
         }
 
         // Panel
@@ -415,7 +420,8 @@ pub fn VocabReference(props: VocabReferenceProps) -> Element {
                 // Header
                 div { class: "vocab-panel-header",
                     div { class: "vocab-panel-title",
-                        "📖 Reference"
+                        Icon { variant: IconVariant::Book, size: IconSize::Medium }
+                        "Reference"
                     }
                     button {
                         class: "vocab-panel-close",

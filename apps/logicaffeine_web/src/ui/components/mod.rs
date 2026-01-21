@@ -60,6 +60,10 @@ pub mod main_nav;
 pub mod module_tabs;
 pub mod symbol_dictionary;
 pub mod vocab_reference;
+pub mod footer;
+pub mod page_layout;
+pub mod icon;
+pub mod theme_picker;
 
 // Studio components
 pub mod mode_toggle;

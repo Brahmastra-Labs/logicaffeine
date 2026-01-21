@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const MODE_SELECTOR_STYLE: &str = r#"
 .mode-overlay {
@@ -188,18 +189,24 @@ pub fn ModeSelector(
                     button {
                         class: "mode-option textbook",
                         onclick: move |_| on_select.call("textbook".to_string()),
-                        div { class: "mode-icon textbook", "📖" }
+                        div { class: "mode-icon textbook",
+                            Icon { variant: IconVariant::Book, size: IconSize::Large }
+                        }
                         div { class: "mode-info",
                             h3 { "Read" }
                             p { "Study the concepts and examples before practicing" }
                         }
-                        span { class: "mode-arrow", "→" }
+                        span { class: "mode-arrow",
+                            Icon { variant: IconVariant::ChevronRight, size: IconSize::Medium }
+                        }
                     }
 
                     button {
                         class: "mode-option learning",
                         onclick: move |_| on_select.call("learning".to_string()),
-                        div { class: "mode-icon learning", "🎓" }
+                        div { class: "mode-icon learning",
+                            Icon { variant: IconVariant::GraduationCap, size: IconSize::Large }
+                        }
                         div { class: "mode-info",
                             h3 {
                                 "Practice"
@@ -207,18 +214,24 @@ pub fn ModeSelector(
                             }
                             p { "Learn with hints and immediate feedback on your answers" }
                         }
-                        span { class: "mode-arrow", "→" }
+                        span { class: "mode-arrow",
+                            Icon { variant: IconVariant::ChevronRight, size: IconSize::Medium }
+                        }
                     }
 
                     button {
                         class: "mode-option testing",
                         onclick: move |_| on_select.call("testing".to_string()),
-                        div { class: "mode-icon testing", "📋" }
+                        div { class: "mode-icon testing",
+                            Icon { variant: IconVariant::Document, size: IconSize::Large }
+                        }
                         div { class: "mode-info",
                             h3 { "Test" }
                             p { "Prove your knowledge with no hints - see results at the end" }
                         }
-                        span { class: "mode-arrow", "→" }
+                        span { class: "mode-arrow",
+                            Icon { variant: IconVariant::ChevronRight, size: IconSize::Medium }
+                        }
                     }
                 }
 

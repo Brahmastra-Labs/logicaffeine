@@ -27,6 +27,7 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 // (label, english, simple_fol, unicode)
 const MILESTONE_EXAMPLES: &[&[(&str, &str, &str, &str)]] = &[
@@ -605,7 +606,9 @@ pub fn Roadmap() -> Element {
             div { class: "timeline",
                 // Phase 1: Core Transpiler - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Core Transpiler" }
@@ -629,7 +632,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 2: Web Platform - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Web Platform" }
@@ -651,7 +656,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 3: Imperative Language - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Imperative Language" }
@@ -674,7 +681,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 4: Type System - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Type System" }
@@ -696,7 +705,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 5: Concurrency - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Concurrency & Actors" }
@@ -718,7 +729,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 6: Distributed Systems - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Distributed Systems" }
@@ -740,7 +753,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 7: Security & Policies - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot done", "✓" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Security & Policies" }
@@ -761,7 +776,9 @@ pub fn Roadmap() -> Element {
 
                 // Phase 8: Proof Assistant - IN PROGRESS
                 div { class: "milestone",
-                    div { class: "milestone-dot progress", "◐" }
+                    div { class: "milestone-dot progress",
+                        Icon { variant: IconVariant::Clock, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Proof Assistant" }
@@ -802,7 +819,10 @@ pub fn Roadmap() -> Element {
             }
 
             footer { class: "roadmap-footer",
-                span { "© 2026 Brahmastra Labs LLC  •  Written in Rust 🦀" }
+                span {
+                    "© 2026 Brahmastra Labs LLC  •  Written in Rust "
+                    Icon { variant: IconVariant::Crab, size: IconSize::Small, color: "#f97316" }
+                }
                 span { " • " }
                 a {
                     href: "https://github.com/Brahmastra-Labs/logicaffeine",

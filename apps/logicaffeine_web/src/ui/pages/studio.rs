@@ -37,6 +37,7 @@ use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_succes
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
 use crate::ui::components::vocab_reference::VocabReference;
+use crate::ui::seo::{JsonLd, software_application_schema};
 use crate::ui::components::mode_toggle::ModeToggle;
 use crate::ui::components::file_browser::FileBrowser;
 use crate::ui::components::repl_output::ReplOutput;
@@ -1358,6 +1359,7 @@ pub fn Studio() -> Element {
         style { "{MOBILE_BASE_STYLES}" }
         style { "{MOBILE_TAB_BAR_STYLES}" }
         style { "{STUDIO_STYLE}" }
+        JsonLd { schema: software_application_schema() }
 
         div {
             class: "studio-container",

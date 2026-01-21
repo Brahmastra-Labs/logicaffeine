@@ -23,6 +23,7 @@
 
 use dioxus::prelude::*;
 use crate::ui::state::FileNode;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const FILE_BROWSER_STYLE: &str = r#"
 .file-browser {
@@ -300,16 +301,22 @@ fn FileTreeNode(
         "file-tree-item"
     };
 
-    let icon = if node.is_directory {
-        if node.expanded { "\u{1F4C2}" } else { "\u{1F4C1}" } // 📂 open / 📁 closed
+    let icon_variant = if node.is_directory {
+        if node.expanded { IconVariant::FolderOpen } else { IconVariant::Folder }
     } else {
-        // File icons based on extension
+        IconVariant::File
+    };
+
+    // File-specific display text for logic/math files
+    let file_symbol: Option<&'static str> = if !node.is_directory {
         match node.name.rsplit('.').next() {
-            Some("logic") => "\u{2200}", // ∀
-            Some("logos") => "\u{03BB}", // λ
-            Some("math") => "\u{03C0}",  // π
-            _ => "\u{1F4C4}",            // 📄
+            Some("logic") => Some("∀"),
+            Some("logos") => Some("λ"),
+            Some("math") => Some("π"),
+            _ => None,
         }
+    } else {
+        None
     };
 
     let chevron_class = if node.expanded {
@@ -339,7 +346,13 @@ fn FileTreeNode(
                     span { class: "{chevron_class}", "\u{276F}" }
                 }
 
-                span { class: "icon", "{icon}" }
+                span { class: "icon",
+                    if let Some(sym) = file_symbol {
+                        span { "{sym}" }
+                    } else {
+                        Icon { variant: icon_variant, size: IconSize::Small }
+                    }
+                }
                 span { class: "name", "{node.name}" }
             }
 

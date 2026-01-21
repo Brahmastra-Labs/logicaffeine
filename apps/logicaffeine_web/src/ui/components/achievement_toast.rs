@@ -11,6 +11,7 @@
 use dioxus::prelude::*;
 use crate::achievements::Achievement;
 use crate::audio::{SoundEffect, play_sound};
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const ACHIEVEMENT_STYLE: &str = r#"
 .achievement-overlay {
@@ -152,12 +153,18 @@ pub fn AchievementToast(achievement: &'static Achievement, on_dismiss: EventHand
                     span {
                         class: "particle",
                         style: "left: {(i * 5) % 100}%; animation-delay: {i as f32 * 0.1}s;",
-                        if i % 3 == 0 { "⭐" } else if i % 3 == 1 { "✨" } else { "🎉" }
+                        if i % 2 == 0 {
+                            Icon { variant: IconVariant::Star, size: IconSize::Large, color: "#fbbf24" }
+                        } else {
+                            Icon { variant: IconVariant::Sparkles, size: IconSize::Large, color: "#a78bfa" }
+                        }
                     }
                 }
             }
             div { class: "achievement-card",
-                div { class: "achievement-icon", "🏆" }
+                div { class: "achievement-icon",
+                    Icon { variant: IconVariant::Trophy, size: IconSize::XXLarge, color: "#fbbf24" }
+                }
                 div { class: "achievement-label", "Achievement Unlocked" }
                 div { class: "achievement-title", "{achievement.title}" }
                 div { class: "achievement-description", "{achievement.description}" }
@@ -169,7 +176,9 @@ pub fn AchievementToast(achievement: &'static Achievement, on_dismiss: EventHand
                 }
                 if achievement.grants_freeze {
                     div { class: "achievement-title-unlock",
-                        "🛡️ +1 Streak Freeze!"
+                        style: "display: flex; align-items: center; gap: 8px; justify-content: center;",
+                        Icon { variant: IconVariant::Shield, size: IconSize::Medium, color: "#38bdf8" }
+                        "+1 Streak Freeze!"
                     }
                 }
                 button {

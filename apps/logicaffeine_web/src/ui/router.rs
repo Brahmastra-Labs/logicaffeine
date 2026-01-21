@@ -30,7 +30,7 @@
 //! ```
 
 use dioxus::prelude::*;
-use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide, Crates};
+use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide, Crates, News, NewsArticle};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 /// Application routes.
@@ -101,6 +101,17 @@ pub enum Route {
     PackageDetail {
         /// The package name to display.
         name: String,
+    },
+
+    /// News index page at `/news`.
+    #[route("/news")]
+    News {},
+
+    /// News article page at `/news/:slug`.
+    #[route("/news/:slug")]
+    NewsArticle {
+        /// The article slug.
+        slug: String,
     },
 
     /// Catch-all for unknown routes, renders 404 page.

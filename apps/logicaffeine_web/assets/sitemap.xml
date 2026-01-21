@@ -3,148 +3,94 @@
   <!-- Main Pages -->
   <url>
     <loc>https://logicaffeine.com/</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://logicaffeine.com/guide</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
     <loc>https://logicaffeine.com/learn</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://logicaffeine.com/pricing</loc>
-    <lastmod>2025-12-28</lastmod>
+    <loc>https://logicaffeine.com/crates</loc>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://logicaffeine.com/studio</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://logicaffeine.com/pricing</loc>
+    <lastmod>2026-01-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://logicaffeine.com/roadmap</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://logicaffeine.com/news</loc>
+    <lastmod>2026-01-20</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
     <loc>https://logicaffeine.com/registry</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://logicaffeine.com/profile</loc>
+    <lastmod>2026-01-20</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>https://logicaffeine.com/privacy</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
     <loc>https://logicaffeine.com/terms</loc>
-    <lastmod>2025-12-28</lastmod>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
 
-  <!-- Lesson Pages: Era logicaffeine -->
+  <!-- News Articles -->
   <url>
-    <loc>https://logicaffeine.com/lesson/logicaffeine/syllogistic/learning</loc>
-    <lastmod>2025-12-28</lastmod>
+    <loc>https://logicaffeine.com/news/introducing-logicaffeine</loc>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
+    <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://logicaffeine.com/lesson/logicaffeine/propositional/learning</loc>
-    <lastmod>2025-12-28</lastmod>
+    <loc>https://logicaffeine.com/news/getting-started-with-fol</loc>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
+    <priority>0.6</priority>
   </url>
   <url>
-    <loc>https://logicaffeine.com/lesson/logicaffeine/modal/learning</loc>
-    <lastmod>2025-12-28</lastmod>
+    <loc>https://logicaffeine.com/news/studio-mode-playground</loc>
+    <lastmod>2026-01-20</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/logicaffeine/deontic/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/logicaffeine/belief/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/logicaffeine/informal/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-
-  <!-- Lesson Pages: Era trivium -->
-  <url>
-    <loc>https://logicaffeine.com/lesson/trivium/atomic/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/trivium/relations/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/trivium/negation/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-
-  <!-- Lesson Pages: Era quadrivium -->
-  <url>
-    <loc>https://logicaffeine.com/lesson/quadrivium/universal/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/quadrivium/existential/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/quadrivium/scope/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-
-  <!-- Lesson Pages: Era metaphysics -->
-  <url>
-    <loc>https://logicaffeine.com/lesson/metaphysics/modality/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://logicaffeine.com/lesson/metaphysics/time/learning</loc>
-    <lastmod>2025-12-28</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
+    <priority>0.6</priority>
   </url>
 </urlset>

@@ -25,12 +25,14 @@ use crate::ui::components::learn_sidebar::{LearnSidebar, ModuleInfo};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
 use crate::ui::components::vocab_reference::VocabReference;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
+use crate::ui::components::footer::Footer;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::ui::pages::guide::content::ExampleMode;
+use crate::ui::seo::{JsonLdMultiple, organization_schema, course_schema, breadcrumb_schema, BreadcrumbItem};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, AnswerType, Challenge};
 use crate::grader::check_answer;
 use crate::struggle::StruggleDetector;
-use crate::unlock::check_module_unlocked;
 use crate::progress::UserProgress;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
@@ -139,6 +141,45 @@ const LEARN_STYLE: &str = r#"
     border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
+/* Collapsible era header styles */
+.learn-era-header.collapsible {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+    background: rgba(255,255,255,0.03);
+    border-radius: var(--radius-lg);
+    border-bottom: none;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    user-select: none;
+}
+
+.learn-era-header.collapsible:hover {
+    background: rgba(255,255,255,0.06);
+}
+
+.learn-era-header.collapsible:focus-visible {
+    outline: 2px solid var(--color-accent-blue);
+    outline-offset: 2px;
+}
+
+.learn-era-header-content {
+    flex: 1;
+}
+
+.learn-era-chevron {
+    font-size: 14px;
+    color: var(--text-tertiary);
+    transition: transform 0.2s ease;
+    margin-left: var(--spacing-md);
+}
+
+.learn-era-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
 .learn-era-header h2 {
     font-size: var(--font-display-md);
     font-weight: 800;
@@ -147,6 +188,7 @@ const LEARN_STYLE: &str = r#"
     background: linear-gradient(180deg, #ffffff 0%, rgba(229,231,235,0.85) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin: 0 0 var(--spacing-sm);
 }
 
@@ -176,43 +218,6 @@ const LEARN_STYLE: &str = r#"
 .learn-module-card:hover {
     background: rgba(255,255,255,0.06);
     border-color: rgba(255,255,255,0.12);
-}
-
-.learn-module-card.locked {
-    opacity: 0.6;
-    cursor: not-allowed;
-    position: relative;
-}
-
-.learn-module-card.locked:hover {
-    background: rgba(255,255,255,0.04);
-    border-color: rgba(255,255,255,0.08);
-}
-
-.learn-module-card.locked::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: var(--radius-xl);
-    pointer-events: none;
-}
-
-.locked-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 12px;
-    background: rgba(251, 146, 60, 0.15);
-    border: 1px solid rgba(251, 146, 60, 0.3);
-    border-radius: var(--radius-full);
-    font-size: var(--font-caption-md);
-    font-weight: 600;
-    color: #fb923c;
-}
-
-.locked-badge-icon {
-    font-size: 12px;
 }
 
 .learn-module-header {
@@ -444,6 +449,15 @@ const LEARN_STYLE: &str = r#"
     margin-bottom: var(--spacing-xl);
     border-bottom: 1px solid rgba(255,255,255,0.08);
     padding-bottom: var(--spacing-md);
+    /* Fix mobile overflow */
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none;  /* IE/Edge */
+}
+
+.content-tabs::-webkit-scrollbar {
+    display: none;  /* Chrome/Safari */
 }
 
 .content-tab-btn {
@@ -458,6 +472,9 @@ const LEARN_STYLE: &str = r#"
     color: var(--text-tertiary);
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
+    /* Prevent shrinking on mobile */
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .content-tab-btn:hover {
@@ -924,6 +941,18 @@ const LEARN_STYLE: &str = r#"
     }
 }
 
+/* Mobile breakpoint (phones) */
+@media (max-width: 768px) {
+    .content-tab-btn {
+        padding: 8px 12px;
+        font-size: var(--font-caption-lg, 13px);
+    }
+
+    .learn-main {
+        padding: var(--spacing-lg);
+    }
+}
+
 @media (max-width: 640px) {
     .learn-hero h1 {
         font-size: var(--font-heading-lg);
@@ -952,6 +981,12 @@ const LEARN_STYLE: &str = r#"
 
     .learn-action-btn {
         justify-content: center;
+    }
+
+    /* Smaller tabs on small phones */
+    .content-tab-btn {
+        padding: 6px 10px;
+        font-size: var(--font-caption-md, 12px);
     }
 }
 "#;
@@ -988,7 +1023,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     description: "Learn foundational concepts: what logic is, valid vs. invalid arguments, and sound reasoning.",
                     exercise_count: 5,
                     difficulty: 1,
-                    preview_code: Some("All humans are mortal. Socrates is human. Therefore..."),
+                    preview_code: Some("All humans are mortal."),
                 },
                 ModuleData {
                     id: "syllogistic",
@@ -1020,7 +1055,7 @@ fn get_curriculum_data() -> Vec<EraData> {
                     description: "Master probability, analogical reasoning, Mill's methods, and inference to best explanation.",
                     exercise_count: 12,
                     difficulty: 2,
-                    preview_code: Some("90% of observed swans are white..."),
+                    preview_code: Some("Most swans are white."),
                 },
             ],
         },
@@ -1163,6 +1198,8 @@ pub fn Learn() -> Element {
     let mut active_module = use_signal(|| None::<String>);
     // Expanded module state: which module is currently expanded inline
     let mut expanded_module = use_signal::<ExpandedModuleKey>(|| None);
+    // Collapsed eras state: tracks which eras are collapsed (all expanded by default)
+    let mut collapsed_eras = use_signal(|| std::collections::HashSet::<String>::new());
 
     let eras = get_curriculum_data();
 
@@ -1269,8 +1306,20 @@ pub fn Learn() -> Element {
     // Track first era for divider logic
     let mut is_first_era = true;
 
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Learn", path: "/learn" },
+    ];
+
+    let schemas = vec![
+        organization_schema(),
+        course_schema(),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
         style { "{LEARN_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "learn-page",
             MainNav { active: ActivePage::Learn }
@@ -1315,32 +1364,78 @@ pub fn Learn() -> Element {
                                 }
 
                                 // Era section
-                                section {
-                                    class: "learn-era",
-                                    div { class: "learn-era-header",
-                                        h2 { "{era.title}" }
-                                        p { "{era.description}" }
-                                    }
+                                {
+                                    let era_id_for_collapse = era.id.to_string();
+                                    let is_collapsed = collapsed_eras.read().contains(&era_id_for_collapse);
+                                    let header_class = if is_collapsed { "learn-era-header collapsible collapsed" } else { "learn-era-header collapsible" };
 
-                                    div { class: "learn-modules",
+                                    rsx! {
+                                        section {
+                                            class: "learn-era",
+                                            div {
+                                                class: "{header_class}",
+                                                role: "button",
+                                                tabindex: "0",
+                                                aria_expanded: "{!is_collapsed}",
+                                                aria_controls: "era-{era.id}-modules",
+                                                onclick: {
+                                                    let era_id = era_id_for_collapse.clone();
+                                                    move |_| {
+                                                        let mut set = collapsed_eras.write();
+                                                        if set.contains(&era_id) {
+                                                            set.remove(&era_id);
+                                                        } else {
+                                                            set.insert(era_id.clone());
+                                                        }
+                                                    }
+                                                },
+                                                onkeydown: {
+                                                    let era_id = era_id_for_collapse.clone();
+                                                    move |evt: KeyboardEvent| {
+                                                        if evt.key() == Key::Enter || evt.key() == Key::Character(" ".to_string()) {
+                                                            let mut set = collapsed_eras.write();
+                                                            if set.contains(&era_id) {
+                                                                set.remove(&era_id);
+                                                            } else {
+                                                                set.insert(era_id.clone());
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                div { class: "learn-era-header-content",
+                                                    h2 { "{era.title}" }
+                                                    p { "{era.description}" }
+                                                }
+                                                span {
+                                                    class: if is_collapsed { "learn-era-chevron collapsed" } else { "learn-era-chevron" },
+                                                    "▼"
+                                                }
+                                            }
+
+                                            if !is_collapsed {
+                                                div {
+                                                    id: "era-{era.id}-modules",
+                                                    class: "learn-modules",
+                                                    role: "region",
+                                                    aria_labelledby: "era-{era.id}-header",
                                         for (idx, module) in era.modules.iter().enumerate() {
                                             {
                                                 let era_id = era.id.to_string();
                                                 let module_id = module.id.to_string();
                                                 let module_number = idx + 1;
 
-                                                // Check if this module is locked
-                                                let is_unlocked = check_module_unlocked(&user_progress, &content_engine, &era_id, &module_id);
+                                                // All modules are now unlocked - content is freely accessible
+                                                let _is_unlocked = true;
 
                                                 // Check if this module is expanded
                                                 let is_expanded = expanded_module.read().as_ref()
                                                     .map(|(e, m)| e == era.id && m == module.id)
                                                     .unwrap_or(false);
 
-                                                let card_class = match (is_expanded, is_unlocked) {
-                                                    (true, _) => "learn-module-card expanded",
-                                                    (false, true) => "learn-module-card",
-                                                    (false, false) => "learn-module-card locked",
+                                                let card_class = if is_expanded {
+                                                    "learn-module-card expanded"
+                                                } else {
+                                                    "learn-module-card"
                                                 };
 
                                                 rsx! {
@@ -1410,42 +1505,32 @@ pub fn Learn() -> Element {
                                                             }
                                                         }
 
-                                                        // Show preview only when collapsed
+                                                        // Show preview only when collapsed (all modules now accessible)
                                                         if !is_expanded {
-                                                            if is_unlocked {
-                                                                if let Some(preview) = module.preview_code {
-                                                                    div { class: "learn-module-preview",
-                                                                        div { class: "learn-preview-label", "Try an Example" }
-                                                                        GuideCodeBlock {
-                                                                            id: format!("preview-{}", module.id),
-                                                                            label: "Example".to_string(),
-                                                                            mode: ExampleMode::Logic,
-                                                                            initial_code: preview.to_string(),
-                                                                        }
+                                                            if let Some(preview) = module.preview_code {
+                                                                div { class: "learn-module-preview",
+                                                                    div { class: "learn-preview-label", "Try an Example" }
+                                                                    GuideCodeBlock {
+                                                                        id: format!("preview-{}", module.id),
+                                                                        label: "Example".to_string(),
+                                                                        mode: ExampleMode::Logic,
+                                                                        initial_code: preview.to_string(),
                                                                     }
                                                                 }
+                                                            }
 
-                                                                // Action buttons (only when collapsed and unlocked)
-                                                                div { class: "learn-module-actions",
-                                                                    button {
-                                                                        class: "learn-action-btn primary",
-                                                                        onclick: {
-                                                                            let era = era_id.clone();
-                                                                            let module = module_id.clone();
-                                                                            move |_| {
-                                                                                expanded_module.set(Some((era.clone(), module.clone())));
-                                                                            }
-                                                                        },
-                                                                        "Start Learning"
-                                                                    }
-                                                                }
-                                                            } else {
-                                                                // Locked module - show lock badge
-                                                                div { class: "learn-module-actions",
-                                                                    div { class: "locked-badge",
-                                                                        span { class: "locked-badge-icon", "\u{1F512}" }
-                                                                        "Complete previous module to unlock"
-                                                                    }
+                                                            // Action buttons (all modules now accessible)
+                                                            div { class: "learn-module-actions",
+                                                                button {
+                                                                    class: "learn-action-btn primary",
+                                                                    onclick: {
+                                                                        let era = era_id.clone();
+                                                                        let module = module_id.clone();
+                                                                        move |_| {
+                                                                            expanded_module.set(Some((era.clone(), module.clone())));
+                                                                        }
+                                                                    },
+                                                                    "Start Learning"
                                                                 }
                                                             }
                                                         }
@@ -1463,6 +1548,9 @@ pub fn Learn() -> Element {
                                                 }
                                             }
                                         }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1473,6 +1561,8 @@ pub fn Learn() -> Element {
 
             // Floating vocab reference panel
             VocabReference {}
+
+            Footer {}
         }
     }
 }
@@ -2269,7 +2359,8 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                     if !is_test_mode && *show_socratic_hint.read() && hint_text.is_some() {
                         div { class: "socratic-hint-box",
                             div { class: "hint-header",
-                                "🦉 Socrates says..."
+                                Icon { variant: IconVariant::Owl, size: IconSize::Medium, color: "#a78bfa" }
+                                " Socrates says..."
                             }
                             div { class: "hint-text",
                                 if let Some(reason) = struggle_detector.read().reason() {
@@ -2293,7 +2384,8 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                     let current = reveal_state.read().hint;
                                     reveal_state.write().hint = !current;
                                 },
-                                "💡 Show Hint"
+                                Icon { variant: IconVariant::Lightning, size: IconSize::Small }
+                                " Show Hint"
                             }
 
                             // Show Answer button - toggles independently, forfeits XP when revealed
@@ -2318,7 +2410,8 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                         let current = reveal_state.read().symbol_dictionary;
                                         reveal_state.write().symbol_dictionary = !current;
                                     },
-                                    "📖 Symbol Dictionary"
+                                    Icon { variant: IconVariant::Book, size: IconSize::Small }
+                                    " Symbol Dictionary"
                                 }
                             }
                         }
@@ -2467,7 +2560,8 @@ fn InteractiveExercisePanel(era_id: String, module_id: String) -> Element {
                                     feedback.set(None);
                                     reveal_state.write().reset();
                                 },
-                                "🎯 Take Test"
+                                Icon { variant: IconVariant::Target, size: IconSize::Small }
+                                " Take Test"
                             }
                         }
                         } // end else (practice mode)

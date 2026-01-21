@@ -13,6 +13,8 @@
 use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+use crate::ui::seo::{JsonLdMultiple, organization_schema, website_schema};
 
 const LANDING_STYLE: &str = r#"
 body:has(.landing) {
@@ -663,8 +665,14 @@ html { scroll-behavior: smooth; }
 
 #[component]
 pub fn Landing() -> Element {
+    let schemas = vec![
+        organization_schema(),
+        website_schema(),
+    ];
+
     rsx! {
         style { "{LANDING_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "landing",
             div { class: "bg-orb orb1" }
@@ -705,7 +713,10 @@ pub fn Landing() -> Element {
                             }
 
                             div { class: "tech-stack",
-                                span { class: "tech-badge rust", "Rust-Powered 🦀" }
+                                span { class: "tech-badge rust",
+                                    "Rust-Powered "
+                                    Icon { variant: IconVariant::Crab, size: IconSize::Small, color: "#dea584" }
+                                }
                                 span { class: "tech-badge", "WASM Ready" }
                                 span { class: "tech-badge", "Markdown Source" }
                                 span { class: "tech-badge", "Proof-Checked" }
@@ -817,32 +828,44 @@ To run:
 
                     div { class: "grid3",
                         div { class: "card",
-                            div { class: "icon", "⚡" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Lightning, size: IconSize::Large, color: "#60a5fa" }
+                            }
                             h3 { "Instant Transpilation" }
                             p { "Type normal English. Get precise logic in seconds — readable enough to learn from, strict enough to verify." }
                         }
                         div { class: "card",
-                            div { class: "icon", "🧠" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Brain, size: IconSize::Large, color: "#a78bfa" }
+                            }
                             h3 { "Socratic Tutor" }
                             p { "When your statement is ambiguous, the tutor asks questions that force clarity instead of guessing." }
                         }
                         div { class: "card",
-                            div { class: "icon", "🧾" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Document, size: IconSize::Large, color: "#22c55e" }
+                            }
                             h3 { "Assumption Surfacing" }
                             p { "Reveal missing premises, hidden quantifiers, and scope mistakes — the usual sources of bad arguments." }
                         }
                         div { class: "card",
-                            div { class: "icon", "🧪" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Beaker, size: IconSize::Large, color: "#fbbf24" }
+                            }
                             h3 { "Consistency & Validity Checks" }
                             p { "Spot contradictions, invalid inferences, and rule collisions early — before they hit production or policy." }
                         }
                         div { class: "card",
-                            div { class: "icon", "🧰" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Tools, size: IconSize::Large, color: "#ec4899" }
+                            }
                             h3 { "Studio + Curriculum" }
                             p { "Explore freely in Studio, then build mastery in Learn with structured lessons and practice." }
                         }
                         div { class: "card",
-                            div { class: "icon", "🔒" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Lock, size: IconSize::Large, color: "#8b5cf6" }
+                            }
                             h3 { "Commercial-Ready" }
                             p { "Licensing options for teams and enterprises — with a path toward governance and controlled deployments." }
                         }
@@ -857,17 +880,23 @@ To run:
 
                     div { class: "grid3",
                         div { class: "card",
-                            div { class: "icon", "🎓" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::GraduationCap, size: IconSize::Large, color: "#60a5fa" }
+                            }
                             h3 { "Students & Educators" }
                             p { "Teach formal reasoning with feedback that's immediate, concrete, and harder to game than multiple choice." }
                         }
                         div { class: "card",
-                            div { class: "icon", "⚖️" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Shield, size: IconSize::Large, color: "#a78bfa" }
+                            }
                             h3 { "Law, Policy, Compliance" }
                             p { "Translate policy language into verifiable rules. Reduce ambiguity. Make reviews faster and safer." }
                         }
                         div { class: "card",
-                            div { class: "icon", "🛠️" }
+                            div { class: "icon",
+                                Icon { variant: IconVariant::Tools, size: IconSize::Large, color: "#22c55e" }
+                            }
                             h3 { "Engineering & Research" }
                             p { "Specify systems, constraints, and invariants in a form you can test — without forcing everyone into formal syntax." }
                         }
@@ -981,7 +1010,11 @@ To run:
 
                 footer { class: "footer",
                     div { class: "footer-row",
-                        div { "© 2025 Brahmastra Labs LLC  •  Written in Rust 🦀" }
+                        div {
+                            style: "display: flex; align-items: center; gap: 6px;",
+                            "© 2025 Brahmastra Labs LLC  •  Written in Rust "
+                            Icon { variant: IconVariant::Crab, size: IconSize::Small, color: "#dea584" }
+                        }
                         div {
                             a {
                                 href: "https://github.com/Brahmastra-Labs/logicaffeine",

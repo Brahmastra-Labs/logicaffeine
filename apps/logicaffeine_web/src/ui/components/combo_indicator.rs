@@ -10,6 +10,7 @@
 //! - `is_new_record` - Whether this combo beats the personal record
 
 use dioxus::prelude::*;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 
 const COMBO_STYLE: &str = r#"
 .combo-record {
@@ -114,7 +115,9 @@ pub fn ComboIndicator(combo: u32, multiplier: f64, is_new_record: bool) -> Eleme
             div { class: "combo-indicator",
                 div { class: "combo-flames",
                     for _ in 0..flame_count {
-                        span { class: "flame", "🔥" }
+                        span { class: "flame",
+                            Icon { variant: IconVariant::Fire, size: IconSize::Medium, color: "#f97316" }
+                        }
                     }
                 }
                 span { class: "combo-count", "{combo}x" }
