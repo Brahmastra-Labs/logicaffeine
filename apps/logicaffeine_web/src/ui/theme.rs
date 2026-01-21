@@ -76,19 +76,19 @@ pub mod colors {
     pub const SYNTAX_DETERMINER: &str = "#56b6c2";
     pub const SYNTAX_CONNECTIVE: &str = "#c678dd";
 
-    // Text colors - UPDATED for better accessibility
-    pub const TEXT_PRIMARY: &str = "#f0f0f0";           // Was #e8e8e8, now lighter
-    pub const TEXT_SECONDARY: &str = "#b0b0b0";         // Was #888, now lighter
-    pub const TEXT_TERTIARY: &str = "#909090";          // Was #666, now lighter
-    pub const TEXT_MUTED: &str = "#a0a0a0";             // Was #aaa, kept similar
-    pub const TEXT_PLACEHOLDER: &str = "#808080";       // Was darker
+    // Text colors - MUCH lighter for readability
+    pub const TEXT_PRIMARY: &str = "#f5f5f5";
+    pub const TEXT_SECONDARY: &str = "#d0d0d0";
+    pub const TEXT_TERTIARY: &str = "#b8b8b8";
+    pub const TEXT_MUTED: &str = "#c0c0c0";
+    pub const TEXT_PLACEHOLDER: &str = "#a0a0a0";
 
-    // Text with opacity (for overlays/backgrounds)
-    pub const TEXT_HIGH_CONTRAST: &str = "rgba(240,242,245,0.95)";    // Was 0.9
-    pub const TEXT_MEDIUM: &str = "rgba(240,242,245,0.80)";           // Was 0.72
-    pub const TEXT_LOW: &str = "rgba(240,242,245,0.70)";              // Was 0.65
-    pub const TEXT_SUBTLE: &str = "rgba(240,242,245,0.55)";           // Was 0.45
-    pub const TEXT_VERY_SUBTLE: &str = "rgba(240,242,245,0.45)";      // Was 0.35
+    // Text with opacity (for overlays/backgrounds) - higher opacity for readability
+    pub const TEXT_HIGH_CONTRAST: &str = "rgba(245,245,245,0.98)";
+    pub const TEXT_MEDIUM: &str = "rgba(245,245,245,0.88)";
+    pub const TEXT_LOW: &str = "rgba(245,245,245,0.78)";
+    pub const TEXT_SUBTLE: &str = "rgba(245,245,245,0.68)";
+    pub const TEXT_VERY_SUBTLE: &str = "rgba(245,245,245,0.58)";
 
     // Background colors
     pub const BG_DARK: &str = "#060814";
@@ -109,28 +109,28 @@ pub mod colors {
 
 /// Font size scale.
 ///
-/// All sizes increased by 2px from standard values for improved accessibility.
+/// Minimum 14px for all text to ensure readability.
 /// Organized from display (largest) to caption (smallest).
 pub mod font_size {
     // Display sizes
-    pub const DISPLAY_XL: &str = "66px";    // Was 64px
-    pub const DISPLAY_LG: &str = "50px";    // Was 48px
-    pub const DISPLAY_MD: &str = "34px";    // Was 32px
+    pub const DISPLAY_XL: &str = "66px";
+    pub const DISPLAY_LG: &str = "50px";
+    pub const DISPLAY_MD: &str = "34px";
 
     // Heading sizes
-    pub const HEADING_LG: &str = "26px";    // Was 24px
-    pub const HEADING_MD: &str = "22px";    // Was 20px
-    pub const HEADING_SM: &str = "20px";    // Was 18px
+    pub const HEADING_LG: &str = "26px";
+    pub const HEADING_MD: &str = "22px";
+    pub const HEADING_SM: &str = "20px";
 
     // Body sizes
-    pub const BODY_LG: &str = "18px";       // Was 16px
-    pub const BODY_MD: &str = "16px";       // Was 14px
-    pub const BODY_SM: &str = "15px";       // Was 13px
+    pub const BODY_LG: &str = "18px";
+    pub const BODY_MD: &str = "16px";
+    pub const BODY_SM: &str = "15px";
 
-    // Small/caption sizes
-    pub const CAPTION_LG: &str = "14px";    // Was 12px
-    pub const CAPTION_MD: &str = "13px";    // Was 11px
-    pub const CAPTION_SM: &str = "12px";    // Was 10px
+    // Caption sizes - minimum 14px for readability
+    pub const CAPTION_LG: &str = "15px";
+    pub const CAPTION_MD: &str = "14px";
+    pub const CAPTION_SM: &str = "14px";
 }
 
 /// Font family stacks with fallbacks.
@@ -214,14 +214,14 @@ pub fn css_variables() -> &'static str {
         --color-error: #ef4444;
         --color-info: #00d4ff;
 
-        /* Text colors - accessible grays */
-        --text-primary: #f0f0f0;
-        --text-secondary: #b0b0b0;
-        --text-tertiary: #909090;
-        --text-muted: #a0a0a0;
-        --text-placeholder: #808080;
+        /* Text colors - MUCH lighter for readability */
+        --text-primary: #f5f5f5;
+        --text-secondary: #d0d0d0;
+        --text-tertiary: #b8b8b8;
+        --text-muted: #c0c0c0;
+        --text-placeholder: #a0a0a0;
 
-        /* Font sizes - +2px for accessibility */
+        /* Font sizes - minimum 14px for readability */
         --font-display-xl: 66px;
         --font-display-lg: 50px;
         --font-display-md: 34px;
@@ -231,9 +231,9 @@ pub fn css_variables() -> &'static str {
         --font-body-lg: 18px;
         --font-body-md: 16px;
         --font-body-sm: 15px;
-        --font-caption-lg: 14px;
-        --font-caption-md: 13px;
-        --font-caption-sm: 12px;
+        --font-caption-lg: 15px;
+        --font-caption-md: 14px;
+        --font-caption-sm: 14px;
 
         /* Font families */
         --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;

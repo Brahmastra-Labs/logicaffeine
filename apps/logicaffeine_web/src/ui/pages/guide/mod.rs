@@ -91,6 +91,13 @@ const GUIDE_STYLE: &str = r#"
     flex: 1;
     min-width: 0;
     max-width: 800px;
+    padding-right: var(--spacing-lg);
+}
+
+@media (max-width: 1024px) {
+    .guide-content {
+        padding-right: 0;
+    }
 }
 
 /* Section styling */
@@ -153,15 +160,21 @@ const GUIDE_STYLE: &str = r#"
     font-weight: 600;
 }
 
-/* Tables */
+/* Tables - wrapped in scrollable container */
+.guide-section .table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+    margin: var(--spacing-xl) 0;
+    border-radius: var(--radius-lg);
+    border: 1px solid rgba(255,255,255,0.08);
+    -webkit-overflow-scrolling: touch;
+}
+
 .guide-section table {
     width: 100%;
+    min-width: 400px;
     border-collapse: collapse;
-    margin: var(--spacing-xl) 0;
     font-size: var(--font-body-md);
-    border-radius: var(--radius-lg);
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.08);
 }
 
 .guide-section th {
@@ -171,6 +184,7 @@ const GUIDE_STYLE: &str = r#"
     color: var(--text-primary);
     font-weight: 600;
     border-bottom: 1px solid rgba(255,255,255,0.08);
+    white-space: nowrap;
 }
 
 .guide-section td {
@@ -185,6 +199,76 @@ const GUIDE_STYLE: &str = r#"
 
 .guide-section tr:hover td {
     background: rgba(255,255,255,0.02);
+}
+
+/* Collapsible examples container */
+.guide-examples-collapsible {
+    margin-top: var(--spacing-xl);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.guide-examples-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg) var(--spacing-xl);
+    background: rgba(255,255,255,0.03);
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+}
+
+.guide-examples-header:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+.guide-examples-header-left {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.guide-examples-title {
+    font-size: var(--font-body-md);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.guide-examples-count {
+    font-size: var(--font-caption-md);
+    color: var(--text-tertiary);
+    background: rgba(255,255,255,0.06);
+    padding: 4px 10px;
+    border-radius: var(--radius-full);
+}
+
+.guide-examples-chevron {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    transition: transform 0.2s ease;
+}
+
+.guide-examples-collapsible.expanded .guide-examples-chevron {
+    transform: rotate(90deg);
+}
+
+.guide-examples-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.guide-examples-collapsible.expanded .guide-examples-content {
+    max-height: 10000px;
+}
+
+.guide-examples-inner {
+    padding: var(--spacing-lg);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
 }
 
 /* Part dividers */
@@ -220,6 +304,9 @@ const GUIDE_STYLE: &str = r#"
 /* Examples container */
 .guide-examples {
     margin-top: var(--spacing-xl);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-lg);
 }
 
 /* Responsive */
@@ -359,7 +446,7 @@ pub fn Guide() -> Element {
                     div { class: "dot" }
                     span { "Interactive Guide" }
                 }
-                h1 { "LOGOS Language Guide" }
+                h1 { "LOGOS Syntax Guide" }
                 p {
                     "Write English. Get Logic. Run Code. A comprehensive guide to programming in LOGOS, from basics to advanced features."
                 }
@@ -407,21 +494,74 @@ pub fn Guide() -> Element {
                                         dangerous_inner_html: render_markdown(section.content)
                                     }
 
-                                    // Render code examples
+                                    // Render code examples - collapsible if many
                                     if !section.examples.is_empty() {
-                                        div { class: "guide-examples",
-                                            for example in section.examples.iter() {
-                                                GuideCodeBlock {
-                                                    id: example.id.to_string(),
-                                                    label: example.label.to_string(),
-                                                    mode: example.mode,
-                                                    initial_code: example.code.to_string(),
+                                        {
+                                            let example_count = section.examples.len();
+                                            let should_collapse = example_count > 3;
+
+                                            if should_collapse {
+                                                rsx! {
+                                                    CollapsibleExamples {
+                                                        section_id: section.id.to_string(),
+                                                        examples: section.examples,
+                                                    }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    div { class: "guide-examples",
+                                                        for example in section.examples.iter() {
+                                                            GuideCodeBlock {
+                                                                id: example.id.to_string(),
+                                                                label: example.label.to_string(),
+                                                                mode: example.mode,
+                                                                initial_code: example.code.to_string(),
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Collapsible examples component for sections with many examples
+#[component]
+fn CollapsibleExamples(section_id: String, examples: &'static [content::CodeExample]) -> Element {
+    let mut expanded = use_signal(|| false);
+    let example_count = examples.len();
+
+    rsx! {
+        div {
+            class: if *expanded.read() { "guide-examples-collapsible expanded" } else { "guide-examples-collapsible" },
+
+            div {
+                class: "guide-examples-header",
+                onclick: move |_| expanded.toggle(),
+
+                div { class: "guide-examples-header-left",
+                    span { class: "guide-examples-title", "Code Examples" }
+                    span { class: "guide-examples-count", "{example_count} examples" }
+                }
+                span { class: "guide-examples-chevron", "▶" }
+            }
+
+            div { class: "guide-examples-content",
+                div { class: "guide-examples-inner",
+                    for example in examples.iter() {
+                        GuideCodeBlock {
+                            id: example.id.to_string(),
+                            label: example.label.to_string(),
+                            mode: example.mode,
+                            initial_code: example.code.to_string(),
                         }
                     }
                 }
@@ -448,7 +588,7 @@ fn render_markdown(content: &str) -> String {
                 in_list = false;
             }
             if in_table {
-                html.push_str("</tbody></table>");
+                html.push_str("</tbody></table></div>");
                 in_table = false;
             }
             continue;
@@ -457,7 +597,7 @@ fn render_markdown(content: &str) -> String {
         // Headers
         if trimmed.starts_with("### ") {
             if in_list { html.push_str("</ul>"); in_list = false; }
-            if in_table { html.push_str("</tbody></table>"); in_table = false; }
+            if in_table { html.push_str("</tbody></table></div>"); in_table = false; }
             html.push_str(&format!("<h3>{}</h3>", inline_markdown(&trimmed[4..])));
             continue;
         }
@@ -471,7 +611,7 @@ fn render_markdown(content: &str) -> String {
             }
 
             if !in_table {
-                html.push_str("<table><thead>");
+                html.push_str("<div class=\"table-wrapper\"><table><thead>");
                 in_table = true;
                 in_table_header = true;
             }
@@ -499,7 +639,7 @@ fn render_markdown(content: &str) -> String {
 
         // Close table if not a table row
         if in_table && !trimmed.starts_with('|') {
-            html.push_str("</tbody></table>");
+            html.push_str("</tbody></table></div>");
             in_table = false;
         }
 
@@ -540,7 +680,7 @@ fn render_markdown(content: &str) -> String {
         html.push_str("</ul>");
     }
     if in_table {
-        html.push_str("</tbody></table>");
+        html.push_str("</tbody></table></div>");
     }
 
     html

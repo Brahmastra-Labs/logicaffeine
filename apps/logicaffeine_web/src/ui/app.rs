@@ -39,14 +39,14 @@ const GLOBAL_STYLE: &str = r#"
     --color-error: #e06c75;
     --color-info: #60a5fa;
 
-    /* Text colors - accessible grays (lighter for visibility) */
-    --text-primary: #f0f0f0;
-    --text-secondary: #b0b0b0;
-    --text-tertiary: #909090;
-    --text-muted: #a0a0a0;
-    --text-placeholder: #808080;
+    /* Text colors - MUCH lighter for readability */
+    --text-primary: #f5f5f5;
+    --text-secondary: #d0d0d0;
+    --text-tertiary: #b8b8b8;
+    --text-muted: #c0c0c0;
+    --text-placeholder: #a0a0a0;
 
-    /* Font sizes - +2px for accessibility */
+    /* Font sizes - minimum 14px for readability */
     --font-display-xl: 66px;
     --font-display-lg: 50px;
     --font-display-md: 34px;
@@ -56,9 +56,9 @@ const GLOBAL_STYLE: &str = r#"
     --font-body-lg: 18px;
     --font-body-md: 16px;
     --font-body-sm: 15px;
-    --font-caption-lg: 14px;
-    --font-caption-md: 13px;
-    --font-caption-sm: 12px;
+    --font-caption-lg: 15px;
+    --font-caption-md: 14px;
+    --font-caption-sm: 14px;
 
     /* Font families */
     --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;

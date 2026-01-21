@@ -199,6 +199,22 @@ pub fn theme_css(theme: Theme) -> String {
             border-color: var(--accent-primary);
         }}
 
+        /* Override color-accent-blue/purple with theme colors */
+        .main-nav-link.active::after {{
+            background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary)) !important;
+        }}
+
+        .btn-primary,
+        .main-nav-btn.primary {{
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+            box-shadow: 0 12px 30px rgba(var(--accent-primary-rgb), 0.18) !important;
+        }}
+
+        .btn-primary:hover,
+        .main-nav-btn.primary:hover {{
+            box-shadow: 0 16px 40px rgba(var(--accent-primary-rgb), 0.25) !important;
+        }}
+
         /* Gradient buttons with theme colors */
         .btn-gradient {{
             background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
@@ -219,14 +235,60 @@ pub fn theme_css(theme: Theme) -> String {
         }}
 
         /* Progress bars */
-        .progress-accent {{
+        .progress-accent,
+        .progress-fill {{
             background: linear-gradient(90deg, var(--accent-primary), var(--accent-secondary));
         }}
 
+        /* Active nav items */
+        .mobile-nav-item.active,
+        .mobile-nav-link.active {{
+            background: rgba(var(--accent-primary-rgb), 0.12) !important;
+            color: var(--accent-primary) !important;
+        }}
+
+        .learn-sidebar-module.active {{
+            background: rgba(var(--accent-primary-rgb), 0.15) !important;
+            color: var(--accent-primary) !important;
+            border-left-color: var(--accent-primary) !important;
+        }}
+
         /* Focus rings */
-        .focus-accent:focus {{
+        .focus-accent:focus,
+        input:focus,
+        textarea:focus {{
             box-shadow: 0 0 0 3px rgba(var(--accent-primary-rgb), 0.3);
             border-color: var(--accent-primary);
+        }}
+
+        /* Badge/pill accents */
+        .badge .dot {{
+            background: var(--accent-primary) !important;
+            box-shadow: 0 0 0 6px rgba(var(--accent-primary-rgb), 0.12) !important;
+        }}
+
+        /* Card hover accents */
+        .card:hover {{
+            border-color: rgba(var(--accent-secondary-rgb), 0.28) !important;
+        }}
+
+        .card:hover::before {{
+            background: linear-gradient(135deg, rgba(var(--accent-primary-rgb), 0.12), rgba(var(--accent-secondary-rgb), 0.12)) !important;
+        }}
+
+        /* Icon box accents */
+        .icon-box {{
+            background: rgba(var(--accent-primary-rgb), 0.15) !important;
+        }}
+
+        /* Step numbers */
+        .step-num {{
+            background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+        }}
+
+        /* Code/logic accents */
+        .code.logic {{
+            color: var(--accent-secondary) !important;
         }}
         "#
     )

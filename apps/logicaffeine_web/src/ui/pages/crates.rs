@@ -165,6 +165,53 @@ const CRATES_STYLE: &str = r#"
     transform: translateX(3px);
 }
 
+.crate-links {
+    display: flex;
+    gap: 12px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.crate-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: var(--radius-md);
+    font-size: var(--font-caption-md);
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.crate-link.docs {
+    background: rgba(167,139,250,0.15);
+    color: #a78bfa;
+    border: 1px solid rgba(167,139,250,0.3);
+}
+
+.crate-link.docs:hover {
+    background: rgba(167,139,250,0.25);
+    border-color: rgba(167,139,250,0.5);
+}
+
+.crate-link.crates-io {
+    background: rgba(249,115,22,0.15);
+    color: #fb923c;
+    border: 1px solid rgba(249,115,22,0.3);
+}
+
+.crate-link.crates-io:hover {
+    background: rgba(249,115,22,0.25);
+    border-color: rgba(249,115,22,0.5);
+}
+
+.crate-link svg {
+    width: 16px;
+    height: 16px;
+}
+
 .crates-section {
     margin-bottom: 48px;
 }
@@ -200,6 +247,7 @@ struct CrateInfo {
     name: &'static str,
     description: &'static str,
     is_core: bool,
+    crates_io: Option<&'static str>,
 }
 
 const CORE_CRATES: &[CrateInfo] = &[
@@ -207,41 +255,49 @@ const CORE_CRATES: &[CrateInfo] = &[
         name: "logicaffeine_language",
         description: "Core LOGOS language implementation including AST, parser, and first-order logic transpiler.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-language"),
     },
     CrateInfo {
         name: "logicaffeine_compile",
         description: "Code generation and compilation from LOGOS to executable formats.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-compile"),
     },
     CrateInfo {
         name: "logicaffeine_kernel",
         description: "Runtime kernel for executing LOGOS programs with built-in inference.",
         is_core: true,
+        crates_io: None,
     },
     CrateInfo {
         name: "logicaffeine_proof",
         description: "Proof assistant and formal verification engine for logical reasoning.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-proof"),
     },
     CrateInfo {
         name: "logicaffeine_lexicon",
         description: "Vocabulary database and lexical analysis for natural language parsing.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-lexicon"),
     },
     CrateInfo {
         name: "logicaffeine_base",
         description: "Shared base types, traits, and utilities used across all crates.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-base"),
     },
     CrateInfo {
         name: "logicaffeine_data",
         description: "Data structures and persistent storage for programs and proofs.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-data"),
     },
     CrateInfo {
         name: "logicaffeine_system",
         description: "System integration layer for platform-specific functionality.",
         is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-system"),
     },
 ];
 
@@ -250,11 +306,13 @@ const APP_CRATES: &[CrateInfo] = &[
         name: "logicaffeine_cli",
         description: "Command-line interface for the LOGOS toolchain (largo).",
         is_core: false,
+        crates_io: Some("https://crates.io/crates/logicaffeine-cli"),
     },
     CrateInfo {
         name: "logicaffeine_web",
         description: "Web frontend components built with Dioxus for the learning platform.",
         is_core: false,
+        crates_io: None,
     },
 ];
 
@@ -308,11 +366,7 @@ fn CrateCard(info: &'static CrateInfo) -> Element {
     let doc_url = format!("https://docs.logicaffeine.com/{}/index.html", info.name);
 
     rsx! {
-        a {
-            class: "crate-card",
-            href: "{doc_url}",
-            target: "_blank",
-            rel: "noopener",
+        div { class: "crate-card",
             div { class: "crate-header",
                 h3 { class: "crate-name",
                     "{info.name}"
@@ -323,18 +377,45 @@ fn CrateCard(info: &'static CrateInfo) -> Element {
                 }
             }
             p { class: "crate-description", "{info.description}" }
-            div { class: "crate-arrow",
-                "View docs"
-                svg {
-                    xmlns: "http://www.w3.org/2000/svg",
-                    fill: "none",
-                    view_box: "0 0 24 24",
-                    stroke: "currentColor",
-                    stroke_width: "2",
-                    path {
-                        stroke_linecap: "round",
-                        stroke_linejoin: "round",
-                        d: "M13 7l5 5m0 0l-5 5m5-5H6"
+            div { class: "crate-links",
+                a {
+                    class: "crate-link docs",
+                    href: "{doc_url}",
+                    target: "_blank",
+                    rel: "noopener",
+                    svg {
+                        xmlns: "http://www.w3.org/2000/svg",
+                        fill: "none",
+                        view_box: "0 0 24 24",
+                        stroke: "currentColor",
+                        stroke_width: "2",
+                        path {
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            d: "M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"
+                        }
+                    }
+                    "Docs"
+                }
+                if let Some(crates_url) = info.crates_io {
+                    a {
+                        class: "crate-link crates-io",
+                        href: "{crates_url}",
+                        target: "_blank",
+                        rel: "noopener",
+                        svg {
+                            xmlns: "http://www.w3.org/2000/svg",
+                            fill: "none",
+                            view_box: "0 0 24 24",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            path {
+                                stroke_linecap: "round",
+                                stroke_linejoin: "round",
+                                d: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                            }
+                        }
+                        "crates.io"
                     }
                 }
             }

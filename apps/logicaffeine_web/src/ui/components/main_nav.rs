@@ -3,7 +3,7 @@
 //! Features:
 //! - Logo and brand name
 //! - Navigation links with active underline indicator (desktop)
-//! - Mobile drawer with expandable trees for Language Guide and Learn
+//! - Mobile drawer with expandable trees for Syntax Guide and Learn
 //! - GitHub icon and CTA buttons
 //! - Responsive design with 980px breakpoint
 
@@ -521,7 +521,7 @@ pub fn MainNav(
                         Link {
                             to: Route::Guide {},
                             class: if active == ActivePage::Guide { "main-nav-link active" } else { "main-nav-link" },
-                            "Language Guide"
+                            "Syntax Guide"
                         }
                         Link {
                             to: Route::Crates {},
@@ -531,7 +531,7 @@ pub fn MainNav(
                         Link {
                             to: Route::Learn {},
                             class: if active == ActivePage::Learn { "main-nav-link active" } else { "main-nav-link" },
-                            "Learn"
+                            "Learn Logic"
                         }
                         Link {
                             to: Route::Studio {},
@@ -612,7 +612,7 @@ pub fn MainNav(
 
             // Content
             div { class: "mobile-drawer-content",
-                // Language Guide section with tree
+                // Syntax Guide section with tree
                 div { class: "mobile-nav-section",
                     div {
                         class: "mobile-nav-header",
@@ -624,7 +624,7 @@ pub fn MainNav(
                             span { class: "mobile-nav-header-icon",
                                 Icon { variant: IconVariant::Book, size: IconSize::Medium }
                             }
-                            span { class: "mobile-nav-header-title", "Language Guide" }
+                            span { class: "mobile-nav-header-title", "Syntax Guide" }
                         }
                         span {
                             class: if *guide_expanded.read() { "mobile-nav-header-chevron expanded" } else { "mobile-nav-header-chevron" },
@@ -666,7 +666,7 @@ pub fn MainNav(
                             span { class: "mobile-nav-header-icon",
                                 Icon { variant: IconVariant::GraduationCap, size: IconSize::Medium }
                             }
-                            span { class: "mobile-nav-header-title", "Learn" }
+                            span { class: "mobile-nav-header-title", "Learn Logic" }
                         }
                         span {
                             class: if *learn_expanded.read() { "mobile-nav-header-chevron expanded" } else { "mobile-nav-header-chevron" },

@@ -4,7 +4,7 @@
 //! WASM cannot read files at runtime, so we embed the content at compile time.
 
 /// Mode for code examples - determines how "Run" executes them
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ExampleMode {
     /// Logic mode: compile to First-Order Logic (FOL)
     Logic,
@@ -13,7 +13,7 @@ pub enum ExampleMode {
 }
 
 /// A code example within a section
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CodeExample {
     pub id: &'static str,
     pub label: &'static str,
