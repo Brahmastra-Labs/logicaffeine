@@ -84,13 +84,13 @@ const FILE_BROWSER_STYLE: &str = r#"
     top: 80px;
     left: 50%;
     transform: translateX(-50%);
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #00d4ff 0%, #818cf8 100%);
     color: white;
     padding: 12px 20px;
     border-radius: 8px;
     font-size: 14px;
     font-weight: 500;
-    box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 20px rgba(0, 212, 255, 0.3);
     z-index: 1000;
     animation: toast-fade 2.5s ease-out forwards;
 }
@@ -128,8 +128,8 @@ const FILE_BROWSER_STYLE: &str = r#"
 }
 
 .file-tree-item.selected {
-    background: rgba(102, 126, 234, 0.15);
-    color: #667eea;
+    background: rgba(0, 212, 255, 0.12);
+    color: #00d4ff;
 }
 
 .file-tree-item .icon {
@@ -215,10 +215,12 @@ pub fn FileBrowser(
     let mut show_toast = use_signal(|| false);
     let mut toast_key = use_signal(|| 0u32);
 
+    // Always include 'open' class since component is only rendered when sidebar should be visible
+    // This is needed for mobile CSS which positions the sidebar off-screen by default
     let browser_class = if collapsed {
-        "file-browser collapsed"
+        "file-browser collapsed open"
     } else {
-        "file-browser"
+        "file-browser open"
     };
 
     rsx! {

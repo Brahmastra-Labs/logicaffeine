@@ -419,6 +419,22 @@ const STUDIO_STYLE: &str = r#"
     flex: 1;
     display: flex;
     overflow: hidden;
+    position: relative;
+}
+
+/* Overlay to close sidebar when clicking outside (mobile) */
+.sidebar-overlay {
+    display: none;
+}
+
+@media (max-width: 768px) {
+    .sidebar-overlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 99;
+    }
 }
 
 /* Desktop: 3-column panel layout */
@@ -1462,12 +1478,22 @@ pub fn Studio() -> Element {
             // Main content with optional sidebar
             div { class: "studio-content",
                 // File browser sidebar
+                // Mobile overlay to close sidebar when clicking outside
+                if *sidebar_open.read() {
+                    div {
+                        class: "sidebar-overlay",
+                        onclick: move |_| sidebar_open.set(false),
+                    }
+                }
+
                 if *sidebar_open.read() {
                     FileBrowser {
                         tree: file_tree.read().clone(),
                         selected_path: current_file.read().clone(),
                         collapsed: false,
                         on_select: EventHandler::new(move |path: String| {
+                            // Close sidebar when file is selected
+                            sidebar_open.set(false);
                             current_file.set(Some(path.clone()));
 
                             // Update URL with file parameter for shareable links

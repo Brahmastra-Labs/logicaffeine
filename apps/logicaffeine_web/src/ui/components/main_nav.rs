@@ -191,14 +191,14 @@ const MAIN_NAV_STYLE: &str = r#"
 }
 
 .main-nav-btn.primary {
-    background: linear-gradient(135deg, rgba(96,165,250,0.95), rgba(167,139,250,0.95));
+    background: linear-gradient(135deg, rgba(0,212,255,0.95), rgba(129,140,248,0.95));
     border-color: rgba(255,255,255,0.20);
-    color: #060814;
-    box-shadow: 0 12px 30px rgba(96,165,250,0.18);
+    color: #09090b;
+    box-shadow: 0 12px 30px rgba(0,212,255,0.18);
 }
 
 .main-nav-btn.primary:hover {
-    background: linear-gradient(135deg, rgba(96,165,250,1.0), rgba(167,139,250,1.0));
+    background: linear-gradient(135deg, rgba(0,212,255,1.0), rgba(129,140,248,1.0));
 }
 
 .main-nav-btn.ghost {
@@ -388,8 +388,8 @@ const MAIN_NAV_STYLE: &str = r#"
 }
 
 .mobile-nav-item.active {
-    background: rgba(167,139,250,0.12);
-    color: #a78bfa;
+    background: rgba(0,212,255,0.12);
+    color: #00d4ff;
 }
 
 /* Simple mobile link (no tree) */
@@ -410,8 +410,8 @@ const MAIN_NAV_STYLE: &str = r#"
 }
 
 .mobile-nav-link.active {
-    background: rgba(167,139,250,0.12);
-    color: #a78bfa;
+    background: rgba(0,212,255,0.12);
+    color: #00d4ff;
 }
 
 .mobile-nav-link-icon {
@@ -546,7 +546,7 @@ pub fn MainNav(
                         Link {
                             to: Route::Pricing {},
                             class: if active == ActivePage::Pricing { "main-nav-link active" } else { "main-nav-link" },
-                            "Licensing"
+                            "Pricing"
                         }
                     }
                 }
@@ -641,8 +641,8 @@ pub fn MainNav(
                                         "{part_name}"
                                     }
                                     for section in sections.iter() {
-                                        Link {
-                                            to: Route::Guide {},
+                                        a {
+                                            href: "/guide#{section.id}",
                                             class: "mobile-nav-item",
                                             onclick: move |_| drawer_open.set(false),
                                             "{section.number}. {section.title}"
@@ -683,8 +683,8 @@ pub fn MainNav(
                                         "{era.meta.title}"
                                     }
                                     for module in era.modules.iter() {
-                                        Link {
-                                            to: Route::Learn {},
+                                        a {
+                                            href: "/learn#{module.meta.id}",
                                             class: "mobile-nav-item",
                                             onclick: move |_| drawer_open.set(false),
                                             "{module.meta.title}"
@@ -740,9 +740,9 @@ pub fn MainNav(
                     class: if active == ActivePage::Pricing { "mobile-nav-link active" } else { "mobile-nav-link" },
                     onclick: move |_| drawer_open.set(false),
                     span { class: "mobile-nav-link-icon",
-                        Icon { variant: IconVariant::Document, size: IconSize::Medium }
+                        Icon { variant: IconVariant::Diamond, size: IconSize::Medium }
                     }
-                    "Licensing"
+                    "Pricing"
                 }
 
                 div { class: "mobile-nav-divider" }

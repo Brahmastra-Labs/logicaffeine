@@ -820,8 +820,7 @@ pub fn Roadmap() -> Element {
 
             footer { class: "roadmap-footer",
                 span {
-                    "© 2026 Brahmastra Labs LLC  •  Written in Rust "
-                    Icon { variant: IconVariant::Crab, size: IconSize::Small, color: "#f97316" }
+                    "© 2026 Brahmastra Labs LLC  •  Written in Rust 🦀"
                 }
                 span { " • " }
                 a {

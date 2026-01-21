@@ -27,13 +27,13 @@ const THEME_STORAGE_KEY: &str = "logicaffeine-theme";
 /// Available theme variants.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub enum Theme {
-    /// Warm dawn colors - coral, gold, amber
+    /// Warm dawn - coral, gold, amber
     Sunrise,
-    /// Twilight mystical - lavender, magenta, soft pink
+    /// Soft dusk - muted lavender, rose, warm gray
     Violet,
-    /// Deep sea calm - turquoise, aqua, seafoam
+    /// Deep sea - cyan, teal, seafoam
     Ocean,
-    /// Earth grounded - forest green, stone, muted gold (default)
+    /// Midnight tech - cyan accent, minimal, cutting-edge (default)
     #[default]
     Mountain,
 }
@@ -67,45 +67,49 @@ impl Theme {
     /// Returns the CSS variables for this theme.
     pub fn css_variables(&self) -> &'static str {
         match self {
+            // Sunrise: Warm, energetic dawn
             Theme::Sunrise => r#"
-                --bg-gradient-start: #0d1b2a;
-                --bg-gradient-mid: #3d1c56;
-                --bg-gradient-end: #e07b53;
-                --accent-primary: #ff7f50;
-                --accent-secondary: #ffd700;
-                --accent-tertiary: #ffbf00;
-                --accent-primary-rgb: 255, 127, 80;
-                --accent-secondary-rgb: 255, 215, 0;
+                --bg-gradient-start: #0c0a09;
+                --bg-gradient-mid: #1c1410;
+                --bg-gradient-end: #0c0a09;
+                --accent-primary: #f97316;
+                --accent-secondary: #fbbf24;
+                --accent-tertiary: #fef3c7;
+                --accent-primary-rgb: 249, 115, 22;
+                --accent-secondary-rgb: 251, 191, 36;
             "#,
+            // Violet: Soft, sophisticated dusk (less intense purple)
             Theme::Violet => r#"
-                --bg-gradient-start: #1a0a2e;
-                --bg-gradient-mid: #2d1b69;
-                --bg-gradient-end: #16213e;
-                --accent-primary: #e6b3ff;
-                --accent-secondary: #ff1493;
-                --accent-tertiary: #ffb6c1;
-                --accent-primary-rgb: 230, 179, 255;
-                --accent-secondary-rgb: 255, 20, 147;
+                --bg-gradient-start: #0f0d13;
+                --bg-gradient-mid: #1a1520;
+                --bg-gradient-end: #0f0d13;
+                --accent-primary: #a78bfa;
+                --accent-secondary: #f0abfc;
+                --accent-tertiary: #e9d5ff;
+                --accent-primary-rgb: 167, 139, 250;
+                --accent-secondary-rgb: 240, 171, 252;
             "#,
+            // Ocean: Cool, calm depths
             Theme::Ocean => r#"
-                --bg-gradient-start: #0a1628;
-                --bg-gradient-mid: #064e3b;
-                --bg-gradient-end: #0c4a6e;
-                --accent-primary: #40e0d0;
-                --accent-secondary: #00ffff;
-                --accent-tertiary: #98d8c8;
-                --accent-primary-rgb: 64, 224, 208;
-                --accent-secondary-rgb: 0, 255, 255;
+                --bg-gradient-start: #0a0f14;
+                --bg-gradient-mid: #0c1820;
+                --bg-gradient-end: #0a0f14;
+                --accent-primary: #22d3ee;
+                --accent-secondary: #2dd4bf;
+                --accent-tertiary: #a5f3fc;
+                --accent-primary-rgb: 34, 211, 238;
+                --accent-secondary-rgb: 45, 212, 191;
             "#,
+            // Mountain (default): Clean, cutting-edge tech
             Theme::Mountain => r#"
-                --bg-gradient-start: #070a12;
-                --bg-gradient-mid: #0b1022;
-                --bg-gradient-end: #070a12;
-                --accent-primary: #22c55e;
-                --accent-secondary: #94a3b8;
-                --accent-tertiary: #d4a574;
-                --accent-primary-rgb: 34, 197, 94;
-                --accent-secondary-rgb: 148, 163, 184;
+                --bg-gradient-start: #09090b;
+                --bg-gradient-mid: #0c0c10;
+                --bg-gradient-end: #09090b;
+                --accent-primary: #00d4ff;
+                --accent-secondary: #818cf8;
+                --accent-tertiary: #f0f0f0;
+                --accent-primary-rgb: 0, 212, 255;
+                --accent-secondary-rgb: 129, 140, 248;
             "#,
         }
     }

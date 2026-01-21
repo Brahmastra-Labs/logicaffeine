@@ -96,7 +96,7 @@ const FOOTER_STYLES: &str = r#"
 }
 
 .footer-social-link:hover {
-    background: rgba(102, 126, 234, 0.2);
+    background: rgba(0, 212, 255, 0.15);
     color: var(--text-primary, #f0f0f0);
 }
 
@@ -140,7 +140,7 @@ const FOOTER_STYLES: &str = r#"
     font-size: 10px;
     padding: 2px 6px;
     border-radius: 4px;
-    background: rgba(102, 126, 234, 0.2);
+    background: rgba(0, 212, 255, 0.15);
     color: var(--color-accent-blue, #60a5fa);
     text-transform: uppercase;
     font-weight: 600;
@@ -371,7 +371,7 @@ pub fn Footer(
                                 span { class: "footer-link-badge", "New" }
                             }
                             Link { to: "/roadmap", class: "footer-link", "Roadmap" }
-                            Link { to: "/pricing", class: "footer-link", "Licensing" }
+                            Link { to: "/pricing", class: "footer-link", "Pricing" }
                             a {
                                 href: "https://github.com/Brahmastra-Labs/logicaffeine",
                                 target: "_blank",

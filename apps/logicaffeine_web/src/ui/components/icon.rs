@@ -227,15 +227,11 @@ impl IconVariant {
 
 const ICON_STYLE: &str = r#"
 .icon {
-    display: inline-block;
-    vertical-align: middle;
-    flex-shrink: 0;
-}
-
-.icon-wrapper {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    vertical-align: middle;
+    flex-shrink: 0;
 }
 "#;
 

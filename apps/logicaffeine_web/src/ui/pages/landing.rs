@@ -338,14 +338,20 @@ body:has(.landing) {
   opacity: 1;
 }
 
-.icon {
-  width: 42px; height: 42px;
+.icon-box {
+  width: 48px; height: 48px;
   border-radius: var(--radius-lg);
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: rgba(255,255,255,0.06);
   border: 1px solid rgba(255,255,255,0.10);
   margin-bottom: var(--spacing-md);
+}
+
+.icon-box .icon {
+  width: 24px;
+  height: 24px;
 }
 
 .card h3 {
@@ -634,12 +640,12 @@ html { scroll-behavior: smooth; }
   color: var(--text-tertiary);
 }
 
-.grid3 .card:nth-child(1) .icon { background: rgba(96,165,250,0.15); }
-.grid3 .card:nth-child(2) .icon { background: rgba(167,139,250,0.15); }
-.grid3 .card:nth-child(3) .icon { background: rgba(34,197,94,0.15); }
-.grid3 .card:nth-child(4) .icon { background: rgba(251,191,36,0.15); }
-.grid3 .card:nth-child(5) .icon { background: rgba(236,72,153,0.15); }
-.grid3 .card:nth-child(6) .icon { background: rgba(139,92,246,0.15); }
+.grid3 .card:nth-child(1) .icon-box { background: rgba(0,212,255,0.15); }
+.grid3 .card:nth-child(2) .icon-box { background: rgba(129,140,248,0.15); }
+.grid3 .card:nth-child(3) .icon-box { background: rgba(34,197,94,0.15); }
+.grid3 .card:nth-child(4) .icon-box { background: rgba(251,191,36,0.15); }
+.grid3 .card:nth-child(5) .icon-box { background: rgba(236,72,153,0.15); }
+.grid3 .card:nth-child(6) .icon-box { background: rgba(129,140,248,0.15); }
 
 .demo-col:first-child .code::after {
   content: " ▋";
@@ -714,8 +720,7 @@ pub fn Landing() -> Element {
 
                             div { class: "tech-stack",
                                 span { class: "tech-badge rust",
-                                    "Rust-Powered "
-                                    Icon { variant: IconVariant::Crab, size: IconSize::Small, color: "#dea584" }
+                                    "Rust-Powered 🦀"
                                 }
                                 span { class: "tech-badge", "WASM Ready" }
                                 span { class: "tech-badge", "Markdown Source" }
@@ -828,42 +833,42 @@ To run:
 
                     div { class: "grid3",
                         div { class: "card",
-                            div { class: "icon",
-                                Icon { variant: IconVariant::Lightning, size: IconSize::Large, color: "#60a5fa" }
+                            div { class: "icon-box",
+                                Icon { variant: IconVariant::Lightning, size: IconSize::Large, color: "#00d4ff" }
                             }
                             h3 { "Instant Transpilation" }
                             p { "Type normal English. Get precise logic in seconds — readable enough to learn from, strict enough to verify." }
                         }
                         div { class: "card",
-                            div { class: "icon",
-                                Icon { variant: IconVariant::Brain, size: IconSize::Large, color: "#a78bfa" }
+                            div { class: "icon-box",
+                                Icon { variant: IconVariant::Brain, size: IconSize::Large, color: "#818cf8" }
                             }
                             h3 { "Socratic Tutor" }
                             p { "When your statement is ambiguous, the tutor asks questions that force clarity instead of guessing." }
                         }
                         div { class: "card",
-                            div { class: "icon",
+                            div { class: "icon-box",
                                 Icon { variant: IconVariant::Document, size: IconSize::Large, color: "#22c55e" }
                             }
                             h3 { "Assumption Surfacing" }
                             p { "Reveal missing premises, hidden quantifiers, and scope mistakes — the usual sources of bad arguments." }
                         }
                         div { class: "card",
-                            div { class: "icon",
+                            div { class: "icon-box",
                                 Icon { variant: IconVariant::Beaker, size: IconSize::Large, color: "#fbbf24" }
                             }
                             h3 { "Consistency & Validity Checks" }
                             p { "Spot contradictions, invalid inferences, and rule collisions early — before they hit production or policy." }
                         }
                         div { class: "card",
-                            div { class: "icon",
+                            div { class: "icon-box",
                                 Icon { variant: IconVariant::Tools, size: IconSize::Large, color: "#ec4899" }
                             }
                             h3 { "Studio + Curriculum" }
                             p { "Explore freely in Studio, then build mastery in Learn with structured lessons and practice." }
                         }
                         div { class: "card",
-                            div { class: "icon",
+                            div { class: "icon-box",
                                 Icon { variant: IconVariant::Lock, size: IconSize::Large, color: "#8b5cf6" }
                             }
                             h3 { "Commercial-Ready" }
@@ -880,21 +885,21 @@ To run:
 
                     div { class: "grid3",
                         div { class: "card",
-                            div { class: "icon",
-                                Icon { variant: IconVariant::GraduationCap, size: IconSize::Large, color: "#60a5fa" }
+                            div { class: "icon-box",
+                                Icon { variant: IconVariant::GraduationCap, size: IconSize::Large, color: "#00d4ff" }
                             }
                             h3 { "Students & Educators" }
                             p { "Teach formal reasoning with feedback that's immediate, concrete, and harder to game than multiple choice." }
                         }
                         div { class: "card",
-                            div { class: "icon",
-                                Icon { variant: IconVariant::Shield, size: IconSize::Large, color: "#a78bfa" }
+                            div { class: "icon-box",
+                                Icon { variant: IconVariant::Shield, size: IconSize::Large, color: "#818cf8" }
                             }
                             h3 { "Law, Policy, Compliance" }
                             p { "Translate policy language into verifiable rules. Reduce ambiguity. Make reviews faster and safer." }
                         }
                         div { class: "card",
-                            div { class: "icon",
+                            div { class: "icon-box",
                                 Icon { variant: IconVariant::Tools, size: IconSize::Large, color: "#22c55e" }
                             }
                             h3 { "Engineering & Research" }
@@ -1012,8 +1017,7 @@ To run:
                     div { class: "footer-row",
                         div {
                             style: "display: flex; align-items: center; gap: 6px;",
-                            "© 2025 Brahmastra Labs LLC  •  Written in Rust "
-                            Icon { variant: IconVariant::Crab, size: IconSize::Small, color: "#dea584" }
+                            "© 2025 Brahmastra Labs LLC  •  Written in Rust 🦀"
                         }
                         div {
                             a {

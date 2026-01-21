@@ -50,17 +50,17 @@
 /// - Text: Accessible text color scale
 /// - Background/Border: Surface colors
 pub mod colors {
-    // Primary palette
-    pub const PRIMARY_BLUE: &str = "#667eea";
-    pub const PRIMARY_PURPLE: &str = "#764ba2";
-    pub const ACCENT_BLUE: &str = "#60a5fa";
+    // Primary palette - Modern tech aesthetic
+    pub const PRIMARY_BLUE: &str = "#00d4ff";
+    pub const PRIMARY_PURPLE: &str = "#818cf8";
+    pub const ACCENT_BLUE: &str = "#22d3ee";
     pub const ACCENT_PURPLE: &str = "#a78bfa";
 
     // Semantic colors
-    pub const SUCCESS: &str = "#4ade80";
+    pub const SUCCESS: &str = "#22c55e";
     pub const WARNING: &str = "#f59e0b";
-    pub const ERROR: &str = "#e06c75";
-    pub const INFO: &str = "#60a5fa";
+    pub const ERROR: &str = "#ef4444";
+    pub const INFO: &str = "#00d4ff";
 
     // Achievement/gamification colors
     pub const XP_GREEN: &str = "#4ade80";
@@ -202,17 +202,17 @@ pub mod radius {
 pub fn css_variables() -> &'static str {
     r#"
     :root {
-        /* Primary colors */
-        --color-primary-blue: #667eea;
-        --color-primary-purple: #764ba2;
-        --color-accent-blue: #60a5fa;
+        /* Primary colors - Modern tech aesthetic */
+        --color-primary-blue: #00d4ff;
+        --color-primary-purple: #818cf8;
+        --color-accent-blue: #22d3ee;
         --color-accent-purple: #a78bfa;
 
         /* Semantic colors */
-        --color-success: #4ade80;
+        --color-success: #22c55e;
         --color-warning: #f59e0b;
-        --color-error: #e06c75;
-        --color-info: #60a5fa;
+        --color-error: #ef4444;
+        --color-info: #00d4ff;
 
         /* Text colors - accessible grays */
         --text-primary: #f0f0f0;
@@ -254,15 +254,15 @@ pub fn css_variables() -> &'static str {
         --radius-xl: 16px;
         --radius-full: 9999px;
 
-        /* Theme defaults (Mountain) */
-        --bg-gradient-start: #070a12;
-        --bg-gradient-mid: #0b1022;
-        --bg-gradient-end: #070a12;
-        --accent-primary: #22c55e;
-        --accent-secondary: #94a3b8;
-        --accent-tertiary: #d4a574;
-        --accent-primary-rgb: 34, 197, 94;
-        --accent-secondary-rgb: 148, 163, 184;
+        /* Theme defaults (Mountain - Cutting-edge tech) */
+        --bg-gradient-start: #09090b;
+        --bg-gradient-mid: #0c0c10;
+        --bg-gradient-end: #09090b;
+        --accent-primary: #00d4ff;
+        --accent-secondary: #818cf8;
+        --accent-tertiary: #f0f0f0;
+        --accent-primary-rgb: 0, 212, 255;
+        --accent-secondary-rgb: 129, 140, 248;
     }
     "#
 }
