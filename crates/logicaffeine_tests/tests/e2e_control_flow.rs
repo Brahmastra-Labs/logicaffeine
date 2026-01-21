@@ -198,3 +198,164 @@ If a is less than 5:
         "all small",
     );
 }
+
+// Phase 30c: Else as alias for Otherwise
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_if_else() {
+    assert_output(
+        r#"## Main
+Let x be 3.
+If x is greater than 5:
+    Show "big".
+Else:
+    Show "small".
+"#,
+        "small",
+    );
+}
+
+// Phase 30d: Otherwise If / Else If chains
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_otherwise_if_chain() {
+    assert_output(
+        r#"## Main
+Let x be 7.
+If x is greater than 10:
+    Show "big".
+Otherwise If x is greater than 5:
+    Show "medium".
+Otherwise:
+    Show "small".
+"#,
+        "medium",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_else_if_chain() {
+    assert_output(
+        r#"## Main
+Let x be 3.
+If x is greater than 10:
+    Show "big".
+Else If x is greater than 5:
+    Show "medium".
+Else:
+    Show "small".
+"#,
+        "small",
+    );
+}
+
+// Phase 30e: elif shorthand
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_elif_chain() {
+    assert_output(
+        r#"## Main
+Let x be 7.
+If x is greater than 10:
+    Show "big".
+elif x is greater than 5:
+    Show "medium".
+Else:
+    Show "small".
+"#,
+        "medium",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_elif_multiple() {
+    assert_output(
+        r#"## Main
+Let x be 2.
+If x is greater than 10:
+    Show "big".
+elif x is greater than 5:
+    Show "medium".
+elif x is greater than 0:
+    Show "positive".
+Else:
+    Show "zero or negative".
+"#,
+        "positive",
+    );
+}
+
+// =============================================================================
+// Phase 23b: Equals-style assignment syntax
+// =============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_equals_assignment() {
+    assert_output(
+        r#"## Main
+greeting = "Hello World".
+Show greeting.
+"#,
+        "Hello World",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_mut_assignment() {
+    assert_output(
+        r#"## Main
+mut count = 0.
+Set count to 5.
+Show count.
+"#,
+        "5",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_equals_auto_mutability() {
+    assert_output(
+        r#"## Main
+counter = 0.
+Set counter to counter + 1.
+Show counter.
+"#,
+        "1",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_equals_in_control_flow() {
+    assert_output(
+        r#"## Main
+x = 10.
+result = 0.
+If x is greater than 5:
+    Set result to 1.
+Show result.
+"#,
+        "1",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_equals_with_while() {
+    assert_output(
+        r#"## Main
+sum = 0.
+i = 1.
+While i is at most 5:
+    Set sum to sum + i.
+    Set i to i + 1.
+Show sum.
+"#,
+        "15",
+    );
+}

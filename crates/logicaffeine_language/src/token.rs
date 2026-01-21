@@ -166,6 +166,10 @@ pub enum TokenType {
     /// Documented assertion with justification string.
     Trust,
     Otherwise,
+    /// Alias for `Otherwise` - Pythonic else clause
+    Else,
+    /// Python-style else-if shorthand
+    Elif,
     Call,
     /// Constructor keyword for struct instantiation.
     New,
@@ -515,6 +519,15 @@ pub enum TokenType {
 
     /// Arrow for return type syntax: `->`
     Arrow,
+
+    /// Assignment operator `=` for `identifier = value` syntax
+    Assign,
+
+    /// Mutability keyword `mut` for explicit mutable declarations
+    Mut,
+
+    /// Generic identifier (for equals-style assignment)
+    Identifier,
 
     EOF,
 }

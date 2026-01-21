@@ -51,8 +51,11 @@ pub async fn seed_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
 
     // Seed Code mode examples (imperative)
     vfs.write("/examples/code/hello-world.logos", CODE_HELLO.as_bytes()).await?;
+    vfs.write("/examples/code/hello-world2.logos", CODE_HELLO2.as_bytes()).await?;
     vfs.write("/examples/code/fibonacci.logos", CODE_FIBONACCI.as_bytes()).await?;
     vfs.write("/examples/code/fizzbuzz.logos", CODE_FIZZBUZZ.as_bytes()).await?;
+    vfs.write("/examples/code/fizzbuzz2.logos", CODE_FIZZBUZZ2.as_bytes()).await?;
+    vfs.write("/examples/code/fizzbuzz3.logos", CODE_FIZZBUZZ3.as_bytes()).await?;
     vfs.write("/examples/code/collections.logos", CODE_COLLECTIONS.as_bytes()).await?;
     vfs.write("/examples/code/factorial.logos", CODE_FACTORIAL.as_bytes()).await?;
     vfs.write("/examples/code/prime-check.logos", CODE_PRIME.as_bytes()).await?;
@@ -225,8 +228,11 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
 
     // Base code examples (ensure they exist for all installs)
     vfs.write("/examples/code/hello-world.logos", CODE_HELLO.as_bytes()).await?;
+    vfs.write("/examples/code/hello-world2.logos", CODE_HELLO2.as_bytes()).await?;
     vfs.write("/examples/code/fibonacci.logos", CODE_FIBONACCI.as_bytes()).await?;
     vfs.write("/examples/code/fizzbuzz.logos", CODE_FIZZBUZZ.as_bytes()).await?;
+    vfs.write("/examples/code/fizzbuzz2.logos", CODE_FIZZBUZZ2.as_bytes()).await?;
+    vfs.write("/examples/code/fizzbuzz3.logos", CODE_FIZZBUZZ3.as_bytes()).await?;
     vfs.write("/examples/code/collections.logos", CODE_COLLECTIONS.as_bytes()).await?;
     vfs.write("/examples/code/factorial.logos", CODE_FACTORIAL.as_bytes()).await?;
     vfs.write("/examples/code/prime-check.logos", CODE_PRIME.as_bytes()).await?;
@@ -340,6 +346,17 @@ Show "The sum is:".
 Show sum.
 "#;
 
+/// Hello World using = assignment syntax (mutability auto-inferred)
+const CODE_HELLO2: &str = r#"## Main
+
+greeting = "Hello, World!".
+Show greeting.
+
+counter = 0.
+Set counter to counter + 1.
+Show counter.
+"#;
+
 const CODE_FIBONACCI: &str = r#"## Main
 
 Let n be 10.
@@ -369,6 +386,34 @@ Repeat for i from 1 to 20:
                 Show "Buzz".
             Otherwise:
                 Show i.
+"#;
+
+/// FizzBuzz using optional Repeat and Otherwise If / Else If chains
+const CODE_FIZZBUZZ2: &str = r#"## Main
+
+for i from 1 to 20:
+    If i / 15 * 15 equals i:
+        Show "FizzBuzz".
+    Otherwise If i / 3 * 3 equals i:
+        Show "Fizz".
+    Else If i / 5 * 5 equals i:
+        Show "Buzz".
+    Otherwise:
+        Show i.
+"#;
+
+/// FizzBuzz using optional Repeat and Python-style elif
+const CODE_FIZZBUZZ3: &str = r#"## Main
+
+for i from 1 to 20:
+    If i / 15 * 15 equals i:
+        Show "FizzBuzz".
+    elif i / 3 * 3 equals i:
+        Show "Fizz".
+    elif i / 5 * 5 equals i:
+        Show "Buzz".
+    Else:
+        Show i.
 "#;
 
 const CODE_COLLECTIONS: &str = r#"## Main

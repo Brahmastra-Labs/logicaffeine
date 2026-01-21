@@ -904,6 +904,7 @@ impl<'a> Lexer<'a> {
                         '%' => TokenType::Percent,
                         '<' => TokenType::Lt,
                         '>' => TokenType::Gt,
+                        '=' => TokenType::Assign,
                         _ => {
                             self.pos += 1;
                             continue;
@@ -968,6 +969,7 @@ impl<'a> Lexer<'a> {
                                     '%' => TokenType::Percent,
                                     '<' => TokenType::Lt,
                                     '>' => TokenType::Gt,
+                                    '=' => TokenType::Assign,
                                     _ => {
                                         self.pos += 1;
                                         continue;
@@ -1004,6 +1006,7 @@ impl<'a> Lexer<'a> {
                     '%' => TokenType::Percent,
                     '<' => TokenType::Lt,
                     '>' => TokenType::Gt,
+                    '=' => TokenType::Assign,
                     _ => {
                         self.pos += 1;
                         continue;
@@ -1662,6 +1665,10 @@ impl<'a> Lexer<'a> {
         if word == ">" {
             return TokenType::Gt;
         }
+        // Single = for assignment (must come after == check)
+        if word == "=" {
+            return TokenType::Assign;
+        }
 
         if let Some(kind) = lexicon::lookup_keyword(&lower) {
             return kind;
@@ -1703,6 +1710,8 @@ impl<'a> Lexer<'a> {
             "equals" => return TokenType::Equals,
             "item" => return TokenType::Item,
             "items" => return TokenType::Items,
+            // Mutability keyword for `mut x = 5` syntax
+            "mut" if self.mode == LexerMode::Imperative => return TokenType::Mut,
             "let" => {
                 self.in_let_context = true;
                 return TokenType::Let;
@@ -1761,6 +1770,9 @@ impl<'a> Lexer<'a> {
             "native" => return TokenType::Native,
             "from" => return TokenType::From,
             "otherwise" => return TokenType::Otherwise,
+            // Phase 30c: Else/elif as aliases for Otherwise/Otherwise If
+            "else" => return TokenType::Else,
+            "elif" => return TokenType::Elif,
             // Sum type definition (Declarative mode only - for enum "either...or...")
             "either" if self.mode == LexerMode::Declarative => return TokenType::Either,
             // Pattern matching statement

@@ -89,3 +89,27 @@ fn test_showable_trait_exported() {
     let io_rs = std::fs::read_to_string(temp_dir.path().join("crates/logicaffeine_system/src/io.rs")).unwrap();
     assert!(io_rs.contains("pub trait Showable"), "io.rs should define Showable: {}", io_rs);
 }
+
+// Phase 30b: Optional "Repeat" keyword - "for" alone should work
+#[test]
+fn test_for_loop_without_repeat() {
+    let source = r#"
+## Main
+for i from 1 to 5:
+    Show i.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("for i in (1..=5)"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_for_in_without_repeat() {
+    let source = r#"
+## Main
+Let items be [1, 2, 3].
+for x in items:
+    Show x.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("for x in items"), "Generated: {}", rust);
+}

@@ -1110,6 +1110,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::Let) {
             return self.parse_let_statement();
         }
+        // Phase 23b: Equals-style assignment with explicit `mut` keyword
+        // Syntax: `mut x = 5` or `mut x: Int = 5`
+        if self.check(&TokenType::Mut) {
+            return self.parse_equals_assignment(true);
+        }
+        // Phase 23b: Equals-style assignment (identifier = value)
+        // Syntax: `x = 5` or `x: Int = 5`
+        if self.peek_equals_assignment() {
+            return self.parse_equals_assignment(false);
+        }
         if self.check(&TokenType::Set) {
             return self.parse_set_statement();
         }
@@ -1153,6 +1163,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
         if self.check(&TokenType::Repeat) {
             return self.parse_repeat_statement();
+        }
+        // Phase 30b: Allow "for" without "Repeat" keyword
+        if self.check(&TokenType::For) {
+            return self.parse_for_statement();
         }
         if self.check(&TokenType::Call) {
             return self.parse_call_statement();
@@ -1322,41 +1336,163 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let then_block = self.ctx.stmts.expect("imperative arenas not initialized")
             .alloc_slice(then_stmts.into_iter());
 
-        // Check for Otherwise: block
-        let else_block = if self.check(&TokenType::Otherwise) {
-            self.advance(); // consume "Otherwise"
+        // Check for else clause: Otherwise/Else/Otherwise If/Else If/elif
+        let else_block = if self.check(&TokenType::Otherwise) || self.check(&TokenType::Else) {
+            self.advance(); // consume "Otherwise" or "Else"
 
-            if !self.check(&TokenType::Colon) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
-                    span: self.current_span(),
-                });
-            }
-            self.advance(); // consume ":"
+            // Check for "Otherwise If" / "Else If" chain
+            if self.check(&TokenType::If) {
+                // Parse as else-if: create single-statement else block containing nested If
+                let nested_if = self.parse_if_statement()?;
+                let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
+                    .alloc_slice(std::iter::once(nested_if));
+                Some(nested_slice)
+            } else {
+                // Regular else block - expect colon and indent
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ":"
 
-            if !self.check(&TokenType::Indent) {
-                return Err(ParseError {
-                    kind: ParseErrorKind::ExpectedStatement,
-                    span: self.current_span(),
-                });
-            }
-            self.advance(); // consume Indent
+                if !self.check(&TokenType::Indent) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedStatement,
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume Indent
 
-            let mut else_stmts = Vec::new();
-            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
-                let stmt = self.parse_statement()?;
-                else_stmts.push(stmt);
-                if self.check(&TokenType::Period) {
+                let mut else_stmts = Vec::new();
+                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                    let stmt = self.parse_statement()?;
+                    else_stmts.push(stmt);
+                    if self.check(&TokenType::Period) {
+                        self.advance();
+                    }
+                }
+
+                if self.check(&TokenType::Dedent) {
                     self.advance();
                 }
-            }
 
-            if self.check(&TokenType::Dedent) {
+                Some(self.ctx.stmts.expect("imperative arenas not initialized")
+                    .alloc_slice(else_stmts.into_iter()))
+            }
+        } else if self.check(&TokenType::Elif) {
+            // Python-style elif: equivalent to "Else If"
+            self.advance(); // consume "elif"
+            // Parse the condition and body directly (elif acts like "Else If" without the separate If token)
+            let nested_if = self.parse_elif_as_if()?;
+            let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
+                .alloc_slice(std::iter::once(nested_if));
+            Some(nested_slice)
+        } else {
+            None
+        };
+
+        Ok(Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        })
+    }
+
+    /// Parse an elif clause as an if statement.
+    /// Called after "elif" has been consumed - parses condition and body directly.
+    fn parse_elif_as_if(&mut self) -> ParseResult<Stmt<'a>> {
+        // Parse condition expression (elif is already consumed)
+        let cond = self.parse_condition()?;
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Parse then block
+        let mut then_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            then_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
                 self.advance();
             }
+        }
 
-            Some(self.ctx.stmts.expect("imperative arenas not initialized")
-                .alloc_slice(else_stmts.into_iter()))
+        // Consume dedent
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        // Allocate then_block in arena
+        let then_block = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(then_stmts.into_iter());
+
+        // Check for else clause: Otherwise/Else/Otherwise If/Else If/elif
+        let else_block = if self.check(&TokenType::Otherwise) || self.check(&TokenType::Else) {
+            self.advance(); // consume "Otherwise" or "Else"
+
+            // Check for "Otherwise If" / "Else If" chain
+            if self.check(&TokenType::If) {
+                let nested_if = self.parse_if_statement()?;
+                let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
+                    .alloc_slice(std::iter::once(nested_if));
+                Some(nested_slice)
+            } else {
+                // Regular else block
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ":"
+
+                if !self.check(&TokenType::Indent) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedStatement,
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume Indent
+
+                let mut else_stmts = Vec::new();
+                while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                    let stmt = self.parse_statement()?;
+                    else_stmts.push(stmt);
+                    if self.check(&TokenType::Period) {
+                        self.advance();
+                    }
+                }
+
+                if self.check(&TokenType::Dedent) {
+                    self.advance();
+                }
+
+                Some(self.ctx.stmts.expect("imperative arenas not initialized")
+                    .alloc_slice(else_stmts.into_iter()))
+            }
+        } else if self.check(&TokenType::Elif) {
+            self.advance(); // consume "elif"
+            let nested_if = self.parse_elif_as_if()?;
+            let nested_slice = self.ctx.stmts.expect("imperative arenas not initialized")
+                .alloc_slice(std::iter::once(nested_if));
+            Some(nested_slice)
         } else {
             None
         };
@@ -1443,6 +1579,78 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if self.check(&TokenType::For) {
             self.advance();
         }
+
+        // Parse loop variable (using context-aware identifier parsing)
+        let var = self.expect_identifier()?;
+
+        // Determine iteration type: "in" for collection, "from" for range
+        let iterable = if self.check(&TokenType::From) || self.check_preposition_is("from") {
+            self.advance(); // consume "from"
+            let start = self.parse_imperative_expr()?;
+
+            // Expect "to" (can be keyword or preposition)
+            if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: "to".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+
+            let end = self.parse_imperative_expr()?;
+            self.ctx.alloc_imperative_expr(Expr::Range { start, end })
+        } else if self.check(&TokenType::In) || self.check_preposition_is("in") {
+            self.advance(); // consume "in"
+            self.parse_imperative_expr()?
+        } else {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "in or from".to_string() },
+                span: self.current_span(),
+            });
+        };
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Expect indent
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedStatement,
+                span: self.current_span(),
+            });
+        }
+        self.advance();
+
+        // Parse body statements
+        let mut body_stmts = Vec::new();
+        while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+            let stmt = self.parse_statement()?;
+            body_stmts.push(stmt);
+            if self.check(&TokenType::Period) {
+                self.advance();
+            }
+        }
+
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let body = self.ctx.stmts.expect("imperative arenas not initialized")
+            .alloc_slice(body_stmts.into_iter());
+
+        Ok(Stmt::Repeat { var, iterable, body })
+    }
+
+    /// Parse a for-loop without the "Repeat" keyword prefix.
+    /// Syntax: `for <var> from <start> to <end>:` or `for <var> in <collection>:`
+    fn parse_for_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        self.advance(); // consume "for"
 
         // Parse loop variable (using context-aware identifier parsing)
         let var = self.expect_identifier()?;
@@ -1928,6 +2136,95 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
             _ => true, // For generics/functions, skip check for now
         }
+    }
+
+    // =========================================================================
+    // Phase 23b: Equals-style Assignment (x = 5)
+    // =========================================================================
+
+    /// Check if current token starts an equals-style assignment.
+    /// Patterns: `identifier = value` or `identifier: Type = value`
+    fn peek_equals_assignment(&self) -> bool {
+        // Must start with an identifier-like token
+        // Note: Unknown words default to Adjective in the lexer
+        // Verbs, Particles, and Ambiguous can also be variable names
+        let is_identifier = matches!(
+            self.peek().kind,
+            TokenType::Noun(_) | TokenType::ProperName(_) | TokenType::Identifier
+            | TokenType::Adjective(_) | TokenType::Verb { .. }
+            | TokenType::Particle(_) | TokenType::Ambiguous { .. }
+            | TokenType::Pronoun { .. }
+        );
+        if !is_identifier {
+            return false;
+        }
+
+        // Check what follows the identifier
+        if self.current + 1 >= self.tokens.len() {
+            return false;
+        }
+
+        let next = &self.tokens[self.current + 1].kind;
+
+        // Direct assignment: identifier = value
+        if matches!(next, TokenType::Assign) {
+            return true;
+        }
+
+        // Type-annotated assignment: identifier: Type = value
+        // Check for colon, then scan for = before Period/Newline
+        if matches!(next, TokenType::Colon) {
+            let mut offset = 2;
+            while self.current + offset < self.tokens.len() {
+                let tok = &self.tokens[self.current + offset].kind;
+                if matches!(tok, TokenType::Assign) {
+                    return true;
+                }
+                if matches!(tok, TokenType::Period | TokenType::Newline | TokenType::EOF) {
+                    return false;
+                }
+                offset += 1;
+            }
+        }
+
+        false
+    }
+
+    /// Parse equals-style assignment: `x = 5` or `x: Int = 5` or `mut x = 5`
+    fn parse_equals_assignment(&mut self, explicit_mutable: bool) -> ParseResult<Stmt<'a>> {
+        // If explicit_mutable is true, we've already checked for Mut token
+        if explicit_mutable {
+            self.advance(); // consume "mut"
+        }
+
+        // Get variable name
+        let var = self.expect_identifier()?;
+
+        // Check for optional type annotation: `: Type`
+        let ty = if self.check(&TokenType::Colon) {
+            self.advance(); // consume ":"
+            let type_expr = self.parse_type_expression()?;
+            Some(self.ctx.alloc_type_expr(type_expr))
+        } else {
+            None
+        };
+
+        // Expect '='
+        if !self.check(&TokenType::Assign) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "=".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume '='
+
+        // Parse value expression
+        let value = self.parse_imperative_expr()?;
+
+        // Register variable in WorldState's DRS
+        self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
+
+        Ok(Stmt::Let { var, ty, value, mutable: explicit_mutable })
     }
 
     fn parse_set_statement(&mut self) -> ParseResult<Stmt<'a>> {

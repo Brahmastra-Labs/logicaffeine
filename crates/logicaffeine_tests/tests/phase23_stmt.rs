@@ -1,5 +1,6 @@
 use logicaffeine_language::ast::{Stmt, Expr, Literal, Block};
 use logicaffeine_base::Symbol;
+use logicaffeine_compile::compile::compile_to_rust;
 
 #[test]
 fn stmt_let_variant_exists() {
@@ -85,4 +86,97 @@ fn literal_variants_exist() {
     let _text = Literal::Text(Symbol::default());
     let _bool = Literal::Boolean(true);
     let _nothing = Literal::Nothing;
+}
+
+// =============================================================================
+// Phase 23b: Equals Assignment Syntax (x = 5)
+// =============================================================================
+
+#[test]
+fn test_equals_assignment_basic() {
+    let source = r#"## Main
+x = 42.
+Return x.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let x = 42"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_equals_assignment_string() {
+    let source = r#"## Main
+greeting = "Hello".
+Show greeting.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let greeting"), "Generated: {}", rust);
+    assert!(rust.contains("Hello"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_equals_assignment_expression() {
+    let source = r#"## Main
+result = 10 + 5.
+Return result.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let result"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_equals_auto_mutability() {
+    let source = r#"## Main
+counter = 0.
+Set counter to 1.
+Return counter.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let mut counter = 0"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_equals_with_explicit_mut() {
+    let source = r#"## Main
+mut x = 5.
+Set x to 10.
+Return x.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let mut x"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_equals_with_type_annotation() {
+    let source = r#"## Main
+count: Int = 42.
+Return count.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let count"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_let_be_still_works() {
+    let source = r#"## Main
+Let x be 5.
+Let mutable y be 10.
+Return x.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let x = 5"), "Generated: {}", rust);
+    assert!(rust.contains("let mut y = 10"), "Generated: {}", rust);
+}
+
+#[test]
+fn test_mixed_syntax() {
+    let source = r#"## Main
+Let old_style be 1.
+new_style = 2.
+Let mutable old_mut be 3.
+mut new_mut = 4.
+Return old_style.
+"#;
+    let rust = compile_to_rust(source).expect("Compiles");
+    assert!(rust.contains("let old_style = 1"), "Generated: {}", rust);
+    assert!(rust.contains("let new_style = 2"), "Generated: {}", rust);
 }
