@@ -2096,6 +2096,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     fn check_mutable_keyword(&self) -> bool {
+        // Check for TokenType::Mut (Phase 23b keyword)
+        if matches!(self.peek().kind, TokenType::Mut) {
+            return true;
+        }
+        // Check for "mutable" or "mut" as Noun/Adjective (backward compatibility)
         if let TokenType::Noun(sym) | TokenType::Adjective(sym) = self.peek().kind {
             let word = self.interner.resolve(sym).to_lowercase();
             word == "mutable" || word == "mut"
