@@ -2211,65 +2211,111 @@ pub fn codegen_stmt<'a>(
                 }
             }).collect();
 
+            // Collect variables DEFINED in this block (to exclude from cloning)
+            let defined_vars: HashSet<Symbol> = tasks.iter().filter_map(|s| {
+                if let Stmt::Let { var, .. } = s {
+                    Some(*var)
+                } else {
+                    None
+                }
+            }).collect();
+
+            // Check if there are intra-block dependencies (a later task uses a var from earlier task)
+            // If so, fall back to sequential execution
+            let mut has_intra_dependency = false;
+            let mut seen_defs: HashSet<Symbol> = HashSet::new();
+            for s in *tasks {
+                // Check if this task uses any variable defined by previous tasks in this block
+                let mut used_in_task: HashSet<Symbol> = HashSet::new();
+                collect_stmt_identifiers(s, &mut used_in_task);
+                for used_var in &used_in_task {
+                    if seen_defs.contains(used_var) {
+                        has_intra_dependency = true;
+                        break;
+                    }
+                }
+                // Track variables defined by this task
+                if let Stmt::Let { var, .. } = s {
+                    seen_defs.insert(*var);
+                }
+                if has_intra_dependency {
+                    break;
+                }
+            }
+
             // Collect ALL variables used in task expressions (not just Call args)
+            // Exclude variables defined within this block
             let mut used_syms: HashSet<Symbol> = HashSet::new();
             for s in *tasks {
                 collect_stmt_identifiers(s, &mut used_syms);
+            }
+            // Remove variables that are defined in this block
+            for def_var in &defined_vars {
+                used_syms.remove(def_var);
             }
             let used_vars: HashSet<String> = used_syms.iter()
                 .map(|sym| interner.resolve(*sym).to_string())
                 .collect();
 
-            if !let_bindings.is_empty() {
-                // Generate tuple destructuring for concurrent Let bindings
-                writeln!(output, "{}let ({}) = tokio::join!(", indent_str, let_bindings.join(", ")).unwrap();
+            // If there are intra-block dependencies, execute sequentially
+            if has_intra_dependency {
+                // Generate sequential Let bindings
+                for stmt in *tasks {
+                    output.push_str(&codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                }
             } else {
-                writeln!(output, "{}tokio::join!(", indent_str).unwrap();
-            }
+                // Generate concurrent execution with tokio::join!
+                if !let_bindings.is_empty() {
+                    // Generate tuple destructuring for concurrent Let bindings
+                    writeln!(output, "{}let ({}) = tokio::join!(", indent_str, let_bindings.join(", ")).unwrap();
+                } else {
+                    writeln!(output, "{}tokio::join!(", indent_str).unwrap();
+                }
 
-            for (i, stmt) in tasks.iter().enumerate() {
-                // For Let statements, generate only the VALUE so the async block returns it
-                // For Call statements, generate the call with .await
-                let inner_code = match stmt {
-                    Stmt::Let { value, .. } => {
-                        // Return the value expression directly (not "let x = value;")
-                        codegen_expr(value, interner, synced_vars)
-                    }
-                    Stmt::Call { function, args } => {
-                        let func_name = interner.resolve(*function);
-                        let args_str: Vec<String> = args.iter()
-                            .map(|a| codegen_expr(a, interner, synced_vars))
+                for (i, stmt) in tasks.iter().enumerate() {
+                    // For Let statements, generate only the VALUE so the async block returns it
+                    // For Call statements, generate the call with .await
+                    let inner_code = match stmt {
+                        Stmt::Let { value, .. } => {
+                            // Return the value expression directly (not "let x = value;")
+                            codegen_expr(value, interner, synced_vars)
+                        }
+                        Stmt::Call { function, args } => {
+                            let func_name = interner.resolve(*function);
+                            let args_str: Vec<String> = args.iter()
+                                .map(|a| codegen_expr(a, interner, synced_vars))
+                                .collect();
+                            format!("{}({}).await", func_name, args_str.join(", "))
+                        }
+                        _ => {
+                            // Fallback for other statement types
+                            let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            inner.trim().to_string()
+                        }
+                    };
+
+                    // For tasks that use shared variables, wrap in a block that clones them
+                    if !used_vars.is_empty() && i < tasks.len() - 1 {
+                        // Clone variables for all tasks except the last one
+                        let clones: Vec<String> = used_vars.iter()
+                            .map(|v| format!("let {} = {}.clone();", v, v))
                             .collect();
-                        format!("{}({}).await", func_name, args_str.join(", "))
+                        write!(output, "{}    {{ {} async move {{ {} }} }}",
+                               indent_str, clones.join(" "), inner_code).unwrap();
+                    } else {
+                        // Last task can use original variables
+                        write!(output, "{}    async {{ {} }}", indent_str, inner_code).unwrap();
                     }
-                    _ => {
-                        // Fallback for other statement types
-                        let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
-                        inner.trim().to_string()
-                    }
-                };
 
-                // For tasks that use shared variables, wrap in a block that clones them
-                if !used_vars.is_empty() && i < tasks.len() - 1 {
-                    // Clone variables for all tasks except the last one
-                    let clones: Vec<String> = used_vars.iter()
-                        .map(|v| format!("let {} = {}.clone();", v, v))
-                        .collect();
-                    write!(output, "{}    {{ {} async move {{ {} }} }}",
-                           indent_str, clones.join(" "), inner_code).unwrap();
-                } else {
-                    // Last task can use original variables
-                    write!(output, "{}    async {{ {} }}", indent_str, inner_code).unwrap();
+                    if i < tasks.len() - 1 {
+                        writeln!(output, ",").unwrap();
+                    } else {
+                        writeln!(output).unwrap();
+                    }
                 }
 
-                if i < tasks.len() - 1 {
-                    writeln!(output, ",").unwrap();
-                } else {
-                    writeln!(output).unwrap();
-                }
+                writeln!(output, "{});", indent_str).unwrap();
             }
-
-            writeln!(output, "{});", indent_str).unwrap();
         }
 
         // Phase 9: Parallel execution block (CPU-bound)
@@ -2556,6 +2602,12 @@ fn codegen_expr_boxed(
             let right_str = codegen_expr(right, interner, synced_vars);
             // Phase 53: String concatenation requires special handling
             if matches!(op, BinaryOpKind::Concat) {
+                return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
+            }
+            // Handle string + value as concatenation (using format! for type safety)
+            let left_is_string = matches!(**left, Expr::Literal(Literal::Text(_)));
+            let right_is_string = matches!(**right, Expr::Literal(Literal::Text(_)));
+            if matches!(op, BinaryOpKind::Add) && (left_is_string || right_is_string) {
                 return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
             }
             let op_str = match op {
