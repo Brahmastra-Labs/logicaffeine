@@ -178,6 +178,7 @@ logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
 logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
 tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
 "#,
         pkg_name,
         workspace_root.display(),
@@ -245,6 +246,7 @@ logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
 logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
 tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
 "#,
         pkg_name,
         workspace_root.display(),

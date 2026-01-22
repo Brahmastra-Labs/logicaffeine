@@ -719,6 +719,82 @@ fn collect_pipe_vars_stmt(stmt: &Stmt, pipe_vars: &mut HashSet<Symbol>) {
     }
 }
 
+/// Collect all identifier symbols from an expression recursively.
+/// Used by Concurrent/Parallel codegen to find variables that need cloning.
+fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
+    match expr {
+        Expr::Identifier(sym) => {
+            identifiers.insert(*sym);
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            collect_expr_identifiers(left, identifiers);
+            collect_expr_identifiers(right, identifiers);
+        }
+        Expr::Call { args, .. } => {
+            for arg in args {
+                collect_expr_identifiers(arg, identifiers);
+            }
+        }
+        Expr::Index { collection, index } => {
+            collect_expr_identifiers(collection, identifiers);
+            collect_expr_identifiers(index, identifiers);
+        }
+        Expr::Slice { collection, start, end } => {
+            collect_expr_identifiers(collection, identifiers);
+            collect_expr_identifiers(start, identifiers);
+            collect_expr_identifiers(end, identifiers);
+        }
+        Expr::Copy { expr: inner } | Expr::Length { collection: inner } => {
+            collect_expr_identifiers(inner, identifiers);
+        }
+        Expr::Contains { collection, value } | Expr::Union { left: collection, right: value } | Expr::Intersection { left: collection, right: value } => {
+            collect_expr_identifiers(collection, identifiers);
+            collect_expr_identifiers(value, identifiers);
+        }
+        Expr::ManifestOf { zone } | Expr::ChunkAt { zone, .. } => {
+            collect_expr_identifiers(zone, identifiers);
+        }
+        Expr::List(items) | Expr::Tuple(items) => {
+            for item in items {
+                collect_expr_identifiers(item, identifiers);
+            }
+        }
+        Expr::Range { start, end } => {
+            collect_expr_identifiers(start, identifiers);
+            collect_expr_identifiers(end, identifiers);
+        }
+        Expr::FieldAccess { object, .. } => {
+            collect_expr_identifiers(object, identifiers);
+        }
+        Expr::New { init_fields, .. } => {
+            for (_, value) in init_fields {
+                collect_expr_identifiers(value, identifiers);
+            }
+        }
+        Expr::NewVariant { fields, .. } => {
+            for (_, value) in fields {
+                collect_expr_identifiers(value, identifiers);
+            }
+        }
+        Expr::Literal(_) => {}
+    }
+}
+
+/// Collect identifiers from a statement's expressions (for Concurrent/Parallel variable capture).
+fn collect_stmt_identifiers(stmt: &Stmt, identifiers: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::Let { value, .. } => {
+            collect_expr_identifiers(value, identifiers);
+        }
+        Stmt::Call { args, .. } => {
+            for arg in args {
+                collect_expr_identifiers(arg, identifiers);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Generate a complete Rust program from LOGOS statements.
 ///
 /// This is the main entry point for code generation. It produces a complete,
@@ -2135,20 +2211,14 @@ pub fn codegen_stmt<'a>(
                 }
             }).collect();
 
-            // Collect variables used in Call statements across all tasks
-            let used_vars: HashSet<String> = tasks.iter().flat_map(|s| {
-                if let Stmt::Call { args, .. } = s {
-                    args.iter().filter_map(|arg| {
-                        if let Expr::Identifier(sym) = arg {
-                            Some(interner.resolve(*sym).to_string())
-                        } else {
-                            None
-                        }
-                    }).collect::<Vec<_>>()
-                } else {
-                    vec![]
-                }
-            }).collect();
+            // Collect ALL variables used in task expressions (not just Call args)
+            let mut used_syms: HashSet<Symbol> = HashSet::new();
+            for s in *tasks {
+                collect_stmt_identifiers(s, &mut used_syms);
+            }
+            let used_vars: HashSet<String> = used_syms.iter()
+                .map(|sym| interner.resolve(*sym).to_string())
+                .collect();
 
             if !let_bindings.is_empty() {
                 // Generate tuple destructuring for concurrent Let bindings
@@ -2158,14 +2228,25 @@ pub fn codegen_stmt<'a>(
             }
 
             for (i, stmt) in tasks.iter().enumerate() {
-                let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
-
-                // Convert call statements to awaited calls for async context
-                let inner_awaited = if let Stmt::Call { .. } = stmt {
-                    // Add .await before the semicolon for function calls
-                    inner.trim().trim_end_matches(';').to_string() + ".await;"
-                } else {
-                    inner.trim().to_string()
+                // For Let statements, generate only the VALUE so the async block returns it
+                // For Call statements, generate the call with .await
+                let inner_code = match stmt {
+                    Stmt::Let { value, .. } => {
+                        // Return the value expression directly (not "let x = value;")
+                        codegen_expr(value, interner, synced_vars)
+                    }
+                    Stmt::Call { function, args } => {
+                        let func_name = interner.resolve(*function);
+                        let args_str: Vec<String> = args.iter()
+                            .map(|a| codegen_expr(a, interner, synced_vars))
+                            .collect();
+                        format!("{}({}).await", func_name, args_str.join(", "))
+                    }
+                    _ => {
+                        // Fallback for other statement types
+                        let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                        inner.trim().to_string()
+                    }
                 };
 
                 // For tasks that use shared variables, wrap in a block that clones them
@@ -2175,10 +2256,10 @@ pub fn codegen_stmt<'a>(
                         .map(|v| format!("let {} = {}.clone();", v, v))
                         .collect();
                     write!(output, "{}    {{ {} async move {{ {} }} }}",
-                           indent_str, clones.join(" "), inner_awaited).unwrap();
+                           indent_str, clones.join(" "), inner_code).unwrap();
                 } else {
                     // Last task can use original variables
-                    write!(output, "{}    async {{ {} }}", indent_str, inner_awaited).unwrap();
+                    write!(output, "{}    async {{ {} }}", indent_str, inner_code).unwrap();
                 }
 
                 if i < tasks.len() - 1 {
@@ -2212,8 +2293,26 @@ pub fn codegen_stmt<'a>(
                 }
 
                 for (i, stmt) in tasks.iter().enumerate() {
-                    let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
-                    write!(output, "{}    || {{ {} }}", indent_str, inner.trim()).unwrap();
+                    // For Let statements, generate only the VALUE so the closure returns it
+                    let inner_code = match stmt {
+                        Stmt::Let { value, .. } => {
+                            // Return the value expression directly (not "let x = value;")
+                            codegen_expr(value, interner, synced_vars)
+                        }
+                        Stmt::Call { function, args } => {
+                            let func_name = interner.resolve(*function);
+                            let args_str: Vec<String> = args.iter()
+                                .map(|a| codegen_expr(a, interner, synced_vars))
+                                .collect();
+                            format!("{}({})", func_name, args_str.join(", "))
+                        }
+                        _ => {
+                            // Fallback for other statement types
+                            let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            inner.trim().to_string()
+                        }
+                    };
+                    write!(output, "{}    || {{ {} }}", indent_str, inner_code).unwrap();
                     if i == 0 {
                         writeln!(output, ",").unwrap();
                     } else {
@@ -2226,9 +2325,25 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}{{", indent_str).unwrap();
                 writeln!(output, "{}    let handles: Vec<_> = vec![", indent_str).unwrap();
                 for stmt in *tasks {
-                    let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                    // For Let statements, generate only the VALUE so the closure returns it
+                    let inner_code = match stmt {
+                        Stmt::Let { value, .. } => {
+                            codegen_expr(value, interner, synced_vars)
+                        }
+                        Stmt::Call { function, args } => {
+                            let func_name = interner.resolve(*function);
+                            let args_str: Vec<String> = args.iter()
+                                .map(|a| codegen_expr(a, interner, synced_vars))
+                                .collect();
+                            format!("{}({})", func_name, args_str.join(", "))
+                        }
+                        _ => {
+                            let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            inner.trim().to_string()
+                        }
+                    };
                     writeln!(output, "{}        std::thread::spawn(move || {{ {} }}),",
-                             indent_str, inner.trim()).unwrap();
+                             indent_str, inner_code).unwrap();
                 }
                 writeln!(output, "{}    ];", indent_str).unwrap();
                 writeln!(output, "{}    for h in handles {{ h.join().unwrap(); }}", indent_str).unwrap();

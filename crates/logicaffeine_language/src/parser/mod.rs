@@ -1943,14 +1943,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             None
         };
 
-        // Expect "be"
-        if !self.check(&TokenType::Be) {
+        // Expect "be" or "="
+        if !self.check(&TokenType::Be) && !self.check(&TokenType::Assign) {
             return Err(ParseError {
-                kind: ParseErrorKind::ExpectedKeyword { keyword: "be".to_string() },
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "be or =".to_string() },
                 span: self.current_span(),
             });
         }
-        self.advance(); // consume "be"
+        self.advance(); // consume "be" or "="
 
         // Phase 53: Check for "mounted at [path]" pattern (for Persistent types)
         if self.check_word("mounted") {

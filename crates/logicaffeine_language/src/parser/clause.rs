@@ -77,7 +77,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             self.advance(); // consume "Let"
             let _var = self.expect_identifier()?;
             // Accept "is", "be", "=" as assignment operators
-            if self.check(&TokenType::Is) || self.check(&TokenType::Be) || self.check(&TokenType::Equals) || self.check(&TokenType::Identity) {
+            if self.check(&TokenType::Is) || self.check(&TokenType::Be) || self.check(&TokenType::Equals) || self.check(&TokenType::Identity) || self.check(&TokenType::Assign) {
                 self.advance(); // consume the operator
             }
             // Parse the value and return it (test just checks parsing succeeds)
