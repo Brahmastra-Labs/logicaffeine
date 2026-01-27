@@ -717,10 +717,21 @@ body:has(.landing) {
   color: #dea584;
 }
 
+.hello-world-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 40px;
+}
+
+.hello-pill-wrap,
+.hello-cta-wrap {
+  text-align: center;
+}
+
 .hello-editor {
   width: 100%;
   max-width: 820px;
-  margin: var(--spacing-xl) auto;
   border-radius: var(--radius-lg);
   border: 1px solid rgba(255,255,255,0.10);
   background: rgba(0,0,0,0.3);
@@ -842,7 +853,6 @@ body:has(.landing) {
   text-align: center;
   font-size: var(--font-body-md);
   color: var(--text-secondary);
-  margin-top: var(--spacing-sm);
   display: inline-block;
   padding: 8px 20px;
   border: 1px solid rgba(167,139,250,0.3);
@@ -2184,7 +2194,7 @@ pub fn Landing() -> Element {
                     }
                 }
 
-                section { class: "section hello-world section-center",
+                section { class: "section hello-world section-center hello-world-layout",
                     h2 { class: "section-title", "Hello World in LOGOS" }
 
                     div { class: "hello-editor",
@@ -2242,10 +2252,10 @@ pub fn Landing() -> Element {
                             }
                         }
                     }
-                    div { style: "text-align: center;",
+                    div { class: "hello-pill-wrap",
                         p { class: "hello-note", "Compiles to a native binary via Rust. Zero runtime overhead." }
                     }
-                    div { style: "text-align: center; margin-top: 10px;",
+                    div { class: "hello-cta-wrap",
                         a { href: "/studio?file=examples/code/hello-world.logos", class: "btn btn-primary",
                             "Open in Studio →"
                         }
