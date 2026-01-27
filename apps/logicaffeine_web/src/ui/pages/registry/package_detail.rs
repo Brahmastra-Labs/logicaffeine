@@ -17,6 +17,7 @@ use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::PackageDetails;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::seo::PageHead;
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -311,7 +312,15 @@ pub fn PackageDetail(name: String) -> Element {
         }
     });
 
+    let page_title = format!("{} - LOGICAFFEINE Registry", name);
+    let page_path = format!("/registry/package/{}", name);
+
     rsx! {
+        PageHead {
+            title: page_title,
+            description: "Package details and documentation on the LOGICAFFEINE package registry.",
+            canonical_path: page_path,
+        }
         style { "{DETAIL_STYLE}" }
 
         MainNav { active: ActivePage::Registry, subtitle: Some("Package Details") }

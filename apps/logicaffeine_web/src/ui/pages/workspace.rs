@@ -20,6 +20,7 @@ use crate::ui::state::AppState;
 use crate::ui::components::chat::ChatDisplay;
 use crate::ui::components::input::InputArea;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::seo::PageHead;
 
 const WORKSPACE_STYLE: &str = r#"
 .workspace {
@@ -166,8 +167,15 @@ pub fn Workspace(subject: String) -> Element {
         "math" => "Mathematics",
         _ => "Workspace",
     };
+    let page_title = format!("{} Workspace - LOGICAFFEINE", title);
+    let page_path = format!("/workspace/{}", subject);
 
     rsx! {
+        PageHead {
+            title: page_title,
+            description: "Interactive workspace for practicing formal logic and reasoning.",
+            canonical_path: page_path,
+        }
         style { "{WORKSPACE_STYLE}" }
 
         MainNav { active: ActivePage::Studio, subtitle: Some(title) }

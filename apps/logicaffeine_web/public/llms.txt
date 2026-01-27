@@ -1,21 +1,22 @@
 # LOGICAFFEINE
 
-> Turn everyday English into rigorous First-Order Logic
+> Debug your thoughts. Turn everyday English into rigorous First-Order Logic.
 
 ## What is LOGICAFFEINE?
 
-LOGICAFFEINE is an English-to-First-Order-Logic transpiler. It parses natural language sentences and outputs formal logic formulas in Unicode or LaTeX notation.
+LOGICAFFEINE is an English-to-First-Order-Logic transpiler and full programming language. It parses natural language sentences and outputs formal logic formulas in Unicode or LaTeX notation, and extends into a complete imperative language with CRDT-based distributed systems, formal verification, and more.
 
 The tool helps users:
-- Debug arguments and reasoning
-- Learn formal logic interactively
-- Verify logical structures
+- Debug arguments and reasoning with formal logic
+- Learn formal logic interactively through a gamified curriculum
+- Verify logical structures with Z3-powered proof assistance
 - Translate between natural language and formal notation
+- Write full programs in English that compile to Rust/WASM
 
 ## Key Features
 
-### Natural Language Parsing
-Parse English sentences into First-Order Logic (FOL). Handle quantifiers, connectives, predicates, and more.
+### Natural Language to Logic
+Parse English sentences into First-Order Logic (FOL). Handles 53+ linguistic phenomena including quantifiers, connectives, predicates, tense, aspect, modal logic, and more.
 
 Example:
 - Input: "All humans are mortal"
@@ -26,54 +27,94 @@ Example:
 - LaTeX notation (\forall, \exists, \rightarrow)
 - Simple FOL representation
 
-### Interactive Learning
-Progressive curriculum from basic syllogisms to advanced modal logic. Exercises with immediate feedback and adaptive hints.
+### Interactive Learning Platform
+Progressive curriculum from basic syllogisms to advanced modal logic. Gamified with XP, streaks, achievements, and adaptive difficulty. Four eras covering 20+ modules.
 
 ### Studio Playground
-Real-time translation with syntax highlighting, AST visualization, and proof assistance.
+Real-time translation with three modes:
+- **Logic Mode**: English to FOL with AST visualization
+- **Code Mode**: Imperative LOGOS programs with REPL and Rust codegen
+- **Math Mode**: Vernacular theorem proving with tactic guidance
+
+### Full Programming Language
+LOGOS extends beyond logic into a complete language with:
+- Functions, structs, enums, pattern matching
+- Refinement types and generics
+- Channels, actors, structured concurrency
+- CRDTs for distributed systems
+- Capability-based security with English policy blocks
+- Curry-Howard proof assistant with Z3 verification
+
+### Package Registry
+Community-contributed logic modules and packages. GitHub OAuth for publishing.
 
 ## Main Pages
 
-### /
-Landing page - marketing homepage with feature highlights
+### / (Homepage)
+Marketing landing page with interactive demos, feature highlights, and FAQ. Showcases Logic, Code, and Math modes with live examples.
+
+### /studio
+Interactive three-panel IDE:
+- File browser with example files
+- Live editor with syntax highlighting
+- Context-sensitive output (FOL formulas, AST trees, REPL, proofs)
+Free to use, no account required.
 
 ### /learn
-Interactive curriculum for learning First-Order Logic. Covers:
+Gamified curriculum for learning First-Order Logic:
 - Era 1: First Steps (Introduction, Syllogistic Logic, Fallacies)
 - Era 2: Building Blocks (Propositional Logic, Proofs)
 - Era 3: Expanding Horizons (Quantificational, Modal, Deontic, Belief Logic)
 - Era 4: Mastery (Ethics, Metalogic, History, Deviant Logic, Philosophy)
-
-### /studio
-Logic playground with three modes:
-- Logic Mode: Translate English to FOL
-- Code Mode: Execute imperative .logos programs
-- Math Mode: Vernacular theorem proving
+Features XP system, streaks, achievements, spaced repetition, and adaptive hints.
 
 ### /guide
-Documentation and tutorials covering:
-- LOGICAFFEINE syntax
+Comprehensive documentation with 22 interactive sections covering:
+- LOGICAFFEINE syntax and grammar
 - Lexicon configuration
 - First-Order Logic concepts
-- Example translations
+- Code examples with Run/Copy/Reset
 
 ### /pricing
-Commercial licensing information. Free for individuals and organizations under 25 employees.
+Commercial licensing. Free for individuals and organizations under 25 employees. Paid tiers: Supporter ($5/mo), Pro ($10/mo), Premium ($25/mo), Enterprise (custom). Lifetime license available.
 
 ### /crates
 Technical documentation for Rust crates:
-- logos: Core transpiler
-- logos_core: Runtime library
-- logos_verification: Z3 static verification
+- logicaffeine-base: Foundation types and utilities
+- logicaffeine-lexicon: Vocabulary database with 2000+ entries
+- logicaffeine-kernel: Dependent type theory proof kernel
+- logicaffeine-data: Content and curriculum engine
+- logicaffeine-system: Platform abstraction (VFS, persistence)
+- logicaffeine-language: Parser, transpiler, and compiler
+- logicaffeine-proof: Backward chaining proof engine
+- logicaffeine-compile: Full compilation pipeline
+
+### /roadmap
+Development roadmap with 9 milestones:
+1. Core Transpiler (Complete) - 53+ linguistic phenomena
+2. Web Platform (Complete) - Interactive learning and studio
+3. Imperative Language (Complete) - Functions, structs, enums, I/O
+4. Type System (Complete) - Refinement types, generics, inference
+5. Concurrency & Actors (Complete) - Channels, agents, async/await
+6. Distributed Systems (Complete) - CRDTs, P2P, conflict resolution
+7. Security & Policies (Complete) - Capability-based security
+8. Proof Assistant (Complete) - Curry-Howard, Z3 verification
+9. Universal Compilation (In Progress) - WASM target, Live Codex IDE
+
+### /registry
+Package registry for community-contributed logic modules. Search, browse, and publish packages with GitHub authentication.
 
 ### /news
 Release notes, tutorials, and announcements.
 
-### /roadmap
-Development roadmap with upcoming features.
+### /profile
+User profile with XP, level, streaks, module progress, and achievements.
 
-### /registry
-Package registry for community-contributed logic modules.
+### /privacy
+Privacy policy.
+
+### /terms
+Terms of service. Business Source License (BUSL-1.1).
 
 ## Technical Details
 
@@ -85,30 +126,42 @@ Package registry for community-contributed logic modules.
 - Epistemic logic (belief, knowledge)
 - Temporal logic (past, future, always)
 
-### Parser Architecture
-Pipeline: Input → Lexer → Parser → AST → Transpiler → FOL Output
+### Architecture
+- **Frontend**: Dioxus 0.6 (Rust) compiled to WebAssembly
+- **Backend**: Rust with arena-allocated AST, symbol interning
+- **Pipeline**: Input → Lexer → Parser → AST → Transpiler → FOL Output
+- **Proof Engine**: Backward chaining with Z3 integration
 
 ### Lexicon System
 Vocabulary database (lexicon.json) defining:
 - Verbs with Vendler class and transitivity
-- Nouns with animacy and number
+- Nouns with animacy, gender, and number
 - Adjectives with intersective/subsective properties
+- 2000+ vocabulary entries
 
 ## Links
 
 - Website: https://logicaffeine.com
 - GitHub: https://github.com/Brahmastra-Labs/logicaffeine
+- X (Twitter): https://x.com/logicaffeine
 - Documentation: https://logicaffeine.com/guide
 - API Crates: https://logicaffeine.com/crates
+- Studio: https://logicaffeine.com/studio
+- Learn: https://logicaffeine.com/learn
 
 ## Contact
 
 - Email: tristen@brahmastra-labs.com
 - Support: https://logicaffeine.com/pricing
+- Discord: https://discord.gg/logicaffeine
 
 ## Organization
 
 LOGICAFFEINE is developed by Brahmastra Labs.
+
+## License
+
+Business Source License 1.1 (BUSL-1.1). Free for individuals and organizations under 25 employees. Commercial licenses available at https://logicaffeine.com/pricing.
 
 ---
 

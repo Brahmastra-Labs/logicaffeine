@@ -57,14 +57,20 @@ const MODE_TOGGLE_STYLE: &str = r#"
     font-size: 14px;
 }
 
-/* Mobile: icons only */
+/* Mobile: compact with labels */
 @media (max-width: 768px) {
     .mode-toggle-btn {
-        padding: 10px 12px;
+        padding: 6px 10px;
+        font-size: 12px;
+        gap: 4px;
+    }
+
+    .mode-toggle-btn .icon {
+        font-size: 12px;
     }
 
     .mode-toggle-btn .label {
-        display: none;
+        font-size: 12px;
     }
 }
 "#;

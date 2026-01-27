@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, organization_schema, breadcrumb_schema, article_schema, BreadcrumbItem};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, article_schema, BreadcrumbItem};
 use crate::ui::router::Route;
 use super::data::get_article_by_slug;
 
@@ -225,12 +225,28 @@ const ARTICLE_STYLES: &str = r#"
 #[component]
 pub fn NewsArticle(slug: String) -> Element {
     let article = get_article_by_slug(&slug);
+    let (page_title, page_desc) = match article {
+        Some(a) => (
+            format!("{} - LOGICAFFEINE", a.title),
+            a.summary.to_string(),
+        ),
+        None => (
+            "Article Not Found - LOGICAFFEINE".to_string(),
+            "Latest news and updates from LOGICAFFEINE.".to_string(),
+        ),
+    };
+    let page_path = format!("/news/{}", slug);
 
     rsx! {
+        PageHead {
+            title: page_title,
+            description: page_desc,
+            canonical_path: page_path,
+        }
         style { "{ARTICLE_STYLES}" }
 
         div { class: "article-page",
-            MainNav { active: ActivePage::News }
+            MainNav { active: ActivePage::News, subtitle: Some("Latest updates") }
 
             if let Some(article) = article {
                 {

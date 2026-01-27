@@ -36,8 +36,7 @@ use crate::ui::components::ast_tree::AstTree;
 use crate::ui::components::socratic_guide::{SocraticGuide, GuideMode, get_success_message, get_context_hint};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::symbol_dictionary::SymbolDictionary;
-use crate::ui::components::vocab_reference::VocabReference;
-use crate::ui::seo::{JsonLd, software_application_schema};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, software_application_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 use crate::ui::components::mode_toggle::ModeToggle;
 use crate::ui::components::file_browser::FileBrowser;
 use crate::ui::components::repl_output::ReplOutput;
@@ -437,6 +436,27 @@ const STUDIO_STYLE: &str = r#"
     }
 }
 
+/* Sidebar wrapper for controlled width */
+.studio-sidebar {
+    display: flex;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+@media (max-width: 768px) {
+    .studio-sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 100;
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+}
+
 /* Desktop: 3-column panel layout */
 .studio-main {
     flex: 1;
@@ -613,14 +633,36 @@ const STUDIO_STYLE: &str = r#"
 /* ============================================ */
 /* STUDIO PAGE - Mobile Overrides               */
 /* ============================================ */
-@media (max-width: 768px) {
-    /* Hide toolbar center on mobile */
-    .studio-toolbar-center {
-        display: none;
-    }
 
+/* Mode label: hidden on desktop, shown on mobile */
+.mode-label {
+    display: none;
+}
+
+@media (max-width: 768px) {
     .studio-toolbar {
         padding: 8px 12px;
+        gap: 6px;
+    }
+
+    /* Show mode toggle with "Mode:" label */
+    .mode-label {
+        display: block;
+        font-size: 12px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.5);
+        margin-right: 6px;
+        white-space: nowrap;
+    }
+
+    .studio-toolbar-center {
+        flex: 0 1 auto;
+        align-items: center;
+    }
+
+    /* Hide mobile tab bar - panels stack instead */
+    .mobile-tabs {
+        display: none !important;
     }
 
     /* Hide desktop resizers */
@@ -628,63 +670,78 @@ const STUDIO_STYLE: &str = r#"
         display: none;
     }
 
-    /* Mobile main switches to column with stacked panels */
+    /* Stacked vertical panel layout */
     .studio-main {
         flex-direction: column;
-        position: relative;
         gap: 0;
         background: var(--studio-bg);
     }
 
-    /* Panels are absolute positioned and hidden by default */
+    /* Both panels visible, stacked vertically */
     .studio-panel {
         min-width: unset;
-        min-height: unset;
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.15s ease;
+        min-height: 0;
         width: 100% !important;
     }
 
-    /* Active panel becomes visible */
-    .studio-panel.mobile-active {
-        position: relative;
-        flex: 1;
-        opacity: 1;
-        pointer-events: auto;
+    .studio-panel.mobile-expanded {
+        flex: var(--panel-flex, 1);
+        overflow: hidden;
     }
 
-    /* Hide panel headers on mobile (tabs replace them) */
-    .studio-panel .panel-header {
+    .studio-panel.mobile-collapsed {
+        flex: 0 0 auto;
+    }
+
+    .studio-panel.mobile-collapsed .panel-content {
         display: none;
     }
 
-    /* Show header only for Logic panel when it has format toggle */
-    .studio-panel.mobile-active.has-controls .panel-header {
-        display: flex;
-        padding: 10px 14px;
-        background: var(--studio-elevated);
-        border-bottom: 1px solid var(--studio-border);
+    /* Show panel headers with collapse affordance */
+    .studio-panel .panel-header {
+        display: flex !important;
+        cursor: pointer;
+        padding: 0 14px;
+        height: 44px;
+        font-size: 14px;
+    }
+
+    /* Collapse chevron indicator */
+    .studio-panel .panel-header::after {
+        content: '\25BC';
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.4);
+        margin-left: 8px;
+        transition: transform 0.15s ease;
+    }
+
+    .studio-panel.mobile-collapsed .panel-header::after {
+        content: '\25B6';
+    }
+
+    /* Divider between stacked panels */
+    .studio-panel + .studio-panel {
+        border-top: 1px solid var(--studio-border);
+    }
+
+    /* Hide Panel 3 (Console/Tree/Context) on mobile */
+    .studio-main > aside {
+        display: none !important;
     }
 
     /* Mobile-sized format toggle */
     .format-toggle {
-        gap: 6px;
-        padding: 4px;
-        border-radius: 8px;
+        gap: 4px;
+        padding: 2px;
+        border-radius: 6px;
     }
 
     .format-btn {
-        padding: 10px 16px;
-        font-size: 14px;
-        border-radius: 6px;
-        min-height: var(--touch-min, 44px);
-        min-width: var(--touch-min, 44px);
+        padding: 6px 10px;
+        font-size: 12px;
+        border-radius: 4px;
+        min-height: 32px;
+        min-width: 32px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -695,14 +752,55 @@ const STUDIO_STYLE: &str = r#"
         max-height: 30vh;
         overflow: auto;
     }
+
+    .mobile-panel-resizer {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 16px;
+        cursor: row-resize;
+        flex-shrink: 0;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+        z-index: 2;
+        position: relative;
+    }
+
+    .mobile-panel-resizer::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 48px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.15);
+        transition: background 0.15s ease;
+    }
+
+    .mobile-panel-resizer:hover::after,
+    .mobile-panel-resizer.active::after {
+        background: rgba(102, 126, 234, 0.6);
+    }
 }
 
 /* Extra small screens */
 @media (max-width: 480px) {
     .format-btn {
-        padding: 8px 12px;
-        font-size: 13px;
+        padding: 4px 8px;
+        font-size: 11px;
     }
+}
+
+/* Desktop: hide mobile resizer */
+.mobile-panel-resizer {
+    display: none;
+}
+
+.studio-container.mobile-resizing {
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* Landscape mobile */
@@ -771,6 +869,7 @@ pub fn Studio() -> Element {
     let mut math_output = use_signal(Vec::<ReplLine>::new);
 
     // Desktop panel resizing state
+    let mut sidebar_width = use_signal(|| 240.0f64);
     let mut left_width = use_signal(|| 35.0f64);
     let mut right_width = use_signal(|| 25.0f64);
     let mut resizing = use_signal(|| None::<&'static str>);
@@ -778,9 +877,16 @@ pub fn Studio() -> Element {
     // Mobile tab state
     let mut active_tab = use_signal(|| MobileTab::Panel1);
 
+    // Mobile panel collapse state
+    let mut editor_expanded = use_signal(|| true);
+    let mut output_expanded = use_signal(|| true);
+
     // Touch gesture state for swipe detection
     let mut touch_start_x = use_signal(|| 0.0f64);
     let mut touch_start_y = use_signal(|| 0.0f64);
+
+    // Mobile vertical split: Panel 1 height as % of studio-main
+    let mut mobile_split = use_signal(|| 50.0f64);
 
     // VFS initialization flag
     let mut vfs_initialized = use_signal(|| false);
@@ -1281,6 +1387,7 @@ pub fn Studio() -> Element {
         StudioMode::Math => !definitions.is_empty() || !inductives.is_empty(),
     };
 
+    let sidebar_w = *sidebar_width.read();
     let left_w = *left_width.read();
     let right_w = if show_panel3 { *right_width.read() } else { 0.0 };
     let center_w = 100.0 - left_w - right_w;
@@ -1295,6 +1402,10 @@ pub fn Studio() -> Element {
             let pct: f64 = (x / width) * 100.0;
 
             match which {
+                "sidebar" => {
+                    let new_sidebar: f64 = x.clamp(150.0, 400.0);
+                    sidebar_width.set(new_sidebar);
+                }
                 "left" => {
                     let new_left: f64 = pct.clamp(15.0, 60.0);
                     left_width.set(new_left);
@@ -1302,6 +1413,16 @@ pub fn Studio() -> Element {
                 "right" => {
                     let new_right: f64 = (100.0 - pct).clamp(15.0, 40.0);
                     right_width.set(new_right);
+                }
+                "mobile" => {
+                    let document = window.document().unwrap();
+                    if let Ok(Some(el)) = document.query_selector(".studio-main") {
+                        let rect = el.get_bounding_client_rect();
+                        let y: f64 = coords.y;
+                        let relative_y = y - rect.top();
+                        let pct = (relative_y / rect.height()) * 100.0;
+                        mobile_split.set(pct.clamp(15.0, 85.0));
+                    }
                 }
                 _ => {}
             }
@@ -1323,6 +1444,10 @@ pub fn Studio() -> Element {
     };
 
     let handle_touch_end = move |evt: TouchEvent| {
+        if *resizing.read() == Some("mobile") {
+            resizing.set(None);
+            return;
+        }
         let changed = evt.data().touches_changed();
         if let Some(touch) = changed.first() {
             let coords = touch.client_coordinates();
@@ -1350,16 +1475,58 @@ pub fn Studio() -> Element {
         }
     };
 
+    let handle_touch_move = move |evt: TouchEvent| {
+        if *resizing.read() == Some("mobile") {
+            evt.prevent_default();
+            let touches = evt.data().touches();
+            if let Some(touch) = touches.first() {
+                let window = web_sys::window().unwrap();
+                let document = window.document().unwrap();
+                if let Ok(Some(el)) = document.query_selector(".studio-main") {
+                    let rect = el.get_bounding_client_rect();
+                    let coords = touch.client_coordinates();
+                    let y: f64 = coords.y;
+                    let relative_y = y - rect.top();
+                    let pct = (relative_y / rect.height()) * 100.0;
+                    mobile_split.set(pct.clamp(15.0, 85.0));
+                }
+            }
+        }
+    };
+
     let current_format = *format.read();
     let current_tab = *active_tab.read();
     let current_mode = *mode.read();
 
-    // Panel classes based on active tab
-    let panel1_class = if current_tab == MobileTab::Panel1 { "studio-panel mobile-active" } else { "studio-panel" };
-    let panel2_class = if current_tab == MobileTab::Panel2 {
-        if current_mode == StudioMode::Logic { "studio-panel mobile-active has-controls" } else { "studio-panel mobile-active" }
-    } else { "studio-panel" };
-    let panel3_class = if current_tab == MobileTab::Panel3 { "studio-panel mobile-active" } else { "studio-panel" };
+    // Panel classes: mobile-expanded/collapsed for stacked layout, desktop ignores these
+    let editor_exp = *editor_expanded.read();
+    let output_exp = *output_expanded.read();
+    let panel1_class = if editor_exp { "studio-panel mobile-expanded" } else { "studio-panel mobile-collapsed" };
+    let panel2_class = if output_exp { "studio-panel mobile-expanded" } else { "studio-panel mobile-collapsed" };
+    let panel3_class = "studio-panel";
+
+    // Mobile vertical split: compute panel flex proportions
+    let mobile_pct = *mobile_split.read();
+    let panel1_flex = mobile_pct / 50.0;
+    let panel2_flex = (100.0 - mobile_pct) / 50.0;
+    let both_expanded = editor_exp && output_exp;
+
+    let panel1_style = if both_expanded {
+        format!("width: {left_w}%; --panel-flex: {panel1_flex};")
+    } else {
+        format!("width: {left_w}%;")
+    };
+    let panel2_style = if both_expanded {
+        format!("width: {center_w}%; --panel-flex: {panel2_flex};")
+    } else {
+        format!("width: {center_w}%;")
+    };
+
+    let container_class = if *resizing.read() == Some("mobile") {
+        "studio-container mobile-resizing"
+    } else {
+        "studio-container"
+    };
 
     // Read code output mode for rendering
     let current_code_output_mode = *code_output_mode.read();
@@ -1372,20 +1539,33 @@ pub fn Studio() -> Element {
     };
 
     rsx! {
+        PageHead {
+            title: seo_pages::STUDIO.title,
+            description: seo_pages::STUDIO.description,
+            canonical_path: seo_pages::STUDIO.canonical_path,
+        }
         style { "{MOBILE_BASE_STYLES}" }
         style { "{MOBILE_TAB_BAR_STYLES}" }
         style { "{STUDIO_STYLE}" }
-        JsonLd { schema: software_application_schema() }
+        JsonLdMultiple { schemas: vec![
+            organization_schema(),
+            software_application_schema(),
+            breadcrumb_schema(&[
+                BreadcrumbItem { name: "Home", path: "/" },
+                BreadcrumbItem { name: "Studio", path: "/studio" },
+            ]),
+        ] }
 
         div {
-            class: "studio-container",
+            class: "{container_class}",
             onmousemove: handle_mouse_move,
             onmouseup: handle_mouse_up,
             onmouseleave: handle_mouse_up,
             ontouchstart: handle_touch_start,
             ontouchend: handle_touch_end,
+            ontouchmove: handle_touch_move,
 
-            MainNav { active: ActivePage::Studio }
+            MainNav { active: ActivePage::Studio, subtitle: Some("Your logic workspace") }
 
             // Toolbar with mode toggle
             div { class: "studio-toolbar",
@@ -1401,6 +1581,7 @@ pub fn Studio() -> Element {
                     }
                 }
                 div { class: "studio-toolbar-center",
+                    span { class: "mode-label", "Mode:" }
                     ModeToggle {
                         mode: current_mode,
                         on_change: move |new_mode| {
@@ -1487,13 +1668,22 @@ pub fn Studio() -> Element {
                 }
 
                 if *sidebar_open.read() {
+                    div {
+                        class: "studio-sidebar",
+                        style: "width: {sidebar_w}px; min-width: {sidebar_w}px; max-width: {sidebar_w}px; flex-shrink: 0;",
                     FileBrowser {
                         tree: file_tree.read().clone(),
                         selected_path: current_file.read().clone(),
-                        collapsed: false,
                         on_select: EventHandler::new(move |path: String| {
-                            // Close sidebar when file is selected
-                            sidebar_open.set(false);
+                            // Close sidebar on mobile
+                            #[cfg(target_arch = "wasm32")]
+                            {
+                                let window = web_sys::window().unwrap();
+                                let width = window.inner_width().unwrap().as_f64().unwrap_or(1024.0);
+                                if width <= 768.0 {
+                                    sidebar_open.set(false);
+                                }
+                            }
                             current_file.set(Some(path.clone()));
 
                             // Update URL with file parameter for shareable links
@@ -1665,9 +1855,13 @@ pub fn Studio() -> Element {
                         on_new_file: EventHandler::new(move |_: ()| {
                             // TODO: Show new file dialog
                         }),
-                        on_collapse_toggle: EventHandler::new(move |_: ()| {
-                            sidebar_open.set(false);
-                        }),
+                    }
+                    }
+
+                    // Sidebar resizer
+                    div {
+                        class: if resizing.read().is_some() { "panel-resizer active" } else { "panel-resizer" },
+                        onmousedown: move |_| resizing.set(Some("sidebar")),
                     }
                 }
 
@@ -1676,11 +1870,16 @@ pub fn Studio() -> Element {
                     // Panel 1
                     section {
                         class: "{panel1_class}",
-                        style: "width: {left_w}%;",
+                        style: "{panel1_style}",
 
                         match current_mode {
                             StudioMode::Logic => rsx! {
-                                div { class: "panel-header",
+                                div {
+                                    class: "panel-header",
+                                    onclick: move |_| {
+                                        let v = *editor_expanded.read();
+                                        editor_expanded.set(!v);
+                                    },
                                     span { "English Input" }
                                 }
                                 div { class: "panel-content",
@@ -1699,7 +1898,12 @@ pub fn Studio() -> Element {
                                 }
                             },
                             StudioMode::Code => rsx! {
-                                div { class: "panel-header",
+                                div {
+                                    class: "panel-header",
+                                    onclick: move |_| {
+                                        let v = *editor_expanded.read();
+                                        editor_expanded.set(!v);
+                                    },
                                     span { "Code Editor" }
                                 }
                                 div { class: "panel-content",
@@ -1712,7 +1916,12 @@ pub fn Studio() -> Element {
                                 }
                             },
                             StudioMode::Math => rsx! {
-                                div { class: "panel-header",
+                                div {
+                                    class: "panel-header",
+                                    onclick: move |_| {
+                                        let v = *editor_expanded.read();
+                                        editor_expanded.set(!v);
+                                    },
                                     span { "Theorem Editor" }
                                 }
                                 div { class: "panel-content",
@@ -1727,7 +1936,26 @@ pub fn Studio() -> Element {
                         }
                     }
 
-                    // Left resizer
+                    // Mobile vertical resizer between Panel 1 and Panel 2
+                    if both_expanded {
+                        div {
+                            class: if *resizing.read() == Some("mobile") {
+                                "mobile-panel-resizer active"
+                            } else {
+                                "mobile-panel-resizer"
+                            },
+                            onmousedown: move |e| {
+                                e.prevent_default();
+                                resizing.set(Some("mobile"));
+                            },
+                            ontouchstart: move |e| {
+                                e.prevent_default();
+                                resizing.set(Some("mobile"));
+                            },
+                        }
+                    }
+
+                    // Left resizer (desktop)
                     div {
                         class: if resizing.read().is_some() { "panel-resizer active" } else { "panel-resizer" },
                         onmousedown: move |_| resizing.set(Some("left")),
@@ -1736,13 +1964,20 @@ pub fn Studio() -> Element {
                     // Panel 2
                     section {
                         class: "{panel2_class}",
-                        style: "width: {center_w}%;",
+                        style: "{panel2_style}",
 
                         match current_mode {
                             StudioMode::Logic => rsx! {
-                                div { class: "panel-header",
+                                div {
+                                    class: "panel-header",
+                                    onclick: move |_| {
+                                        let v = *output_expanded.read();
+                                        output_expanded.set(!v);
+                                    },
                                     span { "Logic Output" }
-                                    div { class: "format-toggle",
+                                    div {
+                                        class: "format-toggle",
+                                        onclick: move |evt| evt.stop_propagation(),
                                         button {
                                             class: if current_format == OutputFormat::SimpleFOL { "format-btn active" } else { "format-btn" },
                                             onclick: move |_| format.set(OutputFormat::SimpleFOL),
@@ -1786,9 +2021,16 @@ pub fn Studio() -> Element {
                                 }
                             },
                             StudioMode::Code => rsx! {
-                                div { class: "panel-header",
+                                div {
+                                    class: "panel-header",
+                                    onclick: move |_| {
+                                        let v = *output_expanded.read();
+                                        output_expanded.set(!v);
+                                    },
                                     span { "Output" }
-                                    div { class: "output-mode-toggle",
+                                    div {
+                                        class: "output-mode-toggle",
+                                        onclick: move |evt| evt.stop_propagation(),
                                         button {
                                             class: if current_code_output_mode == CodeOutputMode::Interpret { "output-mode-btn active" } else { "output-mode-btn" },
                                             onclick: move |_| code_output_mode.set(CodeOutputMode::Interpret),
@@ -1842,7 +2084,12 @@ pub fn Studio() -> Element {
                                 }
                             },
                             StudioMode::Math => rsx! {
-                                div { class: "panel-header",
+                                div {
+                                    class: "panel-header",
+                                    onclick: move |_| {
+                                        let v = *output_expanded.read();
+                                        output_expanded.set(!v);
+                                    },
                                     span { "Output" }
                                 }
                                 div { class: "panel-content",
@@ -1914,8 +2161,6 @@ pub fn Studio() -> Element {
                 }
             }
 
-            // Floating vocab reference button
-            VocabReference {}
         }
     }
 }

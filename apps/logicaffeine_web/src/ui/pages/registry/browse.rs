@@ -20,6 +20,8 @@ use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{RegistryAuthState, RegistryPackage, GitHubUser};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::footer::Footer;
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, webpage_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 const REGISTRY_API_URL: &str = "https://registry.logicaffeine.com";
 
@@ -382,8 +384,24 @@ pub fn Registry() -> Element {
         }
     };
 
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Registry", path: "/registry" },
+    ];
+    let schemas = vec![
+        organization_schema(),
+        webpage_schema("Package Registry", "Browse and discover community-contributed logic modules and packages for LOGICAFFEINE.", "/registry"),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
+        PageHead {
+            title: seo_pages::REGISTRY.title,
+            description: seo_pages::REGISTRY.description,
+            canonical_path: seo_pages::REGISTRY.canonical_path,
+        }
         style { "{REGISTRY_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "registry-container",
             MainNav {
@@ -450,6 +468,8 @@ pub fn Registry() -> Element {
                     }
                 }
             }
+
+            Footer {}
         }
     }
 }

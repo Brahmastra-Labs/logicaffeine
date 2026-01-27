@@ -12,7 +12,9 @@
 
 use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::footer::Footer;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, profile_page_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 use crate::progress::UserProgress;
 use crate::content::ContentEngine;
 
@@ -228,10 +230,26 @@ pub fn Profile() -> Element {
     let completed_modules = progress.modules.values().filter(|m| m.completed).count();
     let total_modules: usize = engine.eras().iter().map(|e| e.modules.len()).sum();
 
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Profile", path: "/profile" },
+    ];
+    let schemas = vec![
+        organization_schema(),
+        profile_page_schema(),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
+        PageHead {
+            title: seo_pages::PROFILE.title,
+            description: seo_pages::PROFILE.description,
+            canonical_path: seo_pages::PROFILE.canonical_path,
+        }
         style { "{PROFILE_STYLE}" }
+        JsonLdMultiple { schemas }
         div { class: "profile-page",
-            MainNav { active: ActivePage::Profile }
+            MainNav { active: ActivePage::Profile, subtitle: Some("Your logic journey") }
 
             // Hero section
             div { class: "profile-hero",
@@ -346,6 +364,8 @@ pub fn Profile() -> Element {
                     }
                 }
             }
+
+            Footer {}
         }
     }
 }

@@ -27,6 +27,38 @@ pub fn get_article_by_slug(slug: &str) -> Option<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "logos-on-grokipedia",
+        title: "LOGOS Has a Grokipedia Page",
+        date: "2026-01-26",
+        summary: "LOGOS now has its own page on Grokipedia, Grok's community-driven encyclopedia. A milestone for the project's visibility in the broader programming language landscape.",
+        content: r#"
+## LOGOS Lands on Grokipedia
+
+LOGOS now has its own entry on [Grokipedia](https://grokipedia.com/page/LOGOS_programming_language), the community-driven encyclopedia powered by Grok. This is a meaningful milestone for the project — recognition that what we're building has caught the attention of the wider programming language community.
+
+### What the Page Covers
+
+The Grokipedia article provides a thorough overview of LOGOS as a domain-specific language that translates natural English statements into executable Rust code or first-order logic representations. It covers:
+
+- **Dual-mode architecture** — how the same English input can compile to either imperative Rust code or formal logic for verification
+- **Distributed programming** — native CRDT support, libp2p networking, and GossipSub state synchronization
+- **Formal verification** — Z3 SMT solver integration for static verification of compile-time properties
+- **Parsing techniques** — parse forests, RAII-based backtracking, Neo-Davidsonian event semantics, and Montague-style lambda calculus
+
+The article also honestly covers current limitations, which we appreciate — transparency about what LOGOS can and can't do today is important to us.
+
+### Why This Matters
+
+Having an independent, detailed reference page means people can discover LOGOS outside of our own channels. It validates that the ideas behind the project — natural language as a programming interface, formal verification as a first-class concern — are resonating.
+
+### Check It Out
+
+Read the full entry at [grokipedia.com/page/LOGOS_programming_language](https://grokipedia.com/page/LOGOS_programming_language), and if you haven't already, try LOGOS yourself in the [Studio](/studio).
+"#,
+        tags: &["milestone", "community"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "introducing-logicaffeine",
         title: "Introducing LOGICAFFEINE: Debug Your Thoughts",
         date: "2026-01-15",

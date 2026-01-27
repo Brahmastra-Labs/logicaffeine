@@ -18,8 +18,9 @@ use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
+use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::ui::state::LicenseState;
-use crate::ui::seo::{JsonLdMultiple, organization_schema, product_schema, breadcrumb_schema, BreadcrumbItem};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, product_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 const PRICING_STYLE: &str = r#"
 * { box-sizing: border-box; }
@@ -598,11 +599,113 @@ a { color: inherit; }
   fill: currentColor;
 }
 
+.features-showcase {
+  position: relative;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--radius-xl);
+  padding: 40px;
+  margin-bottom: 40px;
+  width: 100%;
+  backdrop-filter: blur(18px);
+  animation: fadeInUp 0.6s ease 0.08s both;
+}
+
+.features-showcase-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.features-showcase-header h2 {
+  color: var(--text-primary);
+  font-size: var(--font-heading-lg);
+  font-weight: 700;
+  margin-bottom: var(--spacing-sm);
+}
+
+.features-showcase-header p {
+  color: var(--text-secondary);
+  font-size: var(--font-body-md);
+  line-height: 1.65;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.feature-group {
+  position: relative;
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  padding: 18px;
+  overflow: hidden;
+  animation: fadeInUp 0.6s ease both;
+}
+
+.feature-group:nth-child(1) { animation-delay: 0.10s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+.feature-group:nth-child(2) { animation-delay: 0.14s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+.feature-group:nth-child(3) { animation-delay: 0.18s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+.feature-group:nth-child(4) { animation-delay: 0.22s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+.feature-group:nth-child(5) { animation-delay: 0.26s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+.feature-group:nth-child(6) { animation-delay: 0.30s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+
+.feature-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.feature-group-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.10);
+  flex-shrink: 0;
+}
+
+.feature-group-header h3 {
+  color: var(--text-primary);
+  font-size: var(--font-body-md);
+  font-weight: 650;
+}
+
+.feature-group-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.feature-group-list li {
+  color: var(--text-secondary);
+  font-size: var(--font-caption-lg);
+  padding: var(--spacing-xs) 0;
+  padding-left: var(--spacing-xl);
+  position: relative;
+  line-height: 1.5;
+}
+
+.feature-group-list li::before {
+  content: "\2713";
+  position: absolute;
+  left: 0;
+  color: var(--accent-secondary);
+}
+
 @media (max-width: 700px) {
   .pricing-header h1 {
     font-size: var(--font-display-md);
   }
   .pricing-tiers {
+    grid-template-columns: 1fr;
+  }
+  .features-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -687,6 +790,11 @@ pub fn Pricing() -> Element {
     ];
 
     rsx! {
+        PageHead {
+            title: seo_pages::PRICING.title,
+            description: seo_pages::PRICING.description,
+            canonical_path: seo_pages::PRICING.canonical_path,
+        }
         style { "{PRICING_STYLE}" }
         JsonLdMultiple { schemas }
 
@@ -695,7 +803,7 @@ pub fn Pricing() -> Element {
             div { class: "bg-orb orb2" }
             div { class: "bg-orb orb3" }
 
-            MainNav { active: ActivePage::Pricing }
+            MainNav { active: ActivePage::Pricing, subtitle: Some("Plans & pricing") }
 
             div { class: "pricing-container",
                 if has_license {
@@ -728,6 +836,111 @@ pub fn Pricing() -> Element {
                         href: STRIPE_FREE_LICENSE,
                         target: "_blank",
                         "Get Free License"
+                    }
+                }
+
+                div { class: "features-showcase",
+                    div { class: "features-showcase-header",
+                        h2 { "Everything in LOGOS" }
+                        p { "One language for code, logic, math, and distributed systems" }
+                    }
+                    div { class: "features-grid",
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
+                                    style: "background: rgba(0,212,255,0.15);",
+                                    Icon { variant: IconVariant::Lightning, size: IconSize::Large, color: "#00d4ff" }
+                                }
+                                h3 { "English-Native Programming" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "Programs, proofs, and logic in plain English" }
+                                li { "Compiles to native Rust via LLVM" }
+                                li { "Ownership and borrowing in natural language" }
+                            }
+                        }
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
+                                    style: "background: rgba(129,140,248,0.15);",
+                                    Icon { variant: IconVariant::Brain, size: IconSize::Large, color: "#818cf8" }
+                                }
+                                h3 { "Formal Logic & Semantics" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "English \u{2192} First-Order Logic transpilation" }
+                                li { "Quantifier disambiguation with all scope readings" }
+                                li { "Discourse tracking and anaphora resolution" }
+                            }
+                        }
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
+                                    style: "background: rgba(34,197,94,0.15);",
+                                    Icon { variant: IconVariant::Beaker, size: IconSize::Large, color: "#22c55e" }
+                                }
+                                h3 { "Type Theory & Proofs" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "Calculus of Constructions with dependent types" }
+                                li { "Automated tactics: induction, ring, simp, omega" }
+                                li { "Kernel-verified proof certification" }
+                            }
+                        }
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
+                                    style: "background: rgba(251,191,36,0.15);",
+                                    Icon { variant: IconVariant::Sparkles, size: IconSize::Large, color: "#fbbf24" }
+                                }
+                                h3 { "Distributed Systems & CRDTs" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "GCounter, PNCounter, ORSet, RGA, ORMap" }
+                                li { "libp2p networking with GossipSub" }
+                                li { "Automatic merge and eventual consistency" }
+                            }
+                        }
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
+                                    style: "background: rgba(236,72,153,0.15);",
+                                    Icon { variant: IconVariant::Shield, size: IconSize::Large, color: "#ec4899" }
+                                }
+                                h3 { "Security & Concurrency" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "Capability-based access control" }
+                                li { "CSP channels and structured concurrency" }
+                                li { "Arena allocation \u{2014} no garbage collector" }
+                            }
+                        }
+
+                        div { class: "feature-group",
+                            div { class: "feature-group-header",
+                                div {
+                                    class: "feature-group-icon",
+                                    style: "background: rgba(139,92,246,0.15);",
+                                    Icon { variant: IconVariant::Lock, size: IconSize::Large, color: "#8b5cf6" }
+                                }
+                                h3 { "Verification & Tooling" }
+                            }
+                            ul { class: "feature-group-list",
+                                li { "Z3 SMT solver for static verification" }
+                                li { "Interactive Studio with live compilation" }
+                                li { "CLI tool (largo) and WASM runtime" }
+                            }
+                        }
                     }
                 }
 

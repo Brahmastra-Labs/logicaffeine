@@ -613,7 +613,7 @@ pub fn Lesson(era: String, module: String, mode: String) -> Element {
     rsx! {
         style { "{LESSON_STYLE}" }
 
-        MainNav { active: ActivePage::Learn }
+        MainNav { active: ActivePage::Learn, subtitle: Some("Master formal reasoning") }
 
         if show_xp_popup() {
             if let Some(reward) = current_xp_reward() {

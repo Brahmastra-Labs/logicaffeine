@@ -40,6 +40,12 @@ const FOOTER_STYLES: &str = r#"
     gap: 16px;
 }
 
+.footer-brand-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
 .footer-brand-logo {
     display: flex;
     align-items: center;
@@ -328,7 +334,7 @@ pub fn Footer(
                                 span { class: "footer-logo-text", "LOGICAFFEINE" }
                             }
                             p { class: "footer-brand-tagline",
-                                "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision."
+                                "Debug your thoughts."
                             }
                         }
                         div { class: "footer-social-links",
@@ -341,11 +347,11 @@ pub fn Footer(
                                 Icon { variant: IconVariant::Github, size: IconSize::Medium }
                             }
                             a {
-                                href: "https://twitter.com/logicaffeine",
+                                href: "https://x.com/logicaffeine",
                                 target: "_blank",
                                 rel: "noopener noreferrer",
                                 class: "footer-social-link",
-                                title: "Twitter",
+                                title: "X",
                                 "𝕏"
                             }
                         }
@@ -366,10 +372,6 @@ pub fn Footer(
                     div { class: "footer-section",
                         h4 { class: "footer-section-title", "Resources" }
                         nav { class: "footer-section-links",
-                            Link { to: "/news", class: "footer-link",
-                                "News"
-                                span { class: "footer-link-badge", "New" }
-                            }
                             Link { to: "/roadmap", class: "footer-link", "Roadmap" }
                             Link { to: "/pricing", class: "footer-link", "Pricing" }
                             a {
@@ -387,18 +389,11 @@ pub fn Footer(
                         h4 { class: "footer-section-title", "Community" }
                         nav { class: "footer-section-links",
                             a {
-                                href: "https://discord.gg/logicaffeine",
+                                href: "https://discord.gg/pwnjnXvUHH",
                                 target: "_blank",
                                 rel: "noopener noreferrer",
                                 class: "footer-link",
                                 "Discord"
-                            }
-                            a {
-                                href: "https://helpbnk.com",
-                                target: "_blank",
-                                rel: "noopener noreferrer",
-                                class: "footer-link",
-                                "HelpBnk"
                             }
                         }
                     }

@@ -195,16 +195,16 @@ fn format_guide_message(message: &str) -> String {
 
 pub fn get_success_message(readings_count: usize) -> String {
     match readings_count {
-        0 => "Hmm, I couldn't parse that sentence. Let me think about why...".to_string(),
+        0 => "This sentence could not be resolved into a logical form.".to_string(),
         1 => "This sentence has a single, unambiguous logical form.".to_string(),
         2 => format!(
-            "Interesting! This sentence is ambiguous. I found {} different readings. \
+            "This sentence is ambiguous \u{2014} {} different readings found. \
             Click the reading buttons above to explore each interpretation.",
             readings_count
         ),
         n => format!(
-            "Fascinating complexity! I discovered {} different ways to interpret this sentence. \
-            Each represents a valid logical reading of your input.",
+            "{} distinct logical readings found. \
+            Each represents a valid interpretation of your input.",
             n
         ),
     }

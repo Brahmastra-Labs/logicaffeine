@@ -718,15 +718,6 @@ pub fn MainNav(
                     "Crates"
                 }
                 Link {
-                    to: Route::News {},
-                    class: if active == ActivePage::News { "mobile-nav-link active" } else { "mobile-nav-link" },
-                    onclick: move |_| drawer_open.set(false),
-                    span { class: "mobile-nav-link-icon",
-                        Icon { variant: IconVariant::Newspaper, size: IconSize::Medium }
-                    }
-                    "News"
-                }
-                Link {
                     to: Route::Roadmap {},
                     class: if active == ActivePage::Roadmap { "mobile-nav-link active" } else { "mobile-nav-link" },
                     onclick: move |_| drawer_open.set(false),

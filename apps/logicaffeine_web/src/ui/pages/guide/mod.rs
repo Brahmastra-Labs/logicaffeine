@@ -13,6 +13,8 @@ use crate::ui::router::Route;
 use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::components::guide_sidebar::{GuideSidebar, SectionInfo};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::footer::Footer;
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, tech_article_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 use content::SECTIONS;
 
 const GUIDE_STYLE: &str = r#"
@@ -337,6 +339,37 @@ const GUIDE_STYLE: &str = r#"
         font-size: var(--font-heading-lg);
     }
 }
+
+.guide-community-cta {
+    text-align: center;
+    padding: var(--spacing-xxl) var(--spacing-xl);
+    margin-top: var(--spacing-xxl);
+    border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.guide-community-cta p {
+    font-size: var(--font-body-lg);
+    color: var(--text-secondary);
+    margin-bottom: var(--spacing-md);
+}
+
+.guide-community-cta a {
+    display: inline-block;
+    padding: 8px 20px;
+    border-radius: var(--radius-full);
+    background: rgba(167,139,250,0.06);
+    border: 1px solid rgba(167,139,250,0.3);
+    color: var(--color-accent-purple);
+    font-weight: 600;
+    font-size: var(--font-body-md);
+    text-decoration: none;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.guide-community-cta a:hover {
+    background: rgba(167,139,250,0.14);
+    border-color: rgba(167,139,250,0.5);
+}
 "#;
 
 #[component]
@@ -430,8 +463,24 @@ pub fn Guide() -> Element {
     // Track current part for dividers
     let mut current_part = String::new();
 
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Syntax Guide", path: "/guide" },
+    ];
+    let schemas = vec![
+        organization_schema(),
+        tech_article_schema("LOGOS Syntax Guide", "Comprehensive guide to LOGOS syntax, features, and First-Order Logic concepts with interactive examples.", "/guide"),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
+        PageHead {
+            title: seo_pages::GUIDE.title,
+            description: seo_pages::GUIDE.description,
+            canonical_path: seo_pages::GUIDE.canonical_path,
+        }
         style { "{GUIDE_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "guide-page",
             // Navigation
@@ -526,9 +575,20 @@ pub fn Guide() -> Element {
                                 }
                             }
                         }
+                        div { class: "guide-community-cta",
+                            p { "Have questions or feedback? Join our Discord community." }
+                            a {
+                                href: "https://discord.gg/pwnjnXvUHH",
+                                target: "_blank",
+                                rel: "noopener noreferrer",
+                                "Join Discord →"
+                            }
+                        }
                     }
                 }
             }
+
+            Footer {}
         }
     }
 }

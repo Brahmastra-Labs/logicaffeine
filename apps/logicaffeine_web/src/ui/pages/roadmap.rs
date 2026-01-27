@@ -17,17 +17,18 @@
 //! 5. Concurrency & Actors (Complete)
 //! 6. Distributed Systems (Complete)
 //! 7. Security & Policies (Complete)
-//! 8. Proof Assistant (In Progress)
-//! 9. Universal Compilation (Planned)
+//! 8. Proof Assistant (Complete)
+//! 9. Universal Compilation (In Progress)
 //!
 //! # Route
 //!
 //! Accessed via [`Route::Roadmap`].
 
 use dioxus::prelude::*;
-use crate::ui::router::Route;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::footer::Footer;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, roadmap_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 // (label, english, simple_fol, unicode)
 const MILESTONE_EXAMPLES: &[&[(&str, &str, &str, &str)]] = &[
@@ -246,11 +247,9 @@ const ROADMAP_STYLE: &str = r#"
     background: linear-gradient(
         180deg,
         #22c55e 0%,
-        #22c55e 76%,
-        #a78bfa 80%,
-        #a78bfa 88%,
-        rgba(255,255,255,0.15) 92%,
-        rgba(255,255,255,0.08) 100%
+        #22c55e 86%,
+        #a78bfa 90%,
+        #a78bfa 100%
     );
     border-radius: 2px;
 }
@@ -592,11 +591,27 @@ fn MilestoneExamples(index: usize) -> Element {
 
 #[component]
 pub fn Roadmap() -> Element {
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Roadmap", path: "/roadmap" },
+    ];
+    let schemas = vec![
+        organization_schema(),
+        roadmap_schema(),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
+        PageHead {
+            title: seo_pages::ROADMAP.title,
+            description: seo_pages::ROADMAP.description,
+            canonical_path: seo_pages::ROADMAP.canonical_path,
+        }
         style { "{ROADMAP_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "roadmap-container",
-            MainNav { active: ActivePage::Roadmap }
+            MainNav { active: ActivePage::Roadmap, subtitle: Some("Where we're headed") }
 
             section { class: "roadmap-hero",
                 h1 { "LOGOS Roadmap" }
@@ -774,15 +789,15 @@ pub fn Roadmap() -> Element {
                     }
                 }
 
-                // Phase 8: Proof Assistant - IN PROGRESS
+                // Phase 8: Proof Assistant - DONE
                 div { class: "milestone",
-                    div { class: "milestone-dot progress",
-                        Icon { variant: IconVariant::Clock, size: IconSize::Small, color: "#fff" }
+                    div { class: "milestone-dot done",
+                        Icon { variant: IconVariant::Check, size: IconSize::Small, color: "#fff" }
                     }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Proof Assistant" }
-                            span { class: "milestone-badge progress", "In Progress" }
+                            span { class: "milestone-badge done", "Complete" }
                         }
                         p { class: "milestone-desc",
                             "Curry-Howard in English. Trust statements, termination proofs, and optional Z3 verification."
@@ -791,20 +806,22 @@ pub fn Roadmap() -> Element {
                             span { class: "feature-tag done", "Trust Statements" }
                             span { class: "feature-tag done", "Termination Proofs" }
                             span { class: "feature-tag done", "Z3 Integration" }
-                            span { class: "feature-tag", "Auto Tactic" }
-                            span { class: "feature-tag", "Induction" }
+                            span { class: "feature-tag done", "Auto Tactic" }
+                            span { class: "feature-tag done", "Induction" }
                         }
                         MilestoneExamples { index: 7 }
                     }
                 }
 
-                // Phase 9: Universal Compilation - PLANNED
+                // Phase 9: Universal Compilation - IN PROGRESS
                 div { class: "milestone",
-                    div { class: "milestone-dot planned" }
+                    div { class: "milestone-dot progress",
+                        Icon { variant: IconVariant::Clock, size: IconSize::Small, color: "#fff" }
+                    }
                     div { class: "milestone-content",
                         div { class: "milestone-header",
                             span { class: "milestone-title", "Universal Compilation" }
-                            span { class: "milestone-badge planned", "Planned" }
+                            span { class: "milestone-badge progress", "In Progress" }
                         }
                         p { class: "milestone-desc",
                             "Compile to WASM for the web. The Live Codex IDE for real-time proof visualization."
@@ -818,34 +835,7 @@ pub fn Roadmap() -> Element {
                 }
             }
 
-            footer { class: "roadmap-footer",
-                span {
-                    "© 2026 Brahmastra Labs LLC  •  Written in Rust 🦀"
-                }
-                span { " • " }
-                a {
-                    href: "https://github.com/Brahmastra-Labs/logicaffeine",
-                    target: "_blank",
-                    class: "github-link",
-                    svg {
-                        xmlns: "http://www.w3.org/2000/svg",
-                        width: "14",
-                        height: "14",
-                        view_box: "0 0 24 24",
-                        fill: "currentColor",
-                        path {
-                            d: "M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"
-                        }
-                    }
-                    "GitHub"
-                }
-                span { " • " }
-                Link { to: Route::Privacy {}, "Privacy" }
-                span { " • " }
-                Link { to: Route::Terms {}, "Terms" }
-                span { " • " }
-                Link { to: Route::Pricing {}, "Pricing" }
-            }
+            Footer {}
         }
     }
 }

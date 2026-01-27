@@ -36,7 +36,7 @@ pub fn organization_schema() -> String {
   "url": "{BASE_URL}",
   "logo": "{LOGO_URL}",
   "description": "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision.",
-  "sameAs": ["{GITHUB_URL}"]
+  "sameAs": ["{GITHUB_URL}", "https://x.com/logicaffeine"]
 }}"#
     )
 }
@@ -268,6 +268,72 @@ pub fn breadcrumb_schema(items: &[BreadcrumbItem]) -> String {
     )
 }
 
+/// Generate ItemList schema for Roadmap page
+pub fn roadmap_schema() -> String {
+    format!(
+        r#"{{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "name": "LOGICAFFEINE Development Roadmap",
+  "description": "Development milestones from English-to-Logic transpiler to universal compilation",
+  "url": "{BASE_URL}/roadmap",
+  "numberOfItems": 9,
+  "itemListElement": [
+    {{"@type": "ListItem", "position": 1, "name": "Core Transpiler", "description": "Parse English, produce First-Order Logic. 53+ linguistic phenomena."}},
+    {{"@type": "ListItem", "position": 2, "name": "Web Platform", "description": "Interactive learning, studio playground, gamification."}},
+    {{"@type": "ListItem", "position": 3, "name": "Imperative Language", "description": "Functions, structs, enums, pattern matching, standard library, I/O."}},
+    {{"@type": "ListItem", "position": 4, "name": "Type System", "description": "Refinement types, generics, type inference, sum types."}},
+    {{"@type": "ListItem", "position": 5, "name": "Concurrency & Actors", "description": "Channels, agents, structured parallelism, async/await."}},
+    {{"@type": "ListItem", "position": 6, "name": "Distributed Systems", "description": "CRDTs, P2P networking, persistent storage, conflict resolution."}},
+    {{"@type": "ListItem", "position": 7, "name": "Security & Policies", "description": "Capability-based security with policy blocks in plain English."}},
+    {{"@type": "ListItem", "position": 8, "name": "Proof Assistant", "description": "Curry-Howard in English. Trust statements, termination proofs, Z3 verification."}},
+    {{"@type": "ListItem", "position": 9, "name": "Universal Compilation", "description": "Compile to WASM. Live Codex IDE for real-time proof visualization."}}
+  ]
+}}"#
+    )
+}
+
+/// Generate WebPage schema for generic pages
+pub fn webpage_schema(name: &str, description: &str, path: &str) -> String {
+    format!(
+        r#"{{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "{name}",
+  "description": "{description}",
+  "url": "{BASE_URL}{path}",
+  "isPartOf": {{
+    "@type": "WebSite",
+    "name": "{ORG_NAME}",
+    "url": "{BASE_URL}"
+  }},
+  "publisher": {{
+    "@type": "Organization",
+    "name": "{ORG_NAME}",
+    "url": "{BASE_URL}"
+  }}
+}}"#
+    )
+}
+
+/// Generate ProfilePage schema for user profile
+pub fn profile_page_schema() -> String {
+    format!(
+        r#"{{
+  "@context": "https://schema.org",
+  "@type": "ProfilePage",
+  "name": "User Profile - {ORG_NAME}",
+  "description": "Track your logic learning progress, achievements, and streaks.",
+  "url": "{BASE_URL}/profile",
+  "isPartOf": {{
+    "@type": "WebSite",
+    "name": "{ORG_NAME}",
+    "url": "{BASE_URL}"
+  }}
+}}"#
+    )
+}
+
 /// Page metadata for SEO
 pub struct PageMeta {
     pub title: &'static str,
@@ -347,6 +413,91 @@ pub mod pages {
         canonical_path: "/news",
         og_image: Some("/og-news.png"),
     };
+
+    pub const PRIVACY: PageMeta = PageMeta {
+        title: "Privacy Policy - LOGICAFFEINE",
+        description: "How LOGICAFFEINE collects, uses, and protects your personal information. Read our full privacy policy.",
+        canonical_path: "/privacy",
+        og_image: Some("/og-image.png"),
+    };
+
+    pub const TERMS: PageMeta = PageMeta {
+        title: "Terms of Service - LOGICAFFEINE",
+        description: "Terms and conditions for using LOGICAFFEINE. Business Source License details and usage policies.",
+        canonical_path: "/terms",
+        og_image: Some("/og-image.png"),
+    };
+
+    pub const PROFILE: PageMeta = PageMeta {
+        title: "Your Profile - LOGICAFFEINE",
+        description: "Track your logic learning progress, achievements, XP, and streaks on LOGICAFFEINE.",
+        canonical_path: "/profile",
+        og_image: Some("/og-image.png"),
+    };
+
+    pub const REGISTRY: PageMeta = PageMeta {
+        title: "Package Registry - LOGICAFFEINE",
+        description: "Browse and discover community-contributed logic modules and packages for LOGICAFFEINE.",
+        canonical_path: "/registry",
+        og_image: Some("/og-image.png"),
+    };
+}
+
+/// Update document head meta tags for SEO on every page render.
+///
+/// Uses `document::Title` for the page title and direct web-sys DOM
+/// manipulation for description, Open Graph, Twitter Card, and canonical URL.
+#[component]
+pub fn PageHead(
+    title: String,
+    description: String,
+    canonical_path: String,
+    #[props(default = String::from("/og-image.png"))]
+    og_image: String,
+) -> Element {
+    let canonical_url = format!("{}{}", BASE_URL, canonical_path);
+    let image_url = format!("{}{}", BASE_URL, og_image);
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        update_head_meta(&title, &description, &canonical_url, &image_url);
+    }
+
+    rsx! {
+        document::Title { "{title}" }
+    }
+}
+
+/// Synchronously patch existing `<meta>` and `<link>` tags in `<head>`.
+///
+/// Only touches elements already present in `index.html`, so the static
+/// fallback remains intact for crawlers that don't execute JavaScript.
+#[cfg(target_arch = "wasm32")]
+fn update_head_meta(title: &str, description: &str, canonical_url: &str, image_url: &str) {
+    let Some(window) = web_sys::window() else { return };
+    let Some(doc) = window.document() else { return };
+
+    let set = |selector: &str, attr: &str, value: &str| {
+        if let Ok(Some(el)) = doc.query_selector(selector) {
+            let _ = el.set_attribute(attr, value);
+        }
+    };
+
+    // Primary
+    set("meta[name='description']", "content", description);
+    set("meta[name='title']", "content", title);
+    // Open Graph
+    set("meta[property='og:url']", "content", canonical_url);
+    set("meta[property='og:title']", "content", title);
+    set("meta[property='og:description']", "content", description);
+    set("meta[property='og:image']", "content", image_url);
+    // Twitter
+    set("meta[name='twitter:url']", "content", canonical_url);
+    set("meta[name='twitter:title']", "content", title);
+    set("meta[name='twitter:description']", "content", description);
+    set("meta[name='twitter:image']", "content", image_url);
+    // Canonical
+    set("link[rel='canonical']", "href", canonical_url);
 }
 
 /// Render JSON-LD script tag for a schema

@@ -3,7 +3,7 @@
 use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
-use crate::ui::seo::{JsonLdMultiple, organization_schema, breadcrumb_schema, BreadcrumbItem};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 use crate::ui::router::Route;
 use super::data::get_articles;
 
@@ -141,11 +141,16 @@ pub fn News() -> Element {
     ];
 
     rsx! {
+        PageHead {
+            title: seo_pages::NEWS.title,
+            description: seo_pages::NEWS.description,
+            canonical_path: seo_pages::NEWS.canonical_path,
+        }
         style { "{NEWS_STYLES}" }
         JsonLdMultiple { schemas }
 
         div { class: "news-page",
-            MainNav { active: ActivePage::News }
+            MainNav { active: ActivePage::News, subtitle: Some("Latest updates") }
 
             main { class: "news-content",
                 header { class: "news-header",

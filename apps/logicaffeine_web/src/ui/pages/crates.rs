@@ -5,6 +5,8 @@
 
 use dioxus::prelude::*;
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::components::footer::Footer;
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, tech_article_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 
 const CRATES_STYLE: &str = r#"
 .crates-page {
@@ -318,8 +320,24 @@ const APP_CRATES: &[CrateInfo] = &[
 
 #[component]
 pub fn Crates() -> Element {
+    let breadcrumbs = vec![
+        BreadcrumbItem { name: "Home", path: "/" },
+        BreadcrumbItem { name: "Crates", path: "/crates" },
+    ];
+    let schemas = vec![
+        organization_schema(),
+        tech_article_schema("LOGICAFFEINE Crate Documentation", "Technical API documentation for all LOGICAFFEINE Rust crates. Integrate First-Order Logic parsing into your applications.", "/crates"),
+        breadcrumb_schema(&breadcrumbs),
+    ];
+
     rsx! {
+        PageHead {
+            title: seo_pages::CRATES.title,
+            description: seo_pages::CRATES.description,
+            canonical_path: seo_pages::CRATES.canonical_path,
+        }
         style { "{CRATES_STYLE}" }
+        JsonLdMultiple { schemas }
 
         div { class: "crates-page",
             MainNav {
@@ -357,6 +375,8 @@ pub fn Crates() -> Element {
                     }
                 }
             }
+
+            Footer {}
         }
     }
 }

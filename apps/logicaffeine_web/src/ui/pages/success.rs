@@ -17,6 +17,7 @@ use dioxus::prelude::*;
 use crate::ui::router::Route;
 use crate::ui::state::{LicenseState, LicensePlan};
 use crate::ui::components::main_nav::{MainNav, ActivePage};
+use crate::ui::seo::PageHead;
 
 const LICENSE_API_URL: &str = "https://api.logicaffeine.com/session";
 
@@ -321,6 +322,11 @@ pub fn Success() -> Element {
     let is_loading = matches!(*license_status.read(), LicenseStatus::Loading);
 
     rsx! {
+        PageHead {
+            title: "Payment Success - LOGICAFFEINE",
+            description: "Your payment was successful. License activation and key retrieval.",
+            canonical_path: "/success",
+        }
         style { "{SUCCESS_STYLE}" }
 
         MainNav { active: ActivePage::Pricing, subtitle: Some("Payment Complete"), show_nav_links: false }

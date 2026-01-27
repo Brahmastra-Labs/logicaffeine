@@ -247,7 +247,7 @@ async fn seed_advanced_code_examples<V: Vfs>(vfs: &V) -> VfsResult<()> {
 // Logic Mode Examples (English -> FOL)
 // ============================================================
 
-const LOGIC_SIMPLE: &str = r#"# Simple Sentences
+pub const LOGIC_SIMPLE: &str = r#"# Simple Sentences
 
 Every cat sleeps.
 Some dogs bark loudly.
@@ -256,7 +256,7 @@ The quick brown fox jumps.
 No student failed.
 "#;
 
-const LOGIC_QUANTIFIERS: &str = r#"# Quantifier Scope
+pub const LOGIC_QUANTIFIERS: &str = r#"# Quantifier Scope
 
 Every student read a book.
 A professor supervises every student.
@@ -314,14 +314,14 @@ Prove: The butler did not do it.
 Proof: Auto.
 "#;
 
-const LOGIC_LEIBNIZ: &str = r#"## Theorem: Leibniz_Identity
+pub const LOGIC_LEIBNIZ: &str = r#"## Theorem: Leibniz_Identity
 Given: Clark is Superman.
 Given: Clark is mortal.
 Prove: Superman is mortal.
 Proof: Auto.
 "#;
 
-const LOGIC_BARBER: &str = r#"## Theorem: Barber_Paradox
+pub const LOGIC_BARBER: &str = r#"## Theorem: Barber_Paradox
 Given: The barber is a man.
 Given: The barber shaves all men who do not shave themselves.
 Given: The barber does not shave any man who shaves himself.
@@ -333,7 +333,7 @@ Proof: Auto.
 // Code Mode Examples (Imperative LOGOS)
 // ============================================================
 
-const CODE_HELLO: &str = r#"## Main
+pub const CODE_HELLO: &str = r#"## Main
 
 Let greeting be "Hello, LOGOS!".
 Show greeting.
@@ -357,7 +357,7 @@ Set counter to counter + 1.
 Show counter.
 "#;
 
-const CODE_FIBONACCI: &str = r#"## Main
+pub const CODE_FIBONACCI: &str = r#"## Main
 
 Let n be 10.
 Let a be 0.
@@ -655,7 +655,7 @@ Show isEven(17).
 
 // --- Distributed ---
 
-const CODE_CRDT_COUNTERS: &str = r#"## Definition
+pub const CODE_CRDT_COUNTERS: &str = r#"## Definition
 A Counter is Shared and has:
     points: ConvergentCount.
 
@@ -746,7 +746,7 @@ Show x.
 // Math Mode Examples (Vernacular/Theorem Proving)
 // ============================================================
 
-const MATH_NAT: &str = r#"-- Natural Numbers
+pub const MATH_NAT: &str = r#"-- Natural Numbers
 -- The foundation of arithmetic in type theory
 
 -- Define the natural number type
@@ -767,7 +767,7 @@ Check two.
 Eval three.
 "#;
 
-const MATH_BOOL: &str = r#"Inductive MyBool := Yes : MyBool | No : MyBool.
+pub const MATH_BOOL: &str = r#"Inductive MyBool := Yes : MyBool | No : MyBool.
 
 Check Yes.
 Check No.
@@ -834,7 +834,7 @@ Check (Not (Provable G)).
 -- A proof would be a term of this type
 "#;
 
-const MATH_PROP_LOGIC: &str = r#"-- Propositional Logic Types
+pub const MATH_PROP_LOGIC: &str = r#"-- Propositional Logic Types
 -- Encoding logical connectives as types
 
 Inductive MyProp :=
@@ -1360,7 +1360,7 @@ Check pow4_2_skeleton.
 // LITERATE GÖDEL EXAMPLES (Phase 2)
 // ============================================================
 
-const MATH_GODEL_LITERATE: &str = r###"-- ============================================
+pub const MATH_GODEL_LITERATE: &str = r###"-- ============================================
 -- GÖDEL SENTENCE CONSTRUCTION (Literate Mode)
 -- ============================================
 -- Building the self-referential sentence G that says "I am not provable"
@@ -1410,7 +1410,7 @@ Check G.
 Check Provable(G).
 "###;
 
-const MATH_INCOMPLETENESS_LITERATE: &str = r###"-- ============================================
+pub const MATH_INCOMPLETENESS_LITERATE: &str = r###"-- ============================================
 -- GÖDEL'S FIRST INCOMPLETENESS THEOREM (Literate Mode)
 -- ============================================
 -- "If LOGOS is consistent, then G is not provable"
@@ -1887,7 +1887,7 @@ Show "Sum: " + (x + y).
 // NEW: Additional CRDT Examples (Guide Section 13)
 // ============================================================
 
-const CODE_CRDT_TALLY: &str = r#"# Tally (Bidirectional Counter)
+pub const CODE_CRDT_TALLY: &str = r#"# Tally (Bidirectional Counter)
 -- Guide Section 13: PN-Counter that can increase and decrease
 
 ## Definition
@@ -2499,7 +2499,7 @@ Check LeTrans.
 -- - omega: true integer arithmetic (Omega Test)
 "###;
 
-const MATH_AUTO: &str = r###"-- ============================================
+pub const MATH_AUTO: &str = r###"-- ============================================
 -- AUTO TACTIC: The Infinity Gauntlet
 -- ============================================
 -- The auto tactic combines ALL decision procedures!

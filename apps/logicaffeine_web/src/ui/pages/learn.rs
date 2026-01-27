@@ -28,7 +28,7 @@ use crate::ui::components::guide_code_block::GuideCodeBlock;
 use crate::ui::components::footer::Footer;
 use crate::ui::components::icon::{Icon, IconVariant, IconSize};
 use crate::ui::pages::guide::content::ExampleMode;
-use crate::ui::seo::{JsonLdMultiple, organization_schema, course_schema, breadcrumb_schema, BreadcrumbItem};
+use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, course_schema, breadcrumb_schema, BreadcrumbItem, pages as seo_pages};
 use crate::content::ContentEngine;
 use crate::generator::{Generator, AnswerType, Challenge};
 use crate::grader::check_answer;
@@ -1318,11 +1318,16 @@ pub fn Learn() -> Element {
     ];
 
     rsx! {
+        PageHead {
+            title: seo_pages::LEARN.title,
+            description: seo_pages::LEARN.description,
+            canonical_path: seo_pages::LEARN.canonical_path,
+        }
         style { "{LEARN_STYLE}" }
         JsonLdMultiple { schemas }
 
         div { class: "learn-page",
-            MainNav { active: ActivePage::Learn }
+            MainNav { active: ActivePage::Learn, subtitle: Some("Master formal reasoning") }
 
             // Hero
             header { class: "learn-hero",

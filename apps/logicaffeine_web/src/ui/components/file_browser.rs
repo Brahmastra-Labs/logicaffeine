@@ -7,11 +7,9 @@
 //!
 //! - `tree` - Root [`FileNode`] containing the file tree
 //! - `selected_path` - Currently selected file path
-//! - `collapsed` - Whether the sidebar is collapsed to icons-only
 //! - `on_select` - Callback when a file is selected
 //! - `on_toggle_dir` - Callback when a directory is expanded/collapsed
 //! - `on_new_file` - Callback for new file button
-//! - `on_collapse_toggle` - Callback for sidebar collapse toggle
 //!
 //! # File Icons
 //!
@@ -30,10 +28,8 @@ const FILE_BROWSER_STYLE: &str = r#"
     display: flex;
     flex-direction: column;
     height: 100%;
+    width: 100%;
     background: #12161c;
-    border-right: 1px solid rgba(255, 255, 255, 0.08);
-    min-width: 200px;
-    max-width: 280px;
     overflow: hidden;
 }
 
@@ -41,9 +37,11 @@ const FILE_BROWSER_STYLE: &str = r#"
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 14px;
+    padding: 0 14px;
+    height: 52px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     background: rgba(255, 255, 255, 0.02);
+    flex-shrink: 0;
 }
 
 .file-browser-title {
@@ -166,38 +164,12 @@ const FILE_BROWSER_STYLE: &str = r#"
     font-size: 13px;
 }
 
-/* Collapsed sidebar state */
-.file-browser.collapsed {
-    min-width: 48px;
-    max-width: 48px;
-}
-
-.file-browser.collapsed .file-browser-header {
-    justify-content: center;
-}
-
-.file-browser.collapsed .file-browser-title,
-.file-browser.collapsed .file-tree {
-    display: none;
-}
-
-/* Mobile overlay */
+/* Mobile: fill the wrapper, which handles positioning */
 @media (max-width: 768px) {
     .file-browser {
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        z-index: 100;
-        transform: translateX(-100%);
-        transition: transform 0.2s ease;
-        max-width: 280px;
-        min-width: 280px;
-    }
-
-    .file-browser.open {
-        transform: translateX(0);
-        box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+        width: 100%;
+        min-width: 100%;
+        max-width: 100%;
     }
 }
 "#;
@@ -206,22 +178,12 @@ const FILE_BROWSER_STYLE: &str = r#"
 pub fn FileBrowser(
     tree: FileNode,
     selected_path: Option<String>,
-    collapsed: bool,
     on_select: EventHandler<String>,
     on_toggle_dir: EventHandler<String>,
     on_new_file: EventHandler<()>,
-    on_collapse_toggle: EventHandler<()>,
 ) -> Element {
     let mut show_toast = use_signal(|| false);
     let mut toast_key = use_signal(|| 0u32);
-
-    // Always include 'open' class since component is only rendered when sidebar should be visible
-    // This is needed for mobile CSS which positions the sidebar off-screen by default
-    let browser_class = if collapsed {
-        "file-browser collapsed open"
-    } else {
-        "file-browser open"
-    };
 
     rsx! {
         style { "{FILE_BROWSER_STYLE}" }
@@ -235,51 +197,39 @@ pub fn FileBrowser(
             }
         }
 
-        aside { class: "{browser_class}",
+        aside { class: "file-browser",
             // Header
             div { class: "file-browser-header",
-                if !collapsed {
-                    span { class: "file-browser-title", "Files" }
-                }
+                span { class: "file-browser-title", "Files" }
                 div { class: "file-browser-actions",
-                    if !collapsed {
-                        button {
-                            class: "file-browser-btn coming-soon",
-                            onclick: move |_| {
-                                // Increment key to restart animation if clicked again
-                                toast_key.set(toast_key() + 1);
-                                show_toast.set(true);
-                            },
-                            title: "New file (Coming Soon)",
-                            "+"
-                        }
-                    }
                     button {
-                        class: "file-browser-btn",
-                        onclick: move |_| on_collapse_toggle.call(()),
-                        title: if collapsed { "Expand sidebar" } else { "Collapse sidebar" },
-                        if collapsed { "\u{276F}" } else { "\u{276E}" }
+                        class: "file-browser-btn coming-soon",
+                        onclick: move |_| {
+                            // Increment key to restart animation if clicked again
+                            toast_key.set(toast_key() + 1);
+                            show_toast.set(true);
+                        },
+                        title: "New file (Coming Soon)",
+                        "+"
                     }
                 }
             }
 
             // File tree
-            if !collapsed {
-                div { class: "file-tree",
-                    if tree.children.is_empty() {
-                        div { class: "file-tree-empty",
-                            "No files yet"
-                        }
-                    } else {
-                        for child in tree.children.iter() {
-                            FileTreeNode {
-                                key: "{child.path}",
-                                node: child.clone(),
-                                selected_path: selected_path.clone(),
-                                depth: 0,
-                                on_select: on_select.clone(),
-                                on_toggle_dir: on_toggle_dir.clone(),
-                            }
+            div { class: "file-tree",
+                if tree.children.is_empty() {
+                    div { class: "file-tree-empty",
+                        "No files yet"
+                    }
+                } else {
+                    for child in tree.children.iter() {
+                        FileTreeNode {
+                            key: "{child.path}",
+                            node: child.clone(),
+                            selected_path: selected_path.clone(),
+                            depth: 0,
+                            on_select: on_select.clone(),
+                            on_toggle_dir: on_toggle_dir.clone(),
                         }
                     }
                 }
