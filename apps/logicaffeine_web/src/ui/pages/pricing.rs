@@ -645,12 +645,12 @@ a { color: inherit; }
   animation: fadeInUp 0.6s ease both;
 }
 
-.feature-group:nth-child(1) { animation-delay: 0.10s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
-.feature-group:nth-child(2) { animation-delay: 0.14s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
-.feature-group:nth-child(3) { animation-delay: 0.18s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
-.feature-group:nth-child(4) { animation-delay: 0.22s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
-.feature-group:nth-child(5) { animation-delay: 0.26s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
-.feature-group:nth-child(6) { animation-delay: 0.30s; box-shadow: 0 0 12px rgba(251,191,36,0.20), inset 0 0 12px rgba(251,191,36,0.05); border-color: rgba(251,191,36,0.25); }
+.feature-group:nth-child(1) { animation-delay: 0.10s; box-shadow: 0 0 16px rgba(251,191,36,0.35), inset 0 0 12px rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.45); }
+.feature-group:nth-child(2) { animation-delay: 0.14s; box-shadow: 0 0 16px rgba(251,191,36,0.35), inset 0 0 12px rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.45); }
+.feature-group:nth-child(3) { animation-delay: 0.18s; box-shadow: 0 0 16px rgba(251,191,36,0.35), inset 0 0 12px rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.45); }
+.feature-group:nth-child(4) { animation-delay: 0.22s; box-shadow: 0 0 16px rgba(251,191,36,0.35), inset 0 0 12px rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.45); }
+.feature-group:nth-child(5) { animation-delay: 0.26s; box-shadow: 0 0 16px rgba(251,191,36,0.35), inset 0 0 12px rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.45); }
+.feature-group:nth-child(6) { animation-delay: 0.30s; box-shadow: 0 0 16px rgba(251,191,36,0.35), inset 0 0 12px rgba(251,191,36,0.08); border-color: rgba(251,191,36,0.45); }
 
 .feature-group-header {
   display: flex;
