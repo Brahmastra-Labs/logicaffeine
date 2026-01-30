@@ -59,7 +59,7 @@ const MAIN_NAV_STYLE: &str = r#"
 .main-nav {
     position: sticky;
     top: 0;
-    z-index: 50;
+    z-index: 150;
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
     background: linear-gradient(180deg, rgba(7,10,18,0.72), rgba(7,10,18,0.44));

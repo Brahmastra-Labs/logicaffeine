@@ -353,6 +353,28 @@ const STUDIO_STYLE: &str = r#"
     --studio-text-secondary: #9ca3af;
     --studio-text-muted: #6b7280;
     --studio-accent: #667eea;
+    /* Heights for positioning fixed sidebar below header */
+    --nav-height: 97px;
+    --toolbar-height: 49px;
+    --header-height: calc(var(--nav-height) + var(--toolbar-height));
+}
+
+@media (max-width: 980px) {
+    :root {
+        --nav-height: 89px;
+    }
+}
+
+@media (max-width: 768px) {
+    :root {
+        --nav-height: 81px;
+    }
+}
+
+@media (max-width: 640px) {
+    :root {
+        --nav-height: 65px;
+    }
 }
 
 /* ============================================ */
@@ -373,10 +395,12 @@ const STUDIO_STYLE: &str = r#"
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 16px;
+    height: var(--toolbar-height);
+    padding: 0 16px;
     background: var(--studio-panel-bg);
     border-bottom: 1px solid var(--studio-border);
     gap: 12px;
+    flex-shrink: 0;
 }
 
 .studio-toolbar-left {
@@ -430,7 +454,10 @@ const STUDIO_STYLE: &str = r#"
     .sidebar-overlay {
         display: block;
         position: fixed;
-        inset: 0;
+        top: calc(var(--header-height) + 10px);
+        left: 0;
+        right: 0;
+        bottom: 0;
         background: rgba(0, 0, 0, 0.5);
         z-index: 99;
     }
@@ -447,13 +474,14 @@ const STUDIO_STYLE: &str = r#"
     .studio-sidebar {
         position: fixed;
         left: 0;
-        top: 0;
+        top: calc(var(--header-height) + 10px);
         bottom: 0;
         z-index: 100;
         width: 280px !important;
         min-width: 280px !important;
         max-width: 280px !important;
         box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+        background: #12161c;
     }
 }
 
@@ -657,9 +685,8 @@ const STUDIO_STYLE: &str = r#"
 
 @media (max-width: 768px) {
     .studio-toolbar {
-        padding: 8px 12px;
+        padding: 0 12px;
         gap: 6px;
-        flex-wrap: wrap;
     }
 
     .studio-toolbar-left {
