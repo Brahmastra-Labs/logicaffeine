@@ -571,6 +571,22 @@ const STUDIO_STYLE: &str = r#"
     transform: translateY(0);
 }
 
+/* Mobile execute buttons */
+@media (max-width: 768px) {
+    .execute-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+        white-space: nowrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .execute-btn {
+        padding: 5px 8px;
+        font-size: 11px;
+    }
+}
+
 /* Output mode toggle for Code mode */
 .output-mode-toggle {
     display: flex;
@@ -643,6 +659,16 @@ const STUDIO_STYLE: &str = r#"
     .studio-toolbar {
         padding: 8px 12px;
         gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .studio-toolbar-left {
+        flex-shrink: 0;
+    }
+
+    .studio-toolbar-right {
+        flex-shrink: 0;
+        gap: 6px;
     }
 
     /* Show mode toggle with "Mode:" label */
@@ -658,6 +684,7 @@ const STUDIO_STYLE: &str = r#"
     .studio-toolbar-center {
         flex: 0 1 auto;
         align-items: center;
+        min-width: 0;
     }
 
     /* Hide mobile tab bar - panels stack instead */
@@ -1041,6 +1068,25 @@ pub fn Studio() -> Element {
         root.children.push(FileNode::directory("examples".to_string(), "/examples".to_string()));
         file_tree.set(root);
     });
+
+    // Close sidebar on mobile by default (runs once on mount)
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut sidebar_init_done = use_signal(|| false);
+        use_effect(move || {
+            if *sidebar_init_done.read() {
+                return;
+            }
+            sidebar_init_done.set(true);
+
+            if let Some(window) = web_sys::window() {
+                let width = window.inner_width().ok().and_then(|v| v.as_f64()).unwrap_or(1024.0);
+                if width <= 768.0 {
+                    sidebar_open.set(false);
+                }
+            }
+        });
+    }
 
     // Logic mode input handler - compiles for both UI and proof engine
     let handle_logic_input = move |new_value: String| {
@@ -1601,7 +1647,7 @@ pub fn Studio() -> Element {
                             class: "execute-btn",
                             style: "background: linear-gradient(135deg, #56b6c2 0%, #61afef 100%); margin-left: 8px;",
                             onclick: handle_code_compile,
-                            "\u{2699} Compile"
+                            "\u{1F980} Compile"
                         }
                     }
                     if current_mode == StudioMode::Math {

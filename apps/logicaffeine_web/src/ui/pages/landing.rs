@@ -1586,6 +1586,12 @@ html { scroll-behavior: smooth; }
 
 @media (max-width: 768px) {
   .mini-studio { height: 89vh !important; }
+  .mini-studio-head {
+    justify-content: flex-end;
+  }
+  .mini-studio-head .win-dots {
+    display: none;
+  }
   .mini-exec-btn {
     padding: 10px 14px;
     min-height: 44px;
@@ -1910,7 +1916,7 @@ pub fn Landing() -> Element {
                                                 show_compiled.set(true);
                                             }
                                         },
-                                        "⚙"
+                                        "🦀"
                                         span { class: "btn-label", "Compile to Rust" }
                                     }
                                 }
@@ -2411,49 +2417,49 @@ pub fn Landing() -> Element {
                         div { class: "compare-row header",
                             div { class: "compare-cell", "Feature" }
                             div { class: "compare-cell highlight", "LOGOS" }
+                            div { class: "compare-cell", "Python" }
                             div { class: "compare-cell", "Lean 4" }
                             div { class: "compare-cell", "Rust" }
-                            div { class: "compare-cell", "Python" }
                             div { class: "compare-cell", "Elixir" }
                         }
                         div { class: "compare-row",
                             div { class: "compare-cell label", "Syntax" }
                             div { class: "compare-cell highlight", "English prose" }
-                            div { class: "compare-cell", "Lean DSL" }
                             div { class: "compare-cell", "Symbols" }
+                            div { class: "compare-cell", "Lean DSL" }
                             div { class: "compare-cell", "Symbols" }
                             div { class: "compare-cell", "Symbols" }
                         }
                         div { class: "compare-row",
                             div { class: "compare-cell label", "File Format" }
                             div { class: "compare-cell highlight", "Markdown (.md)" }
+                            div { class: "compare-cell", ".py" }
                             div { class: "compare-cell", ".lean" }
                             div { class: "compare-cell", ".rs" }
-                            div { class: "compare-cell", ".py" }
                             div { class: "compare-cell", ".ex" }
                         }
                         div { class: "compare-row",
                             div { class: "compare-cell label", "Performance" }
                             div { class: "compare-cell highlight", "Native (via Rust)" }
-                            div { class: "compare-cell", "Native" }
-                            div { class: "compare-cell", "Native" }
                             div { class: "compare-cell", "Interpreted" }
+                            div { class: "compare-cell", "Native" }
+                            div { class: "compare-cell", "Native" }
                             div { class: "compare-cell", "BEAM VM" }
                         }
                         div { class: "compare-row",
                             div { class: "compare-cell label", "Proofs" }
                             div { class: "compare-cell highlight", "Built-in" }
+                            div { class: "compare-cell", "None" }
                             div { class: "compare-cell", "Required" }
                             div { class: "compare-cell", "Optional" }
-                            div { class: "compare-cell", "None" }
                             div { class: "compare-cell", "None" }
                         }
                         div { class: "compare-row",
                             div { class: "compare-cell label", "Memory" }
                             div { class: "compare-cell highlight", "Ownership (English)" }
                             div { class: "compare-cell", "GC" }
-                            div { class: "compare-cell", "Ownership" }
                             div { class: "compare-cell", "GC" }
+                            div { class: "compare-cell", "Ownership" }
                             div { class: "compare-cell", "GC" }
                         }
                     }
