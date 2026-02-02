@@ -22,7 +22,7 @@
 use dioxus::prelude::*;
 
 const BASE_URL: &str = "https://logicaffeine.com";
-const LOGO_URL: &str = "https://logicaffeine.com/logo.png";
+const LOGO_URL: &str = "https://logicaffeine.com/assets/logo.jpeg";
 const ORG_NAME: &str = "LOGICAFFEINE";
 const GITHUB_URL: &str = "https://github.com/Brahmastra-Labs/logicaffeine";
 
@@ -346,10 +346,10 @@ pub struct PageMeta {
 impl Default for PageMeta {
     fn default() -> Self {
         Self {
-            title: "LOGICAFFEINE - Debug Your Thoughts",
-            description: "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision.",
+            title: "LOGICAFFEINE | Debug Your Thoughts",
+            description: "Humanity's last programming language. Transform plain English into compiled Rust code with Z3-powered verification. Debug your thoughts with mathematical certainty.",
             canonical_path: "/",
-            og_image: Some("/og-image.png"),
+            og_image: Some("/assets/OG-photo.png"),
         }
     }
 }
@@ -359,87 +359,87 @@ pub mod pages {
     use super::PageMeta;
 
     pub const LANDING: PageMeta = PageMeta {
-        title: "LOGICAFFEINE - Debug Your Thoughts",
-        description: "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision.",
+        title: "LOGICAFFEINE | Debug Your Thoughts",
+        description: "Humanity's last programming language. Transform plain English into compiled Rust code with Z3-powered verification. Debug your thoughts with mathematical certainty.",
         canonical_path: "/",
-        og_image: Some("/og-image.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const LEARN: PageMeta = PageMeta {
-        title: "Learn First-Order Logic - LOGICAFFEINE",
+        title: "Learn First-Order Logic | LOGICAFFEINE",
         description: "Master First-Order Logic through interactive exercises. From syllogisms to modal logic, learn to reason precisely.",
         canonical_path: "/learn",
-        og_image: Some("/og-learn.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const STUDIO: PageMeta = PageMeta {
-        title: "Studio - LOGICAFFEINE",
+        title: "Studio | LOGICAFFEINE",
         description: "Interactive playground for experimenting with First-Order Logic translations. Try examples and see results in real-time.",
         canonical_path: "/studio",
-        og_image: Some("/og-studio.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const GUIDE: PageMeta = PageMeta {
-        title: "Documentation - LOGICAFFEINE",
+        title: "Documentation | LOGICAFFEINE",
         description: "Comprehensive guide to LOGICAFFEINE syntax, features, and First-Order Logic concepts.",
         canonical_path: "/guide",
-        og_image: Some("/og-guide.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const PRICING: PageMeta = PageMeta {
-        title: "Pricing - LOGICAFFEINE",
+        title: "Pricing | LOGICAFFEINE",
         description: "Choose the right plan for your logic needs. Free tier available with premium features for professionals.",
         canonical_path: "/pricing",
-        og_image: Some("/og-pricing.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const CRATES: PageMeta = PageMeta {
-        title: "Crates Documentation - LOGICAFFEINE",
+        title: "Crates Documentation | LOGICAFFEINE",
         description: "Technical documentation for LOGICAFFEINE Rust crates. Integrate First-Order Logic parsing into your applications.",
         canonical_path: "/crates",
-        og_image: Some("/og-crates.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const ROADMAP: PageMeta = PageMeta {
-        title: "Roadmap - LOGICAFFEINE",
+        title: "Roadmap | LOGICAFFEINE",
         description: "See what's coming next for LOGICAFFEINE. Track our progress and upcoming features.",
         canonical_path: "/roadmap",
-        og_image: Some("/og-roadmap.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const NEWS: PageMeta = PageMeta {
-        title: "News - LOGICAFFEINE",
+        title: "News | LOGICAFFEINE",
         description: "Latest updates, release notes, and announcements from LOGICAFFEINE.",
         canonical_path: "/news",
-        og_image: Some("/og-news.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const PRIVACY: PageMeta = PageMeta {
-        title: "Privacy Policy - LOGICAFFEINE",
+        title: "Privacy Policy | LOGICAFFEINE",
         description: "How LOGICAFFEINE collects, uses, and protects your personal information. Read our full privacy policy.",
         canonical_path: "/privacy",
-        og_image: Some("/og-image.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const TERMS: PageMeta = PageMeta {
-        title: "Terms of Service - LOGICAFFEINE",
+        title: "Terms of Service | LOGICAFFEINE",
         description: "Terms and conditions for using LOGICAFFEINE. Business Source License details and usage policies.",
         canonical_path: "/terms",
-        og_image: Some("/og-image.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const PROFILE: PageMeta = PageMeta {
-        title: "Your Profile - LOGICAFFEINE",
+        title: "Your Profile | LOGICAFFEINE",
         description: "Track your logic learning progress, achievements, XP, and streaks on LOGICAFFEINE.",
         canonical_path: "/profile",
-        og_image: Some("/og-image.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 
     pub const REGISTRY: PageMeta = PageMeta {
-        title: "Package Registry - LOGICAFFEINE",
+        title: "Package Registry | LOGICAFFEINE",
         description: "Browse and discover community-contributed logic modules and packages for LOGICAFFEINE.",
         canonical_path: "/registry",
-        og_image: Some("/og-image.png"),
+        og_image: Some("/assets/OG-photo.png"),
     };
 }
 
@@ -452,7 +452,7 @@ pub fn PageHead(
     title: String,
     description: String,
     canonical_path: String,
-    #[props(default = String::from("/og-image.png"))]
+    #[props(default = String::from("/assets/OG-photo.png"))]
     og_image: String,
 ) -> Element {
     let canonical_url = format!("{}{}", BASE_URL, canonical_path);

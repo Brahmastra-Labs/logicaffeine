@@ -548,6 +548,11 @@ pub fn MainNav(
                             class: if active == ActivePage::Pricing { "main-nav-link active" } else { "main-nav-link" },
                             "Pricing"
                         }
+                        Link {
+                            to: Route::News {},
+                            class: if active == ActivePage::News { "main-nav-link active" } else { "main-nav-link" },
+                            "News"
+                        }
                     }
                 }
 
@@ -734,6 +739,15 @@ pub fn MainNav(
                         Icon { variant: IconVariant::Diamond, size: IconSize::Medium }
                     }
                     "Pricing"
+                }
+                Link {
+                    to: Route::News {},
+                    class: if active == ActivePage::News { "mobile-nav-link active" } else { "mobile-nav-link" },
+                    onclick: move |_| drawer_open.set(false),
+                    span { class: "mobile-nav-link-icon",
+                        Icon { variant: IconVariant::Newspaper, size: IconSize::Medium }
+                    }
+                    "News"
                 }
 
                 div { class: "mobile-nav-divider" }

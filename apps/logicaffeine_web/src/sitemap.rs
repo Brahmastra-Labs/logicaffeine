@@ -15,7 +15,7 @@
 use std::fmt::Write;
 
 const BASE_URL: &str = "https://logicaffeine.com";
-const CURRENT_DATE: &str = "2026-01-20";
+const CURRENT_DATE: &str = "2026-02-02";
 
 /// Sitemap entry with URL and metadata
 pub struct SitemapEntry {

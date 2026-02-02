@@ -368,6 +368,7 @@ const STUDIO_STYLE: &str = r#"
 @media (max-width: 768px) {
     :root {
         --nav-height: 81px;
+        --toolbar-height: 90px;
     }
 }
 
@@ -480,8 +481,11 @@ const STUDIO_STYLE: &str = r#"
         width: 280px !important;
         min-width: 280px !important;
         max-width: 280px !important;
+        height: calc(100vh - var(--header-height) - 10px);
+        height: calc(100dvh - var(--header-height) - 10px);
         box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
         background: #12161c;
+        overflow-y: auto;
     }
 }
 
@@ -579,15 +583,24 @@ const STUDIO_STYLE: &str = r#"
 
 /* Execute button for Code mode */
 .execute-btn {
-    padding: 6px 14px;
+    padding: 8px 14px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     color: white;
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.15s ease;
+}
+
+/* Desktop: show short labels */
+.execute-btn .mobile-label {
+    display: none;
+}
+
+.execute-btn .desktop-label {
+    display: inline;
 }
 
 .execute-btn:hover {
@@ -685,17 +698,35 @@ const STUDIO_STYLE: &str = r#"
 
 @media (max-width: 768px) {
     .studio-toolbar {
-        padding: 0 12px;
-        gap: 6px;
+        flex-wrap: wrap;
+        height: auto;
+        padding: 10px 12px;
+        gap: 10px;
+        position: relative;
+        z-index: 101;
     }
 
+    /* First row: file toggle, mode selector */
     .studio-toolbar-left {
         flex-shrink: 0;
+        order: 1;
     }
 
+    .studio-toolbar-center {
+        flex: 1;
+        align-items: center;
+        min-width: 0;
+        order: 2;
+    }
+
+    /* Second row: action buttons - full width */
     .studio-toolbar-right {
-        flex-shrink: 0;
-        gap: 6px;
+        flex-basis: 100%;
+        justify-content: center;
+        gap: 12px;
+        order: 3;
+        padding-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
     }
 
     /* Show mode toggle with "Mode:" label */
@@ -708,10 +739,18 @@ const STUDIO_STYLE: &str = r#"
         white-space: nowrap;
     }
 
-    .studio-toolbar-center {
-        flex: 0 1 auto;
-        align-items: center;
-        min-width: 0;
+    /* Full text on mobile buttons */
+    .execute-btn {
+        padding: 10px 16px;
+        font-size: 14px;
+    }
+
+    .execute-btn .mobile-label {
+        display: inline;
+    }
+
+    .execute-btn .desktop-label {
+        display: none;
     }
 
     /* Hide mobile tab bar - panels stack instead */
@@ -1668,20 +1707,23 @@ pub fn Studio() -> Element {
                         button {
                             class: "execute-btn",
                             onclick: handle_code_run,
-                            "\u{25B6} Run"
+                            span { class: "desktop-label", "\u{25B6} Run" }
+                            span { class: "mobile-label", "\u{25B6} Run" }
                         }
                         button {
-                            class: "execute-btn",
-                            style: "background: linear-gradient(135deg, #56b6c2 0%, #61afef 100%); margin-left: 8px;",
+                            class: "execute-btn compile-btn",
+                            style: "background: linear-gradient(135deg, #56b6c2 0%, #61afef 100%);",
                             onclick: handle_code_compile,
-                            "\u{1F980} Compile"
+                            span { class: "desktop-label", "\u{1F980} Compile" }
+                            span { class: "mobile-label", "\u{1F980} Compile to Rust" }
                         }
                     }
                     if current_mode == StudioMode::Math {
                         button {
                             class: "execute-btn",
                             onclick: handle_math_execute,
-                            "\u{25B6} Execute"
+                            span { class: "desktop-label", "\u{25B6} Execute" }
+                            span { class: "mobile-label", "\u{25B6} Execute" }
                         }
                     }
                 }

@@ -221,7 +221,7 @@ pub fn Profile() -> Element {
     let engine = ContentEngine::new();
 
     // Calculate totals
-    let total_exercises: usize = engine.eras()
+    let _total_exercises: usize = engine.eras()
         .iter()
         .flat_map(|e| e.modules.iter())
         .map(|m| m.exercises.len())
