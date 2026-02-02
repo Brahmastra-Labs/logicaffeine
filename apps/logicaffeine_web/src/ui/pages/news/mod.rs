@@ -11,4 +11,4 @@ pub mod data;
 
 pub use index::News;
 pub use article::NewsArticle;
-pub use data::{get_articles, get_article_by_slug, Article};
+pub use data::{get_articles, get_article_by_slug, get_all_tags, get_articles_by_tag, format_tag, Article};

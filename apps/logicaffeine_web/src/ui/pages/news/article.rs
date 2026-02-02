@@ -5,7 +5,7 @@ use crate::ui::components::main_nav::{MainNav, ActivePage};
 use crate::ui::components::footer::Footer;
 use crate::ui::seo::{JsonLdMultiple, PageHead, organization_schema, breadcrumb_schema, article_schema, BreadcrumbItem};
 use crate::ui::router::Route;
-use super::data::get_article_by_slug;
+use super::data::{get_article_by_slug, get_all_tags, format_tag};
 
 const ARTICLE_STYLES: &str = r#"
 .article-page {
@@ -68,8 +68,7 @@ const ARTICLE_STYLES: &str = r#"
     border-radius: var(--radius-full, 9999px);
     background: rgba(102, 126, 234, 0.15);
     color: var(--color-accent-blue, #60a5fa);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
     font-weight: 600;
 }
 
@@ -198,6 +197,57 @@ const ARTICLE_STYLES: &str = r#"
     font-weight: 600;
 }
 
+/* Article footer with tags */
+.article-footer {
+    margin-top: 64px;
+    padding-top: 32px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.article-footer-section {
+    margin-bottom: 24px;
+}
+
+.article-footer-title {
+    font-size: var(--font-caption-md, 12px);
+    font-weight: 600;
+    color: var(--text-tertiary, #909090);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 0 16px;
+}
+
+.article-browse-tags {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.article-browse-tag {
+    padding: 8px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius-full, 9999px);
+    color: var(--text-secondary, #b0b0b0);
+    font-size: var(--font-body-sm, 14px);
+    text-decoration: none;
+    transition: all 0.2s ease;
+    letter-spacing: 0.3px;
+    font-weight: 600;
+}
+
+.article-browse-tag:hover {
+    background: rgba(102, 126, 234, 0.15);
+    border-color: rgba(102, 126, 234, 0.3);
+    color: var(--color-accent-blue, #60a5fa);
+}
+
+.article-browse-tag.current {
+    background: rgba(102, 126, 234, 0.2);
+    border-color: rgba(102, 126, 234, 0.4);
+    color: var(--color-accent-blue, #60a5fa);
+}
+
 /* Mobile */
 @media (max-width: 768px) {
     .article-content {
@@ -218,6 +268,10 @@ const ARTICLE_STYLES: &str = r#"
 
     .article-body h3 {
         font-size: var(--font-heading-sm, 18px);
+    }
+
+    .article-footer {
+        margin-top: 48px;
     }
 }
 "#;
@@ -261,31 +315,62 @@ pub fn NewsArticle(slug: String) -> Element {
                         article_schema(article.title, article.summary, article.date, article.slug),
                     ];
 
-                    rsx! {
-                        JsonLdMultiple { schemas }
+                    {
+                        let all_tags = get_all_tags();
+                        let current_tags: Vec<&str> = article.tags.iter().copied().collect();
+                        rsx! {
+                            JsonLdMultiple { schemas }
 
-                        main { class: "article-content",
-                            Link { to: Route::News {}, class: "article-back",
-                                "← Back to News"
-                            }
+                            main { class: "article-content",
+                                Link { to: Route::News {}, class: "article-back",
+                                    "← Back to News"
+                                }
 
-                            article {
-                                header { class: "article-header",
-                                    div { class: "article-meta",
-                                        span { class: "article-date", "{article.date}" }
-                                        div { class: "article-tags",
-                                            for tag in article.tags.iter() {
-                                                span { class: "article-tag", "{tag}" }
+                                article {
+                                    header { class: "article-header",
+                                        div { class: "article-meta",
+                                            span { class: "article-date", "{article.date}" }
+                                            div { class: "article-tags",
+                                                for tag in article.tags.iter() {
+                                                    {
+                                                        let tag_display = format_tag(tag);
+                                                        rsx! { span { class: "article-tag", "{tag_display}" } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        h1 { class: "article-title", "{article.title}" }
+                                        p { class: "article-author", "By {article.author}" }
+                                    }
+
+                                    div {
+                                        class: "article-body",
+                                        dangerous_inner_html: markdown_to_html(article.content)
+                                    }
+
+                                    // Article footer with browse tags
+                                    footer { class: "article-footer",
+                                        div { class: "article-footer-section",
+                                            h3 { class: "article-footer-title", "Browse by Topic" }
+                                            div { class: "article-browse-tags",
+                                                for tag in all_tags.iter() {
+                                                    {
+                                                        let tag_str = *tag;
+                                                        let tag_display = format_tag(tag_str);
+                                                        let is_current = current_tags.contains(&tag_str);
+                                                        let href = format!("/news?tag={}", tag_str);
+                                                        rsx! {
+                                                            a {
+                                                                href: "{href}",
+                                                                class: if is_current { "article-browse-tag current" } else { "article-browse-tag" },
+                                                                "{tag_display}"
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
-                                    h1 { class: "article-title", "{article.title}" }
-                                    p { class: "article-author", "By {article.author}" }
-                                }
-
-                                div {
-                                    class: "article-body",
-                                    dangerous_inner_html: markdown_to_html(article.content)
                                 }
                             }
                         }
