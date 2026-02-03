@@ -201,6 +201,14 @@ pub fn FileBrowser(
     let mut show_toast = use_signal(|| false);
     let mut toast_key = use_signal(|| 0u32);
 
+    // Debug: log what we received
+    #[cfg(target_arch = "wasm32")]
+    web_sys::console::log_1(&format!(
+        "[FileBrowser] Rendering with {} children, selected: {:?}",
+        tree.children.len(),
+        selected_path
+    ).into());
+
     rsx! {
         style { "{FILE_BROWSER_STYLE}" }
 

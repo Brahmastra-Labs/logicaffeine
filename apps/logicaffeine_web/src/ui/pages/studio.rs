@@ -294,6 +294,17 @@ async fn load_dir_recursive<V: Vfs>(vfs: &V, path: &str, parent: &mut FileNode) 
     Ok(())
 }
 
+/// Count total files and directories in a tree (for debugging)
+fn count_files(node: &FileNode) -> usize {
+    let mut count = node.children.len();
+    for child in &node.children {
+        if child.is_directory {
+            count += count_files(child);
+        }
+    }
+    count
+}
+
 /// Format a DerivationTree as HTML for the proof panel
 fn format_derivation_html(tree: &DerivationTree) -> String {
     fn format_node(tree: &DerivationTree, depth: usize) -> String {
@@ -1016,15 +1027,26 @@ pub fn Studio() -> Element {
             // Get platform VFS (OPFS on WASM)
             match get_platform_vfs().await {
                 Ok(vfs) => {
+                    web_sys::console::log_1(&"[Studio] VFS initialized successfully".into());
+
                     // Seed example files if they don't exist
                     if let Err(e) = seed_examples(&vfs).await {
                         web_sys::console::log_1(&format!("Failed to seed examples: {:?}", e).into());
+                    } else {
+                        web_sys::console::log_1(&"[Studio] Examples seeded successfully".into());
                     }
 
                     // Build file tree from VFS
                     let mut root = FileNode::root();
-                    if let Ok(()) = load_dir_recursive(&vfs, "/", &mut root).await {
-                        file_tree.set(root);
+                    match load_dir_recursive(&vfs, "/", &mut root).await {
+                        Ok(()) => {
+                            let file_count = count_files(&root);
+                            web_sys::console::log_1(&format!("[Studio] File tree loaded: {} files/dirs", file_count).into());
+                            file_tree.set(root);
+                        }
+                        Err(e) => {
+                            web_sys::console::log_1(&format!("[Studio] Failed to load file tree: {:?}", e).into());
+                        }
                     }
 
                     // Get file from URL query parameter, or use default
@@ -1806,7 +1828,14 @@ pub fn Studio() -> Element {
                     div {
                         class: "studio-sidebar",
                         style: "width: {sidebar_w}px; min-width: {sidebar_w}px; max-width: {sidebar_w}px; flex-shrink: 0;",
-                    FileBrowser {
+
+                        // DEBUG: Test if anything renders in sidebar
+                        div {
+                            style: "background: red; color: white; padding: 10px; font-size: 16px;",
+                            "DEBUG: Sidebar content area"
+                        }
+
+                        FileBrowser {
                         tree: file_tree.read().clone(),
                         selected_path: current_file.read().clone(),
                         on_select: EventHandler::new(move |path: String| {
