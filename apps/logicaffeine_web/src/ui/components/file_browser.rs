@@ -107,6 +107,7 @@ const FILE_BROWSER_STYLE: &str = r#"
 }
 
 .file-tree-node {
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -170,6 +171,21 @@ const FILE_BROWSER_STYLE: &str = r#"
         width: 100%;
         min-width: 100%;
         max-width: 100%;
+    }
+
+    .file-tree-item {
+        color: rgba(255, 255, 255, 0.9);
+        -webkit-text-fill-color: rgba(255, 255, 255, 0.9);
+    }
+
+    .file-tree-item.selected {
+        color: #00d4ff;
+        -webkit-text-fill-color: #00d4ff;
+    }
+
+    .file-tree-item .name {
+        color: inherit;
+        -webkit-text-fill-color: inherit;
     }
 }
 "#;
