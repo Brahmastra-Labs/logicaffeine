@@ -1241,6 +1241,7 @@ a {
 }
 
 .file-tree-node {
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -1325,11 +1326,33 @@ a {
         transition: transform 0.2s ease;
         max-width: 280px;
         min-width: 280px;
+        /* Force GPU rendering to fix iOS Safari text visibility */
+        -webkit-transform: translateX(-100%) translateZ(0);
+        -webkit-backface-visibility: hidden;
     }
 
     .file-browser.open {
         transform: translateX(0);
+        -webkit-transform: translateX(0) translateZ(0);
         box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Explicit text colors for mobile Safari/Chrome */
+    .file-tree-item {
+        color: rgba(255, 255, 255, 0.9) !important;
+        -webkit-text-fill-color: rgba(255, 255, 255, 0.9);
+    }
+
+    .file-tree-item.selected {
+        color: #00d4ff !important;
+        -webkit-text-fill-color: #00d4ff;
+    }
+
+    .file-tree-item .name,
+    .file-tree-item .icon,
+    .file-tree-item .chevron {
+        color: inherit;
+        -webkit-text-fill-color: inherit;
     }
 }
 
