@@ -305,6 +305,47 @@ fn count_files(node: &FileNode) -> usize {
     count
 }
 
+/// Create a fallback static tree of examples when VFS fails.
+/// This ensures mobile users can still browse examples even if OPFS doesn't work.
+fn create_fallback_tree() -> FileNode {
+    let mut root = FileNode::root();
+
+    // Examples directory
+    let mut examples = FileNode::directory("examples".to_string(), "/examples".to_string());
+
+    // Logic examples
+    let mut logic = FileNode::directory("logic".to_string(), "/examples/logic".to_string());
+    logic.children.push(FileNode::file("prover-demo.logic".to_string(), "/examples/logic/prover-demo.logic".to_string()));
+    logic.children.push(FileNode::file("simple-sentences.logic".to_string(), "/examples/logic/simple-sentences.logic".to_string()));
+    logic.children.push(FileNode::file("quantifiers.logic".to_string(), "/examples/logic/quantifiers.logic".to_string()));
+    logic.children.push(FileNode::file("syllogism.logic".to_string(), "/examples/logic/syllogism.logic".to_string()));
+    logic.children.push(FileNode::file("barber-paradox.logic".to_string(), "/examples/logic/barber-paradox.logic".to_string()));
+    examples.children.push(logic);
+
+    // Code examples
+    let mut code = FileNode::directory("code".to_string(), "/examples/code".to_string());
+    code.children.push(FileNode::file("hello-world.logos".to_string(), "/examples/code/hello-world.logos".to_string()));
+    code.children.push(FileNode::file("fibonacci.logos".to_string(), "/examples/code/fibonacci.logos".to_string()));
+    code.children.push(FileNode::file("fizzbuzz.logos".to_string(), "/examples/code/fizzbuzz.logos".to_string()));
+    code.children.push(FileNode::file("factorial.logos".to_string(), "/examples/code/factorial.logos".to_string()));
+    code.children.push(FileNode::file("collections.logos".to_string(), "/examples/code/collections.logos".to_string()));
+    examples.children.push(code);
+
+    // Math examples
+    let mut math = FileNode::directory("math".to_string(), "/examples/math".to_string());
+    math.children.push(FileNode::file("natural-numbers.logos".to_string(), "/examples/math/natural-numbers.logos".to_string()));
+    math.children.push(FileNode::file("boolean-logic.logos".to_string(), "/examples/math/boolean-logic.logos".to_string()));
+    math.children.push(FileNode::file("prop-logic.logos".to_string(), "/examples/math/prop-logic.logos".to_string()));
+    examples.children.push(math);
+
+    root.children.push(examples);
+
+    // Workspace directory
+    root.children.push(FileNode::directory("workspace".to_string(), "/workspace".to_string()));
+
+    root
+}
+
 /// Format a DerivationTree as HTML for the proof panel
 fn format_derivation_html(tree: &DerivationTree) -> String {
     fn format_node(tree: &DerivationTree, depth: usize) -> String {
@@ -951,7 +992,7 @@ pub fn Studio() -> Element {
 
     // File browser state
     let mut sidebar_open = use_signal(|| true);
-    let mut file_tree = use_signal(FileNode::root);
+    let mut file_tree = use_signal(create_fallback_tree); // Start with fallback tree immediately
     let mut current_file = use_signal(|| None::<String>);
 
     // Logic mode state
@@ -1036,16 +1077,22 @@ pub fn Studio() -> Element {
                         web_sys::console::log_1(&"[Studio] Examples seeded successfully".into());
                     }
 
-                    // Build file tree from VFS
+                    // Build file tree from VFS - only update if we get actual content
                     let mut root = FileNode::root();
                     match load_dir_recursive(&vfs, "/", &mut root).await {
                         Ok(()) => {
                             let file_count = count_files(&root);
                             web_sys::console::log_1(&format!("[Studio] File tree loaded: {} files/dirs", file_count).into());
-                            file_tree.set(root);
+                            // Only replace fallback tree if VFS returned actual content
+                            if !root.children.is_empty() {
+                                file_tree.set(root);
+                            } else {
+                                web_sys::console::log_1(&"[Studio] VFS returned empty tree, keeping fallback".into());
+                            }
                         }
                         Err(e) => {
-                            web_sys::console::log_1(&format!("[Studio] Failed to load file tree: {:?}", e).into());
+                            web_sys::console::log_1(&format!("[Studio] Failed to load file tree, using fallback: {:?}", e).into());
+                            // Fallback tree already set, no action needed
                         }
                     }
 
@@ -1156,25 +1203,21 @@ pub fn Studio() -> Element {
                     }
                 }
                 Err(e) => {
-                    web_sys::console::log_1(&format!("Failed to initialize VFS: {:?}", e).into());
+                    web_sys::console::log_1(&format!("Failed to initialize VFS, using fallback tree: {:?}", e).into());
+                    // Fallback tree already set on init, no action needed
                 }
             }
         });
     });
 
-    // On native, create a simple placeholder file tree (VFS init is synchronous)
+    // On native, the fallback tree is already set on init - no additional setup needed
     #[cfg(not(target_arch = "wasm32"))]
     use_effect(move || {
         if *vfs_initialized.read() {
             return;
         }
         vfs_initialized.set(true);
-
-        // For native builds, just set up a placeholder tree
-        // Real native builds would use tokio runtime
-        let mut root = FileNode::root();
-        root.children.push(FileNode::directory("examples".to_string(), "/examples".to_string()));
-        file_tree.set(root);
+        // Fallback tree already provides full example structure
     });
 
     // Close sidebar on mobile by default (runs once on mount)
@@ -1828,12 +1871,6 @@ pub fn Studio() -> Element {
                     div {
                         class: "studio-sidebar",
                         style: "width: {sidebar_w}px; min-width: {sidebar_w}px; max-width: {sidebar_w}px; flex-shrink: 0;",
-
-                        // DEBUG: Test if anything renders in sidebar
-                        div {
-                            style: "background: red; color: white; padding: 10px; font-size: 16px;",
-                            "DEBUG: Sidebar content area"
-                        }
 
                         FileBrowser {
                         tree: file_tree.read().clone(),
