@@ -533,18 +533,11 @@ const STUDIO_STYLE: &str = r#"
         width: 280px !important;
         min-width: 280px !important;
         max-width: 280px !important;
-        height: calc(100vh - var(--header-height) - 10px);
-        height: calc(100dvh - var(--header-height) - 10px);
         box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
         background: #12161c;
-        overflow-y: auto;
-        -webkit-overflow-scrolling: touch;
-        /* Force GPU layer to fix iOS text rendering */
-        -webkit-transform: translateZ(0);
-        -webkit-backface-visibility: hidden;
     }
 
-    /* Explicit text colors for mobile browsers */
+    /* Text color overrides for Safari compatibility */
     .studio-sidebar .file-tree-item {
         color: rgba(255, 255, 255, 0.9) !important;
         -webkit-text-fill-color: rgba(255, 255, 255, 0.9);
@@ -1870,7 +1863,7 @@ pub fn Studio() -> Element {
                 if *sidebar_open.read() {
                     div {
                         class: "studio-sidebar",
-                        style: "width: {sidebar_w}px; min-width: {sidebar_w}px; max-width: {sidebar_w}px; flex-shrink: 0;",
+                        style: "width: {sidebar_w}px; flex-shrink: 0;",
 
                         FileBrowser {
                         tree: file_tree.read().clone(),
