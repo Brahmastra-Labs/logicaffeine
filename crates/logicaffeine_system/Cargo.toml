@@ -64,7 +64,8 @@ web-sys = { version = "0.3", features = [
     "FileSystemDirectoryHandle", "FileSystemFileHandle",
     "FileSystemWritableFileStream", "FileSystemGetFileOptions",
     "FileSystemGetDirectoryOptions", "FileSystemCreateWritableOptions",
-    "File", "Blob", "DomException"
+    "File", "Blob", "DomException",
+    "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent"
 ]}
 
 [dev-dependencies]

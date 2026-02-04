@@ -32,7 +32,13 @@
 mod opfs;
 
 #[cfg(target_arch = "wasm32")]
+mod worker_opfs;
+
+#[cfg(target_arch = "wasm32")]
 pub use opfs::OpfsVfs;
+
+#[cfg(target_arch = "wasm32")]
+pub use worker_opfs::WorkerOpfsVfs;
 
 use async_trait::async_trait;
 use std::io;
@@ -282,20 +288,20 @@ impl Vfs for NativeVfs {
 pub type PlatformVfs = NativeVfs;
 
 #[cfg(target_arch = "wasm32")]
-pub type PlatformVfs = OpfsVfs;
+pub type PlatformVfs = WorkerOpfsVfs;
 
 /// Get the platform-default VFS instance.
 ///
 /// - Native: Returns NativeVfs rooted at current directory
-/// - WASM: Returns OpfsVfs rooted at OPFS root
+/// - WASM: Returns WorkerOpfsVfs backed by a Web Worker (Safari-compatible)
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_platform_vfs() -> NativeVfs {
     NativeVfs::new(".")
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn get_platform_vfs() -> VfsResult<OpfsVfs> {
-    OpfsVfs::new().await
+pub fn get_platform_vfs() -> VfsResult<WorkerOpfsVfs> {
+    WorkerOpfsVfs::new()
 }
 
 #[cfg(test)]

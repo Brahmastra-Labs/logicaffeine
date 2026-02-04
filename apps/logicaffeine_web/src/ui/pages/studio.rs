@@ -1065,8 +1065,8 @@ pub fn Studio() -> Element {
         vfs_initialized.set(true);
 
         spawn(async move {
-            // Get platform VFS (OPFS on WASM)
-            match get_platform_vfs().await {
+            // Get platform VFS (Worker-backed OPFS on WASM for Safari compatibility)
+            match get_platform_vfs() {
                 Ok(vfs) => {
                     web_sys::console::log_1(&"[Studio] VFS initialized successfully".into());
 
@@ -1907,7 +1907,7 @@ pub fn Studio() -> Element {
                             {
                                 let path_clone = path.clone();
                                 spawn(async move {
-                                    if let Ok(vfs) = get_platform_vfs().await {
+                                    if let Ok(vfs) = get_platform_vfs() {
                                         if let Ok(content) = vfs.read_to_string(&path_clone).await {
                                             // Load into appropriate editor based on file path/extension
                                             // Math files are .logos but in /examples/math/ directory
