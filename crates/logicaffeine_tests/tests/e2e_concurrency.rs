@@ -187,3 +187,133 @@ fn e2e_producer_consumer() {
     assert!(result.stdout.contains("1"), "Should show 1: {}", result.stdout);
     assert!(result.stdout.contains("2"), "Should show 2: {}", result.stdout);
 }
+
+// =============================================================================
+// Async Function Call E2E Tests (Bug 1 & 6 Verification)
+// =============================================================================
+
+#[test]
+fn e2e_async_function_expression_call() {
+    // Test Bug 6: Let x be async_func() should await and get the result, not a Future
+    let source = r#"
+## To sleeper -> Int:
+    Sleep 10.
+    Return 42.
+
+## Main
+    Let x be sleeper().
+    Show x.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+}
+
+#[test]
+fn e2e_async_function_statement_call() {
+    // Test Bug 1: Call async_func should await
+    let source = r#"
+## To async_printer:
+    Sleep 10.
+    Show "async done".
+
+## Main
+    Call async_printer.
+    Show "main done".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    // async_printer should complete before main_done because we await it
+    assert!(result.stdout.contains("async done"), "Should output async done: {}", result.stdout);
+    assert!(result.stdout.contains("main done"), "Should output main done: {}", result.stdout);
+}
+
+#[test]
+fn e2e_transitive_async() {
+    // Test Bug 2: Wrapper function that calls async function should also be async
+    let source = r#"
+## To helper:
+    Sleep 50.
+    Show "helper done".
+
+## To wrapper:
+    Call helper.
+    Show "wrapper done".
+
+## Main
+    Call wrapper.
+    Show "main done".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    // All three should print in order
+    assert!(result.stdout.contains("helper done"), "Should output helper done: {}", result.stdout);
+    assert!(result.stdout.contains("wrapper done"), "Should output wrapper done: {}", result.stdout);
+    assert!(result.stdout.contains("main done"), "Should output main done: {}", result.stdout);
+}
+
+#[test]
+fn e2e_concurrent_with_sync_function() {
+    // Test Bug 3: Sync functions in concurrent block should NOT get .await
+    let source = r#"
+## To sync_double (x: Int) -> Int:
+    Return x * 2.
+
+## Main
+    Attempt all of the following:
+        Let a be sync_double(5).
+        Let b be sync_double(10).
+    Show a.
+    Show b.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("10"), "Should output 10: {}", result.stdout);
+    assert!(result.stdout.contains("20"), "Should output 20: {}", result.stdout);
+}
+
+#[test]
+fn e2e_concurrent_with_async_function() {
+    // Test: Async functions in concurrent block SHOULD get .await
+    let source = r#"
+## To delayed_value (x: Int) -> Int:
+    Sleep 10.
+    Return x.
+
+## Main
+    Attempt all of the following:
+        Let a be delayed_value(5).
+        Let b be delayed_value(10).
+    Show a.
+    Show b.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("5"), "Should output 5: {}", result.stdout);
+    assert!(result.stdout.contains("10"), "Should output 10: {}", result.stdout);
+}

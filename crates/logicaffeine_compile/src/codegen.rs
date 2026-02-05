@@ -632,7 +632,20 @@ fn collect_boxed_fields(registry: &TypeRegistry, interner: &Interner) -> HashSet
 
 /// Phase 54: Collect function names that are async.
 /// Used by LaunchTask codegen to determine if .await is needed.
-fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
+///
+/// Two-pass analysis:
+/// 1. First pass: Collect directly async functions (have Sleep, LaunchTask, etc.)
+/// 2. Second pass: Iterate until fixed point - if function calls an async function, mark it async
+pub fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
+    // First, collect all function definitions
+    let mut func_bodies: HashMap<Symbol, &[Stmt]> = HashMap::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, body, .. } = stmt {
+            func_bodies.insert(*name, *body);
+        }
+    }
+
+    // Pass 1: Collect directly async functions
     let mut async_fns = HashSet::new();
     for stmt in stmts {
         if let Stmt::FunctionDef { name, body, .. } = stmt {
@@ -641,12 +654,77 @@ fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
             }
         }
     }
+
+    // Pass 2: Propagate async-ness through call graph until fixed point
+    loop {
+        let mut changed = false;
+        for (func_name, body) in &func_bodies {
+            if async_fns.contains(func_name) {
+                continue; // Already marked async
+            }
+            // Check if this function calls any async function
+            if body.iter().any(|s| calls_async_function(s, &async_fns)) {
+                async_fns.insert(*func_name);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
     async_fns
+}
+
+/// Helper: Check if a statement calls any function in the async_fns set
+fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> bool {
+    match stmt {
+        Stmt::Call { function, .. } => async_fns.contains(function),
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| calls_async_function(s, async_fns))
+                || else_block.map_or(false, |b| b.iter().any(|s| calls_async_function(s, async_fns)))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            body.iter().any(|s| calls_async_function(s, async_fns))
+        }
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            tasks.iter().any(|s| calls_async_function(s, async_fns))
+        }
+        Stmt::FunctionDef { body, .. } => {
+            body.iter().any(|s| calls_async_function(s, async_fns))
+        }
+        // Also check Let statements for async function calls in the value expression
+        Stmt::Let { value, .. } => calls_async_function_in_expr(value, async_fns),
+        _ => false,
+    }
+}
+
+/// Helper: Check if an expression calls any function in the async_fns set
+fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> bool {
+    match expr {
+        Expr::Call { function, args } => {
+            async_fns.contains(function)
+                || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            calls_async_function_in_expr(left, async_fns)
+                || calls_async_function_in_expr(right, async_fns)
+        }
+        Expr::Index { collection, index } => {
+            calls_async_function_in_expr(collection, async_fns)
+                || calls_async_function_in_expr(index, async_fns)
+        }
+        Expr::FieldAccess { object, .. } => calls_async_function_in_expr(object, async_fns),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| calls_async_function_in_expr(i, async_fns))
+        }
+        _ => false,
+    }
 }
 
 /// Phase 54: Collect parameters that are used as pipe senders in function body.
 /// If a param appears in `SendPipe { pipe: Expr::Identifier(param) }`, it's a sender.
-fn collect_pipe_sender_params(body: &[Stmt]) -> HashSet<Symbol> {
+pub fn collect_pipe_sender_params(body: &[Stmt]) -> HashSet<Symbol> {
     let mut senders = HashSet::new();
     for stmt in body {
         collect_pipe_sender_params_stmt(stmt, &mut senders);
@@ -676,13 +754,18 @@ fn collect_pipe_sender_params_stmt(stmt: &Stmt, senders: &mut HashSet<Symbol>) {
                 collect_pipe_sender_params_stmt(s, senders);
             }
         }
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
+                collect_pipe_sender_params_stmt(s, senders);
+            }
+        }
         _ => {}
     }
 }
 
 /// Phase 54: Collect variables that are pipe declarations (created with CreatePipe).
 /// These have _tx/_rx suffixes, while pipe parameters don't.
-fn collect_pipe_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
+pub fn collect_pipe_vars(stmts: &[Stmt]) -> HashSet<Symbol> {
     let mut pipe_vars = HashSet::new();
     for stmt in stmts {
         collect_pipe_vars_stmt(stmt, &mut pipe_vars);
@@ -1003,8 +1086,8 @@ fn codegen_function_def(
         .map(|t| codegen_type_expr(t, interner))
         .or_else(|| infer_return_type_from_body(body, interner));
 
-    // Phase 51: Check if function body requires async
-    let is_async = body.iter().any(|s| requires_async_stmt(s));
+    // Phase 51/54: Check if function is async (includes transitive async detection)
+    let is_async = async_functions.contains(&name);
     let fn_keyword = if is_async { "async fn" } else { "fn" };
 
     // Build function signature
@@ -1523,6 +1606,13 @@ pub fn codegen_stmt<'a>(
             let var_name = interner.resolve(*var);
             let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
 
+            // Check if value is a call to an async function - needs .await
+            let await_suffix = if let Expr::Call { function, .. } = value {
+                if async_functions.contains(function) { ".await" } else { "" }
+            } else {
+                ""
+            };
+
             // Phase 103: Get explicit type annotation or infer for multi-param generic enums
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner))
                 .or_else(|| infer_variant_type_annotation(value, registry, interner));
@@ -1531,10 +1621,10 @@ pub fn codegen_stmt<'a>(
             let is_mutable = *mutable || mutable_vars.contains(var);
 
             match (is_mutable, type_annotation) {
-                (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
-                (true, None) => writeln!(output, "{}let mut {} = {};", indent_str, var_name, value_str).unwrap(),
-                (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
-                (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
+                (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {}{};", indent_str, var_name, t, value_str, await_suffix).unwrap(),
+                (true, None) => writeln!(output, "{}let mut {} = {}{};", indent_str, var_name, value_str, await_suffix).unwrap(),
+                (false, Some(t)) => writeln!(output, "{}let {}: {} = {}{};", indent_str, var_name, t, value_str, await_suffix).unwrap(),
+                (false, None) => writeln!(output, "{}let {} = {}{};", indent_str, var_name, value_str, await_suffix).unwrap(),
             }
 
             // Phase 43C: Handle refinement type
@@ -1547,7 +1637,15 @@ pub fn codegen_stmt<'a>(
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
             let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
+
+            // Check if value is a call to an async function - needs .await
+            let await_suffix = if let Expr::Call { function, .. } = value {
+                if async_functions.contains(function) { ".await" } else { "" }
+            } else {
+                ""
+            };
+
+            writeln!(output, "{}{} = {}{};", indent_str, target_name, value_str, await_suffix).unwrap();
 
             // Phase 43C: Check if this variable has a refinement constraint
             if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
@@ -1558,7 +1656,9 @@ pub fn codegen_stmt<'a>(
         Stmt::Call { function, args } => {
             let func_name = interner.resolve(*function);
             let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
-            writeln!(output, "{}{}({});", indent_str, func_name, args_str.join(", ")).unwrap();
+            // Add .await if calling an async function
+            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+            writeln!(output, "{}{}({}){};", indent_str, func_name, args_str.join(", "), await_suffix).unwrap();
         }
 
         Stmt::If { cond, then_block, else_block } => {
@@ -1929,10 +2029,17 @@ pub fn codegen_stmt<'a>(
                     SelectBranch::Receive { var, pipe, body } => {
                         let var_name = interner.resolve(*var);
                         let pipe_str = codegen_expr(pipe, interner, synced_vars);
+                        // Check if pipe is a local declaration (has _rx suffix) or a parameter (no suffix)
+                        let is_local_pipe = if let Expr::Identifier(sym) = pipe {
+                            pipe_vars.contains(sym)
+                        } else {
+                            false
+                        };
+                        let suffix = if is_local_pipe { "_rx" } else { "" };
                         writeln!(
                             output,
-                            "{}    {} = {}_rx.recv() => {{",
-                            indent_str, var_name, pipe_str
+                            "{}    {} = {}{}.recv() => {{",
+                            indent_str, var_name, pipe_str, suffix
                         ).unwrap();
                         writeln!(
                             output,
@@ -2278,14 +2385,21 @@ pub fn codegen_stmt<'a>(
                     let inner_code = match stmt {
                         Stmt::Let { value, .. } => {
                             // Return the value expression directly (not "let x = value;")
-                            codegen_expr(value, interner, synced_vars)
+                            // Add .await if value is a call to an async function
+                            let expr_code = codegen_expr(value, interner, synced_vars);
+                            let await_suffix = if let Expr::Call { function, .. } = value {
+                                if async_functions.contains(function) { ".await" } else { "" }
+                            } else { "" };
+                            format!("{}{}", expr_code, await_suffix)
                         }
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
                                 .map(|a| codegen_expr(a, interner, synced_vars))
                                 .collect();
-                            format!("{}({}).await", func_name, args_str.join(", "))
+                            // Only add .await for async functions
+                            let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
+                            format!("{}({}){}", func_name, args_str.join(", "), await_suffix)
                         }
                         _ => {
                             // Fallback for other statement types
