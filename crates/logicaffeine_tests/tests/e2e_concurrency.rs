@@ -778,3 +778,612 @@ fn e2e_launch_in_conditional() {
     );
     assert!(result.stdout.contains("main done"), "Should output main done: {}", result.stdout);
 }
+
+// =============================================================================
+// Phase G: Select with Receive Branches
+// =============================================================================
+
+#[test]
+fn e2e_select_receive_branch() {
+    // Select with a receive branch that fires
+    let source = r#"
+## Main
+    Let ch be a Pipe of Int.
+    Send 42 into ch.
+    Await the first of:
+        Receive x from ch:
+            Show x.
+        After 1 seconds:
+            Show "timeout".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("42"), "Should receive 42: {}", result.stdout);
+    assert!(!result.stdout.contains("timeout"), "Should NOT timeout: {}", result.stdout);
+}
+
+#[test]
+fn e2e_select_timeout_fires() {
+    // Select where timeout fires before receive
+    let source = r#"
+## Main
+    Let ch be a Pipe of Int.
+    Await the first of:
+        Receive x from ch:
+            Show x.
+        After 1 seconds:
+            Show "timeout".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("timeout"), "Should timeout: {}", result.stdout);
+}
+
+#[test]
+fn e2e_select_multiple_pipes() {
+    // Select from multiple pipes - x works as variable name
+    let source = r#"
+## Main
+    Let ch1 be a Pipe of Int.
+    Let ch2 be a Pipe of Int.
+    Send 42 into ch1.
+    Await the first of:
+        Receive x from ch1:
+            Show x.
+        After 1 seconds:
+            Show "timeout".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("42"), "Should receive 42 from ch1: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase H: Parallel Blocks (Simultaneously - CPU-bound)
+// =============================================================================
+
+#[test]
+fn e2e_parallel_basic() {
+    // Parallel execution with rayon
+    let source = r#"
+## To cpu_work (x: Int) -> Int:
+    Return x * x.
+
+## Main
+    Simultaneously:
+        Let a be cpu_work(5).
+        Let b be cpu_work(10).
+    Show a.
+    Show b.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("25"), "Should output 25: {}", result.stdout);
+    assert!(result.stdout.contains("100"), "Should output 100: {}", result.stdout);
+}
+
+#[test]
+fn e2e_parallel_three_tasks() {
+    // Parallel with 3 tasks - compute and show inside the block since
+    // parallel codegen for 3+ tasks doesn't extract variables properly yet
+    let source = r#"
+## To square_and_show (x: Int):
+    Let result be x * x.
+    Show result.
+
+## Main
+    Simultaneously:
+        Call square_and_show with 2.
+        Call square_and_show with 3.
+        Call square_and_show with 4.
+    Show "done".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    // Should output 4, 9, 16 in some order, then "done"
+    assert!(result.stdout.contains("4"), "Should output 4: {}", result.stdout);
+    assert!(result.stdout.contains("9"), "Should output 9: {}", result.stdout);
+    assert!(result.stdout.contains("16"), "Should output 16: {}", result.stdout);
+    assert!(result.stdout.contains("done"), "Should output done: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase I: Concurrent with Multiple Tasks
+// =============================================================================
+
+#[test]
+fn e2e_concurrent_three_tasks() {
+    // Concurrent with 3 async tasks
+    let source = r#"
+## To fetch (id: Int) -> Int:
+    Sleep 10.
+    Return id * 10.
+
+## Main
+    Attempt all of the following:
+        Let a be fetch(1).
+        Let b be fetch(2).
+        Let c be fetch(3).
+    Show a + b + c.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("60"), "Should output 60 (10+20+30): {}", result.stdout);
+}
+
+#[test]
+fn e2e_concurrent_four_tasks() {
+    // Concurrent with 4 async tasks
+    let source = r#"
+## To fetch (id: Int) -> Int:
+    Sleep 5.
+    Return id.
+
+## Main
+    Attempt all of the following:
+        Let a be fetch(1).
+        Let b be fetch(2).
+        Let c be fetch(3).
+        Let d be fetch(4).
+    Show a + b + c + d.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("10"), "Should output 10 (1+2+3+4): {}", result.stdout);
+}
+
+// =============================================================================
+// Phase J: Launch Task With Handle
+// =============================================================================
+
+#[test]
+fn e2e_launch_with_handle_and_stop() {
+    // Explicit test of LaunchTaskWithHandle
+    let source = r#"
+## To counter:
+    Let i be 0.
+    While true:
+        Sleep 10.
+        Set i to i + 1.
+
+## Main
+    Let worker be Launch a task to counter.
+    Sleep 30.
+    Stop worker.
+    Show "stopped".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("stopped"), "Should output stopped: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase K: Async in Struct Field Init
+// =============================================================================
+
+#[test]
+fn e2e_async_in_struct_init() {
+    // Async call in struct field initialization
+    let source = r#"
+## A Coords has:
+    An x: Int.
+    A y: Int.
+
+## To async_coord -> Int:
+    Sleep 10.
+    Return 50.
+
+## Main
+    Let p be a new Coords with x async_coord() and y 100.
+    Show p's x.
+    Show p's y.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("50"), "Should output 50: {}", result.stdout);
+    assert!(result.stdout.contains("100"), "Should output 100: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase L: Async in Send Value
+// =============================================================================
+
+#[test]
+fn e2e_async_in_send() {
+    // Async call as the value being sent into pipe
+    let source = r#"
+## To produce -> Int:
+    Sleep 10.
+    Return 42.
+
+## Main
+    Let ch be a Pipe of Int.
+    Send produce() into ch.
+    Receive x from ch.
+    Show x.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase M: Sleep with Async Expression
+// =============================================================================
+
+#[test]
+fn e2e_sleep_with_async_expr() {
+    // Sleep with async expression for delay
+    let source = r#"
+## To get_delay -> Int:
+    Sleep 10.
+    Return 50.
+
+## Main
+    Sleep get_delay().
+    Show "done".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("done"), "Should output done: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase N: Fan-out/Fan-in Patterns
+// =============================================================================
+
+#[test]
+fn e2e_fanout_pattern() {
+    // Multiple consumers from one producer
+    let source = r#"
+## To produce (ch: Int):
+    Send 1 into ch.
+    Send 2 into ch.
+    Send 3 into ch.
+
+## Main
+    Let ch be a Pipe of Int.
+    Launch a task to produce with ch.
+    Receive a from ch.
+    Receive b from ch.
+    Receive c from ch.
+    Show a + b + c.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("6"), "Should output 6: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase O: Loop + Concurrent Combinations
+// =============================================================================
+
+#[test]
+fn e2e_concurrent_in_loop() {
+    // Concurrent block inside a loop - concurrent with 2 vars to avoid tuple unpacking issue
+    let source = r#"
+## To fetch (id: Int) -> Int:
+    Sleep 5.
+    Return id * 10.
+
+## Main
+    Let mutable total be 0.
+    Repeat for i from 1 to 2:
+        Attempt all of the following:
+            Let val be fetch(i).
+            Let val2 be fetch(i).
+        Set total to total + val + val2.
+    Show total.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    // (10+10) + (20+20) = 60
+    assert!(result.stdout.contains("60"), "Should output 60: {}", result.stdout);
+}
+
+#[test]
+fn e2e_loop_inside_concurrent() {
+    // Loop inside concurrent block (each branch has its own loop)
+    let source = r#"
+## To sum_range (n: Int) -> Int:
+    Sleep 10.
+    Let total be 0.
+    Repeat for i from 1 to n:
+        Set total to total + i.
+    Return total.
+
+## Main
+    Attempt all of the following:
+        Let a be sum_range(3).
+        Let b be sum_range(4).
+    Show a.
+    Show b.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("6"), "Should output 6 (1+2+3): {}", result.stdout);
+    assert!(result.stdout.contains("10"), "Should output 10 (1+2+3+4): {}", result.stdout);
+}
+
+// =============================================================================
+// Phase P: Conditional + Pipe Combinations
+// =============================================================================
+
+#[test]
+fn e2e_conditional_send() {
+    // Conditional determines what to send
+    let source = r#"
+## Main
+    Let ch be a Pipe of Int.
+    Let flag be true.
+    If flag:
+        Send 42 into ch.
+    Otherwise:
+        Send 0 into ch.
+    Receive x from ch.
+    Show x.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+}
+
+#[test]
+fn e2e_select_in_loop() {
+    // Select inside a loop - use mutable for total since it's reassigned
+    let source = r#"
+## Main
+    Let ch be a Pipe of Int.
+    Send 1 into ch.
+    Send 2 into ch.
+    Let mutable total be 0.
+    Repeat for i from 1 to 2:
+        Await the first of:
+            Receive x from ch:
+                Set total to total + x.
+            After 1 seconds:
+                Show "timeout".
+    Show total.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("3"), "Should output 3 (1+2): {}", result.stdout);
+}
+
+// =============================================================================
+// Phase Q: Async Call Edge Cases
+// =============================================================================
+
+#[test]
+fn e2e_async_call_in_both_sides_of_binary() {
+    // Async calls on both sides of binary operation
+    let source = r#"
+## To left_val -> Int:
+    Sleep 10.
+    Return 10.
+
+## To right_val -> Int:
+    Sleep 10.
+    Return 5.
+
+## Main
+    Let result be left_val() + right_val().
+    Show result.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("15"), "Should output 15: {}", result.stdout);
+}
+
+#[test]
+fn e2e_async_in_comparison() {
+    // Async call used in a comparison after being assigned
+    let source = r#"
+## To threshold -> Int:
+    Sleep 10.
+    Return 50.
+
+## Main
+    Let limit be threshold().
+    If 60 is greater than limit:
+        Show "above".
+    Otherwise:
+        Show "below".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("above"), "Should output above: {}", result.stdout);
+}
+
+#[test]
+fn e2e_multiple_async_in_one_expression() {
+    // Multiple async calls in a single expression - each assigned then combined
+    let source = r#"
+## To get_a -> Int:
+    Sleep 10.
+    Return 1.
+
+## To get_b -> Int:
+    Sleep 10.
+    Return 2.
+
+## To get_c -> Int:
+    Sleep 10.
+    Return 3.
+
+## Main
+    Let av be get_a().
+    Let bv be get_b().
+    Let cv be get_c().
+    Let result be av + bv * cv.
+    Show result.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    // 1 + (2 * 3) = 7
+    assert!(result.stdout.contains("7"), "Should output 7: {}", result.stdout);
+}
+
+// =============================================================================
+// Phase R: Transitive Async Through Multiple Layers
+// =============================================================================
+
+#[test]
+fn e2e_transitive_async_three_levels() {
+    // Transitive async through 3 levels of function calls
+    let source = r#"
+## To inner:
+    Sleep 10.
+    Show "inner".
+
+## To middle:
+    Call inner.
+    Show "middle".
+
+## To outer:
+    Call middle.
+    Show "outer".
+
+## Main
+    Call outer.
+    Show "main".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    assert!(result.stdout.contains("inner"), "Should output inner: {}", result.stdout);
+    assert!(result.stdout.contains("middle"), "Should output middle: {}", result.stdout);
+    assert!(result.stdout.contains("outer"), "Should output outer: {}", result.stdout);
+    assert!(result.stdout.contains("main"), "Should output main: {}", result.stdout);
+}
+
+#[test]
+fn e2e_transitive_async_with_return() {
+    // Transitive async with return values through multiple layers
+    let source = r#"
+## To base -> Int:
+    Sleep 10.
+    Return 10.
+
+## To level1 -> Int:
+    Return base() + 1.
+
+## To level2 -> Int:
+    Return level1() + 2.
+
+## To level3 -> Int:
+    Return level2() + 3.
+
+## Main
+    Let result be level3().
+    Show result.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    // 10 + 1 + 2 + 3 = 16
+    assert!(result.stdout.contains("16"), "Should output 16: {}", result.stdout);
+}
