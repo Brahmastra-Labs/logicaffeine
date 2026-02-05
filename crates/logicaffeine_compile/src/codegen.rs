@@ -679,12 +679,25 @@ pub fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
 /// Helper: Check if a statement calls any function in the async_fns set
 fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> bool {
     match stmt {
-        Stmt::Call { function, .. } => async_fns.contains(function),
-        Stmt::If { then_block, else_block, .. } => {
-            then_block.iter().any(|s| calls_async_function(s, async_fns))
+        Stmt::Call { function, args } => {
+            // Check if the called function is async OR if any argument expression calls an async function
+            async_fns.contains(function)
+                || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            calls_async_function_in_expr(cond, async_fns)
+                || then_block.iter().any(|s| calls_async_function(s, async_fns))
                 || else_block.map_or(false, |b| b.iter().any(|s| calls_async_function(s, async_fns)))
         }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+        Stmt::While { cond, body, .. } => {
+            calls_async_function_in_expr(cond, async_fns)
+                || body.iter().any(|s| calls_async_function(s, async_fns))
+        }
+        Stmt::Repeat { iterable, body, .. } => {
+            calls_async_function_in_expr(iterable, async_fns)
+                || body.iter().any(|s| calls_async_function(s, async_fns))
+        }
+        Stmt::Zone { body, .. } => {
             body.iter().any(|s| calls_async_function(s, async_fns))
         }
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
@@ -693,8 +706,34 @@ fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> bool {
         Stmt::FunctionDef { body, .. } => {
             body.iter().any(|s| calls_async_function(s, async_fns))
         }
-        // Also check Let statements for async function calls in the value expression
+        // Check Let statements for async function calls in the value expression
         Stmt::Let { value, .. } => calls_async_function_in_expr(value, async_fns),
+        // Check Set statements for async function calls in the value expression
+        Stmt::Set { value, .. } => calls_async_function_in_expr(value, async_fns),
+        // Check Return statements for async function calls in the return value
+        Stmt::Return { value } => {
+            value.as_ref().map_or(false, |v| calls_async_function_in_expr(v, async_fns))
+        }
+        // Check RuntimeAssert condition for async calls
+        Stmt::RuntimeAssert { condition } => calls_async_function_in_expr(condition, async_fns),
+        // Check Show for async calls
+        Stmt::Show { object, .. } => calls_async_function_in_expr(object, async_fns),
+        // Check Push for async calls
+        Stmt::Push { collection, value } => {
+            calls_async_function_in_expr(collection, async_fns)
+                || calls_async_function_in_expr(value, async_fns)
+        }
+        // Check SetIndex for async calls
+        Stmt::SetIndex { collection, index, value } => {
+            calls_async_function_in_expr(collection, async_fns)
+                || calls_async_function_in_expr(index, async_fns)
+                || calls_async_function_in_expr(value, async_fns)
+        }
+        // Check SendPipe for async calls
+        Stmt::SendPipe { value, pipe } | Stmt::TrySendPipe { value, pipe, .. } => {
+            calls_async_function_in_expr(value, async_fns)
+                || calls_async_function_in_expr(pipe, async_fns)
+        }
         _ => false,
     }
 }
@@ -1604,14 +1643,8 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-
-            // Check if value is a call to an async function - needs .await
-            let await_suffix = if let Expr::Call { function, .. } = value {
-                if async_functions.contains(function) { ".await" } else { "" }
-            } else {
-                ""
-            };
+            // Phase 54+: Use codegen_expr_boxed with async_functions to handle nested async calls
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
 
             // Phase 103: Get explicit type annotation or infer for multi-param generic enums
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner))
@@ -1621,10 +1654,10 @@ pub fn codegen_stmt<'a>(
             let is_mutable = *mutable || mutable_vars.contains(var);
 
             match (is_mutable, type_annotation) {
-                (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {}{};", indent_str, var_name, t, value_str, await_suffix).unwrap(),
-                (true, None) => writeln!(output, "{}let mut {} = {}{};", indent_str, var_name, value_str, await_suffix).unwrap(),
-                (false, Some(t)) => writeln!(output, "{}let {}: {} = {}{};", indent_str, var_name, t, value_str, await_suffix).unwrap(),
-                (false, None) => writeln!(output, "{}let {} = {}{};", indent_str, var_name, value_str, await_suffix).unwrap(),
+                (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
+                (true, None) => writeln!(output, "{}let mut {} = {};", indent_str, var_name, value_str).unwrap(),
+                (false, Some(t)) => writeln!(output, "{}let {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
+                (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
             }
 
             // Phase 43C: Handle refinement type
@@ -1636,16 +1669,10 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+            // Phase 54+: Use codegen_expr_boxed with async_functions to handle nested async calls
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
 
-            // Check if value is a call to an async function - needs .await
-            let await_suffix = if let Expr::Call { function, .. } = value {
-                if async_functions.contains(function) { ".await" } else { "" }
-            } else {
-                ""
-            };
-
-            writeln!(output, "{}{} = {}{};", indent_str, target_name, value_str, await_suffix).unwrap();
+            writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
 
             // Phase 43C: Check if this variable has a refinement constraint
             if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
@@ -1655,14 +1682,14 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions)).collect();
             // Add .await if calling an async function
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
             writeln!(output, "{}{}({}){};", indent_str, func_name, args_str.join(", "), await_suffix).unwrap();
         }
 
         Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr(cond, interner, synced_vars);
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions);
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
@@ -1682,7 +1709,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::While { cond, body, decreasing: _ } => {
             // decreasing is compile-time only, ignored at runtime
-            let cond_str = codegen_expr(cond, interner, synced_vars);
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions);
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
@@ -1694,7 +1721,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Repeat { var, iterable, body } => {
             let var_name = interner.resolve(*var);
-            let iter_str = codegen_expr(iterable, interner, synced_vars);
+            let iter_str = codegen_expr_with_async(iterable, interner, synced_vars, async_functions);
             writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
             ctx.push_scope();
             for stmt in *body {
@@ -1706,7 +1733,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr(v, interner, synced_vars);
+                let value_str = codegen_expr_with_async(v, interner, synced_vars, async_functions);
                 writeln!(output, "{}return {};", indent_str, value_str).unwrap();
             } else {
                 writeln!(output, "{}return;", indent_str).unwrap();
@@ -1729,7 +1756,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::RuntimeAssert { condition } => {
-            let cond_str = codegen_expr(condition, interner, synced_vars);
+            let cond_str = codegen_expr_with_async(condition, interner, synced_vars, async_functions);
             writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
@@ -1761,7 +1788,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 51: P2P Networking - Listen on network address
         Stmt::Listen { address } => {
-            let addr_str = codegen_expr(address, interner, synced_vars);
+            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions);
             // Pass &str instead of String
             writeln!(output, "{}logicaffeine_system::network::listen(&{}).await.expect(\"Failed to listen\");",
                      indent_str, addr_str).unwrap();
@@ -1769,7 +1796,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 51: P2P Networking - Connect to remote peer
         Stmt::ConnectTo { address } => {
-            let addr_str = codegen_expr(address, interner, synced_vars);
+            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions);
             // Pass &str instead of String
             writeln!(output, "{}logicaffeine_system::network::connect(&{}).await.expect(\"Failed to connect\");",
                      indent_str, addr_str).unwrap();
@@ -1778,7 +1805,7 @@ pub fn codegen_stmt<'a>(
         // Phase 51: P2P Networking - Create PeerAgent remote handle
         Stmt::LetPeerAgent { var, address } => {
             let var_name = interner.resolve(*var);
-            let addr_str = codegen_expr(address, interner, synced_vars);
+            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions);
             // Pass &str instead of String
             writeln!(output, "{}let {} = logicaffeine_system::network::PeerAgent::new(&{}).expect(\"Invalid address\");",
                      indent_str, var_name, addr_str).unwrap();
@@ -1786,7 +1813,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 51: Sleep - supports Duration literals or milliseconds
         Stmt::Sleep { milliseconds } => {
-            let expr_str = codegen_expr(milliseconds, interner, synced_vars);
+            let expr_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions);
             let inferred_type = infer_rust_type_from_expr(milliseconds, interner);
 
             if inferred_type == "std::time::Duration" {
@@ -1803,7 +1830,7 @@ pub fn codegen_stmt<'a>(
         // Phase 52/56: Sync CRDT variable on topic
         Stmt::Sync { var, topic } => {
             let var_name = interner.resolve(*var);
-            let topic_str = codegen_expr(topic, interner, synced_vars);
+            let topic_str = codegen_expr_with_async(topic, interner, synced_vars, async_functions);
 
             // Phase 56: Check if this variable is also mounted
             if let Some(caps) = var_caps.get(var) {
@@ -1828,7 +1855,7 @@ pub fn codegen_stmt<'a>(
         // Phase 53/56: Mount persistent CRDT from journal
         Stmt::Mount { var, path } => {
             let var_name = interner.resolve(*var);
-            let path_str = codegen_expr(path, interner, synced_vars);
+            let path_str = codegen_expr_with_async(path, interner, synced_vars, async_functions);
 
             // Phase 56: Check if this variable is also synced
             if let Some(caps) = var_caps.get(var) {
@@ -1870,7 +1897,7 @@ pub fn codegen_stmt<'a>(
                             return format!("{}_tx.clone()", interner.resolve(*sym));
                         }
                     }
-                    codegen_expr(a, interner, synced_vars)
+                    codegen_expr_with_async(a, interner, synced_vars, async_functions)
                 })
                 .collect();
             // Phase 54: Add .await only if the function is async
@@ -1893,7 +1920,7 @@ pub fn codegen_stmt<'a>(
                             return format!("{}_tx.clone()", interner.resolve(*sym));
                         }
                     }
-                    codegen_expr(a, interner, synced_vars)
+                    codegen_expr_with_async(a, interner, synced_vars, async_functions)
                 })
                 .collect();
             // Phase 54: Add .await only if the function is async
@@ -1925,8 +1952,8 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SendPipe { value, pipe } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
             // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -1950,7 +1977,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::ReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
-            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
             // Phase 54: Check if pipe is a local declaration (has _rx suffix) or parameter (no suffix)
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -1973,8 +2000,8 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::TrySendPipe { value, pipe, result } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
             // Phase 54: Check if pipe is a local declaration
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -2000,7 +2027,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::TryReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
-            let pipe_str = codegen_expr(pipe, interner, synced_vars);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
             // Phase 54: Check if pipe is a local declaration
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -2016,7 +2043,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::StopTask { handle } => {
-            let handle_str = codegen_expr(handle, interner, synced_vars);
+            let handle_str = codegen_expr_with_async(handle, interner, synced_vars, async_functions);
             writeln!(output, "{}{}.abort();", indent_str, handle_str).unwrap();
         }
 
@@ -2028,7 +2055,7 @@ pub fn codegen_stmt<'a>(
                 match branch {
                     SelectBranch::Receive { var, pipe, body } => {
                         let var_name = interner.resolve(*var);
-                        let pipe_str = codegen_expr(pipe, interner, synced_vars);
+                        let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
                         // Check if pipe is a local declaration (has _rx suffix) or a parameter (no suffix)
                         let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                             pipe_vars.contains(sym)
@@ -2054,7 +2081,7 @@ pub fn codegen_stmt<'a>(
                         writeln!(output, "{}    }}", indent_str).unwrap();
                     }
                     SelectBranch::Timeout { milliseconds, body } => {
-                        let ms_str = codegen_expr(milliseconds, interner, synced_vars);
+                        let ms_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions);
                         // Convert seconds to milliseconds if the value looks like seconds
                         writeln!(
                             output,
@@ -2074,22 +2101,22 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
-            let obj_str = codegen_expr(object, interner, synced_vars);
-            let recv_str = codegen_expr(recipient, interner, synced_vars);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions);
             writeln!(output, "{}{}({});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::Show { object, recipient } => {
             // Borrow semantics: pass immutable reference
-            let obj_str = codegen_expr(object, interner, synced_vars);
-            let recv_str = codegen_expr(recipient, interner, synced_vars);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions);
             writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::SetField { object, field, value } => {
-            let obj_str = codegen_expr(object, interner, synced_vars);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
 
             // Phase 49: Check if this field is an LWWRegister or MVRegister
             // LWW needs .set(value, timestamp), MV needs .set(value)
@@ -2115,7 +2142,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Inspect { target, arms, .. } => {
-            let target_str = codegen_expr(target, interner, synced_vars);
+            let target_str = codegen_expr_with_async(target, interner, synced_vars, async_functions);
 
             // Phase 102: Track which bindings come from boxed fields for inner Inspects
             let mut inner_boxed_bindings: HashSet<Symbol> = HashSet::new();
@@ -2230,13 +2257,13 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
             writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Pop { collection, into } => {
-            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
             match into {
                 Some(var) => {
                     let var_name = interner.resolve(*var);
@@ -2250,21 +2277,21 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Add { value, collection } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
             writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Remove { value, collection } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
             writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::SetIndex { collection, index, value } => {
-            let coll_str = codegen_expr(collection, interner, synced_vars);
-            let index_str = codegen_expr(index, interner, synced_vars);
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
+            let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions);
+            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 57: Polymorphic indexing via trait
             writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
         }
@@ -2385,17 +2412,13 @@ pub fn codegen_stmt<'a>(
                     let inner_code = match stmt {
                         Stmt::Let { value, .. } => {
                             // Return the value expression directly (not "let x = value;")
-                            // Add .await if value is a call to an async function
-                            let expr_code = codegen_expr(value, interner, synced_vars);
-                            let await_suffix = if let Expr::Call { function, .. } = value {
-                                if async_functions.contains(function) { ".await" } else { "" }
-                            } else { "" };
-                            format!("{}{}", expr_code, await_suffix)
+                            // Phase 54+: Use codegen_expr_with_async to handle all nested async calls
+                            codegen_expr_with_async(value, interner, synced_vars, async_functions)
                         }
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr(a, interner, synced_vars))
+                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions))
                                 .collect();
                             // Only add .await for async functions
                             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -2462,7 +2485,7 @@ pub fn codegen_stmt<'a>(
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr(a, interner, synced_vars))
+                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions))
                                 .collect();
                             format!("{}({})", func_name, args_str.join(", "))
                         }
@@ -2493,7 +2516,7 @@ pub fn codegen_stmt<'a>(
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr(a, interner, synced_vars))
+                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions))
                                 .collect();
                             format!("{}({})", func_name, args_str.join(", "))
                         }
@@ -2520,7 +2543,7 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}let {} = logicaffeine_system::io::read_line();", indent_str, var_name).unwrap();
                 }
                 ReadSource::File(path_expr) => {
-                    let path_str = codegen_expr(path_expr, interner, synced_vars);
+                    let path_str = codegen_expr_with_async(path_expr, interner, synced_vars, async_functions);
                     // Phase 53: Use VFS with async
                     writeln!(
                         output,
@@ -2534,8 +2557,8 @@ pub fn codegen_stmt<'a>(
         // Phase 10: Write to file
         // Phase 53: File writes now use async VFS
         Stmt::WriteFile { content, path } => {
-            let content_str = codegen_expr(content, interner, synced_vars);
-            let path_str = codegen_expr(path, interner, synced_vars);
+            let content_str = codegen_expr_with_async(content, interner, synced_vars, async_functions);
+            let path_str = codegen_expr_with_async(path, interner, synced_vars, async_functions);
             // Phase 53: Use VFS with async
             writeln!(
                 output,
@@ -2558,8 +2581,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Send message to agent
         Stmt::SendMessage { message, destination } => {
-            let msg_str = codegen_expr(message, interner, synced_vars);
-            let dest_str = codegen_expr(destination, interner, synced_vars);
+            let msg_str = codegen_expr_with_async(message, interner, synced_vars, async_functions);
+            let dest_str = codegen_expr_with_async(destination, interner, synced_vars, async_functions);
             writeln!(
                 output,
                 "{}{}.send({}).await.expect(\"Failed to send message\");",
@@ -2569,7 +2592,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Await response from agent
         Stmt::AwaitMessage { source, into } => {
-            let src_str = codegen_expr(source, interner, synced_vars);
+            let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions);
             let var_name = interner.resolve(*into);
             writeln!(
                 output,
@@ -2580,8 +2603,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49: Merge CRDT state
         Stmt::MergeCrdt { source, target } => {
-            let src_str = codegen_expr(source, interner, synced_vars);
-            let tgt_str = codegen_expr(target, interner, synced_vars);
+            let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions);
+            let tgt_str = codegen_expr_with_async(target, interner, synced_vars, async_functions);
             writeln!(
                 output,
                 "{}{}.merge(&{});",
@@ -2593,7 +2616,7 @@ pub fn codegen_stmt<'a>(
         // Phase 52: If object is synced, wrap in .mutate() for auto-publish
         Stmt::IncreaseCrdt { object, field, amount } => {
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr(amount, interner, synced_vars);
+            let amount_str = codegen_expr_with_async(amount, interner, synced_vars, async_functions);
 
             // Check if the root object is synced
             let root_sym = get_root_identifier(object);
@@ -2611,7 +2634,7 @@ pub fn codegen_stmt<'a>(
             }
 
             // Not synced: direct access
-            let obj_str = codegen_expr(object, interner, synced_vars);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
             writeln!(
                 output,
                 "{}{}.{}.increment({} as u64);",
@@ -2622,7 +2645,7 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Decrement PNCounter
         Stmt::DecreaseCrdt { object, field, amount } => {
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr(amount, interner, synced_vars);
+            let amount_str = codegen_expr_with_async(amount, interner, synced_vars, async_functions);
 
             // Check if the root object is synced
             let root_sym = get_root_identifier(object);
@@ -2640,7 +2663,7 @@ pub fn codegen_stmt<'a>(
             }
 
             // Not synced: direct access
-            let obj_str = codegen_expr(object, interner, synced_vars);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
             writeln!(
                 output,
                 "{}{}.{}.decrement({} as u64);",
@@ -2650,8 +2673,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49b: Append to SharedSequence (RGA)
         Stmt::AppendToSequence { sequence, value } => {
-            let seq_str = codegen_expr(sequence, interner, synced_vars);
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+            let seq_str = codegen_expr_with_async(sequence, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
             writeln!(
                 output,
                 "{}{}.append({});",
@@ -2662,8 +2685,8 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Resolve MVRegister conflicts
         Stmt::ResolveConflict { object, field, value } => {
             let field_name = interner.resolve(*field);
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
-            let obj_str = codegen_expr(object, interner, synced_vars);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
             writeln!(
                 output,
                 "{}{}.{}.resolve({});",
@@ -2692,19 +2715,34 @@ fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
 }
 
 pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
-    // Use empty registry and boxed_fields for simple expression codegen
+    // Use empty registry, boxed_fields, and async_functions for simple expression codegen
     let empty_registry = TypeRegistry::new();
-    codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry)
+    let empty_async = HashSet::new();
+    codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry, &empty_async)
+}
+
+/// Phase 54+: Codegen expression with async function tracking.
+/// Adds .await to async function calls at the expression level, handling nested calls.
+pub fn codegen_expr_with_async(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+) -> String {
+    let empty_registry = TypeRegistry::new();
+    codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions)
 }
 
 /// Phase 102: Codegen with boxed field support for recursive enums.
 /// Phase 103: Added registry for polymorphic enum type inference.
+/// Phase 54+: Added async_functions for proper .await on nested async calls.
 fn codegen_expr_boxed(
     expr: &Expr,
     interner: &Interner,
     synced_vars: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,  // (EnumName, VariantName, FieldName)
     registry: &TypeRegistry,  // Phase 103: For type annotations on polymorphic enums
+    async_functions: &HashSet<Symbol>,  // Phase 54+: Functions that are async
 ) -> String {
     match expr {
         Expr::Literal(lit) => codegen_literal(lit, interner),
@@ -2712,8 +2750,8 @@ fn codegen_expr_boxed(
         Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
 
         Expr::BinaryOp { op, left, right } => {
-            let left_str = codegen_expr(left, interner, synced_vars);
-            let right_str = codegen_expr(right, interner, synced_vars);
+            let left_str = codegen_expr_boxed(left, interner, synced_vars, boxed_fields, registry, async_functions);
+            let right_str = codegen_expr_boxed(right, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 53: String concatenation requires special handling
             if matches!(op, BinaryOpKind::Concat) {
                 return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
@@ -2745,88 +2783,96 @@ fn codegen_expr_boxed(
 
         Expr::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr(a, interner, synced_vars)).collect();
-            format!("{}({})", func_name, args_str.join(", "))
+            // Recursively codegen args with async support (nested async calls will get .await)
+            let args_str: Vec<String> = args.iter()
+                .map(|a| codegen_expr_boxed(a, interner, synced_vars, boxed_fields, registry, async_functions))
+                .collect();
+            // Add .await if this function is async
+            if async_functions.contains(function) {
+                format!("{}({}).await", func_name, args_str.join(", "))
+            } else {
+                format!("{}({})", func_name, args_str.join(", "))
+            }
         }
 
         Expr::Index { collection, index } => {
-            let coll_str = codegen_expr(collection, interner, synced_vars);
-            let index_str = codegen_expr(index, interner, synced_vars);
+            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
+            let index_str = codegen_expr_boxed(index, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 57: Polymorphic indexing via trait
             format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
-            let coll_str = codegen_expr(collection, interner, synced_vars);
-            let start_str = codegen_expr(start, interner, synced_vars);
-            let end_str = codegen_expr(end, interner, synced_vars);
+            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
+            let start_str = codegen_expr_boxed(start, interner, synced_vars, boxed_fields, registry, async_functions);
+            let end_str = codegen_expr_boxed(end, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
             // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
             format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
         }
 
         Expr::Copy { expr } => {
-            let expr_str = codegen_expr(expr, interner, synced_vars);
+            let expr_str = codegen_expr_boxed(expr, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 43D: Explicit clone to owned Vec
             format!("{}.to_vec()", expr_str)
         }
 
         Expr::Length { collection } => {
-            let coll_str = codegen_expr(collection, interner, synced_vars);
+            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
         }
 
         Expr::Contains { collection, value } => {
-            let coll_str = codegen_expr(collection, interner, synced_vars);
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
+            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
             // Use LogosContains trait for unified contains across List, Set, Map, Text
             format!("{}.logos_contains(&{})", coll_str, val_str)
         }
 
         Expr::Union { left, right } => {
-            let left_str = codegen_expr(left, interner, synced_vars);
-            let right_str = codegen_expr(right, interner, synced_vars);
+            let left_str = codegen_expr_boxed(left, interner, synced_vars, boxed_fields, registry, async_functions);
+            let right_str = codegen_expr_boxed(right, interner, synced_vars, boxed_fields, registry, async_functions);
             format!("{}.union(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
         }
 
         Expr::Intersection { left, right } => {
-            let left_str = codegen_expr(left, interner, synced_vars);
-            let right_str = codegen_expr(right, interner, synced_vars);
+            let left_str = codegen_expr_boxed(left, interner, synced_vars, boxed_fields, registry, async_functions);
+            let right_str = codegen_expr_boxed(right, interner, synced_vars, boxed_fields, registry, async_functions);
             format!("{}.intersection(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
         }
 
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
-            let zone_str = codegen_expr(zone, interner, synced_vars);
+            let zone_str = codegen_expr_boxed(zone, interner, synced_vars, boxed_fields, registry, async_functions);
             format!("logicaffeine_system::network::FileSipper::from_zone(&{}).manifest()", zone_str)
         }
 
         Expr::ChunkAt { index, zone } => {
-            let zone_str = codegen_expr(zone, interner, synced_vars);
-            let index_str = codegen_expr(index, interner, synced_vars);
+            let zone_str = codegen_expr_boxed(zone, interner, synced_vars, boxed_fields, registry, async_functions);
+            let index_str = codegen_expr_boxed(index, interner, synced_vars, boxed_fields, registry, async_functions);
             // LOGOS uses 1-indexed, Rust uses 0-indexed
             format!("logicaffeine_system::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| codegen_expr(i, interner, synced_vars))
+                .map(|i| codegen_expr_boxed(i, interner, synced_vars, boxed_fields, registry, async_functions))
                 .collect();
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Tuple(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| format!("Value::from({})", codegen_expr(i, interner, synced_vars)))
+                .map(|i| format!("Value::from({})", codegen_expr_boxed(i, interner, synced_vars, boxed_fields, registry, async_functions)))
                 .collect();
             // Tuples as Vec<Value> for heterogeneous support
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Range { start, end } => {
-            let start_str = codegen_expr(start, interner, synced_vars);
-            let end_str = codegen_expr(end, interner, synced_vars);
+            let start_str = codegen_expr_boxed(start, interner, synced_vars, boxed_fields, registry, async_functions);
+            let end_str = codegen_expr_boxed(end, interner, synced_vars, boxed_fields, registry, async_functions);
             format!("({}..={})", start_str, end_str)
         }
 
@@ -2842,7 +2888,7 @@ fn codegen_expr_boxed(
                 }
             }
 
-            let obj_str = codegen_expr(object, interner, synced_vars);
+            let obj_str = codegen_expr_boxed(object, interner, synced_vars, boxed_fields, registry, async_functions);
             format!("{}.{}", obj_str, field_name)
         }
 
@@ -2854,7 +2900,7 @@ fn codegen_expr_boxed(
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
-                        let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry);
+                        let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
                         format!("{}: {}", field_name, value_str)
                     })
                     .collect::<Vec<_>>()
@@ -2919,7 +2965,7 @@ fn codegen_expr_boxed(
                                 interner.resolve(*sym).to_string()
                             }
                         } else {
-                            codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry)
+                            codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions)
                         };
 
                         // Check if this field needs to be boxed (recursive type)
