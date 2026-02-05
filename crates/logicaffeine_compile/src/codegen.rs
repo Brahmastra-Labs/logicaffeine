@@ -111,6 +111,14 @@ pub struct RefinementContext<'a> {
     ///
     /// Example: `doc` → `"Document"` allows resolving "the document" to `&doc`.
     variable_types: HashMap<Symbol, String>,
+
+    /// Stack of scopes tracking which bindings came from boxed enum fields.
+    /// When these are used in expressions, they need to be dereferenced with `*`.
+    boxed_binding_scopes: Vec<HashSet<Symbol>>,
+
+    /// Tracks variables that are known to be String type.
+    /// Used for proper string concatenation codegen (format! vs +).
+    string_vars: HashSet<Symbol>,
 }
 
 impl<'a> RefinementContext<'a> {
@@ -118,15 +126,53 @@ impl<'a> RefinementContext<'a> {
         Self {
             scopes: vec![HashMap::new()],
             variable_types: HashMap::new(),
+            boxed_binding_scopes: vec![HashSet::new()],
+            string_vars: HashSet::new(),
         }
     }
 
     fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
+        self.boxed_binding_scopes.push(HashSet::new());
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.boxed_binding_scopes.pop();
+    }
+
+    /// Register a binding that came from a boxed enum field.
+    /// These need `*` dereferencing when used in expressions.
+    fn register_boxed_binding(&mut self, var: Symbol) {
+        if let Some(scope) = self.boxed_binding_scopes.last_mut() {
+            scope.insert(var);
+        }
+    }
+
+    /// Check if a variable is a boxed binding (needs dereferencing).
+    fn is_boxed_binding(&self, var: Symbol) -> bool {
+        for scope in self.boxed_binding_scopes.iter().rev() {
+            if scope.contains(&var) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Register a variable as having String type.
+    /// Used for proper string concatenation codegen.
+    fn register_string_var(&mut self, var: Symbol) {
+        self.string_vars.insert(var);
+    }
+
+    /// Check if a variable is known to be a String.
+    fn is_string_var(&self, var: Symbol) -> bool {
+        self.string_vars.contains(&var)
+    }
+
+    /// Get a reference to the string_vars set for expression codegen.
+    fn get_string_vars(&self) -> &HashSet<Symbol> {
+        &self.string_vars
     }
 
     fn register(&mut self, var: Symbol, bound_var: Symbol, predicate: &'a LogicExpr<'a>) {
@@ -330,6 +376,10 @@ fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
         Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
+        // Check Inspect arms for async operations
+        Stmt::Inspect { arms, .. } => {
+            arms.iter().any(|arm| arm.body.iter().any(|s| requires_async_stmt(s)))
+        }
         _ => false,
     }
 }
@@ -733,6 +783,11 @@ fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> bool {
         Stmt::SendPipe { value, pipe } | Stmt::TrySendPipe { value, pipe, .. } => {
             calls_async_function_in_expr(value, async_fns)
                 || calls_async_function_in_expr(pipe, async_fns)
+        }
+        // Check Inspect arms for async function calls
+        Stmt::Inspect { target, arms, .. } => {
+            calls_async_function_in_expr(target, async_fns)
+                || arms.iter().any(|arm| arm.body.iter().any(|s| calls_async_function(s, async_fns)))
         }
         _ => false,
     }
@@ -1298,10 +1353,11 @@ fn map_type_to_rust(ty: &str) -> String {
         "Nat" => "u64".to_string(),
         "Text" => "String".to_string(),
         "Bool" | "Boolean" => "bool".to_string(),
-        "Real" => "f64".to_string(),
+        "Real" | "Float" => "f64".to_string(),
         "Char" => "char".to_string(),
         "Byte" => "u8".to_string(),
         "Unit" | "()" => "()".to_string(),
+        "Duration" => "std::time::Duration".to_string(),
         other => other.to_string(),
     }
 }
@@ -1470,10 +1526,11 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "Nat" => "u64".to_string(),
                 "Text" => "String".to_string(),
                 "Bool" | "Boolean" => "bool".to_string(),
-                "Real" => "f64".to_string(),
+                "Real" | "Float" => "f64".to_string(),
                 "Char" => "char".to_string(),
                 "Byte" => "u8".to_string(),
                 "Unit" => "()".to_string(),
+                "Duration" => "std::time::Duration".to_string(),
                 other => other.to_string(),
             }
         }
@@ -1643,8 +1700,11 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            // Phase 54+: Use codegen_expr_boxed with async_functions to handle nested async calls
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            // Phase 54+: Use codegen_expr_boxed with string tracking for proper concatenation
+            let value_str = codegen_expr_boxed_with_strings(
+                value, interner, synced_vars, boxed_fields, registry, async_functions,
+                ctx.get_string_vars()
+            );
 
             // Phase 103: Get explicit type annotation or infer for multi-param generic enums
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner))
@@ -1660,6 +1720,11 @@ pub fn codegen_stmt<'a>(
                 (false, None) => writeln!(output, "{}let {} = {};", indent_str, var_name, value_str).unwrap(),
             }
 
+            // Track string variables for proper concatenation in subsequent expressions
+            if is_definitely_string_expr_with_vars(value, ctx.get_string_vars()) {
+                ctx.register_string_var(*var);
+            }
+
             // Phase 43C: Handle refinement type
             if let Some(TypeExpr::Refinement { base: _, var: bound_var, predicate }) = ty {
                 emit_refinement_check(var_name, *bound_var, predicate, interner, &indent_str, &mut output);
@@ -1669,8 +1734,11 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            // Phase 54+: Use codegen_expr_boxed with async_functions to handle nested async calls
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            // Phase 54+: Use codegen_expr_boxed with string tracking for proper concatenation
+            let value_str = codegen_expr_boxed_with_strings(
+                value, interner, synced_vars, boxed_fields, registry, async_functions,
+                ctx.get_string_vars()
+            );
 
             writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
 
@@ -1722,7 +1790,20 @@ pub fn codegen_stmt<'a>(
         Stmt::Repeat { var, iterable, body } => {
             let var_name = interner.resolve(*var);
             let iter_str = codegen_expr_with_async(iterable, interner, synced_vars, async_functions);
-            writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
+
+            // Check if body contains async operations - if so, use while-let pattern
+            // because standard for loops cannot contain .await
+            let body_has_async = body.iter().any(|s| {
+                requires_async_stmt(s) || calls_async_function(s, async_functions)
+            });
+
+            if body_has_async {
+                // Use while-let with explicit iterator for async compatibility
+                writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
+                writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, var_name).unwrap();
+            } else {
+                writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
+            }
             ctx.push_scope();
             for stmt in *body {
                 output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
@@ -2108,7 +2189,8 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Show { object, recipient } => {
             // Borrow semantics: pass immutable reference
-            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            // Use string_vars for proper concatenation of string variables
+            let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars());
             let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions);
             writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
         }
@@ -2145,7 +2227,9 @@ pub fn codegen_stmt<'a>(
             let target_str = codegen_expr_with_async(target, interner, synced_vars, async_functions);
 
             // Phase 102: Track which bindings come from boxed fields for inner Inspects
-            let mut inner_boxed_bindings: HashSet<Symbol> = HashSet::new();
+            // Use NAMES (strings) not symbols, because parser may create different symbols
+            // for the same identifier in different syntactic positions.
+            let mut inner_boxed_binding_names: HashSet<String> = HashSet::new();
 
             writeln!(output, "{}match {} {{", indent_str, target_str).unwrap();
 
@@ -2173,7 +2257,7 @@ pub fn codegen_stmt<'a>(
                                 if let Some(enum_name) = enum_name_str {
                                     let key = (enum_name.to_string(), variant_name.to_string(), field_name.to_string());
                                     if boxed_fields.contains(&key) {
-                                        inner_boxed_bindings.insert(*binding);
+                                        inner_boxed_binding_names.insert(binding_name.to_string());
                                     }
                                 }
 
@@ -2192,16 +2276,26 @@ pub fn codegen_stmt<'a>(
                 }
 
                 ctx.push_scope();
+
+                // Generate explicit dereferences for boxed bindings at the start of the arm
+                // This makes them usable as regular values in the rest of the body
+                for binding_name in &inner_boxed_binding_names {
+                    writeln!(output, "{}        let {} = (*{}).clone();", indent_str, binding_name, binding_name).unwrap();
+                }
+
                 for stmt in arm.body {
                     // Phase 102: Handle inner Inspect statements with boxed bindings
+                    // Note: Since we now dereference boxed bindings at the start of the arm,
+                    // inner matches don't need the `*` dereference operator.
                     let inner_stmt_code = if let Stmt::Inspect { target: inner_target, .. } = stmt {
-                        // Check if the inner target is a boxed binding
+                        // Check if the inner target is a boxed binding (already dereferenced above)
+                        // Use name comparison since symbols may differ between binding and reference
                         if let Expr::Identifier(sym) = inner_target {
-                            if inner_boxed_bindings.contains(sym) {
-                                // Generate with dereference
-                                let target_str = interner.resolve(*sym);
+                            let target_name = interner.resolve(*sym);
+                            if inner_boxed_binding_names.contains(target_name) {
+                                // Generate match (binding was already dereferenced at arm start)
                                 let mut inner_output = String::new();
-                                writeln!(inner_output, "{}match *{} {{", "    ".repeat(indent + 2), target_str).unwrap();
+                                writeln!(inner_output, "{}match {} {{", "    ".repeat(indent + 2), target_name).unwrap();
 
                                 if let Stmt::Inspect { arms: inner_arms, .. } = stmt {
                                     for inner_arm in inner_arms.iter() {
@@ -2733,6 +2827,74 @@ pub fn codegen_expr_with_async(
     codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions)
 }
 
+/// Codegen expression with async support and string variable tracking.
+fn codegen_expr_with_async_and_strings(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+    string_vars: &HashSet<Symbol>,
+) -> String {
+    let empty_registry = TypeRegistry::new();
+    codegen_expr_boxed_with_strings(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions, string_vars)
+}
+
+/// Check if an expression is definitely numeric (safe to use + operator).
+/// This is conservative for Add operations - treats it as string concat only
+/// when clearly dealing with strings (string literals).
+fn is_definitely_numeric_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Literal(Literal::Number(_)) => true,
+        Expr::Literal(Literal::Float(_)) => true,
+        Expr::Literal(Literal::Duration(_)) => true,
+        // Identifiers might be strings, but without a string literal nearby,
+        // assume numeric (Rust will catch type errors)
+        Expr::Identifier(_) => true,
+        // Arithmetic operations are numeric
+        Expr::BinaryOp { op: BinaryOpKind::Subtract, .. } => true,
+        Expr::BinaryOp { op: BinaryOpKind::Multiply, .. } => true,
+        Expr::BinaryOp { op: BinaryOpKind::Divide, .. } => true,
+        Expr::BinaryOp { op: BinaryOpKind::Modulo, .. } => true,
+        // Length always returns a number
+        Expr::Length { .. } => true,
+        // Add is numeric if both operands seem numeric
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            is_definitely_numeric_expr(left) && is_definitely_numeric_expr(right)
+        }
+        // Function calls - assume numeric (Rust type checker will validate)
+        Expr::Call { .. } => true,
+        // Index expressions - assume numeric
+        Expr::Index { .. } => true,
+        _ => true,
+    }
+}
+
+/// Check if an expression is definitely a string (needs format! for concatenation).
+/// Takes a set of known string variable symbols for identifier lookup.
+fn is_definitely_string_expr_with_vars(expr: &Expr, string_vars: &HashSet<Symbol>) -> bool {
+    match expr {
+        // String literals are definitely strings
+        Expr::Literal(Literal::Text(_)) => true,
+        // Variables known to be strings
+        Expr::Identifier(sym) => string_vars.contains(sym),
+        // Concat always produces strings
+        Expr::BinaryOp { op: BinaryOpKind::Concat, .. } => true,
+        // Add with a string operand produces a string
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            is_definitely_string_expr_with_vars(left, string_vars)
+                || is_definitely_string_expr_with_vars(right, string_vars)
+        }
+        _ => false,
+    }
+}
+
+/// Check if an expression is definitely a string (without variable tracking).
+/// This is a fallback for contexts where string_vars isn't available.
+fn is_definitely_string_expr(expr: &Expr) -> bool {
+    let empty = HashSet::new();
+    is_definitely_string_expr_with_vars(expr, &empty)
+}
+
 /// Phase 102: Codegen with boxed field support for recursive enums.
 /// Phase 103: Added registry for polymorphic enum type inference.
 /// Phase 54+: Added async_functions for proper .await on nested async calls.
@@ -2744,23 +2906,73 @@ fn codegen_expr_boxed(
     registry: &TypeRegistry,  // Phase 103: For type annotations on polymorphic enums
     async_functions: &HashSet<Symbol>,  // Phase 54+: Functions that are async
 ) -> String {
+    // Delegate to codegen_expr_full with empty context for boxed bindings and string vars
+    let empty_boxed = HashSet::new();
+    let empty_strings = HashSet::new();
+    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, &empty_strings)
+}
+
+/// Codegen with string variable tracking for proper string concatenation.
+fn codegen_expr_boxed_with_strings(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    async_functions: &HashSet<Symbol>,
+    string_vars: &HashSet<Symbol>,
+) -> String {
+    let empty_boxed = HashSet::new();
+    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, string_vars)
+}
+
+/// Internal implementation of codegen_expr_boxed that can handle extra context.
+fn codegen_expr_boxed_internal(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    async_functions: &HashSet<Symbol>,
+    boxed_bindings: &HashSet<Symbol>,
+    string_vars: &HashSet<Symbol>,
+) -> String {
+    // Helper macro for recursive calls with all context
+    macro_rules! recurse {
+        ($e:expr) => {
+            codegen_expr_boxed_internal($e, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars)
+        };
+    }
+
     match expr {
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
-        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+        Expr::Identifier(sym) => {
+            let name = interner.resolve(*sym).to_string();
+            // Dereference boxed bindings from enum destructuring
+            if boxed_bindings.contains(sym) {
+                format!("(*{})", name)
+            } else {
+                name
+            }
+        }
 
         Expr::BinaryOp { op, left, right } => {
-            let left_str = codegen_expr_boxed(left, interner, synced_vars, boxed_fields, registry, async_functions);
-            let right_str = codegen_expr_boxed(right, interner, synced_vars, boxed_fields, registry, async_functions);
+            let left_str = recurse!(left);
+            let right_str = recurse!(right);
             // Phase 53: String concatenation requires special handling
             if matches!(op, BinaryOpKind::Concat) {
                 return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
             }
-            // Handle string + value as concatenation (using format! for type safety)
-            let left_is_string = matches!(**left, Expr::Literal(Literal::Text(_)));
-            let right_is_string = matches!(**right, Expr::Literal(Literal::Text(_)));
-            if matches!(op, BinaryOpKind::Add) && (left_is_string || right_is_string) {
-                return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
+            // Handle Add operator: use format!() only if either operand is definitely a string.
+            // This handles cases like `"hello" + x` or `a + "world"` or `a + b` (both strings).
+            // For numeric expressions, use regular + and let Rust type-check.
+            if matches!(op, BinaryOpKind::Add) {
+                let has_string = is_definitely_string_expr_with_vars(left, string_vars)
+                    || is_definitely_string_expr_with_vars(right, string_vars);
+                if has_string {
+                    return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
+                }
             }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
@@ -2783,9 +2995,9 @@ fn codegen_expr_boxed(
 
         Expr::Call { function, args } => {
             let func_name = interner.resolve(*function);
-            // Recursively codegen args with async support (nested async calls will get .await)
+            // Recursively codegen args with full context
             let args_str: Vec<String> = args.iter()
-                .map(|a| codegen_expr_boxed(a, interner, synced_vars, boxed_fields, registry, async_functions))
+                .map(|a| recurse!(a))
                 .collect();
             // Add .await if this function is async
             if async_functions.contains(function) {
@@ -2796,83 +3008,83 @@ fn codegen_expr_boxed(
         }
 
         Expr::Index { collection, index } => {
-            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
-            let index_str = codegen_expr_boxed(index, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = recurse!(collection);
+            let index_str = recurse!(index);
             // Phase 57: Polymorphic indexing via trait
             format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
         }
 
         Expr::Slice { collection, start, end } => {
-            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
-            let start_str = codegen_expr_boxed(start, interner, synced_vars, boxed_fields, registry, async_functions);
-            let end_str = codegen_expr_boxed(end, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = recurse!(collection);
+            let start_str = recurse!(start);
+            let end_str = recurse!(end);
             // Phase 43D: 1-indexed inclusive to 0-indexed exclusive
             // "items 1 through 3" → &items[0..3] (elements at indices 0, 1, 2)
             format!("&{}[({} - 1) as usize..{} as usize]", coll_str, start_str, end_str)
         }
 
-        Expr::Copy { expr } => {
-            let expr_str = codegen_expr_boxed(expr, interner, synced_vars, boxed_fields, registry, async_functions);
+        Expr::Copy { expr: inner } => {
+            let expr_str = recurse!(inner);
             // Phase 43D: Explicit clone to owned Vec
             format!("{}.to_vec()", expr_str)
         }
 
         Expr::Length { collection } => {
-            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = recurse!(collection);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
         }
 
         Expr::Contains { collection, value } => {
-            let coll_str = codegen_expr_boxed(collection, interner, synced_vars, boxed_fields, registry, async_functions);
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = recurse!(collection);
+            let val_str = recurse!(value);
             // Use LogosContains trait for unified contains across List, Set, Map, Text
             format!("{}.logos_contains(&{})", coll_str, val_str)
         }
 
         Expr::Union { left, right } => {
-            let left_str = codegen_expr_boxed(left, interner, synced_vars, boxed_fields, registry, async_functions);
-            let right_str = codegen_expr_boxed(right, interner, synced_vars, boxed_fields, registry, async_functions);
+            let left_str = recurse!(left);
+            let right_str = recurse!(right);
             format!("{}.union(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
         }
 
         Expr::Intersection { left, right } => {
-            let left_str = codegen_expr_boxed(left, interner, synced_vars, boxed_fields, registry, async_functions);
-            let right_str = codegen_expr_boxed(right, interner, synced_vars, boxed_fields, registry, async_functions);
+            let left_str = recurse!(left);
+            let right_str = recurse!(right);
             format!("{}.intersection(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
         }
 
         // Phase 48: Sipping Protocol expressions
         Expr::ManifestOf { zone } => {
-            let zone_str = codegen_expr_boxed(zone, interner, synced_vars, boxed_fields, registry, async_functions);
+            let zone_str = recurse!(zone);
             format!("logicaffeine_system::network::FileSipper::from_zone(&{}).manifest()", zone_str)
         }
 
         Expr::ChunkAt { index, zone } => {
-            let zone_str = codegen_expr_boxed(zone, interner, synced_vars, boxed_fields, registry, async_functions);
-            let index_str = codegen_expr_boxed(index, interner, synced_vars, boxed_fields, registry, async_functions);
+            let zone_str = recurse!(zone);
+            let index_str = recurse!(index);
             // LOGOS uses 1-indexed, Rust uses 0-indexed
             format!("logicaffeine_system::network::FileSipper::from_zone(&{}).get_chunk(({} - 1) as usize)", zone_str, index_str)
         }
 
         Expr::List(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| codegen_expr_boxed(i, interner, synced_vars, boxed_fields, registry, async_functions))
+                .map(|i| recurse!(i))
                 .collect();
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Tuple(ref items) => {
             let item_strs: Vec<String> = items.iter()
-                .map(|i| format!("Value::from({})", codegen_expr_boxed(i, interner, synced_vars, boxed_fields, registry, async_functions)))
+                .map(|i| format!("Value::from({})", recurse!(i)))
                 .collect();
             // Tuples as Vec<Value> for heterogeneous support
             format!("vec![{}]", item_strs.join(", "))
         }
 
         Expr::Range { start, end } => {
-            let start_str = codegen_expr_boxed(start, interner, synced_vars, boxed_fields, registry, async_functions);
-            let end_str = codegen_expr_boxed(end, interner, synced_vars, boxed_fields, registry, async_functions);
+            let start_str = recurse!(start);
+            let end_str = recurse!(end);
             format!("({}..={})", start_str, end_str)
         }
 
@@ -2888,7 +3100,7 @@ fn codegen_expr_boxed(
                 }
             }
 
-            let obj_str = codegen_expr_boxed(object, interner, synced_vars, boxed_fields, registry, async_functions);
+            let obj_str = recurse!(object);
             format!("{}.{}", obj_str, field_name)
         }
 
@@ -2900,7 +3112,7 @@ fn codegen_expr_boxed(
                 let fields_str = init_fields.iter()
                     .map(|(name, value)| {
                         let field_name = interner.resolve(*name);
-                        let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+                        let value_str = recurse!(value);
                         format!("{}: {}", field_name, value_str)
                     })
                     .collect::<Vec<_>>()
@@ -2948,24 +3160,29 @@ fn codegen_expr_boxed(
                         let val = if let Expr::Identifier(sym) = value {
                             let total = identifier_counts.get(sym).copied().unwrap_or(0);
                             let remaining = remaining_uses.get_mut(sym);
+                            let base_name = if boxed_bindings.contains(sym) {
+                                format!("(*{})", interner.resolve(*sym))
+                            } else {
+                                interner.resolve(*sym).to_string()
+                            };
                             if total > 1 {
                                 if let Some(r) = remaining {
                                     *r -= 1;
                                     if *r > 0 {
                                         // Not the last use, need to clone
-                                        format!("{}.clone()", interner.resolve(*sym))
+                                        format!("{}.clone()", base_name)
                                     } else {
                                         // Last use, can move
-                                        interner.resolve(*sym).to_string()
+                                        base_name
                                     }
                                 } else {
-                                    interner.resolve(*sym).to_string()
+                                    base_name
                                 }
                             } else {
-                                interner.resolve(*sym).to_string()
+                                base_name
                             }
                         } else {
-                            codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions)
+                            recurse!(value)
                         };
 
                         // Check if this field needs to be boxed (recursive type)
