@@ -65,7 +65,11 @@ web-sys = { version = "0.3", features = [
     "FileSystemWritableFileStream", "FileSystemGetFileOptions",
     "FileSystemGetDirectoryOptions", "FileSystemCreateWritableOptions",
     "File", "Blob", "DomException",
-    "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent"
+    "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent",
+    # IndexedDB features for fallback VFS
+    "IdbFactory", "IdbDatabase", "IdbObjectStore", "IdbRequest", "IdbTransaction",
+    "IdbTransactionMode", "IdbOpenDbRequest", "IdbVersionChangeEvent",
+    "IdbObjectStoreParameters", "Event", "EventTarget", "DomStringList"
 ]}
 
 [dev-dependencies]

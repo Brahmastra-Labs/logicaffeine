@@ -35,10 +35,16 @@ mod opfs;
 mod worker_opfs;
 
 #[cfg(target_arch = "wasm32")]
+mod indexeddb_vfs;
+
+#[cfg(target_arch = "wasm32")]
 pub use opfs::OpfsVfs;
 
 #[cfg(target_arch = "wasm32")]
 pub use worker_opfs::WorkerOpfsVfs;
+
+#[cfg(target_arch = "wasm32")]
+pub use indexeddb_vfs::IndexedDbVfs;
 
 use async_trait::async_trait;
 use std::io;
@@ -302,6 +308,154 @@ pub fn get_platform_vfs() -> NativeVfs {
 #[cfg(target_arch = "wasm32")]
 pub fn get_platform_vfs() -> VfsResult<WorkerOpfsVfs> {
     WorkerOpfsVfs::new()
+}
+
+/// Enum wrapping both OPFS and IndexedDB VFS implementations.
+///
+/// Used for transparent fallback when OPFS is unavailable (e.g., Private Browsing).
+#[cfg(target_arch = "wasm32")]
+#[derive(Clone)]
+pub enum WebVfs {
+    /// Primary: OPFS via Web Worker (best performance, largest quota)
+    Opfs(WorkerOpfsVfs),
+    /// Fallback: IndexedDB (works in Private Browsing, session-scoped)
+    IndexedDb(IndexedDbVfs),
+}
+
+#[cfg(target_arch = "wasm32")]
+impl WebVfs {
+    /// Returns true if using the IndexedDB fallback.
+    pub fn is_fallback(&self) -> bool {
+        matches!(self, WebVfs::IndexedDb(_))
+    }
+
+    /// Returns a human-readable name for the current storage backend.
+    pub fn backend_name(&self) -> &'static str {
+        match self {
+            WebVfs::Opfs(_) => "OPFS",
+            WebVfs::IndexedDb(_) => "IndexedDB",
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[async_trait(?Send)]
+impl Vfs for WebVfs {
+    async fn read(&self, path: &str) -> VfsResult<Vec<u8>> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.read(path).await,
+            WebVfs::IndexedDb(vfs) => vfs.read(path).await,
+        }
+    }
+
+    async fn read_to_string(&self, path: &str) -> VfsResult<String> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.read_to_string(path).await,
+            WebVfs::IndexedDb(vfs) => vfs.read_to_string(path).await,
+        }
+    }
+
+    async fn write(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.write(path, contents).await,
+            WebVfs::IndexedDb(vfs) => vfs.write(path, contents).await,
+        }
+    }
+
+    async fn append(&self, path: &str, contents: &[u8]) -> VfsResult<()> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.append(path, contents).await,
+            WebVfs::IndexedDb(vfs) => vfs.append(path, contents).await,
+        }
+    }
+
+    async fn exists(&self, path: &str) -> VfsResult<bool> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.exists(path).await,
+            WebVfs::IndexedDb(vfs) => vfs.exists(path).await,
+        }
+    }
+
+    async fn remove(&self, path: &str) -> VfsResult<()> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.remove(path).await,
+            WebVfs::IndexedDb(vfs) => vfs.remove(path).await,
+        }
+    }
+
+    async fn create_dir_all(&self, path: &str) -> VfsResult<()> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.create_dir_all(path).await,
+            WebVfs::IndexedDb(vfs) => vfs.create_dir_all(path).await,
+        }
+    }
+
+    async fn rename(&self, from: &str, to: &str) -> VfsResult<()> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.rename(from, to).await,
+            WebVfs::IndexedDb(vfs) => vfs.rename(from, to).await,
+        }
+    }
+
+    async fn list_dir(&self, path: &str) -> VfsResult<Vec<DirEntry>> {
+        match self {
+            WebVfs::Opfs(vfs) => vfs.list_dir(path).await,
+            WebVfs::IndexedDb(vfs) => vfs.list_dir(path).await,
+        }
+    }
+}
+
+/// Get platform VFS with automatic fallback.
+///
+/// Tries OPFS first (best performance), falls back to IndexedDB if OPFS is
+/// unavailable (e.g., Private Browsing mode).
+///
+/// Returns `(WebVfs, is_fallback)` where `is_fallback` is true if using IndexedDB.
+#[cfg(target_arch = "wasm32")]
+pub async fn get_platform_vfs_with_fallback() -> VfsResult<WebVfs> {
+    use wasm_bindgen::prelude::*;
+
+    #[wasm_bindgen]
+    extern "C" {
+        #[wasm_bindgen(js_namespace = console)]
+        fn log(s: &str);
+    }
+
+    log("[VFS] Attempting OPFS initialization...");
+
+    // Try OPFS first
+    match WorkerOpfsVfs::new() {
+        Ok(opfs) => {
+            // Test if OPFS actually works by trying to create a directory
+            // This catches Private Browsing mode where OPFS creation succeeds
+            // but operations fail
+            match opfs.create_dir_all("/").await {
+                Ok(_) => {
+                    log("[VFS] OPFS initialized successfully");
+                    return Ok(WebVfs::Opfs(opfs));
+                }
+                Err(e) => {
+                    log(&format!("[VFS] OPFS test failed: {:?}, trying IndexedDB...", e));
+                }
+            }
+        }
+        Err(e) => {
+            log(&format!("[VFS] OPFS creation failed: {:?}, trying IndexedDB...", e));
+        }
+    }
+
+    // Fall back to IndexedDB
+    log("[VFS] Falling back to IndexedDB...");
+    match IndexedDbVfs::new().await {
+        Ok(idb) => {
+            log("[VFS] IndexedDB initialized successfully");
+            Ok(WebVfs::IndexedDb(idb))
+        }
+        Err(e) => {
+            log(&format!("[VFS] IndexedDB initialization failed: {:?}", e));
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

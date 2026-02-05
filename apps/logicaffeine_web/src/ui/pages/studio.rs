@@ -47,6 +47,8 @@ use crate::ui::state::{StudioMode, FileNode, ReplLine};
 use crate::ui::responsive::{MOBILE_BASE_STYLES, MOBILE_TAB_BAR_STYLES};
 use logicaffeine_kernel::interface::Repl;
 use crate::ui::examples::seed_examples;
+#[cfg(target_arch = "wasm32")]
+use logicaffeine_system::fs::get_platform_vfs_with_fallback;
 use logicaffeine_system::fs::{get_platform_vfs, Vfs, DirEntry, VfsResult};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
@@ -303,47 +305,6 @@ fn count_files(node: &FileNode) -> usize {
         }
     }
     count
-}
-
-/// Create a fallback static tree of examples when VFS fails.
-/// This ensures mobile users can still browse examples even if OPFS doesn't work.
-fn create_fallback_tree() -> FileNode {
-    let mut root = FileNode::root();
-
-    // Examples directory
-    let mut examples = FileNode::directory("examples".to_string(), "/examples".to_string());
-
-    // Logic examples
-    let mut logic = FileNode::directory("logic".to_string(), "/examples/logic".to_string());
-    logic.children.push(FileNode::file("prover-demo.logic".to_string(), "/examples/logic/prover-demo.logic".to_string()));
-    logic.children.push(FileNode::file("simple-sentences.logic".to_string(), "/examples/logic/simple-sentences.logic".to_string()));
-    logic.children.push(FileNode::file("quantifiers.logic".to_string(), "/examples/logic/quantifiers.logic".to_string()));
-    logic.children.push(FileNode::file("syllogism.logic".to_string(), "/examples/logic/syllogism.logic".to_string()));
-    logic.children.push(FileNode::file("barber-paradox.logic".to_string(), "/examples/logic/barber-paradox.logic".to_string()));
-    examples.children.push(logic);
-
-    // Code examples
-    let mut code = FileNode::directory("code".to_string(), "/examples/code".to_string());
-    code.children.push(FileNode::file("hello-world.logos".to_string(), "/examples/code/hello-world.logos".to_string()));
-    code.children.push(FileNode::file("fibonacci.logos".to_string(), "/examples/code/fibonacci.logos".to_string()));
-    code.children.push(FileNode::file("fizzbuzz.logos".to_string(), "/examples/code/fizzbuzz.logos".to_string()));
-    code.children.push(FileNode::file("factorial.logos".to_string(), "/examples/code/factorial.logos".to_string()));
-    code.children.push(FileNode::file("collections.logos".to_string(), "/examples/code/collections.logos".to_string()));
-    examples.children.push(code);
-
-    // Math examples
-    let mut math = FileNode::directory("math".to_string(), "/examples/math".to_string());
-    math.children.push(FileNode::file("natural-numbers.logos".to_string(), "/examples/math/natural-numbers.logos".to_string()));
-    math.children.push(FileNode::file("boolean-logic.logos".to_string(), "/examples/math/boolean-logic.logos".to_string()));
-    math.children.push(FileNode::file("prop-logic.logos".to_string(), "/examples/math/prop-logic.logos".to_string()));
-    examples.children.push(math);
-
-    root.children.push(examples);
-
-    // Workspace directory
-    root.children.push(FileNode::directory("workspace".to_string(), "/workspace".to_string()));
-
-    root
 }
 
 /// Format a DerivationTree as HTML for the proof panel
@@ -985,8 +946,10 @@ pub fn Studio() -> Element {
 
     // File browser state
     let mut sidebar_open = use_signal(|| true);
-    let mut file_tree = use_signal(create_fallback_tree); // Start with fallback tree immediately
+    let mut file_tree = use_signal(FileNode::root); // Start empty - no fallback, show real errors
     let mut current_file = use_signal(|| None::<String>);
+    let mut vfs_error = use_signal(|| None::<String>); // Track VFS errors for display
+    let mut vfs_is_fallback = use_signal(|| false); // Track if using IndexedDB fallback
 
     // Logic mode state
     let mut input = use_signal(String::new);
@@ -1058,34 +1021,44 @@ pub fn Studio() -> Element {
         vfs_initialized.set(true);
 
         spawn(async move {
-            // Get platform VFS (Worker-backed OPFS on WASM for Safari compatibility)
-            match get_platform_vfs() {
+            // Get platform VFS with automatic fallback (OPFS -> IndexedDB)
+            match get_platform_vfs_with_fallback().await {
                 Ok(vfs) => {
-                    web_sys::console::log_1(&"[Studio] VFS initialized successfully".into());
+                    // Check if using fallback
+                    if vfs.is_fallback() {
+                        web_sys::console::log_1(&format!("[Studio] Using {} fallback (Private Browsing mode?)", vfs.backend_name()).into());
+                        vfs_is_fallback.set(true);
+                    } else {
+                        web_sys::console::log_1(&format!("[Studio] VFS initialized with {}", vfs.backend_name()).into());
+                    }
 
                     // Seed example files if they don't exist
                     if let Err(e) = seed_examples(&vfs).await {
-                        web_sys::console::log_1(&format!("Failed to seed examples: {:?}", e).into());
+                        let err_msg = format!("Failed to seed examples: {:?}", e);
+                        web_sys::console::error_1(&err_msg.clone().into());
+                        vfs_error.set(Some(err_msg));
                     } else {
                         web_sys::console::log_1(&"[Studio] Examples seeded successfully".into());
                     }
 
-                    // Build file tree from VFS - only update if we get actual content
+                    // Build file tree from VFS
                     let mut root = FileNode::root();
                     match load_dir_recursive(&vfs, "/", &mut root).await {
                         Ok(()) => {
                             let file_count = count_files(&root);
                             web_sys::console::log_1(&format!("[Studio] File tree loaded: {} files/dirs", file_count).into());
-                            // Only replace fallback tree if VFS returned actual content
                             if !root.children.is_empty() {
                                 file_tree.set(root);
                             } else {
-                                web_sys::console::log_1(&"[Studio] VFS returned empty tree, keeping fallback".into());
+                                let err_msg = "VFS returned empty tree - no files found".to_string();
+                                web_sys::console::error_1(&err_msg.clone().into());
+                                vfs_error.set(Some(err_msg));
                             }
                         }
                         Err(e) => {
-                            web_sys::console::log_1(&format!("[Studio] Failed to load file tree, using fallback: {:?}", e).into());
-                            // Fallback tree already set, no action needed
+                            let err_msg = format!("Failed to load file tree: {:?}", e);
+                            web_sys::console::error_1(&err_msg.clone().into());
+                            vfs_error.set(Some(err_msg));
                         }
                     }
 
@@ -1196,21 +1169,22 @@ pub fn Studio() -> Element {
                     }
                 }
                 Err(e) => {
-                    web_sys::console::log_1(&format!("Failed to initialize VFS, using fallback tree: {:?}", e).into());
-                    // Fallback tree already set on init, no action needed
+                    let err_msg = format!("VFS INIT FAILED: {:?}", e);
+                    web_sys::console::error_1(&err_msg.clone().into());
+                    vfs_error.set(Some(err_msg));
                 }
             }
         });
     });
 
-    // On native, the fallback tree is already set on init - no additional setup needed
+    // On native, no VFS - just show empty tree with message
     #[cfg(not(target_arch = "wasm32"))]
     use_effect(move || {
         if *vfs_initialized.read() {
             return;
         }
         vfs_initialized.set(true);
-        // Fallback tree already provides full example structure
+        vfs_error.set(Some("VFS not available on native".to_string()));
     });
 
     // Close sidebar on mobile by default (runs once on mount)
@@ -1865,7 +1839,16 @@ pub fn Studio() -> Element {
                         class: "studio-sidebar",
                         style: "width: {sidebar_w}px; flex-shrink: 0;",
 
+                        // Show VFS error if any (critical errors only)
+                        if let Some(err) = vfs_error.read().as_ref() {
+                            div {
+                                style: "background: #ff4444; color: white; padding: 6px 12px; font-size: 11px; border-radius: 0;",
+                                "VFS Error: {err}"
+                            }
+                        }
+
                         FileBrowser {
+                        show_private_mode: *vfs_is_fallback.read(),
                         tree: file_tree.read().clone(),
                         selected_path: current_file.read().clone(),
                         on_select: EventHandler::new(move |path: String| {
@@ -1899,9 +1882,15 @@ pub fn Studio() -> Element {
                             #[cfg(target_arch = "wasm32")]
                             {
                                 let path_clone = path.clone();
+                                web_sys::console::log_1(&format!("[on_select] Loading file: {}", path_clone).into());
                                 spawn(async move {
-                                    if let Ok(vfs) = get_platform_vfs() {
-                                        if let Ok(content) = vfs.read_to_string(&path_clone).await {
+                                    web_sys::console::log_1(&"[on_select] spawn started".into());
+                                    match get_platform_vfs_with_fallback().await {
+                                        Ok(vfs) => {
+                                            web_sys::console::log_1(&format!("[on_select] VFS obtained ({})", vfs.backend_name()).into());
+                                            match vfs.read_to_string(&path_clone).await {
+                                                Ok(content) => {
+                                                    web_sys::console::log_1(&format!("[on_select] File loaded, {} bytes", content.len()).into());
                                             // Load into appropriate editor based on file path/extension
                                             // Math files are .logos but in /examples/math/ directory
                                             let ext = path_clone.rsplit('.').next().unwrap_or("").to_lowercase();
@@ -2036,8 +2025,17 @@ pub fn Studio() -> Element {
                                                     StudioMode::Math => math_input.set(content),
                                                 }
                                             }
+                                                }
+                                                Err(e) => {
+                                                    web_sys::console::error_1(&format!("[on_select] FILE READ FAILED: {:?}", e).into());
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            web_sys::console::error_1(&format!("[on_select] VFS INIT FAILED: {:?}", e).into());
                                         }
                                     }
+                                    web_sys::console::log_1(&"[on_select] spawn finished".into());
                                 });
                             }
                         }),

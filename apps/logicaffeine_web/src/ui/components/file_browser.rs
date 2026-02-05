@@ -197,6 +197,7 @@ pub fn FileBrowser(
     on_select: EventHandler<String>,
     on_toggle_dir: EventHandler<String>,
     on_new_file: EventHandler<()>,
+    #[props(default = false)] show_private_mode: bool,
 ) -> Element {
     let mut show_toast = use_signal(|| false);
     let mut toast_key = use_signal(|| 0u32);
@@ -236,6 +237,14 @@ pub fn FileBrowser(
                         title: "New file (Coming Soon)",
                         "+"
                     }
+                }
+            }
+
+            // Private mode notice (shown when using IndexedDB fallback)
+            if show_private_mode {
+                div {
+                    style: "background: rgba(37, 99, 235, 0.12); color: rgba(147, 197, 253, 0.85); padding: 5px 14px; font-size: 10px; border-bottom: 1px solid rgba(37, 99, 235, 0.2); flex-shrink: 0;",
+                    "⚡ Private mode – temporary storage"
                 }
             }
 

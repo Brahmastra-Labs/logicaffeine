@@ -4,12 +4,29 @@
 // This worker handles all OPFS operations synchronously within the worker context,
 // allowing the main thread to send async requests via postMessage.
 
+// Feature detection - check OPFS availability
+const hasOPFS = typeof navigator !== 'undefined'
+    && typeof navigator.storage !== 'undefined'
+    && typeof navigator.storage.getDirectory === 'function';
+
+if (!hasOPFS) {
+    console.error('[OPFS Worker] OPFS not available:', {
+        hasNavigator: typeof navigator !== 'undefined',
+        hasStorage: typeof navigator !== 'undefined' && typeof navigator.storage !== 'undefined',
+        hasGetDirectory: typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.getDirectory === 'function',
+        userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown'
+    });
+}
+
 // Cache for directory handles to avoid repeated lookups
 const dirHandleCache = new Map();
 
 // Get the OPFS root directory
 let rootPromise = null;
 async function getRoot() {
+    if (!hasOPFS) {
+        throw new Error('OPFS not supported in this browser/context. iOS Safari Web Workers do not support OPFS.');
+    }
     if (!rootPromise) {
         rootPromise = navigator.storage.getDirectory();
     }
