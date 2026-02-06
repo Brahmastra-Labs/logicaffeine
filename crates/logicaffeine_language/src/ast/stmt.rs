@@ -66,6 +66,16 @@ pub enum ReadSource<'a> {
     File(&'a Expr<'a>),
 }
 
+/// Pattern for loop variable binding.
+/// Supports single identifiers and tuple destructuring for Map iteration.
+#[derive(Debug, Clone)]
+pub enum Pattern {
+    /// Single identifier: `Repeat for x in list`
+    Identifier(Symbol),
+    /// Tuple destructuring: `Repeat for (k, v) in map`
+    Tuple(Vec<Symbol>),
+}
+
 /// Binary operation kinds for imperative expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOpKind {
@@ -142,7 +152,7 @@ pub enum Stmt<'a> {
 
     /// Iteration: `Repeat for x in list: ...` or `Repeat for i from 1 to 10: ...`
     Repeat {
-        var: Symbol,
+        pattern: Pattern,  // Changed from `var: Symbol` to support tuple destructuring
         iterable: &'a Expr<'a>,
         body: Block<'a>,
     },
@@ -585,6 +595,12 @@ pub enum Expr<'a> {
         expr: &'a Expr<'a>,
     },
 
+    /// Give expression: `Give x` → transfers ownership, no clone needed.
+    /// Used in function calls to explicitly move values.
+    Give {
+        value: &'a Expr<'a>,
+    },
+
     /// Length expression: `length of items` → items.len().
     Length {
         collection: &'a Expr<'a>,
@@ -640,10 +656,10 @@ pub enum Expr<'a> {
     },
 
     /// Constructor: `a new Point` or `a new Point with x 10 and y 20`.
-    /// Supports generics: `a new Box of Int`
+    /// Supports generics: `a new Box of Int` and nested types: `a new Seq of (Seq of Int)`
     New {
         type_name: Symbol,
-        type_args: Vec<Symbol>,  // Empty for non-generic types
+        type_args: Vec<TypeExpr<'a>>,  // Empty for non-generic types - now supports nested types
         init_fields: Vec<(Symbol, &'a Expr<'a>)>,  // Optional field initialization
     },
 

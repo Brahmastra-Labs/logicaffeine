@@ -441,15 +441,15 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
             targets.insert(*target);
         }
         Stmt::Push { collection, .. } => {
-            // If collection is an identifier, it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::Pop { collection, .. } => {
-            // If collection is an identifier, it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::Add { collection, .. } => {
@@ -465,9 +465,9 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
             }
         }
         Stmt::SetIndex { collection, .. } => {
-            // If collection is an identifier, it needs to be mutable
-            if let Expr::Identifier(sym) = collection {
-                targets.insert(*sym);
+            // If collection is an identifier or field access, root needs to be mutable
+            if let Some(sym) = get_root_identifier_for_mutability(collection) {
+                targets.insert(sym);
             }
         }
         Stmt::If { then_block, else_block, .. } => {
@@ -929,7 +929,7 @@ fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
             collect_expr_identifiers(start, identifiers);
             collect_expr_identifiers(end, identifiers);
         }
-        Expr::Copy { expr: inner } | Expr::Length { collection: inner } => {
+        Expr::Copy { expr: inner } | Expr::Give { value: inner } | Expr::Length { collection: inner } => {
             collect_expr_identifiers(inner, identifiers);
         }
         Expr::Contains { collection, value } | Expr::Union { left: collection, right: value } | Expr::Intersection { left: collection, right: value } => {
@@ -1827,8 +1827,21 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}}}", indent_str).unwrap();
         }
 
-        Stmt::Repeat { var, iterable, body } => {
-            let var_name = interner.resolve(*var);
+        Stmt::Repeat { pattern, iterable, body } => {
+            use crate::ast::stmt::Pattern;
+
+            // Generate pattern string for Rust code
+            let pattern_str = match pattern {
+                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
+                Pattern::Tuple(syms) => {
+                    let names = syms.iter()
+                        .map(|s| interner.resolve(*s))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("({})", names)
+                }
+            };
+
             let iter_str = codegen_expr_with_async(iterable, interner, synced_vars, async_functions);
 
             // Check if body contains async operations - if so, use while-let pattern
@@ -1840,9 +1853,9 @@ pub fn codegen_stmt<'a>(
             if body_has_async {
                 // Use while-let with explicit iterator for async compatibility
                 writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
-                writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, var_name).unwrap();
+                writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, pattern_str).unwrap();
             } else {
-                writeln!(output, "{}for {} in {} {{", indent_str, var_name, iter_str).unwrap();
+                writeln!(output, "{}for {} in {} {{", indent_str, pattern_str, iter_str).unwrap();
             }
             ctx.push_scope();
             for stmt in *body {
@@ -3076,6 +3089,12 @@ fn codegen_expr_boxed_internal(
             format!("{}.to_vec()", expr_str)
         }
 
+        Expr::Give { value } => {
+            // Ownership transfer: emit value without .clone()
+            // The move semantics are implicit in Rust - no special syntax needed
+            recurse!(value)
+        }
+
         Expr::Length { collection } => {
             let coll_str = recurse!(collection);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
@@ -3169,8 +3188,9 @@ fn codegen_expr_boxed_internal(
                 format!("{}::default()", type_str)
             } else {
                 // Phase 34: Turbofish syntax for generic instantiation
+                // Bug fix: Use codegen_type_expr to support nested types like Seq of (Seq of Int)
                 let args_str = type_args.iter()
-                    .map(|s| map_type_to_rust(interner.resolve(*s)))
+                    .map(|t| codegen_type_expr(t, interner))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!("{}::<{}>::default()", type_str, args_str)

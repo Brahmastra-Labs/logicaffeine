@@ -821,6 +821,16 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Parse a field type reference
     fn consume_field_type(&mut self) -> FieldType {
+        // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
+        if self.check_lparen() {
+            self.advance(); // consume "("
+            let inner_type = self.consume_field_type();
+            if self.check_rparen() {
+                self.advance(); // consume ")"
+            }
+            return inner_type;
+        }
+
         // Skip article if present (e.g., "a Tally" -> "Tally")
         if self.check_article() {
             self.advance();
@@ -886,11 +896,22 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
             }
 
-            // Check for generic: "List of Int", "Seq of Text"
+            // Check for generic: "List of Int", "Seq of Text", "Map of K to V"
             if self.check_preposition("of") {
+                // Check if this is a Map type that needs two params (before we start mutating)
+                let is_map_type = final_name_str == "Map" || final_name_str == "HashMap";
+
                 self.advance();
-                let param = self.consume_field_type();
-                return FieldType::Generic { base: final_name, params: vec![param] };
+                let first_param = self.consume_field_type();
+
+                // For Map/HashMap, check for "to" separator to parse second type parameter
+                if is_map_type && self.check_to() {
+                    self.advance(); // consume "to"
+                    let second_param = self.consume_field_type();
+                    return FieldType::Generic { base: final_name, params: vec![first_param, second_param] };
+                }
+
+                return FieldType::Generic { base: final_name, params: vec![first_param] };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)
@@ -1186,6 +1207,16 @@ impl<'a> DiscoveryPass<'a> {
 
     /// Phase 34: Parse a field type reference, recognizing type parameters
     fn consume_field_type_with_params(&mut self, type_params: &[Symbol]) -> FieldType {
+        // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
+        if self.check_lparen() {
+            self.advance(); // consume "("
+            let inner_type = self.consume_field_type_with_params(type_params);
+            if self.check_rparen() {
+                self.advance(); // consume ")"
+            }
+            return inner_type;
+        }
+
         // Phase 34: Single-letter type params like "A" may be tokenized as Article
         // Check for Article that matches a type param first
         if let Some(Token { kind: TokenType::Article(_), lexeme, .. }) = self.peek() {
@@ -1267,11 +1298,22 @@ impl<'a> DiscoveryPass<'a> {
                 return FieldType::Generic { base: final_name, params: vec![key_type, value_type] };
             }
 
-            // Check for generic: "List of Int", "Seq of Text", "List of T"
+            // Check for generic: "List of Int", "Seq of Text", "List of T", "Map of K to V"
             if self.check_preposition("of") {
+                // Check if this is a Map type that needs two params (before we start mutating)
+                let is_map_type = final_name_str == "Map" || final_name_str == "HashMap";
+
                 self.advance();
-                let param = self.consume_field_type_with_params(type_params);
-                return FieldType::Generic { base: final_name, params: vec![param] };
+                let first_param = self.consume_field_type_with_params(type_params);
+
+                // For Map/HashMap, check for "to" separator to parse second type parameter
+                if is_map_type && self.check_to() {
+                    self.advance(); // consume "to"
+                    let second_param = self.consume_field_type_with_params(type_params);
+                    return FieldType::Generic { base: final_name, params: vec![first_param, second_param] };
+                }
+
+                return FieldType::Generic { base: final_name, params: vec![first_param] };
             }
 
             // Phase 49b: "Divergent T" syntax (no "of" required)

@@ -796,3 +796,481 @@ Show squarePositive(5).
         "25",
     );
 }
+
+// =============================================================================
+// Category 7: FEATURE_MATRIX Gap Coverage - Functions Return Collections
+// =============================================================================
+
+#[test]
+fn e2e_gap_1_function_returns_map_basic() {
+    // Gap: Functions returning Map - ownership transfer through return
+    assert_output(
+        r#"## To makeConfig -> Map of Text to Int:
+    Let m be a new Map of Text to Int.
+    Set item "timeout" of m to 5000.
+    Return m.
+
+## Main
+Let config be makeConfig().
+Show item "timeout" of config.
+"#,
+        "5000",
+    );
+}
+
+#[test]
+fn e2e_gap_2_function_returns_set_basic() {
+    // Gap: Functions returning Set - ownership transfer
+    assert_output(
+        r#"## To makeTags -> Set of Text:
+    Let s be a new Set of Text.
+    Add "rust" to s.
+    Return s.
+
+## Main
+Let tags be makeTags().
+If tags contains "rust":
+    Show "found".
+"#,
+        "found",
+    );
+}
+
+#[test]
+fn e2e_gap_3_function_returns_map_iteration() {
+    // Gap: Functions returning Map with iteration - now supports tuple destructuring!
+    assert_output(
+        r#"## To makeScores -> Map of Text to Int:
+    Let m be a new Map of Text to Int.
+    Set item "alice" of m to 10.
+    Set item "bob" of m to 20.
+    Return m.
+
+## Main
+Let scores be makeScores().
+Let total be 0.
+Repeat for (name, score) in scores:
+    Set total to total + score.
+Show total.
+"#,
+        "30",
+    );
+}
+
+#[test]
+fn e2e_gap_4_function_returns_set_mutation() {
+    // Gap: Functions returning Set with subsequent mutation
+    let source = r#"
+## To makeTags -> Set of Text:
+    Let s be a new Set of Text.
+    Add "rust" to s.
+    Return s.
+
+## Main
+Let mutable tags be makeTags().
+Add "logos" to tags.
+If tags contains "logos":
+    Show "found".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("found"),
+        "Expected 'found' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+// =============================================================================
+// Category 8: FEATURE_MATRIX Gap Coverage - Structs + Collections Nested Mutation
+// =============================================================================
+
+#[test]
+fn e2e_gap_5_struct_seq_push_basic() {
+    // Gap: Struct with Seq field, Push operation - nested field mutation
+    let source = r#"
+## A TodoList has:
+    An items: Seq of Text.
+
+## Main
+Let mutable list be a new TodoList.
+Push "buy milk" to list's items.
+Push "write tests" to list's items.
+Show length of list's items.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("2"),
+        "Expected '2' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_gap_6_struct_map_mutation() {
+    // Gap: Struct with Map field, mutation - nested collection mutation
+    // FIXED: Parser now correctly handles "Map of Text to Int" syntax with both type parameters
+    let source = r#"
+## A Config has:
+    A settings: Map of Text to Int.
+
+## Main
+Let mutable cfg be a new Config.
+Set item "timeout" of cfg's settings to 100.
+Show item "timeout" of cfg's settings.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("100"),
+        "Expected '100' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_gap_7_struct_set_field_mutation() {
+    // Gap: Struct with Set field, Add operation
+    let source = r#"
+## A Profile has:
+    A tags: Set of Text.
+
+## Main
+Let mutable prof be a new Profile.
+Add "developer" to prof's tags.
+Add "rust" to prof's tags.
+If prof's tags contains "rust":
+    Show "found".
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("found"),
+        "Expected 'found' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+// =============================================================================
+// Category 9: FEATURE_MATRIX Gap Coverage - Give Through Function Parameters
+// =============================================================================
+
+#[test]
+fn e2e_gap_8_give_to_function_basic() {
+    // Gap: Give ownership to function parameter - ownership transfer through call statement
+    // FIXED: Parser now handles Give keyword in Call argument position
+    let source = r#"
+## To consume (data: Seq of Int):
+    Show length of data.
+
+## Main
+Let items be [1, 2, 3].
+Call consume with Give items.
+"#;
+    assert_output(source, "3");
+}
+
+#[test]
+fn e2e_gap_9_give_multiple_params() {
+    // Gap: Give multiple parameters - multiple ownership transfers in single call
+    // FIXED: Parser now handles Give keyword in Call argument position
+    let source = r#"
+## To combine (a: Seq of Int) and (b: Seq of Int):
+    Show (length of a) + (length of b).
+
+## Main
+Let x be [1, 2].
+Let y be [3, 4, 5].
+Call combine with Give x and Give y.
+"#;
+    assert_output(source, "5");
+}
+
+#[test]
+fn e2e_gap_10_give_struct_to_function() {
+    // Gap: Give struct ownership to function
+    // FIXED: Parser now handles Give keyword in Call argument position
+    let source = r#"
+## A Message has:
+    A content: Text.
+
+## To consume (msg: Message):
+    Show msg's content.
+
+## Main
+Let m be a new Message with content "hello".
+Call consume with Give m.
+"#;
+    assert_output(source, "hello");
+}
+
+// =============================================================================
+// Category 10B: EXTREME Give Tests - Complex Expressions
+// =============================================================================
+
+#[test]
+fn e2e_extreme_give_field_access() {
+    // Extreme: Give with field access
+    let source = r#"
+## A Config has:
+    A data: Seq of Int.
+
+## To process (items: Seq of Int):
+    Show length of items.
+
+## Main
+Let mutable cfg be a new Config.
+Push 1 to cfg's data.
+Push 2 to cfg's data.
+Push 3 to cfg's data.
+Call process with Give cfg's data.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("3"),
+        "Expected '3' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+#[ignore] // Parser limitation: Give with function call expressions not supported
+fn e2e_extreme_give_from_call() {
+    // Extreme: Give result of function call
+    // Bug: Parser doesn't support `Give <function_call>()` syntax
+    // Error: ExpectedExpression at "Give makeData()"
+    // Fix: Would need to extend parse_call_arg to handle Call expressions after Give
+    let source = r#"
+## To makeData -> Seq of Int:
+    Let result be [1, 2, 3].
+    Return result.
+
+## To consume (data: Seq of Int) -> Int:
+    Return length of data.
+
+## Main
+Show Call consume with Give makeData().
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("3"),
+        "Expected '3' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+#[ignore] // Parser limitation: Give with complex index expressions not supported
+fn e2e_extreme_give_collection_item() {
+    // Extreme: Give item from collection
+    // Bug: Parser doesn't support `Give item N of collection` syntax
+    // Error: ExpectedIdentifier when parsing "item 1 of lists" after Give
+    // Fix: Would need to extend parse_call_arg to handle Index expressions after Give
+    let source = r#"
+## To process (nums: Seq of Int):
+    Show length of nums.
+
+## Main
+Let lists be a new Seq of (Seq of Int).
+Push [1, 2, 3] to lists.
+Push [4, 5] to lists.
+Call process with Give item 1 of lists.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("3"),
+        "Expected '3' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+// =============================================================================
+// Category 10: FEATURE_MATRIX Gap Coverage - Deep Generics (3+ levels)
+// =============================================================================
+
+#[test]
+fn e2e_gap_11_extreme_3level_nesting() {
+    // Extreme test: 3-level nesting WITHOUT parentheses using workaround
+    // Tests that type aliases work for deep nesting
+    let source = r#"
+## A Row has:
+    An items: Seq of Int.
+
+## A Matrix has:
+    An rows: Seq of Row.
+
+## Main
+Let m be a new Matrix.
+Let r1 be a new Row.
+Push 1 to r1's items.
+Push 2 to r1's items.
+Push r1 to m's rows.
+Show length of m's rows.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("1"),
+        "Expected '1' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_gap_11_extreme_4level_nesting() {
+    // Extreme test: 4-level nesting using type aliases
+    let source = r#"
+## A Cell has:
+    A value: Int.
+
+## A Row has:
+    An items: Seq of Cell.
+
+## A Matrix has:
+    An rows: Seq of Row.
+
+## A Cube has:
+    An matrices: Seq of Matrix.
+
+## Main
+Let cube be a new Cube.
+Let m be a new Matrix.
+Let r be a new Row.
+Let c be a new Cell with value 42.
+Push c to r's items.
+Push r to m's rows.
+Push m to cube's matrices.
+Show length of cube's matrices.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("1"),
+        "Expected '1' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_gap_11_deep_generics_nested_seq() {
+    // Gap: Deep generics - Seq of Seq of Int (2-level nesting)
+    // Tests parenthesized type expressions: Seq of (Seq of Int)
+    let source = r#"
+## Main
+Let matrix be a new Seq of (Seq of Int).
+Let row1 be [1, 2, 3].
+Let row2 be [4, 5, 6].
+Push row1 to matrix.
+Push row2 to matrix.
+Show length of matrix.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("2"),
+        "Expected '2' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_gap_12_deep_generics_map_of_seq() {
+    // Gap: Deep generics - Map of Text to Seq of Int
+    // Tests parenthesized type expressions with Map: Map of Text to (Seq of Int)
+    let source = r#"
+## Main
+Let data be a new Map of Text to (Seq of Int).
+Let nums be [10, 20, 30].
+Set item "scores" of data to nums.
+Let retrieved be item "scores" of data.
+Show length of retrieved.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert!(
+        result.stdout.trim().contains("3"),
+        "Expected '3' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        result.stdout.trim(),
+        result.rust_code
+    );
+}

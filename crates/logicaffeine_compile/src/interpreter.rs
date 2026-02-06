@@ -515,7 +515,9 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Continue)
             }
 
-            Stmt::Repeat { var, iterable, body } => {
+            Stmt::Repeat { pattern, iterable, body } => {
+                use crate::ast::stmt::Pattern;
+
                 let iter_val = self.evaluate_expr(iterable).await?;
                 let items = match iter_val {
                     RuntimeValue::List(list) => list,
@@ -528,7 +530,23 @@ impl<'a> Interpreter<'a> {
 
                 self.push_scope();
                 for item in items {
-                    self.define(*var, item);
+                    // Bind variables according to pattern
+                    match pattern {
+                        Pattern::Identifier(sym) => {
+                            self.define(*sym, item);
+                        }
+                        Pattern::Tuple(syms) => {
+                            // Destructure tuple (for Map iteration: (key, value))
+                            if let RuntimeValue::Tuple(tuple_vals) = item {
+                                for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
+                                    self.define(*sym, val.clone());
+                                }
+                            } else {
+                                return Err(format!("Expected tuple for pattern, got {}", item.type_name()));
+                            }
+                        }
+                    }
+
                     match self.execute_block(body).await? {
                         ControlFlow::Break => break,
                         ControlFlow::Return(v) => {
@@ -1224,6 +1242,11 @@ impl<'a> Interpreter<'a> {
 
             Expr::Copy { expr: inner } => {
                 self.evaluate_expr(inner).await
+            }
+
+            Expr::Give { value } => {
+                // In interpreter, Give is just semantic - evaluate the value
+                self.evaluate_expr(value).await
             }
 
             Expr::Length { collection } => {

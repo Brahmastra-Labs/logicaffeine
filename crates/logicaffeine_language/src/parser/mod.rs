@@ -60,7 +60,7 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
 use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
-use crate::ast::stmt::ReadSource;
+use crate::ast::stmt::{ReadSource, Pattern};
 use crate::drs::{Case, Gender, Number, ReferentSource};
 use crate::drs::{Drs, BoxType, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
@@ -401,6 +401,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Uses TypeRegistry to distinguish primitives from generics.
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
+
+        // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
+        if self.check(&TokenType::LParen) {
+            self.advance(); // consume "("
+            let inner = self.parse_type_expression()?;
+            if !self.check(&TokenType::RParen) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume ")"
+            return Ok(inner);
+        }
 
         // Phase 53: Handle "Persistent T" type modifier
         if self.check(&TokenType::Persistent) {
@@ -1574,6 +1588,45 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Stmt::While { cond, body, decreasing })
     }
 
+    /// Parse a loop pattern: single identifier or tuple destructuring.
+    /// Examples: `x` or `(k, v)` or `(a, b, c)`
+    fn parse_loop_pattern(&mut self) -> ParseResult<Pattern> {
+        use crate::ast::stmt::Pattern;
+
+        // Check for tuple pattern: (x, y, ...)
+        if self.check(&TokenType::LParen) {
+            self.advance(); // consume "("
+
+            let mut identifiers = Vec::new();
+            loop {
+                let id = self.expect_identifier()?;
+                identifiers.push(id);
+
+                // Check for comma to continue
+                if self.check(&TokenType::Comma) {
+                    self.advance(); // consume ","
+                    continue;
+                }
+                break;
+            }
+
+            // Expect closing paren
+            if !self.check(&TokenType::RParen) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume ")"
+
+            Ok(Pattern::Tuple(identifiers))
+        } else {
+            // Single identifier pattern
+            let id = self.expect_identifier()?;
+            Ok(Pattern::Identifier(id))
+        }
+    }
+
     fn parse_repeat_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "Repeat"
 
@@ -1582,8 +1635,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        // Parse loop variable (using context-aware identifier parsing)
-        let var = self.expect_identifier()?;
+        // Parse loop pattern: single identifier or tuple destructuring
+        let pattern = self.parse_loop_pattern()?;
 
         // Determine iteration type: "in" for collection, "from" for range
         let iterable = if self.check(&TokenType::From) || self.check_preposition_is("from") {
@@ -1646,7 +1699,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let body = self.ctx.stmts.expect("imperative arenas not initialized")
             .alloc_slice(body_stmts.into_iter());
 
-        Ok(Stmt::Repeat { var, iterable, body })
+        Ok(Stmt::Repeat { pattern, iterable, body })
     }
 
     /// Parse a for-loop without the "Repeat" keyword prefix.
@@ -1654,8 +1707,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_for_statement(&mut self) -> ParseResult<Stmt<'a>> {
         self.advance(); // consume "for"
 
-        // Parse loop variable (using context-aware identifier parsing)
-        let var = self.expect_identifier()?;
+        // Parse loop pattern: single identifier or tuple destructuring
+        let pattern = self.parse_loop_pattern()?;
 
         // Determine iteration type: "in" for collection, "from" for range
         let iterable = if self.check(&TokenType::From) || self.check_preposition_is("from") {
@@ -1718,7 +1771,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let body = self.ctx.stmts.expect("imperative arenas not initialized")
             .alloc_slice(body_stmts.into_iter());
 
-        Ok(Stmt::Repeat { var, iterable, body })
+        Ok(Stmt::Repeat { pattern, iterable, body })
     }
 
     fn parse_call_statement(&mut self) -> ParseResult<Stmt<'a>> {
@@ -1761,18 +1814,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_call_arguments(&mut self) -> ParseResult<Vec<&'a Expr<'a>>> {
         let mut args = Vec::new();
 
-        // Parse first argument
-        let arg = self.parse_imperative_expr()?;
+        // Parse first argument (may have Give keyword)
+        let arg = self.parse_call_arg()?;
         args.push(arg);
 
-        // Parse additional comma-separated arguments
-        while self.check(&TokenType::Comma) {
-            self.advance(); // consume ","
-            let arg = self.parse_imperative_expr()?;
+        // Parse additional arguments separated by "and" or ","
+        while self.check(&TokenType::And) || self.check(&TokenType::Comma) {
+            self.advance(); // consume "and" or ","
+            let arg = self.parse_call_arg()?;
             args.push(arg);
         }
 
         Ok(args)
+    }
+
+    fn parse_call_arg(&mut self) -> ParseResult<&'a Expr<'a>> {
+        // Check for Give keyword to mark ownership transfer
+        if self.check(&TokenType::Give) {
+            self.advance(); // consume "Give"
+            let value = self.parse_imperative_expr()?;
+            return Ok(self.ctx.alloc_imperative_expr(Expr::Give { value }));
+        }
+
+        // Otherwise parse normal expression
+        self.parse_imperative_expr()
     }
 
     fn parse_condition(&mut self) -> ParseResult<&'a Expr<'a>> {
@@ -3928,7 +3993,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Phase 34: Parse generic type arguments for constructor instantiation
     /// Parses "of Int" or "of Int and Text" after a generic type name
     /// Returns empty Vec for non-generic types
-    fn parse_generic_type_args(&mut self, type_name: Symbol) -> ParseResult<Vec<Symbol>> {
+    fn parse_generic_type_args(&mut self, type_name: Symbol) -> ParseResult<Vec<TypeExpr<'a>>> {
         // Only parse type args if the type is a known generic
         if !self.is_generic_type(type_name) {
             return Ok(vec![]);
@@ -3942,8 +4007,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         let mut type_args = Vec::new();
         loop {
-            // Parse type argument (e.g., "Int", "Text", "User")
-            let type_arg = self.expect_identifier()?;
+            // Bug fix: Parse full type expression to support nested types like "Seq of (Seq of Int)"
+            let type_arg = self.parse_type_expression()?;
             type_args.push(type_arg);
 
             // Check for "and" or "to" to continue (for multi-param generics like "Map of Text to Int")
@@ -4656,7 +4721,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     let seq_sym = self.interner.intern("Seq");
                     return Ok(self.ctx.alloc_imperative_expr(Expr::New {
                         type_name: seq_sym,
-                        type_args: vec![type_name],
+                        type_args: vec![TypeExpr::Named(type_name)],
                         init_fields: vec![],
                     }));
                 }
