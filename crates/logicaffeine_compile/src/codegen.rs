@@ -495,6 +495,14 @@ fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbol>) {
                 collect_mutable_vars_stmt(s, targets);
             }
         }
+        // Inspect (pattern match) arms may contain mutations
+        Stmt::Inspect { arms, .. } => {
+            for arm in arms.iter() {
+                for s in arm.body.iter() {
+                    collect_mutable_vars_stmt(s, targets);
+                }
+            }
+        }
         // Phase 9: Structured Concurrency blocks
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             for s in *tasks {
@@ -1482,9 +1490,9 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
 
     // Phase 47: Add Serialize, Deserialize derives if portable
     if is_portable {
-        writeln!(output, "{}#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]", ind).unwrap();
+        writeln!(output, "{}#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]", ind).unwrap();
     } else {
-        writeln!(output, "{}#[derive(Debug, Clone)]", ind).unwrap();
+        writeln!(output, "{}#[derive(Debug, Clone, PartialEq)]", ind).unwrap();
     }
     writeln!(output, "{}pub enum {}{} {{", ind, interner.resolve(name), generic_str).unwrap();
 
@@ -1514,6 +1522,35 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
     }
 
     writeln!(output, "{}}}\n", ind).unwrap();
+
+    // Generate Default impl for enum (defaults to first variant)
+    // This is needed when the enum is used as a struct field and the struct derives Default
+    if let Some(first_variant) = variants.first() {
+        let enum_name_str = interner.resolve(name);
+        let first_variant_name = interner.resolve(first_variant.name);
+        writeln!(output, "{}impl{} Default for {}{} {{", ind, generic_str, enum_name_str, generic_str).unwrap();
+        writeln!(output, "{}    fn default() -> Self {{", ind).unwrap();
+        if first_variant.fields.is_empty() {
+            writeln!(output, "{}        {}::{}", ind, enum_name_str, first_variant_name).unwrap();
+        } else {
+            // Default with default field values
+            let default_fields: Vec<String> = first_variant.fields.iter()
+                .map(|f| {
+                    let field_name = interner.resolve(f.name);
+                    let enum_name_check = interner.resolve(name);
+                    if is_recursive_field(&f.ty, enum_name_check, interner) {
+                        format!("{}: Box::new(Default::default())", field_name)
+                    } else {
+                        format!("{}: Default::default()", field_name)
+                    }
+                })
+                .collect();
+            writeln!(output, "{}        {}::{} {{ {} }}", ind, enum_name_str, first_variant_name, default_fields.join(", ")).unwrap();
+        }
+        writeln!(output, "{}    }}", ind).unwrap();
+        writeln!(output, "{}}}\n", ind).unwrap();
+    }
+
     output
 }
 
@@ -2387,7 +2424,14 @@ pub fn codegen_stmt<'a>(
             let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions);
             let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
             // Phase 57: Polymorphic indexing via trait
-            writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
+            // Evaluate value into temp variable first to avoid simultaneous mutable+immutable borrow
+            // when value reads from the same collection (e.g., Set item (j+1) of result to item j of result)
+            if value_str.contains("logos_get") && value_str.contains(&coll_str) {
+                writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
+                writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, __set_tmp);", indent_str, coll_str, index_str).unwrap();
+            } else {
+                writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
+            }
         }
 
         // Phase 8.5: Zone (memory arena) block

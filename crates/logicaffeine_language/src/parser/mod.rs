@@ -380,6 +380,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         match t.kind {
             TokenType::Noun(s) | TokenType::Adjective(s) => Ok(s),
             TokenType::ProperName(s) => Ok(s),
+            // Verbs can be type names when lexed ambiguously (e.g., "Set" as type vs verb)
+            TokenType::Verb { .. } => Ok(t.lexeme),
             // Phase 49b: CRDT type keywords are valid type names
             TokenType::Tally => Ok(self.interner.intern("Tally")),
             TokenType::SharedSet => Ok(self.interner.intern("SharedSet")),
