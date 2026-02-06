@@ -1525,6 +1525,8 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
 
     // Generate Default impl for enum (defaults to first variant)
     // This is needed when the enum is used as a struct field and the struct derives Default
+    // Only for non-generic enums — generic enums can't assume their type params implement Default
+    if generics.is_empty() {
     if let Some(first_variant) = variants.first() {
         let enum_name_str = interner.resolve(name);
         let first_variant_name = interner.resolve(first_variant.name);
@@ -1549,6 +1551,7 @@ fn codegen_enum_def(name: Symbol, variants: &[VariantDef], generics: &[Symbol], 
         }
         writeln!(output, "{}    }}", ind).unwrap();
         writeln!(output, "{}}}\n", ind).unwrap();
+    }
     }
 
     output
