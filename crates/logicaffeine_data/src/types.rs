@@ -108,6 +108,12 @@ impl LogosContains<&str> for String {
     }
 }
 
+impl LogosContains<String> for String {
+    fn logos_contains(&self, value: &String) -> bool {
+        self.contains(value.as_str())
+    }
+}
+
 impl LogosContains<char> for String {
     fn logos_contains(&self, value: &char) -> bool {
         self.contains(*value)

@@ -5500,6 +5500,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Either |          // "either" (correlative: either X or Y)
             TokenType::Combined |        // "combined" (string concat: combined with)
             TokenType::Shared |          // "shared" (CRDT type modifier)
+            // Calendar units can be type/variable names (Day, Week, Month, Year)
+            TokenType::CalendarUnit(_) |
             // Phase 103: Focus particles can be variant names (Just, Only, Even)
             TokenType::Focus(_) => {
                 // Use the raw lexeme (interned string) as the symbol

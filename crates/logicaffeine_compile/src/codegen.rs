@@ -1855,7 +1855,10 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
                 writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, pattern_str).unwrap();
             } else {
-                writeln!(output, "{}for {} in {} {{", indent_str, pattern_str, iter_str).unwrap();
+                // Clone the collection before iterating to avoid moving it.
+                // This allows the collection to be reused after the loop.
+                // Works for Vec, HashMap, HashSet, and any Clone collection.
+                writeln!(output, "{}for {} in {}.clone() {{", indent_str, pattern_str, iter_str).unwrap();
             }
             ctx.push_scope();
             for stmt in *body {
@@ -3085,8 +3088,8 @@ fn codegen_expr_boxed_internal(
 
         Expr::Copy { expr: inner } => {
             let expr_str = recurse!(inner);
-            // Phase 43D: Explicit clone to owned Vec
-            format!("{}.to_vec()", expr_str)
+            // Phase 43D: Explicit clone - works for Vec, HashMap, HashSet, and any Clone type
+            format!("{}.clone()", expr_str)
         }
 
         Expr::Give { value } => {

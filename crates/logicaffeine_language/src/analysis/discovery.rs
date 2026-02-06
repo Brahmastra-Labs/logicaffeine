@@ -1065,6 +1065,12 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Calendar unit tokens can be type/variant/field names (Day, Week, Month, Year)
+            TokenType::CalendarUnit(_) => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
             _ => None
         }
     }

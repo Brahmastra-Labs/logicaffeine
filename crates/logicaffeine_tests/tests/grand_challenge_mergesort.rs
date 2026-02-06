@@ -212,7 +212,7 @@ fn mergesort_function_compiles() {
     assert!(result.is_ok(), "MergeSort function should compile: {:?}", result);
     let rust = result.unwrap();
     assert!(rust.contains("fn MergeSort"), "Should generate MergeSort function: {}", rust);
-    assert!(rust.contains(".to_vec()"), "Should generate .to_vec() for copy: {}", rust);
+    assert!(rust.contains(".clone()"), "Should generate .clone() for copy: {}", rust);
 }
 
 #[test]
@@ -284,7 +284,7 @@ fn full_mergesort_compiles() {
     assert!(rust.contains("&&"), "Should have && for compound conditions");
     assert!(rust.contains(".push("), "Should have .push() for Push statements");
     assert!(rust.contains(".len()"), "Should have .len() for length of");
-    assert!(rust.contains(".to_vec()"), "Should have .to_vec() for copy of");
+    assert!(rust.contains(".clone()"), "Should have .clone() for copy of");
 }
 
 // =============================================================================

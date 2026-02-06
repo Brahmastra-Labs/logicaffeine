@@ -1274,3 +1274,556 @@ Show length of retrieved.
         result.rust_code
     );
 }
+
+// =============================================================================
+// Category 11: Copy Semantics
+// =============================================================================
+
+#[test]
+fn e2e_copy_of_map() {
+    // Bug A target: copy of Map generates .to_vec() which doesn't exist on HashMap
+    assert_output(
+        r#"## Main
+Let m be a new Map of Text to Int.
+Set item "x" of m to 1.
+Let m2 be copy of m.
+Set item "x" of m to 999.
+Show item "x" of m2.
+"#,
+        "1",
+    );
+}
+
+#[test]
+fn e2e_copy_of_set() {
+    // Bug A target: copy of Set generates .to_vec() which doesn't exist on HashSet
+    assert_output(
+        r#"## Main
+Let s be a new Set of Text.
+Add "hello" to s.
+Let s2 be copy of s.
+Add "world" to s.
+If s2 contains "world":
+    Show "shared".
+Otherwise:
+    Show "independent".
+"#,
+        "independent",
+    );
+}
+
+#[test]
+fn e2e_copy_of_seq_independence() {
+    // Baseline: copy of Vec should already work - verify independence
+    assert_output(
+        r#"## Main
+Let a be [1, 2, 3].
+Let mutable b be copy of a.
+Set item 1 of b to 99.
+Show item 1 of a.
+"#,
+        "1",
+    );
+}
+
+#[test]
+fn e2e_copy_of_struct_seq_field() {
+    // Copy struct's collection field, then mutate independently
+    assert_output(
+        r#"## A Basket has:
+    An items: Seq of Int.
+
+## Main
+Let mutable b be a new Basket.
+Push 10 to b's items.
+Push 20 to b's items.
+Let snapshot be copy of b's items.
+Push 30 to b's items.
+Show length of snapshot.
+"#,
+        "2",
+    );
+}
+
+#[test]
+fn e2e_copy_seq_mutate_both() {
+    // Copy a seq, mutate both independently
+    let source = r#"
+## Main
+Let mutable a be [1, 2, 3].
+Let mutable b be copy of a.
+Set item 1 of a to 99.
+Set item 1 of b to 77.
+Show item 1 of a.
+Show item 1 of b.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    let output = result.stdout.trim();
+    assert!(
+        output.contains("99") && output.contains("77"),
+        "Expected '99' and '77' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        output,
+        result.rust_code
+    );
+}
+
+// =============================================================================
+// Category 12: String Operations Across Features
+// =============================================================================
+
+#[test]
+fn e2e_string_concat_field_access() {
+    // Bug B target: "Hello " + person's name should use format!()
+    assert_output(
+        r#"## A Person has:
+    A name: Text.
+
+## Main
+Let p be a new Person with name "Alice".
+Show "Hello " + p's name.
+"#,
+        "Hello Alice",
+    );
+}
+
+#[test]
+fn e2e_string_concat_function_return() {
+    // Bug B target: "Hello " + getName() should use format!()
+    assert_output(
+        r#"## To getName -> Text:
+    Return "Bob".
+
+## Main
+Show "Hello " + getName().
+"#,
+        "Hello Bob",
+    );
+}
+
+#[test]
+fn e2e_string_concat_index_result() {
+    // Bug B target: "Winner: " + item 1 of names should use format!()
+    assert_output(
+        r#"## Main
+Let names be ["Alice", "Bob"].
+Show "Winner: " + item 1 of names.
+"#,
+        "Winner: Alice",
+    );
+}
+
+#[test]
+fn e2e_string_contains_on_field() {
+    // Contains check on a struct's text field
+    assert_output(
+        r#"## A Doc has:
+    A body: Text.
+
+## Main
+Let d be a new Doc with body "hello world".
+If d's body contains "world":
+    Show "found".
+Otherwise:
+    Show "missing".
+"#,
+        "found",
+    );
+}
+
+#[test]
+fn e2e_string_length_of_text() {
+    // Length of a text string
+    assert_output(
+        r#"## Main
+Let s be "hello".
+Show length of s.
+"#,
+        "5",
+    );
+}
+
+// =============================================================================
+// Category 13: Enum Interplay
+// =============================================================================
+
+#[test]
+fn e2e_enum_returned_from_function() {
+    // Function returns enum, caller inspects it
+    assert_output(
+        r#"## A Result is one of:
+    A Success with value Int.
+    A Failure with message Text.
+
+## To compute (x: Int) -> Result:
+    If x is greater than 0:
+        Return a new Success with value x * x.
+    Return a new Failure with message "negative".
+
+## Main
+Let r be compute(3).
+Inspect r:
+    When Success (v): Show v - 6.
+    When Failure (m): Show m.
+"#,
+        "3",
+    );
+}
+
+#[test]
+fn e2e_enum_passed_to_function() {
+    // Function receives enum, inspects it
+    assert_output(
+        r#"## A Shape is one of:
+    A Circle with radius Int.
+    A Square with side Int.
+
+## To area (s: Shape) -> Int:
+    Inspect s:
+        When Circle (r): Return r * r.
+        When Square (side): Return side * side.
+
+## Main
+Let c be a new Square with side 5.
+Show area(c).
+"#,
+        "25",
+    );
+}
+
+#[test]
+fn e2e_seq_of_enums_iterate_inspect() {
+    // Collection of enums, iterate and inspect each
+    assert_output(
+        r#"## A Shape is one of:
+    A Circle with radius Int.
+    A Square with side Int.
+
+## Main
+Let shapes be a new Seq of Shape.
+Push a new Circle with radius 5 to shapes.
+Push a new Square with side 5 to shapes.
+Let sum be 0.
+Repeat for s in shapes:
+    Inspect s:
+        When Circle (r): Set sum to sum + r * r.
+        When Square (side): Set sum to sum + side * side.
+Show sum.
+"#,
+        "50",
+    );
+}
+
+#[test]
+fn e2e_struct_enum_field_inspect() {
+    // Struct with enum field, access and inspect
+    // Tests that CalendarUnit tokens (Year) work as enum variant names
+    assert_output(
+        r#"## A Period is one of:
+    A Year with value Int.
+    A Unknown.
+
+## A Event has:
+    A period: Period.
+
+## Main
+Let e be a new Event with period a new Year with value 2024.
+Inspect e's period:
+    When Year (v): Show v.
+    When Unknown: Show "unknown".
+"#,
+        "2024",
+    );
+}
+
+#[test]
+fn e2e_nested_inspect_boxed() {
+    // Nested inspect on recursive boxed enum
+    assert_output(
+        r#"## A Expr is one of:
+    A Num with value Int.
+    A Add with left Expr and right Expr.
+
+## To eval (e: Expr) -> Int:
+    Inspect e:
+        When Num (v): Return v.
+        When Add (l, r): Return eval(l) + eval(r).
+
+## Main
+Let a be a new Num with value 3.
+Let b be a new Num with value 7.
+Let sum be a new Add with left a and right b.
+Show eval(sum).
+"#,
+        "10",
+    );
+}
+
+#[test]
+fn e2e_enum_func_return_to_collection() {
+    // Function returns enum, push to collection, iterate
+    assert_output(
+        r#"## A Wrapped is one of:
+    A Num with n Int.
+    A Nothing.
+
+## To wrap (x: Int) -> Wrapped:
+    If x is greater than 0:
+        Return a new Num with n x.
+    Return a new Nothing.
+
+## Main
+Let items be a new Seq of Wrapped.
+Push wrap(40) to items.
+Push wrap(42) to items.
+Push wrap(0) to items.
+Let sum be 0.
+Repeat for v in items:
+    Inspect v:
+        When Num (n): Set sum to sum + n.
+        When Nothing: Set sum to sum + 0.
+Show sum.
+"#,
+        "82",
+    );
+}
+
+// =============================================================================
+// Category 14: Complex Mutations
+// =============================================================================
+
+#[test]
+fn e2e_set_index_swap_pattern() {
+    // Swap two elements using a temp variable
+    assert_output(
+        r#"## Main
+Let mutable items be [10, 20, 30, 40, 50].
+Let temp be item 2 of items.
+Set item 2 of items to item 4 of items.
+Set item 4 of items to temp.
+Show items.
+"#,
+        "[10, 40, 30, 20, 50]",
+    );
+}
+
+#[test]
+fn e2e_set_index_computed() {
+    // Set index at a computed position
+    assert_output(
+        r#"## Main
+Let mutable items be [1, 2, 3, 4, 5].
+Let pos be 3.
+Set item pos of items to 99.
+Show items.
+"#,
+        "[1, 2, 99, 4, 5]",
+    );
+}
+
+#[test]
+fn e2e_set_field_increment() {
+    // Read a struct field, compute, write back
+    assert_output(
+        r#"## A Counter has:
+    A count: Int.
+
+## Main
+Let mutable c be a new Counter with count 0.
+Set c's count to c's count + 1.
+Set c's count to c's count + 1.
+Set c's count to c's count + 1.
+Show c's count.
+"#,
+        "3",
+    );
+}
+
+#[test]
+fn e2e_nested_field_chain_3_levels() {
+    // 3-level struct nesting: set and get deep field
+    assert_output(
+        r#"## A Inner has:
+    A value: Int.
+
+## A Middle has:
+    A inner: Inner.
+
+## A Outer has:
+    A middle: Middle.
+
+## Main
+Let i be a new Inner with value 42.
+Let m be a new Middle with inner i.
+Let o be a new Outer with middle m.
+Show o's middle's inner's value.
+"#,
+        "42",
+    );
+}
+
+// =============================================================================
+// Category 15: Function Composition
+// =============================================================================
+
+#[test]
+fn e2e_function_calling_function() {
+    // Function calls another function
+    assert_output(
+        r#"## To double (x: Int) -> Int:
+    Return x * 2.
+
+## To quadruple (x: Int) -> Int:
+    Return double(double(x)).
+
+## Main
+Show quadruple(5).
+"#,
+        "20",
+    );
+}
+
+#[test]
+fn e2e_func_returns_struct_with_collection() {
+    // Function builds and returns a struct containing a collection
+    let source = r#"
+## A Report has:
+    A totals: Seq of Int.
+
+## To buildReport -> Report:
+    Let mutable r be a new Report.
+    Push 10 to r's totals.
+    Push 20 to r's totals.
+    Push 30 to r's totals.
+    Return r.
+
+## Main
+Let report be buildReport().
+Let sum be 0.
+Repeat for t in report's totals:
+    Set sum to sum + t.
+Show sum.
+Show length of report's totals.
+"#;
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Should compile and run.\nGenerated:\n{}\nstderr: {}",
+        result.rust_code,
+        result.stderr
+    );
+    let output = result.stdout.trim();
+    assert!(
+        output.contains("60") && output.contains("3"),
+        "Expected '60' and '3' in output.\nGot: '{}'\n\nGenerated Rust:\n{}",
+        output,
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_multi_param_mixed_types() {
+    // Function taking multiple params of different types
+    assert_output(
+        r#"## To compute (name: Text) and (base: Int) and (multiplier: Int) -> Int:
+    Return base * multiplier.
+
+## Main
+Show compute("test", 50, 10).
+"#,
+        "500",
+    );
+}
+
+#[test]
+fn e2e_function_chain_struct_transform() {
+    // Pass struct through a chain of functions
+    assert_output(
+        r#"## A Box has:
+    A value: Int.
+
+## To addTen (b: Box) -> Box:
+    Return a new Box with value b's value + 10.
+
+## To triple (b: Box) -> Box:
+    Return a new Box with value b's value * 3.
+
+## Main
+Let b be a new Box with value 10.
+Let b2 be addTen(b).
+Let b3 be triple(b2).
+Show b3's value.
+"#,
+        "60",
+    );
+}
+
+// =============================================================================
+// Category 16: Collection Ops in Complex Contexts
+// =============================================================================
+
+#[test]
+fn e2e_show_slice_result() {
+    // Bug C target: Show + Slice creates double-reference show(&&items[...])
+    assert_output(
+        r#"## Main
+Let items be [10, 20, 30, 40, 50].
+Show items 2 through 4.
+"#,
+        "[20, 30, 40]",
+    );
+}
+
+#[test]
+fn e2e_length_in_condition() {
+    // Use length of collection in an If condition
+    assert_output(
+        r#"## Main
+Let items be [1, 2, 3, 4, 5].
+If length of items is greater than 3:
+    Show "long".
+Otherwise:
+    Show "short".
+"#,
+        "long",
+    );
+}
+
+#[test]
+fn e2e_contains_set_conditional() {
+    // Contains check on Set in If condition
+    assert_output(
+        r#"## Main
+Let roles be a new Set of Text.
+Add "admin" to roles.
+Add "user" to roles.
+If roles contains "admin":
+    Show "granted".
+Otherwise:
+    Show "denied".
+"#,
+        "granted",
+    );
+}
+
+#[test]
+fn e2e_while_set_accumulator() {
+    // Build a set in a while loop until it has enough elements
+    assert_output(
+        r#"## Main
+Let mutable s be a new Set of Int.
+Let i be 1.
+While i is at most 10:
+    If i / 2 * 2 equals i:
+        Add i to s.
+    Set i to i + 1.
+Show length of s.
+"#,
+        "5",
+    );
+}
