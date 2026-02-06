@@ -3088,8 +3088,10 @@ fn codegen_expr_boxed_internal(
 
         Expr::Copy { expr: inner } => {
             let expr_str = recurse!(inner);
-            // Phase 43D: Explicit clone - works for Vec, HashMap, HashSet, and any Clone type
-            format!("{}.clone()", expr_str)
+            // Phase 43D: Explicit owned copy — .to_owned() is universal:
+            // - &[T] (slices) → Vec<T> via [T]: ToOwned<Owned=Vec<T>>
+            // - Vec<T>, HashMap<K,V>, HashSet<T> → Self via Clone blanket impl
+            format!("{}.to_owned()", expr_str)
         }
 
         Expr::Give { value } => {
