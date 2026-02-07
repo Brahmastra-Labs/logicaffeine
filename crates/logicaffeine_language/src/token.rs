@@ -179,6 +179,11 @@ pub enum TokenType {
     Inspect,
     /// Native function modifier for FFI bindings.
     Native,
+    /// Escape hatch header keyword: "Escape to Rust:"
+    Escape,
+    /// Raw code block captured verbatim from an escape hatch body.
+    /// The Symbol holds the interned raw foreign code (indentation-stripped).
+    EscapeBlock(Symbol),
 
     // Theorem Keywords
     /// Premise marker in theorem blocks.

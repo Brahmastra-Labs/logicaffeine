@@ -2851,6 +2851,16 @@ pub fn codegen_stmt<'a>(
             ).unwrap();
         }
 
+        // Escape hatch: emit raw foreign code wrapped in braces for scope isolation
+        Stmt::Escape { code, .. } => {
+            let raw_code = interner.resolve(*code);
+            write!(output, "{}{{\n", indent_str).unwrap();
+            for line in raw_code.lines() {
+                write!(output, "{}    {}\n", indent_str, line).unwrap();
+            }
+            write!(output, "{}}}\n", indent_str).unwrap();
+        }
+
         // Phase 63: Theorems are verified at compile-time, no runtime code generated
         Stmt::Theorem(_) => {
             // Theorems don't generate runtime code - they're processed separately

@@ -1041,6 +1041,12 @@ impl<'a> DiscoveryPass<'a> {
                 self.advance();
                 Some(sym)
             }
+            // Escape hatch keyword can be a type/identifier name
+            TokenType::Escape => {
+                let sym = t.lexeme;
+                self.advance();
+                Some(sym)
+            }
             // Phase 103: Accept Focus tokens as identifiers (e.g., "Just" for Maybe variants)
             TokenType::Focus(_) => {
                 let sym = t.lexeme;

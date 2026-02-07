@@ -1051,6 +1051,15 @@ impl<'a> Interpreter<'a> {
                 Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
             }
 
+            // Escape blocks contain raw Rust code and cannot be interpreted
+            Stmt::Escape { .. } => {
+                Err(
+                    "Escape blocks contain raw Rust code and cannot be interpreted. \
+                     Use `largo build` or `largo run` to compile and run this program."
+                    .to_string()
+                )
+            }
+
             // Phase 63: Theorems are verified at compile-time, not executed
             Stmt::Theorem(_) => {
                 // Theorems don't execute - they're processed by compile_theorem()

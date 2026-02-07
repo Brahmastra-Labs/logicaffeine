@@ -534,6 +534,21 @@ pub enum Stmt<'a> {
     /// `Prove: Goal.`
     /// `Proof: Auto.`
     Theorem(TheoremBlock<'a>),
+
+    /// Escape hatch: embed raw foreign code.
+    /// `Escape to Rust:` followed by an indented block of raw code.
+    ///
+    /// Variables from the enclosing LOGOS scope are available in the
+    /// escape block as their generated Rust types. The raw code is
+    /// emitted verbatim inside a `{ ... }` block in the generated Rust.
+    Escape {
+        /// Target language ("Rust" for now, forward-compatible with "Python", "WGSL", etc.)
+        language: Symbol,
+        /// Raw foreign code, captured verbatim with base indentation stripped.
+        code: Symbol,
+        /// Source span covering the entire escape block (header + body).
+        span: crate::token::Span,
+    },
 }
 
 /// A branch in a Select statement.

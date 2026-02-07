@@ -1285,6 +1285,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return self.parse_receive_pipe_statement();
         }
 
+        // Escape hatch: raw foreign code blocks
+        if self.check(&TokenType::Escape) {
+            return self.parse_escape_statement();
+        }
+
         // Expression-statement: function call without "Call" keyword
         // e.g., `greet("Alice").` instead of `Call greet with "Alice".`
         // Check if next token is LParen (indicating a function call)
@@ -2883,6 +2888,107 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 span: self.current_span(),
             })
         }
+    }
+
+    /// Parse an escape hatch block: `Escape to Rust: <indented raw code>`
+    fn parse_escape_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_span = self.current_span();
+        self.advance(); // consume "Escape"
+
+        // Expect "to"
+        if !self.check(&TokenType::To) && !self.check_preposition_is("to") {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "Expected 'to' after 'Escape'. Syntax: Escape to Rust:".to_string()
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "to"
+
+        // Parse language name — "Rust" will be tokenized as ProperName
+        let language = match &self.peek().kind {
+            TokenType::ProperName(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "Expected language name after 'Escape to'. Currently only 'Rust' is supported.".to_string()
+                    ),
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Validate: only "Rust" is supported for now
+        if !language.is(self.interner, "Rust") {
+            let lang_str = self.interner.resolve(language);
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    format!("Unsupported escape target '{}'. Only 'Rust' is supported.", lang_str)
+                ),
+                span: self.current_span(),
+            });
+        }
+
+        // Expect colon
+        if !self.check(&TokenType::Colon) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "Expected ':' after 'Escape to Rust'. Syntax: Escape to Rust:".to_string()
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ":"
+
+        // Expect Indent (the indented block follows)
+        if !self.check(&TokenType::Indent) {
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(
+                    "Expected indented block after 'Escape to Rust:'.".to_string()
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume Indent
+
+        // Expect the raw EscapeBlock token
+        let code = match &self.peek().kind {
+            TokenType::EscapeBlock(sym) => {
+                let s = *sym;
+                self.advance();
+                s
+            }
+            _ => {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "Escape block body is empty or malformed.".to_string()
+                    ),
+                    span: self.current_span(),
+                });
+            }
+        };
+
+        // Expect Dedent (block ends)
+        if self.check(&TokenType::Dedent) {
+            self.advance();
+        }
+
+        let end_span = self.previous().span;
+        Ok(Stmt::Escape {
+            language,
+            code,
+            span: crate::token::Span::new(start_span.start, end_span.end),
+        })
     }
 
     /// Phase 54: Parse Stop statement
@@ -5038,7 +5144,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Both |      // correlative: "both X and Y"
             TokenType::Either |    // correlative: "either X or Y"
             TokenType::Combined |  // string concat: "combined with"
-            TokenType::Shared => { // CRDT modifier
+            TokenType::Shared |    // CRDT modifier
+            TokenType::Escape => { // escape hatch keyword
                 let sym = token.lexeme;
                 self.advance();
 
@@ -5504,7 +5611,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Calendar units can be type/variable names (Day, Week, Month, Year)
             TokenType::CalendarUnit(_) |
             // Phase 103: Focus particles can be variant names (Just, Only, Even)
-            TokenType::Focus(_) => {
+            TokenType::Focus(_) |
+            // Escape hatch keyword can be a variable name
+            TokenType::Escape => {
                 // Use the raw lexeme (interned string) as the symbol
                 let sym = token.lexeme;
                 self.advance();

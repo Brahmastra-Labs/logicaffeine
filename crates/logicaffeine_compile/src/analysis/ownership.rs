@@ -266,6 +266,10 @@ impl<'a> OwnershipChecker<'a> {
                 }
             }
 
+            // Escape blocks are opaque to ownership analysis — the Rust compiler
+            // catches use-after-move in the generated code
+            Stmt::Escape { .. } => {}
+
             // Other statements don't affect ownership
             _ => {}
         }

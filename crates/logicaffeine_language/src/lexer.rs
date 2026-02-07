@@ -74,6 +74,8 @@ pub struct LineLexer<'a> {
     finished_lines: bool,
     /// True if we've emitted at least one Indent (need to emit Dedents at EOF)
     emitted_indent: bool,
+    /// Escape block body byte ranges to skip (start_byte, end_byte)
+    escape_body_ranges: Vec<(usize, usize)>,
 }
 
 impl<'a> LineLexer<'a> {
@@ -90,7 +92,30 @@ impl<'a> LineLexer<'a> {
             pending_content_text: String::new(),
             finished_lines: false,
             emitted_indent: false,
+            escape_body_ranges: Vec::new(),
         }
+    }
+
+    pub fn with_escape_ranges(source: &'a str, escape_body_ranges: Vec<(usize, usize)>) -> Self {
+        Self {
+            source,
+            bytes: source.as_bytes(),
+            indent_stack: vec![0],
+            pending_dedents: 0,
+            position: 0,
+            has_pending_content: false,
+            pending_content_start: 0,
+            pending_content_end: 0,
+            pending_content_text: String::new(),
+            finished_lines: false,
+            emitted_indent: false,
+            escape_body_ranges,
+        }
+    }
+
+    /// Check if a byte position falls within an escape body range.
+    fn is_in_escape_body(&self, pos: usize) -> bool {
+        self.escape_body_ranges.iter().any(|(start, end)| pos >= *start && pos < *end)
     }
 
     /// Calculate indentation level at current position (at start of line).
@@ -315,6 +340,8 @@ pub struct Lexer<'a> {
     in_let_context: bool,
     mode: LexerMode,
     source: String,
+    /// Escape block body byte ranges: (skip_start, skip_end) for filtering LineLexer events
+    escape_body_ranges: Vec<(usize, usize)>,
 }
 
 struct WordItem {
@@ -350,7 +377,11 @@ impl<'a> Lexer<'a> {
     /// assert_eq!(tokens.len(), 4); // Quantifier, Noun, Verb, Period
     /// ```
     pub fn new(input: &str, interner: &'a mut Interner) -> Self {
-        let words = Self::split_into_words(input);
+        let escape_ranges = Self::find_escape_block_ranges(input);
+        let escape_body_ranges: Vec<(usize, usize)> = escape_ranges.iter()
+            .map(|(_, end, content_start, _)| (*content_start, *end))
+            .collect();
+        let words = Self::split_into_words(input, &escape_ranges);
         let input_len = input.len();
 
         Lexer {
@@ -362,20 +393,198 @@ impl<'a> Lexer<'a> {
             in_let_context: false,
             mode: LexerMode::Declarative,
             source: input.to_string(),
+            escape_body_ranges,
         }
     }
 
-    fn split_into_words(input: &str) -> Vec<WordItem> {
+    /// Pre-scan source text for escape block bodies.
+    /// Returns (skip_start_byte, skip_end_byte, content_start_byte, raw_code) tuples.
+    /// `skip_start` is the line start (for byte skipping in split_into_words).
+    /// `content_start` is after leading whitespace (for token span alignment with Indent events).
+    fn find_escape_block_ranges(source: &str) -> Vec<(usize, usize, usize, String)> {
+        let mut ranges = Vec::new();
+        let lines: Vec<&str> = source.split('\n').collect();
+        let mut line_starts: Vec<usize> = Vec::with_capacity(lines.len());
+        let mut pos = 0;
+        for line in &lines {
+            line_starts.push(pos);
+            pos += line.len() + 1; // +1 for the newline
+        }
+
+        let mut i = 0;
+        while i < lines.len() {
+            let trimmed = lines[i].trim();
+            // Check if this line is an escape header: "Escape to Rust:"
+            if trimmed.eq_ignore_ascii_case("escape to rust:") ||
+               (trimmed.to_lowercase().starts_with("escape to ") && trimmed.ends_with(':'))
+            {
+                // Find the body: subsequent lines with deeper indentation
+                let header_indent = Self::measure_indent_static(lines[i]);
+                i += 1;
+
+                // Skip blank lines to find the first body line
+                let mut body_start_line = i;
+                while body_start_line < lines.len() && lines[body_start_line].trim().is_empty() {
+                    body_start_line += 1;
+                }
+
+                if body_start_line >= lines.len() {
+                    // No body found
+                    continue;
+                }
+
+                let base_indent = Self::measure_indent_static(lines[body_start_line]);
+                if base_indent <= header_indent {
+                    // No indented body
+                    continue;
+                }
+
+                // Capture all lines at base_indent or deeper
+                let body_byte_start = line_starts[body_start_line];
+                let mut body_end_line = body_start_line;
+                let mut code_lines: Vec<String> = Vec::new();
+
+                let mut j = body_start_line;
+                while j < lines.len() {
+                    let line = lines[j];
+                    if line.trim().is_empty() {
+                        // Blank lines are preserved
+                        code_lines.push(String::new());
+                        body_end_line = j;
+                        j += 1;
+                        continue;
+                    }
+                    let line_indent = Self::measure_indent_static(line);
+                    if line_indent < base_indent {
+                        break;
+                    }
+                    // Strip base indentation
+                    let stripped = Self::strip_indent(line, base_indent);
+                    code_lines.push(stripped);
+                    body_end_line = j;
+                    j += 1;
+                }
+
+                // Trim trailing empty lines from code
+                while code_lines.last().map_or(false, |l| l.is_empty()) {
+                    code_lines.pop();
+                }
+
+                if !code_lines.is_empty() {
+                    let body_byte_end = if body_end_line + 1 < lines.len() {
+                        line_starts[body_end_line + 1]
+                    } else {
+                        source.len()
+                    };
+                    // Compute content start (after leading whitespace of first body line)
+                    let content_start = body_byte_start + Self::leading_whitespace_bytes(lines[body_start_line]);
+                    let raw_code = code_lines.join("\n");
+                    ranges.push((body_byte_start, body_byte_end, content_start, raw_code));
+                }
+
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+
+        ranges
+    }
+
+    /// Count leading whitespace bytes in a line.
+    fn leading_whitespace_bytes(line: &str) -> usize {
+        let mut count = 0;
+        for c in line.chars() {
+            match c {
+                ' ' | '\t' => count += c.len_utf8(),
+                _ => break,
+            }
+        }
+        count
+    }
+
+    /// Measure indent of a line (static helper for pre-scan).
+    fn measure_indent_static(line: &str) -> usize {
+        let mut indent = 0;
+        for c in line.chars() {
+            match c {
+                ' ' => indent += 1,
+                '\t' => indent += 4,
+                _ => break,
+            }
+        }
+        indent
+    }
+
+    /// Strip `count` leading spaces/tabs from a line.
+    fn strip_indent(line: &str, count: usize) -> String {
+        let mut stripped = 0;
+        let mut byte_pos = 0;
+        for (i, c) in line.char_indices() {
+            if stripped >= count {
+                byte_pos = i;
+                break;
+            }
+            match c {
+                ' ' => { stripped += 1; byte_pos = i + 1; }
+                '\t' => { stripped += 4; byte_pos = i + 1; }
+                _ => { byte_pos = i; break; }
+            }
+        }
+        if stripped < count {
+            byte_pos = line.len();
+        }
+        line[byte_pos..].to_string()
+    }
+
+    fn split_into_words(input: &str, escape_ranges: &[(usize, usize, usize, String)]) -> Vec<WordItem> {
         let mut items = Vec::new();
         let mut current_word = String::new();
         let mut word_start = 0;
         let chars: Vec<char> = input.chars().collect();
         let mut char_idx = 0;
         let mut skip_count = 0;
+        // Track byte offset for escape range matching
+        let mut skip_to_byte: Option<usize> = None;
 
         for (i, c) in input.char_indices() {
             if skip_count > 0 {
                 skip_count -= 1;
+                char_idx += 1;
+                continue;
+            }
+            // Skip bytes inside escape block bodies
+            if let Some(end) = skip_to_byte {
+                if i < end {
+                    char_idx += 1;
+                    continue;
+                }
+                skip_to_byte = None;
+                word_start = i;
+            }
+            // Check if this byte position starts an escape block body
+            if let Some((_, end, content_start, raw_code)) = escape_ranges.iter().find(|(s, _, _, _)| i == *s) {
+                // Flush any pending word
+                if !current_word.is_empty() {
+                    items.push(WordItem {
+                        word: std::mem::take(&mut current_word),
+                        trailing_punct: None,
+                        start: word_start,
+                        end: i,
+                        punct_pos: None,
+                    });
+                }
+                // Emit the entire block as a single \x00ESC: marker
+                // Use content_start (after whitespace) for span alignment with Indent events
+                items.push(WordItem {
+                    word: format!("\x00ESC:{}", raw_code),
+                    trailing_punct: None,
+                    start: *content_start,
+                    end: *end,
+                    punct_pos: None,
+                });
+                skip_to_byte = Some(*end);
+                word_start = *end;
                 char_idx += 1;
                 continue;
             }
@@ -938,6 +1147,16 @@ impl<'a> Lexer<'a> {
                 continue;
             }
 
+            // Check for escape block marker (pre-captured raw foreign code)
+            if word.starts_with("\x00ESC:") {
+                let content = &word[5..]; // Skip the "\x00ESC:" prefix
+                let sym = self.interner.intern(content);
+                let span = Span::new(word_start, word_end);
+                tokens.push(Token::new(TokenType::EscapeBlock(sym), sym, span));
+                self.pos += 1;
+                continue;
+            }
+
             let kind = self.classify_with_lookahead(&word);
             let lexeme = self.interner.intern(&word);
             let span = Span::new(word_start, word_end);
@@ -1073,6 +1292,27 @@ impl<'a> Lexer<'a> {
         // Handle any remaining dedents at EOF
         for _ in 0..pending_dedents {
             structural_events.push((self.input_len, false));
+        }
+
+        // Filter out structural events from within escape block bodies.
+        // The LineLexer sees raw Rust code lines and generates spurious Indent/Dedent
+        // events for their indentation changes. We keep exactly the boundary events
+        // (Indent at body start, Dedent at body end) but remove internal ones.
+        if !self.escape_body_ranges.is_empty() {
+            // For each escape body range, find the first Indent at the body start and
+            // track that we're inside the range. Filter out all events strictly inside
+            // the range except for the first Indent and events at/after the end.
+            let mut filtered = Vec::new();
+            for &(pos, is_indent) in &structural_events {
+                let is_inside_escape_body = self.escape_body_ranges.iter().any(|(start, end)| {
+                    // Strictly inside the body (not at start boundary and not at/after end)
+                    pos > *start && pos < *end
+                });
+                if !is_inside_escape_body {
+                    filtered.push((pos, is_indent));
+                }
+            }
+            structural_events = filtered;
         }
 
         // Sort events by position, with dedents before indents at same position
@@ -1768,6 +2008,7 @@ impl<'a> Lexer<'a> {
             "try" if self.mode == LexerMode::Imperative => return TokenType::Try,
             "into" if self.mode == LexerMode::Imperative => return TokenType::Into,
             "native" => return TokenType::Native,
+            "escape" if self.mode == LexerMode::Imperative => return TokenType::Escape,
             "from" => return TokenType::From,
             "otherwise" => return TokenType::Otherwise,
             // Phase 30c: Else/elif as aliases for Otherwise/Otherwise If

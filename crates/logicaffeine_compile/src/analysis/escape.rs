@@ -170,6 +170,9 @@ impl<'a> EscapeChecker<'a> {
                 }
             }
 
+            // Escape blocks are opaque — the Rust compiler handles zone safety for raw code
+            Stmt::Escape { .. } => {}
+
             // Other statements don't introduce escape risks
             _ => {}
         }
