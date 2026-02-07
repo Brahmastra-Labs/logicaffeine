@@ -521,3 +521,536 @@ Escape to Rust:
         "Error should mention compilation requirement: {}", result.error,
     );
 }
+
+// ─────────────────────────────────────────────────────────
+// Tier 5: Expression-Level Escape — Codegen
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn escape_expr_codegen_let_with_type_annotation() {
+    let source = r#"## Main
+Let x: Int be Escape to Rust:
+    42_i64
+Show x.
+"#;
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(rust.contains("let x: i64"), "Should have typed let binding:\n{}", rust);
+    assert!(rust.contains("42_i64"), "Should contain raw code:\n{}", rust);
+    assert!(rust.contains("{"), "Should have block expression:\n{}", rust);
+}
+
+#[test]
+fn escape_expr_codegen_multiline_block() {
+    let source = r#"## Main
+Let x: Int be Escape to Rust:
+    let a = 10_i64;
+    let b = 32_i64;
+    a + b
+Show x.
+"#;
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(rust.contains("let a = 10_i64;"), "Line 1:\n{}", rust);
+    assert!(rust.contains("let b = 32_i64;"), "Line 2:\n{}", rust);
+    assert!(rust.contains("a + b"), "Line 3:\n{}", rust);
+}
+
+#[test]
+fn escape_expr_codegen_in_set_statement() {
+    let source = r#"## Main
+Let mut x: Int be 0.
+Set x to Escape to Rust:
+    42 * 2
+Show x.
+"#;
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(rust.contains("42 * 2"), "Should contain escape code:\n{}", rust);
+    assert!(rust.contains("x ="), "Should have assignment:\n{}", rust);
+}
+
+#[test]
+fn escape_expr_codegen_coexists_with_statement_escape() {
+    let source = r#"## Main
+Escape to Rust:
+    println!("side-effect");
+Let y: Int be Escape to Rust:
+    99_i64
+Show y.
+"#;
+    let rust = compile_to_rust(source).expect("Should compile");
+    assert!(rust.contains(r#"println!("side-effect")"#), "Statement escape:\n{}", rust);
+    assert!(rust.contains("99_i64"), "Expression escape:\n{}", rust);
+}
+
+// ─────────────────────────────────────────────────────────
+// Tier 5b: Expression-Level Escape — E2E
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_escape_expr_basic_int() {
+    assert_exact_output(
+        r#"## Main
+Let x: Int be Escape to Rust:
+    42_i64
+Show x.
+"#,
+        "42",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_basic_text() {
+    assert_exact_output(
+        r#"## Main
+Let msg: Text be Escape to Rust:
+    format!("hello {}", "world")
+Show msg.
+"#,
+        "hello world",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_basic_bool() {
+    assert_exact_output(
+        r#"## Main
+Let flag: Bool be Escape to Rust:
+    10 > 5
+Show flag.
+"#,
+        "true",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_basic_real() {
+    let result = run_logos(
+        r#"## Main
+Let pi: Real be Escape to Rust:
+    std::f64::consts::PI
+Show pi.
+"#,
+    );
+    assert!(result.success, "Should run.\nstderr: {}\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.stdout.trim().starts_with("3.14159"),
+        "Expected pi to start with 3.14159, got: {}", result.stdout.trim()
+    );
+}
+
+#[test]
+fn e2e_escape_expr_multi_step_computation() {
+    assert_exact_output(
+        r#"## Main
+Let answer: Int be Escape to Rust:
+    let a = 10_i64;
+    let b = 32_i64;
+    a + b
+Show answer.
+"#,
+        "42",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_reads_logos_variables() {
+    assert_exact_output(
+        r#"## Main
+Let items be [10, 20, 30].
+Let total: Int be Escape to Rust:
+    items.iter().sum::<i64>()
+Show total.
+"#,
+        "60",
+    );
+}
+
+// ─────────────────────────────────────────────────────────
+// Tier 5c: Expression-Level Escape — Real-World Computations
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_escape_expr_integer_square_root() {
+    assert_output_lines(
+        r#"## To isqrt (n: Int) -> Int:
+    Let result: Int be Escape to Rust:
+        let mut x = n;
+        if x < 0 { x = 0; }
+        if x <= 1 { return x; }
+        let mut r = x;
+        loop {
+            let next = (r + x / r) / 2;
+            if next >= r { break; }
+            r = next;
+        }
+        r
+    Return result.
+
+## Main
+Show isqrt(625).
+Show isqrt(2).
+"#,
+        &["25", "1"],
+    );
+}
+
+#[test]
+fn e2e_escape_expr_gcd_euclidean() {
+    assert_exact_output(
+        r#"## To gcd (a: Int, b: Int) -> Int:
+    Let result: Int be Escape to Rust:
+        let mut x = a;
+        let mut y = b;
+        while y != 0 {
+            let temp = y;
+            y = x % y;
+            x = temp;
+        }
+        x
+    Return result.
+
+## Main
+Show gcd(48, 18).
+"#,
+        "6",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_sieve_prime_count() {
+    assert_exact_output(
+        r#"## To count_primes (limit: Int) -> Int:
+    Let result: Int be Escape to Rust:
+        let n = limit as usize;
+        if n < 2 { return 0; }
+        let mut sieve = vec![true; n + 1];
+        sieve[0] = false;
+        sieve[1] = false;
+        let mut i = 2;
+        while i * i <= n {
+            if sieve[i] {
+                let mut j = i * i;
+                while j <= n {
+                    sieve[j] = false;
+                    j += i;
+                }
+            }
+            i += 1;
+        }
+        sieve.iter().filter(|&&x| x).count() as i64
+    Return result.
+
+## Main
+Show count_primes(30).
+"#,
+        "10",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_binary_search() {
+    assert_exact_output(
+        r#"## To bsearch (haystack: Seq of Int, target: Int) -> Int:
+    Let result: Int be Escape to Rust:
+        let mut lo: usize = 0;
+        let mut hi: usize = haystack.len();
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if haystack[mid] == target {
+                return (mid as i64) + 1;
+            } else if haystack[mid] < target {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        0_i64
+    Return result.
+
+## Main
+Show bsearch([10, 20, 30, 40, 50], 30).
+"#,
+        "3",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_fnv1a_hash() {
+    assert_exact_output(
+        r#"## To fnv_hash (data: Text) -> Int:
+    Let result: Int be Escape to Rust:
+        let mut hash: u64 = 14695981039346656037;
+        for byte in data.as_bytes() {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(1099511628211);
+        }
+        hash as i64
+    Return result.
+
+## Main
+Show fnv_hash("hello").
+"#,
+        "-6615550055289275125",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_leibniz_pi() {
+    let result = run_logos(
+        r#"## To approx_pi (iterations: Int) -> Real:
+    Let result: Real be Escape to Rust:
+        let mut sum = 0.0_f64;
+        for k in 0..iterations {
+            let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
+            sum += sign / (2 * k + 1) as f64;
+        }
+        sum * 4.0
+    Return result.
+
+## Main
+Escape to Rust:
+    let pi = approx_pi(10000);
+    println!("{:.4}", pi);
+"#,
+    );
+    assert!(result.success, "Should run.\nstderr: {}\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.stdout.trim().starts_with("3.1415"),
+        "Expected pi approximation starting with 3.1415, got: {}", result.stdout.trim()
+    );
+}
+
+// ─────────────────────────────────────────────────────────
+// Tier 5d: Expression-Level Escape — Composability
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_escape_expr_in_set_statement() {
+    assert_exact_output(
+        r#"## Main
+Let mut x: Int be 0.
+Set x to Escape to Rust:
+    42 * 2
+Show x.
+"#,
+        "84",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_as_function_return() {
+    assert_exact_output(
+        r#"## To compute () -> Int:
+    Let result: Int be Escape to Rust:
+        (7 + 3) * 5_i64
+    Return result.
+
+## Main
+Show compute().
+"#,
+        "50",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_in_if_branch() {
+    assert_exact_output(
+        r#"## Main
+Let x be 10.
+If x > 5:
+    Let msg: Text be Escape to Rust:
+        format!("big: {}", x)
+    Show msg.
+Otherwise:
+    Let msg: Text be Escape to Rust:
+        format!("small: {}", x)
+    Show msg.
+"#,
+        "big: 10",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_inside_repeat_loop() {
+    assert_output_lines(
+        r#"## Main
+Repeat for i from 1 to 3:
+    Let sq: Int be Escape to Rust:
+        i * i
+    Show sq.
+"#,
+        &["1", "4", "9"],
+    );
+}
+
+#[test]
+fn e2e_escape_expr_multiple_sequential() {
+    assert_exact_output(
+        r#"## Main
+Let a: Int be Escape to Rust:
+    10_i64
+Let b: Int be Escape to Rust:
+    a + 20
+Let c: Int be Escape to Rust:
+    a + b
+Show c.
+"#,
+        "40",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_alongside_statement_escape() {
+    assert_output_lines(
+        r#"## Main
+Escape to Rust:
+    println!("side-effect");
+Let val: Int be Escape to Rust:
+    42_i64
+Show val.
+"#,
+        &["side-effect", "42"],
+    );
+}
+
+// ─────────────────────────────────────────────────────────
+// Tier 5e: Expression-Level Escape — Type Interaction
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_escape_expr_constructs_logos_struct() {
+    assert_exact_output(
+        r#"## A Point has:
+    An x: Int.
+    A y: Int.
+
+## Main
+Let p: Point be Escape to Rust:
+    Point { x: 10, y: 20, ..Default::default() }
+Show p's x + p's y.
+"#,
+        "30",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_constructs_logos_list() {
+    assert_output_lines(
+        r#"## Main
+Let items: Seq of Int be Escape to Rust:
+    vec![1_i64, 2, 3, 4, 5]
+Repeat for n in items:
+    Show n.
+"#,
+        &["1", "2", "3", "4", "5"],
+    );
+}
+
+#[test]
+fn e2e_escape_expr_derives_from_logos_struct() {
+    assert_exact_output(
+        r#"## A Point has:
+    An x: Int.
+    A y: Int.
+
+## Main
+Let p be a new Point with x 3 and y 4.
+Let dist_sq: Int be Escape to Rust:
+    p.x * p.x + p.y * p.y
+Show dist_sq.
+"#,
+        "25",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_string_processing() {
+    assert_exact_output(
+        r#"## Main
+Let msg be "hello world".
+Let reversed: Text be Escape to Rust:
+    msg.chars().rev().collect::<String>()
+Show reversed.
+"#,
+        "dlrow olleh",
+    );
+}
+
+// ─────────────────────────────────────────────────────────
+// Tier 5f: Expression-Level Escape — Edge Cases
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn e2e_escape_expr_single_expression_block() {
+    assert_exact_output(
+        r#"## Main
+Let x: Int be Escape to Rust:
+    7_i64
+Show x.
+"#,
+        "7",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_return_exits_enclosing_function() {
+    assert_exact_output(
+        r#"## To safe_div (a: Int, b: Int) -> Int:
+    Let result: Int be Escape to Rust:
+        if b == 0 { return -1; }
+        a / b
+    Return result.
+
+## Main
+Show safe_div(10, 0).
+"#,
+        "-1",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_deeply_nested_rust() {
+    assert_exact_output(
+        r#"## Main
+Let x: Int be Escape to Rust:
+    match 42_i64 % 3 {
+        0 => {
+            if 42 > 10 { 100_i64 } else { 0 }
+        }
+        _ => -1,
+    }
+Show x.
+"#,
+        "100",
+    );
+}
+
+#[test]
+fn e2e_escape_expr_no_trailing_period_needed() {
+    assert_exact_output(
+        r#"## Main
+Let x: Int be Escape to Rust:
+    42_i64
+Show x.
+"#,
+        "42",
+    );
+}
+
+// ─────────────────────────────────────────────────────────
+// Tier 5g: Interpreter Rejection
+// ─────────────────────────────────────────────────────────
+
+#[test]
+fn interpreter_rejects_escape_expressions() {
+    let result = run_interpreter(r#"## Main
+Let x: Int be Escape to Rust:
+    42_i64
+Show x.
+"#);
+    assert!(!result.success, "Interpreter should reject escape expressions");
+    assert!(
+        result.error.contains("compil") || result.error.contains("Escape")
+            || result.error.contains("interpreted"),
+        "Error should mention compilation requirement: {}", result.error,
+    );
+}

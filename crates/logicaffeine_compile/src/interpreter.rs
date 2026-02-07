@@ -1430,6 +1430,11 @@ impl<'a> Interpreter<'a> {
             Expr::ChunkAt { .. } => {
                 Ok(RuntimeValue::Nothing)
             }
+
+            Expr::Escape { .. } => {
+                Err("Escape expressions contain raw Rust code and cannot be interpreted. \
+                     Use `largo build` or `largo run` to compile and run this program.".to_string())
+            }
         }
     }
 

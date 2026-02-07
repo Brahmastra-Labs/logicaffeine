@@ -367,6 +367,9 @@ impl<'a> OwnershipChecker<'a> {
                 self.check_not_moved(left)?;
                 self.check_not_moved(right)
             }
+            // Escape expressions are opaque — the Rust compiler handles ownership for raw code
+            Expr::Escape { .. } => Ok(()),
+
             // Literals are always safe
             Expr::Literal(_) => Ok(()),
         }

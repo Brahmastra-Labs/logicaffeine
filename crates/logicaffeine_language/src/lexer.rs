@@ -414,9 +414,13 @@ impl<'a> Lexer<'a> {
         let mut i = 0;
         while i < lines.len() {
             let trimmed = lines[i].trim();
-            // Check if this line is an escape header: "Escape to Rust:"
-            if trimmed.eq_ignore_ascii_case("escape to rust:") ||
-               (trimmed.to_lowercase().starts_with("escape to ") && trimmed.ends_with(':'))
+            // Check if this line contains an escape header: "Escape to Rust:"
+            // Matches both statement position (whole line) and expression position
+            // (e.g., "Let x: Int be Escape to Rust:")
+            let lower = trimmed.to_lowercase();
+            if lower == "escape to rust:" ||
+               lower.ends_with(" escape to rust:") ||
+               (lower.starts_with("escape to ") && lower.ends_with(':'))
             {
                 // Find the body: subsequent lines with deeper indentation
                 let header_indent = Self::measure_indent_static(lines[i]);

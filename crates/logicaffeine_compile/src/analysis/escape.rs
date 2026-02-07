@@ -274,6 +274,9 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(right, max_depth)?;
             }
 
+            // Escape expressions are opaque — the Rust compiler handles zone safety for raw code
+            Expr::Escape { .. } => {}
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }

@@ -684,6 +684,13 @@ pub enum Expr<'a> {
         variant: Symbol,                        // Circle
         fields: Vec<(Symbol, &'a Expr<'a>)>,    // [(radius, 10)]
     },
+
+    /// Escape hatch expression: raw foreign code that produces a value.
+    /// Used in expression position: `Let x: Int be Escape to Rust:`
+    Escape {
+        language: Symbol,
+        code: Symbol,
+    },
 }
 
 /// Literal values in LOGOS.

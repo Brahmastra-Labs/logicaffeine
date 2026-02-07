@@ -961,6 +961,7 @@ fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
                 collect_expr_identifiers(value, identifiers);
             }
         }
+        Expr::Escape { .. } => {}
         Expr::Literal(_) => {}
     }
 }
@@ -3278,6 +3279,18 @@ fn codegen_expr_boxed_internal(
                     .collect();
                 format!("{}::{} {{ {} }}", enum_str, variant_str, fields_str.join(", "))
             }
+        }
+
+        Expr::Escape { code, .. } => {
+            let raw_code = interner.resolve(*code);
+            let mut block = String::from("{\n");
+            for line in raw_code.lines() {
+                block.push_str("    ");
+                block.push_str(line);
+                block.push('\n');
+            }
+            block.push('}');
+            block
         }
     }
 }

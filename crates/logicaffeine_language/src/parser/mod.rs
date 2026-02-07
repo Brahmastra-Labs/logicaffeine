@@ -2890,8 +2890,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    /// Parse an escape hatch block: `Escape to Rust: <indented raw code>`
-    fn parse_escape_statement(&mut self) -> ParseResult<Stmt<'a>> {
+    /// Shared helper: consume `Escape to <Language>: Indent EscapeBlock Dedent`.
+    /// Returns (language, code, span).
+    fn parse_escape_body(&mut self) -> ParseResult<(crate::intern::Symbol, crate::intern::Symbol, crate::token::Span)> {
         let start_span = self.current_span();
         self.advance(); // consume "Escape"
 
@@ -2984,11 +2985,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         let end_span = self.previous().span;
-        Ok(Stmt::Escape {
-            language,
-            code,
-            span: crate::token::Span::new(start_span.start, end_span.end),
-        })
+        Ok((language, code, crate::token::Span::new(start_span.start, end_span.end)))
+    }
+
+    /// Parse an escape hatch block: `Escape to Rust: <indented raw code>`
+    fn parse_escape_statement(&mut self) -> ParseResult<Stmt<'a>> {
+        let (language, code, span) = self.parse_escape_body()?;
+        Ok(Stmt::Escape { language, code, span })
+    }
+
+    /// Parse an escape hatch expression: `Escape to Rust: <indented raw code>`
+    /// Used in expression position: `Let x: Int be Escape to Rust:`
+    fn parse_escape_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        let (language, code, _span) = self.parse_escape_body()?;
+        Ok(self.ctx.alloc_imperative_expr(Expr::Escape { language, code }))
     }
 
     /// Phase 54: Parse Stop statement
@@ -4330,6 +4340,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         while self.check(&TokenType::LParen) {
             self.advance(); // consume (
 
+            // Handle empty parameter list: ()
+            if self.check(&TokenType::RParen) {
+                self.advance(); // consume )
+                break;
+            }
+
             // Parse parameters in this group (possibly comma-separated)
             loop {
                 let param_name = self.expect_identifier()?;
@@ -5137,6 +5153,32 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.parse_field_access_chain(base)
             }
 
+            // Escape hatch in expression position: `Escape to Rust:`
+            // Lookahead: if followed by "to", parse as escape expression.
+            // Otherwise, treat as identifier (variable named "escape").
+            TokenType::Escape => {
+                if self.tokens.get(self.current + 1).map_or(false, |t|
+                    matches!(t.kind, TokenType::To) || {
+                        if let TokenType::Preposition(sym) = t.kind {
+                            sym.is(self.interner, "to")
+                        } else {
+                            false
+                        }
+                    }
+                ) {
+                    return self.parse_escape_expr();
+                }
+                // Fall through to identifier handling
+                let sym = token.lexeme;
+                self.advance();
+                if self.check(&TokenType::LParen) {
+                    return self.parse_call_expr(sym);
+                }
+                self.verify_identifier_access(sym)?;
+                let base = self.ctx.alloc_imperative_expr(Expr::Identifier(sym));
+                self.parse_field_access_chain(base)
+            }
+
             // Keywords that can also be used as identifiers in expression context
             // These are contextual keywords - they have special meaning in specific positions
             // but can be used as variable names elsewhere
@@ -5144,8 +5186,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Both |      // correlative: "both X and Y"
             TokenType::Either |    // correlative: "either X or Y"
             TokenType::Combined |  // string concat: "combined with"
-            TokenType::Shared |    // CRDT modifier
-            TokenType::Escape => { // escape hatch keyword
+            TokenType::Shared => { // CRDT modifier
                 let sym = token.lexeme;
                 self.advance();
 
