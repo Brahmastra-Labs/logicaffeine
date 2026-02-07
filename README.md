@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![Version](https://img.shields.io/badge/version-0.5.5-blue)]()
-[![Tests](https://img.shields.io/badge/tests-2227+-success)]()
+[![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Brahmastra-Labs/logicaffeine/badges/logicaffeine_test_count.json)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE.md)
 
 **[Try LOGOS Online →](https://logicaffeine.com/guide)**

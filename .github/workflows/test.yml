@@ -12,6 +12,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest-m
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -33,4 +35,28 @@ jobs:
         run: cargo build --workspace --verbose
 
       - name: Run all tests
-        run: cargo test --workspace
+        run: |
+          set -o pipefail
+          cargo test --workspace 2>&1 | tee test_output.txt
+
+      - name: Extract test count
+        if: github.ref == 'refs/heads/main'
+        id: test_count
+        run: |
+          TOTAL=$(grep -oP '\d+ passed' test_output.txt | awk '{s+=$1} END {print s}')
+          echo "count=$TOTAL" >> "$GITHUB_OUTPUT"
+          echo "Total tests: $TOTAL"
+
+      - name: Push badge to badges branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo '{"schemaVersion":1,"label":"tests","message":"${{ steps.test_count.outputs.count }}+","color":"brightgreen"}' > /tmp/badge.json
+          cd "$(mktemp -d)"
+          git init
+          git checkout -b badges
+          cp /tmp/badge.json logicaffeine_test_count.json
+          git add logicaffeine_test_count.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update test count badge: ${{ steps.test_count.outputs.count }} tests"
+          git push --force "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" badges
