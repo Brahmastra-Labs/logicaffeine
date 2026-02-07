@@ -293,6 +293,89 @@ pub fn assert_output(source: &str, expected: &str) {
     );
 }
 
+/// Assert that LOGOS code runs and produces exactly the expected output (trimmed).
+#[allow(dead_code)]
+pub fn assert_exact_output(source: &str, expected: &str) {
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Code should run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    assert_eq!(
+        result.stdout.trim(),
+        expected,
+        "\nSource:\n{}\n\nGenerated Rust:\n{}",
+        source,
+        result.rust_code
+    );
+}
+
+/// Assert that LOGOS code runs and produces exactly the expected lines (trimmed, line-by-line).
+#[allow(dead_code)]
+pub fn assert_output_lines(source: &str, expected_lines: &[&str]) {
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Code should run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    let actual_lines: Vec<&str> = result.stdout.trim().lines().collect();
+    assert_eq!(
+        actual_lines.len(),
+        expected_lines.len(),
+        "Line count mismatch.\nExpected {} lines: {:?}\nGot {} lines: {:?}\n\nSource:\n{}\n\nGenerated Rust:\n{}",
+        expected_lines.len(),
+        expected_lines,
+        actual_lines.len(),
+        actual_lines,
+        source,
+        result.rust_code
+    );
+    for (i, (actual, expected)) in actual_lines.iter().zip(expected_lines.iter()).enumerate() {
+        assert_eq!(
+            actual.trim(),
+            *expected,
+            "Line {} mismatch.\nExpected: '{}'\nGot:      '{}'\n\nFull output:\n{}\n\nSource:\n{}\n\nGenerated Rust:\n{}",
+            i + 1,
+            expected,
+            actual.trim(),
+            result.stdout.trim(),
+            source,
+            result.rust_code
+        );
+    }
+}
+
+/// Assert that LOGOS code runs and output contains all specified substrings (order-independent).
+/// Use for non-deterministic output (e.g., concurrent tasks).
+#[allow(dead_code)]
+pub fn assert_output_contains_all(source: &str, parts: &[&str]) {
+    let result = run_logos(source);
+    assert!(
+        result.success,
+        "Code should run.\nSource:\n{}\n\nGenerated Rust:\n{}\n\nstderr: {}",
+        source,
+        result.rust_code,
+        result.stderr
+    );
+    let output = result.stdout.trim();
+    for part in parts {
+        assert!(
+            output.contains(part),
+            "Expected '{}' in output.\nGot: '{}'\n\nSource:\n{}\n\nGenerated Rust:\n{}",
+            part,
+            output,
+            source,
+            result.rust_code
+        );
+    }
+}
+
 /// Assert that LOGOS code runs successfully (no output check).
 #[allow(dead_code)]
 pub fn assert_runs(source: &str) {

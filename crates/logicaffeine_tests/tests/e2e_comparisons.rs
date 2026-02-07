@@ -10,7 +10,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::assert_exact_output;
 
 #[cfg(not(target_arch = "wasm32"))]
 use common::assert_runs;
@@ -20,7 +20,7 @@ use common::assert_runs;
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_equals_true() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x be 5.
 If x equals 5:
@@ -33,7 +33,7 @@ If x equals 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_equals_false() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x be 5.
 If x equals 10:
@@ -50,7 +50,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_not_equals() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x be 5.
 If x is not 10:
@@ -65,7 +65,7 @@ If x is not 10:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_less_than_true() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 If 3 is less than 5:
     Show "yes".
@@ -91,7 +91,7 @@ If 5 is less than 3:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_greater_than_true() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 If 5 is greater than 3:
     Show "yes".
@@ -117,7 +117,7 @@ If 3 is greater than 5:
 #[test]
 fn e2e_at_least_boundary() {
     // Boundary case: 5 is at least 5 should be true
-    assert_output(
+    assert_exact_output(
         r#"## Main
 If 5 is at least 5:
     Show "yes".
@@ -132,7 +132,7 @@ If 5 is at least 5:
 #[test]
 fn e2e_at_most_boundary() {
     // Boundary case: 5 is at most 5 should be true
-    assert_output(
+    assert_exact_output(
         r#"## Main
 If 5 is at most 5:
     Show "yes".
@@ -146,7 +146,7 @@ If 5 is at most 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_symbolic_lt() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x be 3.
 If x < 5:
@@ -159,7 +159,7 @@ If x < 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_symbolic_gt() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x be 10.
 If x > 5:
@@ -172,7 +172,7 @@ If x > 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_symbolic_lteq_and_gteq() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x be 5.
 If x <= 5 and x >= 5:

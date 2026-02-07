@@ -6,14 +6,14 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::assert_exact_output;
 
 // === TUPLE CREATION ===
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_creation() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (1, 2, 3).
 Show length of t.
@@ -25,7 +25,7 @@ Show length of t.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_mixed_types() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (42, "hello", true).
 Show length of t.
@@ -39,7 +39,7 @@ Show length of t.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_bracket_access_first() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (10, 20, 30).
 Show t[1].
@@ -51,7 +51,7 @@ Show t[1].
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_bracket_access_middle() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (10, 20, 30).
 Show t[2].
@@ -63,7 +63,7 @@ Show t[2].
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_bracket_access_last() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (10, 20, 30).
 Show t[3].
@@ -77,7 +77,7 @@ Show t[3].
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_item_of_first() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (100, 200, 300).
 Show item 1 of t.
@@ -89,7 +89,7 @@ Show item 1 of t.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_item_of_middle() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (100, 200, 300).
 Show item 2 of t.
@@ -101,7 +101,7 @@ Show item 2 of t.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_item_of_last() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (100, 200, 300).
 Show item 3 of t.
@@ -115,7 +115,7 @@ Show item 3 of t.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_access_in_arithmetic() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (5, 10, 15).
 Let sum be t[1] + t[2] + t[3].
@@ -128,7 +128,7 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_natural_access_in_arithmetic() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let t be (5, 10, 15).
 Let sum be item 1 of t + item 2 of t + item 3 of t.
@@ -143,7 +143,7 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_pair_creation() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let p be (42, "answer").
 Show p[1].
@@ -155,7 +155,7 @@ Show p[1].
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_pair_second_element() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let p be (42, "answer").
 Show p[2].
@@ -169,7 +169,7 @@ Show p[2].
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tuple_with_float() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let person be ("Bob", 30, 5.9).
 Show item 3 of person.

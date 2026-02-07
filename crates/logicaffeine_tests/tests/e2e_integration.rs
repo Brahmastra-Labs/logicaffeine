@@ -6,14 +6,14 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::assert_exact_output;
 
 // === FIBONACCI ===
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_fibonacci() {
-    assert_output(
+    assert_exact_output(
         r#"## To fib (n: Int) -> Int:
     If n is less than 2:
         Return n.
@@ -31,7 +31,7 @@ Show fib(10).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_accumulator_sum() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let items be [1, 2, 3, 4, 5].
 Let sum be 0.
@@ -48,7 +48,7 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_filter_pattern() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let items be [1, 2, 3, 4, 5, 6].
 Let evens be a new Seq of Int.
@@ -67,7 +67,7 @@ Show evens.
 #[test]
 fn e2e_nested_loops_sum() {
     // Sum of 1*1 + 1*2 + 2*1 + 2*2 = 1 + 2 + 2 + 4 = 9
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let sum be 0.
 Repeat for i from 1 to 2:
@@ -84,7 +84,7 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_bubble_sort() {
-    assert_output(
+    assert_exact_output(
         r#"## To bubbleSort (items: Seq of Int) -> Seq of Int:
     Let result be copy of items.
     Let n be length of result.
@@ -116,7 +116,7 @@ Show sorted.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_gcd() {
-    assert_output(
+    assert_exact_output(
         r#"## To gcd (a: Int) and (b: Int) -> Int:
     If b equals 0:
         Return a.

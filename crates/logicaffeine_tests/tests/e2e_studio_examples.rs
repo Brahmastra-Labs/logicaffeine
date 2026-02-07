@@ -9,7 +9,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_output, run_logos};
+use common::run_logos;
 
 use logicaffeine_language::{compile, compile_all_scopes};
 use logicaffeine_language::ast::{QuantifierKind, TemporalOperator};

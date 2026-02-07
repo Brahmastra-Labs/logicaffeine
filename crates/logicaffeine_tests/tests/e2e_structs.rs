@@ -7,14 +7,14 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::{assert_exact_output, assert_output_lines};
 
 // === STRUCT CONSTRUCTOR ===
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_constructor() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -32,7 +32,7 @@ Show "created".
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_field_access() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -50,7 +50,7 @@ Show p's x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_field_mutation() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -69,7 +69,7 @@ Show p's x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_with_init() {
-    assert_output(
+    assert_output_lines(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -79,7 +79,7 @@ Let p be a new Point with x 5 and y 10.
 Show p's x.
 Show p's y.
 "#,
-        "5",
+        &["5", "10"],
     );
 }
 
@@ -88,7 +88,7 @@ Show p's y.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_in_function() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -109,7 +109,7 @@ Show getX(p).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_return() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -130,7 +130,7 @@ Show p's x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_nested_field_access() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.
@@ -152,7 +152,7 @@ Show b's location's x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_struct_in_collection() {
-    assert_output(
+    assert_exact_output(
         r#"## A Point has:
     An x: Int.
     A y: Int.

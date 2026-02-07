@@ -3,111 +3,111 @@
 //! Verifies Map operations work end-to-end.
 
 mod common;
-use common::run_logos;
+use common::assert_exact_output;
 
 #[test]
 fn e2e_map_create_empty() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let prices be a new Map of Text to Int.
 Show "ok".
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("ok"), "Map creation should work. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "ok",
+    );
 }
 
 #[test]
 fn e2e_map_set_and_get() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set item "iron" of prices to 100.
 Let cost be item "iron" of prices.
 Show cost.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("100"), "Should get 100. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "100",
+    );
 }
 
 #[test]
 fn e2e_map_multiple_keys() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut inventory be a new Map of Text to Int.
 Set item "iron" of inventory to 50.
 Set item "copper" of inventory to 30.
 Set item "gold" of inventory to 10.
 Let total be item "iron" of inventory + item "copper" of inventory + item "gold" of inventory.
 Show total.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("90"), "Should sum to 90. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "90",
+    );
 }
 
 #[test]
 fn e2e_map_overwrite_key() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set item "iron" of prices to 100.
 Set item "iron" of prices to 200.
 Let cost be item "iron" of prices.
 Show cost.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("200"), "Should overwrite to 200. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "200",
+    );
 }
 
 #[test]
 fn e2e_map_with_text_values() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut names be a new Map of Text to Text.
 Set item "player1" of names to "Alice".
 Let name be item "player1" of names.
 Show name.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("Alice"), "Should get Alice. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "Alice",
+    );
 }
 
 #[test]
 fn e2e_map_bracket_get() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set prices["iron"] to 100.
 Let cost be prices["iron"].
 Show cost.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("100"), "Bracket get should work. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "100",
+    );
 }
 
 #[test]
 fn e2e_map_bracket_set() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set prices["copper"] to 50.
 Set prices["copper"] to 75.
 Let cost be prices["copper"].
 Show cost.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("75"), "Bracket set should overwrite. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "75",
+    );
 }
 
 #[test]
 fn e2e_map_mixed_syntax() {
-    let source = r#"
-## Main
+    assert_exact_output(
+        r#"## Main
 Let mut inventory be a new Map of Text to Int.
 Set item "iron" of inventory to 10.
 Set inventory["copper"] to 20.
 Let total be item "iron" of inventory + inventory["copper"].
 Show total.
-"#;
-    let output = run_logos(source);
-    assert!(output.stdout.contains("30"), "Mixed syntax should work. stdout: {}, stderr: {}", output.stdout, output.stderr);
+"#,
+        "30",
+    );
 }

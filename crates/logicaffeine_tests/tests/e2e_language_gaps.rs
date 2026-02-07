@@ -24,7 +24,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_output, assert_runs, run_logos, assert_panics};
+use common::{assert_exact_output, assert_runs, run_logos, assert_panics};
 
 // =============================================================================
 // TIER 1: Recursive Enums with Boxed Fields
@@ -43,7 +43,7 @@ Inspect tree:
     When Leaf (v): Show v.
     When Node (l, r): Show "node".
 "#;
-    assert_output(source, "42");
+    assert_exact_output(source, "42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -61,7 +61,7 @@ Inspect tree:
     When Leaf (v): Show v.
     When Node (left, right): Show "is node".
 "#;
-    assert_output(source, "is node");
+    assert_exact_output(source, "is node");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -82,7 +82,7 @@ Inspect tree:
             When Leaf (v): Show v.
             When Node (l, r): Show "nested node".
 "#;
-    assert_output(source, "10");
+    assert_exact_output(source, "10");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -106,7 +106,7 @@ Let r be a new Leaf with value 5.
 Let tree be a new Node with left l and right r.
 Show sum_tree(tree).
 "#;
-    assert_output(source, "8");
+    assert_exact_output(source, "8");
 }
 
 // =============================================================================
@@ -122,7 +122,7 @@ Let name be "World".
 Let message be greeting + " " + name.
 Show message.
 "#;
-    assert_output(source, "Hello World");
+    assert_exact_output(source, "Hello World");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -133,7 +133,7 @@ Let a be "foo".
 Let b be "bar".
 Show a + b.
 "#;
-    assert_output(source, "foobar");
+    assert_exact_output(source, "foobar");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -143,7 +143,7 @@ fn e2e_string_concat_chained() {
 Let result be "a" + "b" + "c" + "d".
 Show result.
 "#;
-    assert_output(source, "abcd");
+    assert_exact_output(source, "abcd");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -153,7 +153,7 @@ fn e2e_string_length() {
 Let s be "Hello".
 Show length of s.
 "#;
-    assert_output(source, "5");
+    assert_exact_output(source, "5");
 }
 
 // =============================================================================
@@ -174,7 +174,7 @@ Show pi.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("3.14"), "Should output 3.14: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "3.14", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -192,7 +192,7 @@ Show a + b.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("4"), "Should output 4: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "4", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -210,7 +210,7 @@ Show area.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("12.56"), "Should output 12.56: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "12.56", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -228,7 +228,7 @@ Show x / y.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("2.5"), "Should output 2.5: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "2.5", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -248,7 +248,7 @@ Show result.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("7"), "Should output 7: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "7", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -270,7 +270,7 @@ Show x.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("10"), "Should output 10: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "10", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -289,7 +289,7 @@ Show n.
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("3"), "Should output 3: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "3", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -311,7 +311,7 @@ Show "passed".
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("passed"), "Should output passed: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "passed", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -343,7 +343,7 @@ Show "ok".
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("ok"), "Should output ok: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "ok", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -363,7 +363,7 @@ Show "ok".
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("ok"), "Should output ok: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "ok", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -390,7 +390,7 @@ fn e2e_concurrent_independent_vars() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("30"), "Should output 30: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "30", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -404,7 +404,7 @@ fn e2e_empty_string() {
 Let s be "".
 Show length of s.
 "#;
-    assert_output(source, "0");
+    assert_exact_output(source, "0");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -418,7 +418,7 @@ If a equals b:
 Otherwise:
     Show "not equal".
 "#;
-    assert_output(source, "equal");
+    assert_exact_output(source, "equal");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -439,5 +439,5 @@ Let l2 be a new Cons with head 1 and tail l1.
 Let l3 be a new Cons with head 2 and tail l2.
 Show length_of(l3).
 "#;
-    assert_output(source, "2");
+    assert_exact_output(source, "2");
 }

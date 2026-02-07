@@ -6,14 +6,14 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::assert_exact_output;
 
 // === CHAR E2E TESTS ===
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_char_literal() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let c be `a`.
 Show c.
@@ -25,7 +25,7 @@ Show c.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_char_with_type() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let c: Char be `z`.
 Show c.
@@ -37,7 +37,7 @@ Show c.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_char_comparison_equal() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a be `x`.
 Let b be `x`.
@@ -51,7 +51,7 @@ If a equals b:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_char_comparison_not_equal() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a be `x`.
 Let b be `y`.
@@ -68,7 +68,7 @@ Otherwise:
 #[test]
 fn e2e_char_escape_newline() {
     // Newline char should print as actual newline
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let nl be `\n`.
 Show "before".
@@ -80,7 +80,7 @@ Show "before".
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_char_in_seq() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let chars be a new Seq of Char.
 Push `a` to chars.
@@ -95,7 +95,7 @@ Show length of chars.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_char_digit() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let d be `7`.
 Show d.
@@ -109,7 +109,7 @@ Show d.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_byte_type() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let b: Byte be 255.
 Show b.
@@ -121,7 +121,7 @@ Show b.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_byte_zero() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let b: Byte be 0.
 Show b.
@@ -133,7 +133,7 @@ Show b.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_byte_arithmetic() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a: Byte be 100.
 Let b: Byte be 50.
@@ -146,7 +146,7 @@ Show a + b.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_byte_in_seq() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let bytes be a new Seq of Byte.
 Push 1 to bytes.
@@ -161,7 +161,7 @@ Show length of bytes.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_byte_function_param() {
-    assert_output(
+    assert_exact_output(
         r#"## To double (b: Byte) -> Byte:
     Return b * 2.
 
@@ -175,7 +175,7 @@ Show double(50).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_byte_comparison() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a: Byte be 100.
 Let b: Byte be 50.

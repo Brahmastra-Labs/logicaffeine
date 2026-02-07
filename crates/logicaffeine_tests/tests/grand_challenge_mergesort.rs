@@ -410,35 +410,9 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
         stderr
     );
 
-    // 4. Verify output
+    // 4. Verify output — exact match on both lines
     let lines: Vec<&str> = stdout.lines().collect();
-    assert!(lines.len() >= 2, "Should have at least 2 lines of output: {:?}", lines);
-
-    // First line: unsorted input [3, 1, 4, 1, 5, 9, 2, 6]
-    assert!(
-        lines[0].contains("3") && lines[0].contains("1") && lines[0].contains("4"),
-        "First line should show input array: {}",
-        lines[0]
-    );
-
-    // Second line: sorted output [1, 1, 2, 3, 4, 5, 6, 9]
-    let sorted_line = lines[1];
-    assert!(
-        sorted_line.contains("1") && sorted_line.contains("9"),
-        "Second line should show sorted array: {}",
-        sorted_line
-    );
-
-    // Verify correct sort order by checking that 1 appears before 9
-    let first_1_pos = sorted_line.find('1').unwrap_or(999);
-    let first_9_pos = sorted_line.find('9').unwrap_or(0);
-    assert!(
-        first_1_pos < first_9_pos,
-        "Sorted array should have 1 before 9: {}",
-        sorted_line
-    );
-
-    println!("E2E Merge Sort SUCCESS!");
-    println!("Input:  {}", lines[0]);
-    println!("Output: {}", lines[1]);
+    assert_eq!(lines.len(), 2, "Should have exactly 2 lines of output, got: {:?}", lines);
+    assert_eq!(lines[0].trim(), "[3, 1, 4, 1, 5, 9, 2, 6]", "First line: unsorted input");
+    assert_eq!(lines[1].trim(), "[1, 1, 2, 3, 4, 5, 6, 9]", "Second line: sorted output");
 }

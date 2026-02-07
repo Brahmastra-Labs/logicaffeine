@@ -3,7 +3,7 @@
 //! These tests actually compile and run the generated Rust code.
 
 mod common;
-use common::{run_logos, assert_runs, assert_output};
+use common::{run_logos, assert_runs, assert_exact_output, assert_output_contains_all, assert_output_lines};
 
 // =============================================================================
 // Launch Task E2E Tests
@@ -63,7 +63,7 @@ fn e2e_pipe_create() {
     Let ch be a Pipe of Int.
     Show "pipe created".
 "#;
-    assert_output(source, "pipe created");
+    assert_exact_output(source, "pipe created");
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn e2e_pipe_send_receive() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should receive 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn e2e_try_send_nonblocking() {
     Try to send 99 into ch.
     Show "sent".
 "#;
-    assert_output(source, "sent");
+    assert_exact_output(source, "sent");
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn e2e_try_receive_nonblocking() {
     Try to receive x from ch.
     Show "tried".
 "#;
-    assert_output(source, "tried");
+    assert_exact_output(source, "tried");
 }
 
 // =============================================================================
@@ -129,7 +129,7 @@ fn e2e_select_timeout_only() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("timeout"), "Should timeout: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "timeout", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -211,7 +211,7 @@ fn e2e_async_function_expression_call() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -345,7 +345,7 @@ fn e2e_async_in_sync_arg() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("84"), "Should output 84: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "84", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -368,7 +368,7 @@ fn e2e_async_in_binary_op() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("15"), "Should output 15: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "15", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -415,7 +415,7 @@ fn e2e_async_in_index() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("20"), "Should output 20: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "20", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -441,7 +441,7 @@ fn e2e_async_in_condition() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("yes"), "Should output yes: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "yes", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -467,7 +467,7 @@ fn e2e_async_in_while_condition() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("done"), "Should output done: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -493,7 +493,7 @@ fn e2e_async_in_return() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("123"), "Should output 123: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "123", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -522,7 +522,7 @@ fn e2e_async_in_loop() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("15"), "Should output 15: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "15", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -554,7 +554,7 @@ fn e2e_multiple_async_sequence() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("6"), "Should output 6: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "6", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -583,7 +583,7 @@ fn e2e_async_deeply_nested() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("11"), "Should output 11: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "11", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -676,7 +676,7 @@ fn e2e_pipe_async_producer() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("3"), "Should output 3: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "3", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -700,7 +700,7 @@ fn e2e_pipe_in_conditional() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -729,7 +729,7 @@ fn e2e_sync_in_async_context() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -803,7 +803,7 @@ fn e2e_select_receive_branch() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should receive 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
     assert!(!result.stdout.contains("timeout"), "Should NOT timeout: {}", result.stdout);
 }
 
@@ -826,7 +826,7 @@ fn e2e_select_timeout_fires() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("timeout"), "Should timeout: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "timeout", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -850,7 +850,7 @@ fn e2e_select_multiple_pipes() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should receive 42 from ch1: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -938,7 +938,7 @@ fn e2e_concurrent_three_tasks() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("60"), "Should output 60 (10+20+30): {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "60", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -964,7 +964,7 @@ fn e2e_concurrent_four_tasks() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("10"), "Should output 10 (1+2+3+4): {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "10", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -994,7 +994,7 @@ fn e2e_launch_with_handle_and_stop() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("stopped"), "Should output stopped: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "stopped", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -1054,7 +1054,7 @@ fn e2e_async_in_send() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -1080,7 +1080,7 @@ fn e2e_sleep_with_async_expr() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("done"), "Should output done: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "done", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -1111,7 +1111,7 @@ fn e2e_fanout_pattern() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("6"), "Should output 6: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "6", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -1143,7 +1143,7 @@ fn e2e_concurrent_in_loop() {
         result.stderr
     );
     // (10+10) + (20+20) = 60
-    assert!(result.stdout.contains("60"), "Should output 60: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "60", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -1200,7 +1200,7 @@ fn e2e_conditional_send() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "42", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -1227,7 +1227,7 @@ fn e2e_select_in_loop() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("3"), "Should output 3 (1+2): {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "3", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -1257,7 +1257,7 @@ fn e2e_async_call_in_both_sides_of_binary() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("15"), "Should output 15: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "15", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -1282,7 +1282,7 @@ fn e2e_async_in_comparison() {
         result.rust_code,
         result.stderr
     );
-    assert!(result.stdout.contains("above"), "Should output above: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "above", "Got: {}", result.stdout);
 }
 
 #[test]
@@ -1316,7 +1316,7 @@ fn e2e_multiple_async_in_one_expression() {
         result.stderr
     );
     // 1 + (2 * 3) = 7
-    assert!(result.stdout.contains("7"), "Should output 7: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "7", "Got: {}", result.stdout);
 }
 
 // =============================================================================
@@ -1385,5 +1385,5 @@ fn e2e_transitive_async_with_return() {
         result.stderr
     );
     // 10 + 1 + 2 + 3 = 16
-    assert!(result.stdout.contains("16"), "Should output 16: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "16", "Got: {}", result.stdout);
 }

@@ -7,12 +7,12 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::assert_exact_output;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_single_param() {
-    assert_output(
+    assert_exact_output(
         r#"## To double (x: Int):
     Return x * 2.
 
@@ -27,7 +27,7 @@ Show result.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_two_params() {
-    assert_output(
+    assert_exact_output(
         r#"## To add (a: Int) and (b: Int):
     Return a + b.
 
@@ -41,7 +41,7 @@ Show add(3, 7).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_recursive_factorial() {
-    assert_output(
+    assert_exact_output(
         r#"## To factorial (n: Int):
     If n is less than 2:
         Return 1.
@@ -59,7 +59,7 @@ Show factorial(5).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_no_params() {
-    assert_output(
+    assert_exact_output(
         r#"## To greet -> Text:
     Return "Hello".
 
@@ -73,7 +73,7 @@ Show greet().
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_three_params() {
-    assert_output(
+    assert_exact_output(
         r#"## To add3 (a: Int) and (b: Int) and (c: Int) -> Int:
     Return a + b + c.
 
@@ -88,7 +88,7 @@ Show add3(1, 2, 3).
 #[test]
 fn e2e_function_returns_bool() {
     // Using integer division to check evenness: n / 2 * 2 equals n
-    assert_output(
+    assert_exact_output(
         r#"## To isEven (n: Int) -> Bool:
     Return n / 2 * 2 equals n.
 
@@ -102,7 +102,7 @@ Show isEven(4).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_returns_text() {
-    assert_output(
+    assert_exact_output(
         r#"## To greeting (name: Text) -> Text:
     Return name.
 
@@ -116,7 +116,7 @@ Show greeting("World").
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_returns_seq() {
-    assert_output(
+    assert_exact_output(
         r#"## To makeList -> Seq of Int:
     Return [1, 2, 3].
 
@@ -130,7 +130,7 @@ Show makeList().
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_with_loop() {
-    assert_output(
+    assert_exact_output(
         r#"## To sumTo (n: Int) -> Int:
     Let sum be 0.
     Let i be 1.
@@ -149,7 +149,7 @@ Show sumTo(5).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_with_if() {
-    assert_output(
+    assert_exact_output(
         r#"## To abs (n: Int) -> Int:
     If n is less than 0:
         Return 0 - n.
@@ -165,7 +165,7 @@ Show abs(0 - 5).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_function_multiple_calls() {
-    assert_output(
+    assert_exact_output(
         r#"## To double (x: Int) -> Int:
     Return x * 2.
 
@@ -182,7 +182,7 @@ Show a + b + c.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_nested_function_calls() {
-    assert_output(
+    assert_exact_output(
         r#"## To double (x: Int) -> Int:
     Return x * 2.
 

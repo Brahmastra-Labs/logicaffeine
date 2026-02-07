@@ -5034,6 +5034,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // Keywords that can also be used as identifiers in expression context
             // These are contextual keywords - they have special meaning in specific positions
             // but can be used as variable names elsewhere
+            TokenType::Values |    // "values" - can be a variable name
             TokenType::Both |      // correlative: "both X and Y"
             TokenType::Either |    // correlative: "either X or Y"
             TokenType::Combined |  // string concat: "combined with"

@@ -6,14 +6,14 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_output;
+use common::assert_exact_output;
 
 // === BASIC SET OPERATIONS ===
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_creation_and_add() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let names be a new Set of Text.
 Add "Alice" to names.
@@ -27,7 +27,7 @@ Show length of names.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_deduplication() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let s be a new Set of Int.
 Add 1 to s.
@@ -43,7 +43,7 @@ Show length of s.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_remove() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let s be a new Set of Int.
 Add 1 to s.
@@ -61,7 +61,7 @@ Show length of s.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_contains_natural() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let s be a new Set of Text.
 Add "hello" to s.
@@ -75,7 +75,7 @@ If s contains "hello":
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_contains_int() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let s be a new Set of Int.
 Add 42 to s.
@@ -89,7 +89,7 @@ If s contains 42:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_not_contains() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let s be a new Set of Int.
 Add 1 to s.
@@ -107,7 +107,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_union() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a be a new Set of Int.
 Let b be a new Set of Int.
@@ -125,7 +125,7 @@ Show length of c.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_intersection() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a be a new Set of Int.
 Let b be a new Set of Int.
@@ -147,7 +147,7 @@ Show length of c.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_set_iteration() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let s be a new Set of Int.
 Add 10 to s.
