@@ -7,7 +7,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_output, assert_runs};
+use common::{assert_exact_output, assert_output_lines};
 
 // =============================================================================
 // GCounter Tests
@@ -16,7 +16,7 @@ use common::{assert_output, assert_runs};
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_gcounter_increment() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Counter is Shared and has:
     points: ConvergentCount.
@@ -32,7 +32,7 @@ Show c's points."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_gcounter_increment_by_variable() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Counter is Shared and has:
     score: ConvergentCount.
@@ -49,7 +49,7 @@ Show c's score."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_gcounter_multiple_increments() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Counter is Shared and has:
     points: ConvergentCount.
@@ -71,7 +71,7 @@ Show c's points."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_lww_text_set() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Profile is Shared and has:
     a username, which is LastWriteWins of Text.
@@ -87,7 +87,7 @@ Show p's username."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_lww_int_set() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Setting is Shared and has:
     a volume, which is LastWriteWins of Int.
@@ -103,7 +103,7 @@ Show s's volume."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_lww_bool_set() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Toggle is Shared and has:
     an active, which is LastWriteWins of Bool.
@@ -123,7 +123,7 @@ Show t's active."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_merge_struct_level() {
-    assert_runs(
+    assert_exact_output(
         r#"## Definition
 A Counter is Shared and has:
     a points, which is ConvergentCount.
@@ -132,30 +132,33 @@ A Counter is Shared and has:
 Let mutable local be a new Counter.
 Let remote be a new Counter.
 Merge remote into local.
-Show "merged"."#,
+Show local's points."#,
+        "0",
     );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_merge_field_level() {
-    assert_runs(
+    assert_exact_output(
         r#"## Definition
 A Profile is Shared and has:
     an active, which is LastWriteWins of Bool.
 
 ## Main
 Let mutable local be a new Profile.
-Let remote be a new Profile.
+Let mutable remote be a new Profile.
+Set remote's active to true.
 Merge remote's active into local's active.
-Show "field merged"."#,
+Show local's active."#,
+        "true",
     );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_struct_with_mixed_fields() {
-    assert_output(
+    assert_output_lines(
         r#"## Definition
 A GameState is Shared and has:
     a score, which is ConvergentCount.
@@ -166,15 +169,15 @@ Let mutable g be a new GameState with name "Player1".
 Increase g's score by 100.
 Show g's name.
 Show g's score."#,
-        "Player1",
+        &["Player1", "100"],
     );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_gcounter_value_after_merge() {
-    // This tests that after merging two GCounters, the value reflects both
-    assert_runs(
+    // After merging two GCounters, the value should reflect both
+    assert_exact_output(
         r#"## Definition
 A Counter is Shared and has:
     a points, which is ConvergentCount.
@@ -185,7 +188,8 @@ Let mutable c2 be a new Counter.
 Increase c1's points by 10.
 Increase c2's points by 5.
 Merge c2 into c1.
-Show "merge complete"."#,
+Show c1's points."#,
+        "15",
     );
 }
 
@@ -196,7 +200,7 @@ Show "merge complete"."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tally_increase_decrease() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Game is Shared and has:
     a score, which is a Tally.
@@ -213,7 +217,7 @@ Show g's score."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tally_decrease_to_negative() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Temperature is Shared and has:
     a degrees, which is a Tally.
@@ -230,7 +234,7 @@ Show t's degrees."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tally_multiple_operations() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Balance is Shared and has:
     an amount, which is a Tally.
@@ -250,7 +254,7 @@ Show b's amount."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tally_decrease_only() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Debt is Shared and has:
     an owed, which is a Tally.
@@ -271,7 +275,7 @@ Show d's owed."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_add() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Party is Shared and has:
     a guests, which is a SharedSet of Text.
@@ -288,7 +292,7 @@ Show length of p's guests."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_contains_true() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Team is Shared and has:
     a members, which is a SharedSet of Text.
@@ -307,7 +311,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_contains_false() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Team is Shared and has:
     a members, which is a SharedSet of Text.
@@ -326,7 +330,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_remove() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Inventory is Shared and has:
     an items, which is a SharedSet of Text.
@@ -345,7 +349,7 @@ Show length of inv's items."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_remove_then_contains() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Blocklist is Shared and has:
     a blocked, which is a SharedSet of Text.
@@ -365,7 +369,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_add_duplicate() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Tags is Shared and has:
     a labels, which is a SharedSet of Text.
@@ -387,7 +391,7 @@ Show length of tags's labels."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_sequence_append() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Document is Shared and has:
     a lines, which is a SharedSequence of Text.
@@ -405,7 +409,7 @@ Show length of doc's lines."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_sequence_empty() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Log is Shared and has:
     an entries, which is a SharedSequence of Text.
@@ -424,7 +428,7 @@ Show length of log's entries."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_divergent_set_show() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A WikiPage is Shared and has:
     a title, which is a Divergent Text.
@@ -440,7 +444,7 @@ Show page's title."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_divergent_overwrite() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Draft is Shared and has:
     a content, which is a Divergent Text.
@@ -458,7 +462,7 @@ Show d's content."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_divergent_resolve() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Config is Shared and has:
     a value, which is a Divergent Text.
@@ -479,7 +483,7 @@ Show cfg's value."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_mixed_crdt_struct() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Dashboard is Shared and has:
     a views, which is a Tally.
@@ -501,7 +505,7 @@ Show dash's views."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_crdt_with_regular_fields() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A Game is Shared and has:
     a name, which is Text.
@@ -525,7 +529,7 @@ Show g's name."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_tally_merge() {
-    assert_runs(
+    assert_exact_output(
         r#"## Definition
 A Score is Shared and has:
     a points, which is a Tally.
@@ -537,14 +541,15 @@ Increase s1's points by 50.
 Decrease s1's points by 10.
 Increase s2's points by 30.
 Merge s2 into s1.
-Show "merge complete"."#,
+Show s1's points."#,
+        "70",
     );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_shared_set_merge() {
-    assert_runs(
+    assert_exact_output(
         r#"## Definition
 A Tags is Shared and has:
     a labels, which is a SharedSet of Text.
@@ -555,14 +560,15 @@ Let mutable t2 be a new Tags.
 Add "red" to t1's labels.
 Add "blue" to t2's labels.
 Merge t2 into t1.
-Show "merged"."#,
+Show length of t1's labels."#,
+        "2",
     );
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_divergent_merge() {
-    assert_runs(
+    assert_exact_output(
         r#"## Definition
 A Page is Shared and has:
     a content, which is a Divergent Text.
@@ -573,6 +579,8 @@ Let mutable p2 be a new Page.
 Set p1's content to "Version A".
 Set p2's content to "Version B".
 Merge p2 into p1.
-Show "merged"."#,
+Resolve p1's content to "Final".
+Show p1's content."#,
+        "Final",
     );
 }

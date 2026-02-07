@@ -7,7 +7,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_output, assert_runs, assert_panics};
+use common::{assert_exact_output, assert_panics};
 
 // =============================================================================
 // Predicate Tests
@@ -16,7 +16,7 @@ use common::{assert_output, assert_runs, assert_panics};
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_predicate_passes() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A User has:
     a role, which is Text.
@@ -59,7 +59,7 @@ Check that the u is admin."#,
 fn e2e_capability_owner_passes() {
     // Owner can edit their own document
     // Note: We create two separate User objects with same values since the first gets moved into Document
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A User has:
     a name, which is Text.
@@ -93,7 +93,7 @@ test_edit(owner2, doc)."#,
 #[test]
 fn e2e_capability_admin_passes() {
     // Admin can edit any document
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A User has:
     a name, which is Text.
@@ -188,7 +188,7 @@ Check that the u is admin."#,
 #[test]
 fn e2e_assert_passes() {
     // Assert with true condition doesn't panic
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Assert that 1 equals 1.
 Show "assert passed"."#,
@@ -204,7 +204,7 @@ Show "assert passed"."#,
 #[test]
 fn e2e_predicate_composition() {
     // Predicate calls another predicate
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A User has:
     a role, which is Text.
@@ -228,7 +228,7 @@ Show "super"."#,
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_and_condition_passes() {
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A User has:
     a role, which is Text.
@@ -251,7 +251,7 @@ Show "trusted"."#,
 #[test]
 fn e2e_or_condition_passes() {
     // OR condition: either condition can satisfy
-    assert_output(
+    assert_exact_output(
         r#"## Definition
 A User has:
     a role, which is Text.

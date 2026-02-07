@@ -556,7 +556,7 @@ fn parse_tree_perfect_aspect() {
         ExprView::NeoEvent { modifiers, verb, .. } => {
             assert_eq!(verb, "Eat", "Expected verb 'Eat', got '{}'", verb);
             // Modifiers should contain perfect aspect info
-            assert!(!modifiers.is_empty() || true, "Modifiers may contain aspect");
+            assert!(!modifiers.is_empty(), "Modifiers should contain aspect info");
         }
         _ => panic!("Expected Aspectual or NeoEvent for 'Mary has eaten', got {:?}", view),
     }
@@ -691,12 +691,10 @@ Proof: Auto.
 "#;
 
     let result = compile_theorem(source);
-    // This is ambitious - requires identity reasoning
-    if result.is_ok() {
-        let output = result.unwrap();
-        assert!(output.contains("Proved") || output.contains("Rewrite"),
-            "Should prove via equality rewriting: {}", output);
-    }
+    assert!(result.is_ok(), "Leibniz identity should compile: {:?}", result.err());
+    let output = result.unwrap();
+    assert!(output.contains("Proved") || output.contains("Rewrite"),
+        "Should prove via equality rewriting: {}", output);
 }
 
 /// Test: barber-paradox.logic (Self-reference and contradiction)

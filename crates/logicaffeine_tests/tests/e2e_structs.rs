@@ -21,9 +21,9 @@ fn e2e_struct_constructor() {
 
 ## Main
 Let p be a new Point.
-Show "created".
+Show p's x.
 "#,
-        "created",
+        "0",
     );
 }
 

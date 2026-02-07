@@ -334,7 +334,7 @@ Show "passed".
 fn e2e_duration_variable() {
     let source = r#"## Main
 Let d be 100ms.
-Show "ok".
+Show d.
 "#;
     let result = run_logos(source);
     assert!(
@@ -343,7 +343,7 @@ Show "ok".
         result.rust_code,
         result.stderr
     );
-    assert_eq!(result.stdout.trim(), "ok", "Got: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "100ms", "Got: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -354,7 +354,7 @@ fn e2e_duration_in_function() {
 
 ## Main
 Let t be get_timeout().
-Show "ok".
+Show t.
 "#;
     let result = run_logos(source);
     assert!(
@@ -363,7 +363,7 @@ Show "ok".
         result.rust_code,
         result.stderr
     );
-    assert_eq!(result.stdout.trim(), "ok", "Got: {}", result.stdout);
+    assert_eq!(result.stdout.trim(), "500ms", "Got: {}", result.stdout);
 }
 
 // =============================================================================

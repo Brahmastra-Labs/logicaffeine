@@ -8,9 +8,6 @@ mod common;
 #[cfg(not(target_arch = "wasm32"))]
 use common::assert_exact_output;
 
-#[cfg(not(target_arch = "wasm32"))]
-use common::assert_runs;
-
 // === NUMERIC EDGE CASES ===
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -43,11 +40,12 @@ fn e2e_division_truncation() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_empty_string() {
-    assert_runs(
+    assert_exact_output(
         r#"## Main
 Let s be "".
 Show s.
 "#,
+        "",
     );
 }
 

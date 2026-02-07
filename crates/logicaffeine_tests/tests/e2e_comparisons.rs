@@ -12,9 +12,6 @@ mod common;
 #[cfg(not(target_arch = "wasm32"))]
 use common::assert_exact_output;
 
-#[cfg(not(target_arch = "wasm32"))]
-use common::assert_runs;
-
 // === EQUALS ===
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -78,11 +75,12 @@ If 3 is less than 5:
 #[test]
 fn e2e_less_than_false() {
     // When condition is false, nothing should be printed
-    assert_runs(
+    assert_exact_output(
         r#"## Main
 If 5 is less than 3:
     Show "wrong".
 "#,
+        "",
     );
 }
 
@@ -103,11 +101,12 @@ If 5 is greater than 3:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_greater_than_false() {
-    assert_runs(
+    assert_exact_output(
         r#"## Main
 If 3 is greater than 5:
     Show "wrong".
 "#,
+        "",
     );
 }
 

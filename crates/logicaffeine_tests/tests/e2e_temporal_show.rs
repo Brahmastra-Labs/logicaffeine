@@ -6,12 +6,12 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{run_logos, assert_output};
+use common::{assert_exact_output, assert_output_lines};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_show_duration_ms() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let timeout be 500ms.
 Show timeout.
@@ -23,7 +23,7 @@ Show timeout.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_show_duration_seconds() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let delay be 2s.
 Show delay.
@@ -35,7 +35,7 @@ Show delay.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_show_duration_ns() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let precise be 50ns.
 Show precise.
@@ -47,7 +47,7 @@ Show precise.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_show_date() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let graduation be 2026-05-20.
 Show graduation.
@@ -59,7 +59,7 @@ Show graduation.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_show_date_new_years() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let ny be 2026-01-01.
 Show ny.
@@ -73,13 +73,13 @@ Show ny.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_sleep_duration_ms() {
-    assert_output(
+    assert_output_lines(
         r#"## Main
 Show "before".
 Sleep 50ms.
 Show "after".
 "#,
-        "after",
+        &["before", "after"],
     );
 }
 
@@ -87,13 +87,13 @@ Show "after".
 #[test]
 fn e2e_sleep_duration_seconds() {
     // Using a short duration to not slow down tests
-    assert_output(
+    assert_output_lines(
         r#"## Main
 Show "start".
 Sleep 100ms.
 Show "end".
 "#,
-        "end",
+        &["start", "end"],
     );
 }
 
@@ -102,7 +102,7 @@ Show "end".
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_duration_addition() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a be 500ms.
 Let b be 500ms.
@@ -116,7 +116,7 @@ Show total.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_duration_addition_different_units() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let a be 1s.
 Let b be 500ms.

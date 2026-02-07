@@ -16,7 +16,7 @@ use std::collections::HashMap;
 /// Each replica has a unique ID and maintains its own count.
 /// The total value is the sum across all replicas.
 /// Merging takes the maximum count for each replica ID.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GCounter {
     /// Map from replica ID to local count
     counts: HashMap<ReplicaId, u64>,
@@ -54,6 +54,12 @@ impl GCounter {
     /// Get the replica ID for this counter.
     pub fn replica_id(&self) -> ReplicaId {
         self.replica_id
+    }
+}
+
+impl Default for GCounter {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -29,7 +29,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_output, assert_runs, run_logos};
+use common::{assert_exact_output, assert_output_contains_all, assert_output_lines};
 
 // =============================================================================
 // Category A: Async + Temporal
@@ -38,22 +38,17 @@ use common::{assert_output, assert_runs, run_logos};
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_async_returns_duration() {
-    let source = r#"## To async_delay -> Duration:
+    assert_exact_output(
+        r#"## To async_delay -> Duration:
     Sleep 10.
     Return 100ms.
 
 ## Main
     Let d be async_delay().
     Show "ok".
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Async returning Duration should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        "ok",
     );
-    assert!(result.stdout.contains("ok"), "Should output ok: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -67,7 +62,7 @@ fn e2e_sleep_with_async_delay() {
     Sleep get_delay().
     Show "done".
 "#;
-    assert_output(source, "done");
+    assert_exact_output(source,"done");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -83,7 +78,7 @@ fn e2e_concurrent_with_sleep() {
         Let b be delayed(20).
     Show a + b.
 "#;
-    assert_output(source, "30");
+    assert_exact_output(source,"30");
 }
 
 // =============================================================================
@@ -93,7 +88,8 @@ fn e2e_concurrent_with_sleep() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_async_function_with_crdt_struct() {
-    let source = r#"## A Score is Shared and has:
+    assert_exact_output(
+        r#"## A Score is Shared and has:
     a points, which is a Tally.
 
 ## To init_score -> Score:
@@ -104,15 +100,9 @@ fn e2e_async_function_with_crdt_struct() {
     Let mutable s be init_score().
     Increase s's points by 100.
     Show s's points.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Async with CRDT struct should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        "100",
     );
-    assert!(result.stdout.contains("100"), "Should output 100: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -131,7 +121,7 @@ fn e2e_crdt_after_async_call() {
     Increase c's value by 50.
     Show c's value.
 "#;
-    assert_output(source, "50");
+    assert_exact_output(source,"50");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -153,7 +143,7 @@ fn e2e_crdt_in_concurrent_block() {
     Increase s's hits by b.
     Show s's hits.
 "#;
-    assert_output(source, "30");
+    assert_exact_output(source,"30");
 }
 
 // =============================================================================
@@ -177,7 +167,7 @@ fn e2e_async_returns_enum() {
         When Success (v): Show v.
         When Failure (m): Show m.
 "#;
-    assert_output(source, "42");
+    assert_exact_output(source,"42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -200,7 +190,7 @@ fn e2e_async_inside_inspect_arm() {
     Let result be process_status(s).
     Show result.
 "#;
-    assert_output(source, "0");
+    assert_exact_output(source,"0");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -219,7 +209,7 @@ fn e2e_pipe_with_enum() {
         When Data (p): Show p.
         When Eof: Show "end".
 "#;
-    assert_output(source, "123");
+    assert_exact_output(source,"123");
 }
 
 // =============================================================================
@@ -229,7 +219,8 @@ fn e2e_pipe_with_enum() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_async_struct_field_init() {
-    let source = r#"## A Point has:
+    assert_output_lines(
+        r#"## A Point has:
     An x: Int.
     A y: Int.
 
@@ -241,16 +232,9 @@ fn e2e_async_struct_field_init() {
     Let p be a new Point with x async_coord() and y 100.
     Show p's x.
     Show p's y.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Async struct field init should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        &["50", "100"],
     );
-    assert!(result.stdout.contains("50"), "Should output 50: {}", result.stdout);
-    assert!(result.stdout.contains("100"), "Should output 100: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -268,13 +252,14 @@ fn e2e_struct_field_after_async() {
     Call wait.
     Show cfg's threshold.
 "#;
-    assert_output(source, "100");
+    assert_exact_output(source,"100");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_launch_task_with_struct() {
-    let source = r#"## A Settings has:
+    assert_output_contains_all(
+        r#"## A Settings has:
     A level: Int.
 
 ## To worker (cfg: Settings):
@@ -286,15 +271,9 @@ fn e2e_launch_task_with_struct() {
     Launch a task to worker with settings.
     Sleep 50.
     Show "done".
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Launch with struct param should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        &["99", "done"],
     );
-    assert!(result.stdout.contains("done"), "Should output done: {}", result.stdout);
 }
 
 // =============================================================================
@@ -317,7 +296,7 @@ Repeat for x in items:
     Set total to total + processed.
 Show total.
 "#;
-    assert_output(source, "12");
+    assert_exact_output(source,"12");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -335,7 +314,7 @@ fn e2e_pipe_with_int_list_workaround() {
     Receive c from ch.
     Show a + b + c.
 "#;
-    assert_output(source, "6");
+    assert_exact_output(source,"6");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -355,7 +334,7 @@ fn e2e_concurrent_list_processing() {
         Let b be sum_list(list2).
     Show a + b.
 "#;
-    assert_output(source, "21");
+    assert_exact_output(source,"21");
 }
 
 // =============================================================================
@@ -374,7 +353,7 @@ fn e2e_async_map_value_init() {
     Set item "key" of data to async_value().
     Show item "key" of data.
 "#;
-    assert_output(source, "42");
+    assert_exact_output(source,"42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -390,7 +369,7 @@ fn e2e_map_access_after_async() {
     Call wait.
     Show item "alice" of scores.
 "#;
-    assert_output(source, "100");
+    assert_exact_output(source,"100");
 }
 
 // =============================================================================
@@ -410,7 +389,7 @@ fn e2e_async_set_add() {
     Add 100 to items.
     Show length of items.
 "#;
-    assert_output(source, "2");
+    assert_exact_output(source,"2");
 }
 
 // =============================================================================
@@ -420,22 +399,17 @@ fn e2e_async_set_add() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_async_returning_refined_value() {
-    let source = r#"## To get_positive -> Int:
+    assert_exact_output(
+        r#"## To get_positive -> Int:
     Sleep 10.
     Return 42.
 
 ## Main
     Let x: Int where x is greater than 0 be get_positive().
     Show x.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Async returning to refined var should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        "42",
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -450,7 +424,7 @@ fn e2e_refinement_after_async() {
     Call wait.
     Show x.
 "#;
-    assert_output(source, "10");
+    assert_exact_output(source,"10");
 }
 
 // =============================================================================
@@ -470,13 +444,14 @@ fn e2e_zone_after_async() {
         Let x be 42.
         Show x.
 "#;
-    assert_output(source, "42");
+    assert_exact_output(source,"42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_async_in_function_with_zone() {
-    let source = r#"## To process_in_zone -> Int:
+    assert_exact_output(
+        r#"## To process_in_zone -> Int:
     Sleep 10.
     Inside a zone called "Work":
         Let x be 42.
@@ -485,15 +460,9 @@ fn e2e_async_in_function_with_zone() {
 ## Main
     Let result be process_in_zone().
     Show result.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Async function with zone should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        "42",
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
 }
 
 // =============================================================================
@@ -516,7 +485,7 @@ fn e2e_select_with_enum_handling() {
         After 1 seconds:
             Show "timeout".
 "#;
-    assert_output(source, "42");
+    assert_exact_output(source,"42");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -535,7 +504,7 @@ fn e2e_select_inside_loop() {
                 Show "timeout".
     Show total.
 "#;
-    assert_output(source, "3");
+    assert_exact_output(source,"3");
 }
 
 // =============================================================================
@@ -545,7 +514,8 @@ fn e2e_select_inside_loop() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_parallel_with_structs() {
-    let source = r#"## A Data has:
+    assert_output_lines(
+        r#"## A Data has:
     A value: Int.
 
 ## To compute (d: Data) -> Int:
@@ -559,22 +529,16 @@ fn e2e_parallel_with_structs() {
         Let b be compute(d2).
     Show a.
     Show b.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Parallel with structs should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        &["10", "20"],
     );
-    assert!(result.stdout.contains("10"), "Should output 10: {}", result.stdout);
-    assert!(result.stdout.contains("20"), "Should output 20: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_parallel_with_collections() {
-    let source = r#"## To sum (items: Seq of Int) -> Int:
+    assert_output_lines(
+        r#"## To sum (items: Seq of Int) -> Int:
     Let mutable total be 0.
     Repeat for i in items:
         Set total to total + i.
@@ -586,16 +550,9 @@ fn e2e_parallel_with_collections() {
         Let b be sum([4, 5, 6]).
     Show a.
     Show b.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Parallel with collections should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        &["6", "15"],
     );
-    assert!(result.stdout.contains("6"), "Should output 6: {}", result.stdout);
-    assert!(result.stdout.contains("15"), "Should output 15: {}", result.stdout);
 }
 
 // =============================================================================
@@ -620,7 +577,7 @@ fn e2e_nested_async_calls_with_struct() {
     Let w be outer().
     Show w's value.
 "#;
-    assert_output(source, "5");
+    assert_exact_output(source,"5");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -645,13 +602,14 @@ fn e2e_async_chain_with_enum_result() {
         When Just (val): Show val.
         When Nothing: Show "none".
 "#;
-    assert_output(source, "10");
+    assert_exact_output(source,"10");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_concurrent_with_different_return_types() {
-    let source = r#"## To get_int -> Int:
+    assert_output_lines(
+        r#"## To get_int -> Int:
     Sleep 10.
     Return 42.
 
@@ -665,16 +623,9 @@ fn e2e_concurrent_with_different_return_types() {
         Let text be get_text().
     Show num.
     Show text.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Concurrent with different types should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        &["42", "hello"],
     );
-    assert!(result.stdout.contains("42"), "Should output 42: {}", result.stdout);
-    assert!(result.stdout.contains("hello"), "Should output hello: {}", result.stdout);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -690,13 +641,14 @@ fn e2e_pipe_send_async_value() {
     Receive x from ch.
     Show x.
 "#;
-    assert_output(source, "99");
+    assert_exact_output(source,"99");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_concurrent_struct_creation() {
-    let source = r#"## A Point has:
+    assert_output_lines(
+        r#"## A Point has:
     An x: Int.
     A y: Int.
 
@@ -715,14 +667,7 @@ fn e2e_concurrent_struct_creation() {
     Let p be a new Point with x x and y y.
     Show p's x.
     Show p's y.
-"#;
-    let result = run_logos(source);
-    assert!(
-        result.success,
-        "Concurrent struct creation should compile.\nGenerated Rust:\n{}\n\nstderr: {}",
-        result.rust_code,
-        result.stderr
+"#,
+        &["10", "20"],
     );
-    assert!(result.stdout.contains("10"), "Should output 10: {}", result.stdout);
-    assert!(result.stdout.contains("20"), "Should output 20: {}", result.stdout);
 }

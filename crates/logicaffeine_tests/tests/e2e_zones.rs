@@ -4,7 +4,7 @@
 //! verifying that zones work correctly at runtime.
 
 mod common;
-use common::{assert_output, assert_runs};
+use common::{assert_exact_output, assert_output_lines};
 
 // =============================================================================
 // Basic Zone Functionality
@@ -16,7 +16,7 @@ fn e2e_zone_basic_allocation() {
 Inside a zone called "Work":
     Let x be 42.
     Show x."#;
-    assert_output(source, "42");
+    assert_exact_output(source,"42");
 }
 
 #[test]
@@ -25,7 +25,7 @@ fn e2e_zone_with_size_mb() {
 Inside a zone called "Buffer" of size 1 MB:
     Let value be 100.
     Show value."#;
-    assert_output(source, "100");
+    assert_exact_output(source,"100");
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn e2e_zone_with_size_kb() {
 Inside a zone called "Small" of size 64 KB:
     Let n be 7.
     Show n."#;
-    assert_output(source, "7");
+    assert_exact_output(source,"7");
 }
 
 // =============================================================================
@@ -51,7 +51,7 @@ fn e2e_zone_in_function_body() {
 
 ## Main
 Call process."#;
-    assert_output(source, "99");
+    assert_exact_output(source,"99");
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn e2e_function_with_zone_called_twice() {
 ## Main
 Call work.
 Call work."#;
-    assert_runs(source);
+    assert_output_lines(source, &["5", "5"]);
 }
 
 // =============================================================================
@@ -82,7 +82,7 @@ Inside a zone called "Outer":
         Let b be 2.
         Show b.
     Show a."#;
-    assert_runs(source);
+    assert_output_lines(source, &["2", "1"]);
 }
 
 // =============================================================================
@@ -96,7 +96,7 @@ Inside a zone called "Logic":
     Let x be 10.
     If x > 5:
         Show x."#;
-    assert_output(source, "10");
+    assert_exact_output(source,"10");
 }
 
 // =============================================================================
@@ -110,7 +110,7 @@ Let outer be 1.
 Inside a zone called "Isolated":
     Let inner be 2.
 Show outer."#;
-    assert_output(source, "1");
+    assert_exact_output(source,"1");
 }
 
 #[test]
@@ -121,7 +121,7 @@ Inside a zone called "First":
 Inside a zone called "Second":
     Let b be 2.
     Show b."#;
-    assert_output(source, "2");
+    assert_exact_output(source,"2");
 }
 
 #[test]
@@ -130,5 +130,5 @@ fn e2e_zone_default_capacity() {
 Inside a zone called "Default":
     Let x be 123.
     Show x."#;
-    assert_output(source, "123");
+    assert_exact_output(source,"123");
 }

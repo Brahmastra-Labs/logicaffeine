@@ -8,9 +8,6 @@ mod common;
 #[cfg(not(target_arch = "wasm32"))]
 use common::assert_exact_output;
 
-#[cfg(not(target_arch = "wasm32"))]
-use common::assert_runs;
-
 // === AND OPERATOR ===
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -31,13 +28,14 @@ If a is less than 5 and b is less than 5:
 #[test]
 fn e2e_and_first_false() {
     // First condition false, should not print
-    assert_runs(
+    assert_exact_output(
         r#"## Main
 Let a be 10.
 Let b be 3.
 If a is less than 5 and b is less than 5:
     Show "wrong".
 "#,
+        "",
     );
 }
 
@@ -45,13 +43,14 @@ If a is less than 5 and b is less than 5:
 #[test]
 fn e2e_and_second_false() {
     // Second condition false, should not print
-    assert_runs(
+    assert_exact_output(
         r#"## Main
 Let a be 3.
 Let b be 10.
 If a is less than 5 and b is less than 5:
     Show "wrong".
 "#,
+        "",
     );
 }
 
@@ -89,13 +88,14 @@ If a is less than 5 or b is less than 5:
 #[test]
 fn e2e_or_both_false() {
     // Both conditions false, should not print
-    assert_runs(
+    assert_exact_output(
         r#"## Main
 Let a be 10.
 Let b be 20.
 If a is less than 5 or b is less than 5:
     Show "wrong".
 "#,
+        "",
     );
 }
 

@@ -22,9 +22,12 @@ fn e2e_enum_unit_variant() {
 
 ## Main
 Let c be a new Red.
-Show "created".
+Inspect c:
+    When Red: Show "red".
+    When Green: Show "green".
+    When Blue: Show "blue".
 "#,
-        "created",
+        "red",
     );
 }
 
@@ -40,9 +43,11 @@ fn e2e_enum_payload_variant() {
 
 ## Main
 Let s be a new Circle with radius 10.
-Show "created".
+Inspect s:
+    When Circle (r): Show r.
+    When Rectangle (w, h): Show w.
 "#,
-        "created",
+        "10",
     );
 }
 

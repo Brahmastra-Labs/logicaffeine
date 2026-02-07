@@ -7,7 +7,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::{assert_output, assert_panics};
+use common::{assert_exact_output, assert_panics};
 
 // ============================================================================
 // Part 1: Valid Values (should run successfully)
@@ -16,7 +16,7 @@ use common::{assert_output, assert_panics};
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_refinement_valid_positive() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x: Int where x > 0 be 5.
 Set x to 10.
@@ -29,7 +29,7 @@ Show x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_refinement_compound_and_valid() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x: Int where x > 0 and x < 100 be 50.
 Set x to 75.
@@ -42,7 +42,7 @@ Show x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_refinement_boundary_value() {
-    assert_output(
+    assert_exact_output(
         r#"## Main
 Let x: Int where x >= 0 be 0.
 Show x.
