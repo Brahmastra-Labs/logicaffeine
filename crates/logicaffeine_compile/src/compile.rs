@@ -73,6 +73,8 @@ use std::process::Command;
 const CRATES_DATA_PATH: &str = "crates/logicaffeine_data";
 const CRATES_SYSTEM_PATH: &str = "crates/logicaffeine_system";
 
+use std::fmt::Write as FmtWrite;
+
 use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegistry};
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
@@ -85,6 +87,21 @@ use crate::intern::Interner;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
 use crate::sourcemap::SourceMap;
+
+/// A declared external crate dependency from a `## Requires` block.
+#[derive(Debug, Clone)]
+pub struct CrateDependency {
+    pub name: String,
+    pub version: String,
+    pub features: Vec<String>,
+}
+
+/// Full compilation output including generated Rust code and extracted dependencies.
+#[derive(Debug)]
+pub struct CompileOutput {
+    pub rust_code: String,
+    pub dependencies: Vec<CrateDependency>,
+}
 
 /// Compile LOGOS source to Rust source code.
 ///
@@ -114,6 +131,14 @@ use crate::sourcemap::SourceMap;
 /// assert!(rust_code.contains("let x = 5;"));
 /// ```
 pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
+    compile_program_full(source).map(|o| o.rust_code)
+}
+
+/// Compile LOGOS source and return full output including dependency metadata.
+///
+/// This is the primary compilation entry point that returns both the generated
+/// Rust code and any crate dependencies declared in `## Requires` blocks.
+pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(source, &mut interner);
     let tokens = lexer.tokenize();
@@ -157,6 +182,9 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
 
     let stmts = parser.parse_program()?;
 
+    // Extract dependencies before escape analysis
+    let dependencies = extract_dependencies(&stmts, &interner);
+
     // Pass 3: Escape analysis - check for zone escape violations
     // This catches obvious cases like returning zone-local variables
     let mut escape_checker = EscapeChecker::new(&interner);
@@ -174,7 +202,22 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
-    Ok(rust_code)
+    Ok(CompileOutput { rust_code, dependencies })
+}
+
+/// Extract crate dependencies from `Stmt::Require` nodes.
+fn extract_dependencies(stmts: &[Stmt], interner: &Interner) -> Vec<CrateDependency> {
+    stmts.iter().filter_map(|stmt| {
+        if let Stmt::Require { crate_name, version, features, .. } = stmt {
+            Some(CrateDependency {
+                name: interner.resolve(*crate_name).to_string(),
+                version: interner.resolve(*version).to_string(),
+                features: features.iter().map(|f| interner.resolve(*f).to_string()).collect(),
+            })
+        } else {
+            None
+        }
+    }).collect()
 }
 
 /// Compile LOGOS source to Rust with ownership checking enabled.
@@ -415,7 +458,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
 /// // Now /tmp/my_project is a buildable Cargo project
 /// ```
 pub fn compile_to_dir(source: &str, output_dir: &Path) -> Result<(), CompileError> {
-    let rust_code = compile_to_rust(source).map_err(CompileError::Parse)?;
+    let output = compile_program_full(source).map_err(CompileError::Parse)?;
 
     // Create output directory structure
     let src_dir = output_dir.join("src");
@@ -424,10 +467,10 @@ pub fn compile_to_dir(source: &str, output_dir: &Path) -> Result<(), CompileErro
     // Write main.rs (codegen already includes the use statements)
     let main_path = src_dir.join("main.rs");
     let mut file = fs::File::create(&main_path).map_err(|e| CompileError::Io(e.to_string()))?;
-    file.write_all(rust_code.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;
+    file.write_all(output.rust_code.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;
 
     // Write Cargo.toml with runtime crate dependencies
-    let cargo_toml = r#"[package]
+    let mut cargo_toml = String::from(r#"[package]
 name = "logos_output"
 version = "0.1.0"
 edition = "2021"
@@ -436,7 +479,25 @@ edition = "2021"
 logicaffeine-data = { path = "./crates/logicaffeine_data" }
 logicaffeine-system = { path = "./crates/logicaffeine_system", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
-"#;
+"#);
+
+    // Append user-declared dependencies from ## Requires blocks
+    for dep in &output.dependencies {
+        if dep.features.is_empty() {
+            let _ = writeln!(cargo_toml, "{} = \"{}\"", dep.name, dep.version);
+        } else {
+            let feats = dep.features.iter()
+                .map(|f| format!("\"{}\"", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(
+                cargo_toml,
+                "{} = {{ version = \"{}\", features = [{}] }}",
+                dep.name, dep.version, feats
+            );
+        }
+    }
+
     let cargo_path = output_dir.join("Cargo.toml");
     let mut file = fs::File::create(&cargo_path).map_err(|e| CompileError::Io(e.to_string()))?;
     file.write_all(cargo_toml.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;

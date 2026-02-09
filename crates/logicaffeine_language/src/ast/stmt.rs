@@ -549,6 +549,15 @@ pub enum Stmt<'a> {
         /// Source span covering the entire escape block (header + body).
         span: crate::token::Span,
     },
+
+    /// Dependency declaration from `## Requires` block.
+    /// The "serde" crate version "1.0" with features "derive".
+    Require {
+        crate_name: Symbol,
+        version: Symbol,
+        features: Vec<Symbol>,
+        span: crate::token::Span,
+    },
 }
 
 /// A branch in a Select statement.

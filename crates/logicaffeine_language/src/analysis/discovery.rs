@@ -72,6 +72,16 @@ impl<'a> DiscoveryPass<'a> {
                 // Phase 50: Security policy definitions
                 self.advance(); // consume ## Policy
                 self.scan_policy_block(&mut policy_registry);
+            } else if self.check_block_header(BlockType::Requires) {
+                // Requires blocks contain dependency metadata, not type definitions.
+                // Skip to next block header.
+                self.advance(); // consume ## Requires
+                while self.pos < self.tokens.len() {
+                    if matches!(self.tokens.get(self.pos), Some(Token { kind: TokenType::BlockHeader { .. }, .. })) {
+                        break;
+                    }
+                    self.advance();
+                }
             } else {
                 self.advance();
             }

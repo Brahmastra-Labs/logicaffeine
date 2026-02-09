@@ -2862,6 +2862,9 @@ pub fn codegen_stmt<'a>(
             write!(output, "{}}}\n", indent_str).unwrap();
         }
 
+        // Dependencies are metadata; no Rust code emitted.
+        Stmt::Require { .. } => {}
+
         // Phase 63: Theorems are verified at compile-time, no runtime code generated
         Stmt::Theorem(_) => {
             // Theorems don't generate runtime code - they're processed separately

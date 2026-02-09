@@ -655,7 +655,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Main | BlockType::Function => ParserMode::Imperative,
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
-                    BlockType::Policy => ParserMode::Declarative,
+                    BlockType::Policy | BlockType::Requires => ParserMode::Declarative,
                 };
                 self.current += 1;
             } else {
@@ -1076,6 +1076,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.advance();
                         let theorem = self.parse_theorem_block()?;
                         statements.push(theorem);
+                        continue;
+                    }
+                    BlockType::Requires => {
+                        in_definition_block = false;
+                        self.mode = ParserMode::Declarative;
+                        self.advance();
+                        let deps = self.parse_requires_block()?;
+                        statements.extend(deps);
                         continue;
                     }
                     _ => {
@@ -2999,6 +3007,181 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn parse_escape_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         let (language, code, _span) = self.parse_escape_body()?;
         Ok(self.ctx.alloc_imperative_expr(Expr::Escape { language, code }))
+    }
+
+    /// Parse a `## Requires` block into a list of `Stmt::Require` nodes.
+    /// Loops until the next block header or EOF, parsing one dependency per line.
+    fn parse_requires_block(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
+        let mut deps = Vec::new();
+
+        loop {
+            // Stop at next block header or EOF
+            if self.is_at_end() {
+                break;
+            }
+            if matches!(self.peek().kind, TokenType::BlockHeader { .. }) {
+                break;
+            }
+
+            // Skip whitespace tokens
+            if self.check(&TokenType::Indent)
+                || self.check(&TokenType::Dedent)
+                || self.check(&TokenType::Newline)
+            {
+                self.advance();
+                continue;
+            }
+
+            // Each dependency line starts with an article ("The")
+            if matches!(self.peek().kind, TokenType::Article(_)) {
+                let dep = self.parse_require_line()?;
+                deps.push(dep);
+                continue;
+            }
+
+            // Skip unexpected tokens (defensive)
+            self.advance();
+        }
+
+        Ok(deps)
+    }
+
+    /// Parse a single dependency line:
+    /// `The "serde" crate version "1.0" with features "derive" and "std" for serialization.`
+    fn parse_require_line(&mut self) -> ParseResult<Stmt<'a>> {
+        let start_span = self.current_span();
+
+        // Expect article "The"
+        if !matches!(self.peek().kind, TokenType::Article(_)) {
+            return Err(crate::error::ParseError {
+                kind: crate::error::ParseErrorKind::Custom(
+                    "Expected 'The' to begin a dependency declaration.".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "The"
+
+        // Expect string literal for crate name
+        let crate_name = if let TokenType::StringLiteral(sym) = self.peek().kind {
+            let s = sym;
+            self.advance();
+            s
+        } else {
+            return Err(crate::error::ParseError {
+                kind: crate::error::ParseErrorKind::Custom(
+                    "Expected a string literal for the crate name, e.g. \"serde\".".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        };
+
+        // Expect word "crate"
+        if !self.check_word("crate") {
+            return Err(crate::error::ParseError {
+                kind: crate::error::ParseErrorKind::Custom(
+                    "Expected the word 'crate' after the crate name.".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "crate"
+
+        // Expect word "version"
+        if !self.check_word("version") {
+            return Err(crate::error::ParseError {
+                kind: crate::error::ParseErrorKind::Custom(
+                    "Expected 'version' after 'crate'.".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume "version"
+
+        // Expect string literal for version
+        let version = if let TokenType::StringLiteral(sym) = self.peek().kind {
+            let s = sym;
+            self.advance();
+            s
+        } else {
+            return Err(crate::error::ParseError {
+                kind: crate::error::ParseErrorKind::Custom(
+                    "Expected a string literal for the version, e.g. \"1.0\".".to_string(),
+                ),
+                span: self.current_span(),
+            });
+        };
+
+        // Optional: "with features ..."
+        let mut features = Vec::new();
+        if self.check_preposition_is("with") {
+            self.advance(); // consume "with"
+
+            // Expect word "features"
+            if !self.check_word("features") {
+                return Err(crate::error::ParseError {
+                    kind: crate::error::ParseErrorKind::Custom(
+                        "Expected 'features' after 'with'.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume "features"
+
+            // Parse first feature string
+            if let TokenType::StringLiteral(sym) = self.peek().kind {
+                features.push(sym);
+                self.advance();
+            } else {
+                return Err(crate::error::ParseError {
+                    kind: crate::error::ParseErrorKind::Custom(
+                        "Expected a string literal for a feature name.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+
+            // Parse additional features separated by "and"
+            while self.check(&TokenType::And) {
+                self.advance(); // consume "and"
+                if let TokenType::StringLiteral(sym) = self.peek().kind {
+                    features.push(sym);
+                    self.advance();
+                } else {
+                    return Err(crate::error::ParseError {
+                        kind: crate::error::ParseErrorKind::Custom(
+                            "Expected a string literal for a feature name after 'and'.".to_string(),
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+            }
+        }
+
+        // Optional: "for <description...>" — consume until period
+        if self.check(&TokenType::For) {
+            self.advance(); // consume "for"
+            while !self.check(&TokenType::Period) && !self.check(&TokenType::EOF)
+                && !self.check(&TokenType::Newline)
+                && !matches!(self.peek().kind, TokenType::BlockHeader { .. })
+            {
+                self.advance();
+            }
+        }
+
+        // Consume trailing period
+        if self.check(&TokenType::Period) {
+            self.advance();
+        }
+
+        let end_span = self.previous().span;
+
+        Ok(Stmt::Require {
+            crate_name,
+            version,
+            features,
+            span: crate::token::Span::new(start_span.start, end_span.end),
+        })
     }
 
     /// Phase 54: Parse Stop statement

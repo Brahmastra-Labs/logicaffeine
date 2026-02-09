@@ -1060,6 +1060,11 @@ impl<'a> Interpreter<'a> {
                 )
             }
 
+            // Dependencies are compilation metadata. No-op in interpreter.
+            Stmt::Require { .. } => {
+                Ok(ControlFlow::Continue)
+            }
+
             // Phase 63: Theorems are verified at compile-time, not executed
             Stmt::Theorem(_) => {
                 // Theorems don't execute - they're processed by compile_theorem()

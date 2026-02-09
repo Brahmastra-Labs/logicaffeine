@@ -101,6 +101,8 @@ pub enum BlockType {
     TypeDef,
     /// `## Policy` - Security policy rule definitions.
     Policy,
+    /// `## Requires` - External crate dependency declarations.
+    Requires,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1710,6 +1710,7 @@ impl<'a> Lexer<'a> {
                 "to" => BlockType::Function,  // Function definition block
                 "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
                 "policy" => BlockType::Policy,  // Security policy definitions
+                "requires" => BlockType::Requires,  // External crate dependencies
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 

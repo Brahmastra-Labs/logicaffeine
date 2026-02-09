@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
-pub use logicaffeine_compile::compile::compile_to_rust;
+pub use logicaffeine_compile::compile::{compile_to_rust, compile_program_full};
 
 // ============================================================
 // Parse Helper - replaces the logos::parse! macro
@@ -138,12 +138,32 @@ pub struct CompileResult {
     pub _temp_dir: tempfile::TempDir,  // Keep alive to prevent cleanup
 }
 
+/// Format user-declared dependencies as Cargo.toml lines.
+fn format_user_deps(deps: &[logicaffeine_compile::CrateDependency]) -> String {
+    let mut out = String::new();
+    for dep in deps {
+        if dep.features.is_empty() {
+            out.push_str(&format!("{} = \"{}\"\n", dep.name, dep.version));
+        } else {
+            let feats = dep.features.iter()
+                .map(|f| format!("\"{}\"", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "{} = {{ version = \"{}\", features = [{}] }}\n",
+                dep.name, dep.version, feats
+            ));
+        }
+    }
+    out
+}
+
 /// Compile LOGOS source to a binary without running it.
 /// Returns the path to the compiled binary.
 pub fn compile_logos(source: &str) -> CompileResult {
-    // 1. Compile LOGOS to Rust
-    let rust_code = match compile_to_rust(source) {
-        Ok(code) => code,
+    // 1. Compile LOGOS to Rust (with dependency extraction)
+    let compile_output = match compile_program_full(source) {
+        Ok(out) => out,
         Err(e) => {
             return CompileResult {
                 binary_path: std::path::PathBuf::new(),
@@ -154,6 +174,8 @@ pub fn compile_logos(source: &str) -> CompileResult {
             };
         }
     };
+    let rust_code = compile_output.rust_code;
+    let user_deps = format_user_deps(&compile_output.dependencies);
 
     // 2. Create temp project
     let temp_dir = tempfile::tempdir().expect("temp dir");
@@ -179,10 +201,11 @@ logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["fu
 tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 serde = {{ version = "1", features = ["derive"] }}
 rayon = "1"
-"#,
+{}"#,
         pkg_name,
         workspace_root.display(),
-        workspace_root.display()
+        workspace_root.display(),
+        user_deps
     );
 
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
@@ -210,9 +233,9 @@ rayon = "1"
 
 /// Compile LOGOS source and run the generated Rust, returning result.
 pub fn run_logos(source: &str) -> E2EResult {
-    // 1. Compile LOGOS to Rust
-    let rust_code = match compile_to_rust(source) {
-        Ok(code) => code,
+    // 1. Compile LOGOS to Rust (with dependency extraction)
+    let compile_output = match compile_program_full(source) {
+        Ok(out) => out,
         Err(e) => {
             return E2EResult {
                 stdout: String::new(),
@@ -222,6 +245,8 @@ pub fn run_logos(source: &str) -> E2EResult {
             };
         }
     };
+    let rust_code = compile_output.rust_code;
+    let user_deps = format_user_deps(&compile_output.dependencies);
 
     // 2. Create temp project
     let temp_dir = tempfile::tempdir().expect("temp dir");
@@ -247,10 +272,11 @@ logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["fu
 tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 serde = {{ version = "1", features = ["derive"] }}
 rayon = "1"
-"#,
+{}"#,
         pkg_name,
         workspace_root.display(),
-        workspace_root.display()
+        workspace_root.display(),
+        user_deps
     );
 
     std::fs::create_dir_all(project_dir.join("src")).unwrap();

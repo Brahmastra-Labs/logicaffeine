@@ -111,6 +111,7 @@ pub mod codegen;
 
 // Compilation pipeline
 pub mod compile;
+pub use compile::{CompileOutput, CrateDependency};
 
 // Diagnostics
 pub mod diagnostic;
