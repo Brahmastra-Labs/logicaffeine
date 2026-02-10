@@ -51,6 +51,8 @@
 //! let result = build(BuildConfig {
 //!     project_dir: root,
 //!     release: false,
+//!     lib_mode: false,
+//!     target: None,
 //! })?;
 //!
 //! println!("Built: {}", result.binary_path.display());
