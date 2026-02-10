@@ -4507,8 +4507,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance();
         }
 
-        // Phase 38: Check for native modifier
-        let is_native = if self.check(&TokenType::Native) {
+        // Phase 38: Check for native modifier (prefix style: "## To native funcname ...")
+        let mut is_native = if self.check(&TokenType::Native) {
             self.advance(); // consume "native"
             true
         } else {
@@ -4581,6 +4581,39 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             None
         };
 
+        // FFI: Parse optional suffix modifiers: "is native <path>", "is exported [for <target>]"
+        let mut native_path: Option<Symbol> = None;
+        let mut is_exported = false;
+        let mut export_target: Option<Symbol> = None;
+
+        if self.check_word("is") {
+            self.advance(); // consume "is"
+            if self.check(&TokenType::Native) {
+                // "is native" suffix style with required path string
+                self.advance(); // consume "native"
+                is_native = true;
+                if let TokenType::StringLiteral(sym) = self.peek().kind {
+                    native_path = Some(sym);
+                    self.advance(); // consume the path string
+                } else {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(
+                            "Expected a string literal for native function path (e.g., is native \"reqwest::blocking::get\")".to_string()
+                        ),
+                        span: self.current_span(),
+                    });
+                }
+            } else if self.check_word("exported") {
+                // "is exported [for <target>]"
+                self.advance(); // consume "exported"
+                is_exported = true;
+                if self.check_word("for") {
+                    self.advance(); // consume "for"
+                    export_target = Some(self.expect_identifier()?);
+                }
+            }
+        }
+
         // Phase 38: Native functions have no body
         if is_native {
             // Consume trailing period or newline if present
@@ -4601,6 +4634,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 body: empty_body,
                 return_type,
                 is_native: true,
+                native_path,
+                is_exported: false,
+                export_target: None,
             });
         }
 
@@ -4656,6 +4692,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             body,
             return_type,
             is_native: false,
+            native_path: None,
+            is_exported,
+            export_target,
         })
     }
 

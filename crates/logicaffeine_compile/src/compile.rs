@@ -730,7 +730,7 @@ pub fn compile_file(path: &Path) -> Result<String, CompileError> {
 /// ```ignore
 /// let result = compile_project(Path::new("/project/main.md"));
 /// ```
-pub fn compile_project(entry_file: &Path) -> Result<String, CompileError> {
+pub fn compile_project(entry_file: &Path) -> Result<CompileOutput, CompileError> {
     use crate::loader::Loader;
     use crate::analysis::discover_with_imports;
 
@@ -747,17 +747,17 @@ pub fn compile_project(entry_file: &Path) -> Result<String, CompileError> {
         .map_err(|e| CompileError::Io(e))?;
 
     // Now compile with the discovered types
-    compile_to_rust_with_registry(&source, type_registry, &mut interner)
+    compile_to_rust_with_registry_full(&source, type_registry, &mut interner)
         .map_err(CompileError::Parse)
 }
 
-/// Compile LOGOS source with a pre-populated type registry.
-/// Used by compile_project after discovering types from dependencies.
-fn compile_to_rust_with_registry(
+/// Compile LOGOS source with a pre-populated type registry, returning full output.
+/// Returns both generated Rust code and extracted dependencies.
+fn compile_to_rust_with_registry_full(
     source: &str,
     type_registry: crate::analysis::TypeRegistry,
     interner: &mut Interner,
-) -> Result<String, ParseError> {
+) -> Result<CompileOutput, ParseError> {
     let mut lexer = Lexer::new(source, interner);
     let tokens = lexer.tokenize();
 
@@ -796,6 +796,9 @@ fn compile_to_rust_with_registry(
     let mut parser = Parser::new(tokens, &mut world_state, interner, ast_ctx, type_registry);
     let stmts = parser.parse_program()?;
 
+    // Extract dependencies before escape analysis
+    let dependencies = extract_dependencies(&stmts, interner);
+
     let mut escape_checker = EscapeChecker::new(interner);
     escape_checker.check_program(&stmts).map_err(|e| {
         ParseError {
@@ -806,7 +809,7 @@ fn compile_to_rust_with_registry(
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner);
 
-    Ok(rust_code)
+    Ok(CompileOutput { rust_code, dependencies })
 }
 
 /// Errors that can occur during the LOGOS compilation pipeline.

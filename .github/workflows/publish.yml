@@ -1,0 +1,83 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build workspace
+        run: cargo build --workspace
+
+      - name: Run tests
+        run: cargo test --workspace
+
+      # Tier 0 — no internal dependencies
+      - name: Publish logicaffeine-base
+        run: cargo publish -p logicaffeine-base --no-verify
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      # Tier 1 — depends on base only
+      - name: Publish logicaffeine-data
+        run: cargo publish -p logicaffeine-data --no-verify
+
+      - name: Publish logicaffeine-kernel
+        run: cargo publish -p logicaffeine-kernel --no-verify
+
+      - name: Publish logicaffeine-lexicon
+        run: cargo publish -p logicaffeine-lexicon --no-verify
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      # Tier 2 — depends on base + data or base + kernel
+      - name: Publish logicaffeine-system
+        run: cargo publish -p logicaffeine-system --no-verify
+
+      - name: Publish logicaffeine-proof
+        run: cargo publish -p logicaffeine-proof --no-verify
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      # Tier 3 — depends on base + lexicon + proof
+      - name: Publish logicaffeine-language
+        run: cargo publish -p logicaffeine-language --no-verify
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      # Tier 4 — depends on base + language + kernel + data + system + proof
+      - name: Publish logicaffeine-compile
+        run: cargo publish -p logicaffeine-compile --no-verify
+
+      - name: Wait for crates.io index
+        run: sleep 30
+
+      # Tier 5 — depends on base + kernel + language + compile
+      - name: Publish logicaffeine-cli
+        run: cargo publish -p logicaffeine-cli --no-verify

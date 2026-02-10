@@ -359,6 +359,9 @@ fn test_collect_async_functions_with_sleep() {
         body,
         return_type: None,
         is_native: false,
+        native_path: None,
+        is_exported: false,
+        export_target: None,
     };
 
     let stmts = vec![func_def];
@@ -387,6 +390,9 @@ fn test_collect_async_functions_with_launch_task() {
         body,
         return_type: None,
         is_native: false,
+        native_path: None,
+        is_exported: false,
+        export_target: None,
     };
 
     let stmts = vec![func_def];
@@ -413,6 +419,9 @@ fn test_collect_async_functions_transitive() {
         body: helper_body,
         return_type: None,
         is_native: false,
+        native_path: None,
+        is_exported: false,
+        export_target: None,
     };
 
     // Create wrapper function that calls helper (should be transitively async)
@@ -428,6 +437,9 @@ fn test_collect_async_functions_transitive() {
         body: wrapper_body,
         return_type: None,
         is_native: false,
+        native_path: None,
+        is_exported: false,
+        export_target: None,
     };
 
     let stmts = vec![helper_def, wrapper_def];

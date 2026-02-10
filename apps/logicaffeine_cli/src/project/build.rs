@@ -21,6 +21,7 @@
 //!     └── build/           # Generated Cargo project (release)
 //! ```
 
+use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -207,17 +208,17 @@ fn build_with_entry(
     fs::create_dir_all(&rust_project_dir).map_err(|e| BuildError::Io(e.to_string()))?;
 
     // Compile LOGOS to Rust using Phase 36 compile_project
-    let rust_code = compile_project(entry_path)?;
+    let output = compile_project(entry_path)?;
 
     // Write generated Rust code
     let src_dir = rust_project_dir.join("src");
     fs::create_dir_all(&src_dir).map_err(|e| BuildError::Io(e.to_string()))?;
 
-    let main_rs = format!("use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\n{}", rust_code);
+    let main_rs = format!("use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\n{}", output.rust_code);
     fs::write(src_dir.join("main.rs"), main_rs).map_err(|e| BuildError::Io(e.to_string()))?;
 
     // Write Cargo.toml for the generated project
-    let cargo_toml = format!(
+    let mut cargo_toml = format!(
         r#"[package]
 name = "{}"
 version = "{}"
@@ -230,6 +231,24 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 "#,
         manifest.package.name, manifest.package.version
     );
+
+    // Append user-declared dependencies from ## Requires blocks
+    for dep in &output.dependencies {
+        if dep.features.is_empty() {
+            let _ = writeln!(cargo_toml, "{} = \"{}\"", dep.name, dep.version);
+        } else {
+            let feats = dep.features.iter()
+                .map(|f| format!("\"{}\"", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(
+                cargo_toml,
+                "{} = {{ version = \"{}\", features = [{}] }}",
+                dep.name, dep.version, feats
+            );
+        }
+    }
+
     fs::write(rust_project_dir.join("Cargo.toml"), cargo_toml)
         .map_err(|e| BuildError::Io(e.to_string()))?;
 

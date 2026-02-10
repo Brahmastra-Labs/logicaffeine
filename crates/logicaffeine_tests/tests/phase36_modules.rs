@@ -184,7 +184,7 @@ Let p be a new Point from Geometry.
 
     let result = compile_project(&main_path);
     assert!(result.is_ok(), "Should compile project: {:?}", result);
-    let rust_code = result.unwrap();
+    let output = result.unwrap();
     // The codegen should produce struct usage
-    assert!(rust_code.contains("fn main()"), "Should have main function");
+    assert!(output.rust_code.contains("fn main()"), "Should have main function");
 }

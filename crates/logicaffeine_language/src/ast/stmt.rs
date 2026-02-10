@@ -216,6 +216,13 @@ pub enum Stmt<'a> {
         body: Block<'a>,
         return_type: Option<&'a TypeExpr<'a>>,
         is_native: bool,
+        /// Rust path for user-defined native functions (e.g., "reqwest::blocking::get").
+        /// None for system native functions (read, write, etc.) which use map_native_function().
+        native_path: Option<Symbol>,
+        /// Whether this function is exported for FFI (C ABI or WASM).
+        is_exported: bool,
+        /// Export target: None = C ABI (#[no_mangle] extern "C"), Some("wasm") = #[wasm_bindgen].
+        export_target: Option<Symbol>,
     },
 
     /// Pattern matching on sum types.

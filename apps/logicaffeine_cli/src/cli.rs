@@ -529,8 +529,8 @@ fn cmd_check() -> Result<(), Box<dyn std::error::Error>> {
     let manifest = Manifest::load(&project_root)?;
     let entry_path = project_root.join(&manifest.package.entry);
 
-    // Just compile to Rust without building
-    compile_project(&entry_path)?;
+    // Just compile to Rust without building (discard output, only care about success)
+    let _ = compile_project(&entry_path)?;
 
     println!("Check passed");
     Ok(())

@@ -1106,8 +1106,8 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, return_type, is_native } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry));
+        if let Stmt::FunctionDef { name, params, body, return_type, is_native, native_path, is_exported, export_target } = stmt {
+            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry));
         }
     }
 
@@ -1157,6 +1157,9 @@ fn codegen_function_def(
     body: &[Stmt],
     return_type: Option<&TypeExpr>,
     is_native: bool,
+    native_path: Option<Symbol>,
+    is_exported: bool,
+    export_target: Option<Symbol>,
     interner: &Interner,
     lww_fields: &HashSet<(String, String)>,
     mv_fields: &HashSet<(String, String)>,  // Phase 49b: MVRegister fields
@@ -1193,31 +1196,64 @@ fn codegen_function_def(
     let is_async = async_functions.contains(&name);
     let fn_keyword = if is_async { "async fn" } else { "fn" };
 
+    // FFI: Exported functions need special signatures
+    let export_target_str = export_target.map(|s| interner.resolve(s).to_lowercase());
+
     // Build function signature
-    let signature = if let Some(ref ret_ty) = return_type_str {
-        if ret_ty != "()" {
-            format!("{} {}({}) -> {}", fn_keyword, func_name, params_str.join(", "), ret_ty)
-        } else {
-            format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
+    let (vis_prefix, abi_prefix) = if is_exported {
+        match export_target_str.as_deref() {
+            None | Some("c") => ("pub ", "extern \"C\" "),
+            Some("wasm") => ("pub ", ""),
+            _ => ("pub ", ""),
         }
     } else {
-        format!("{} {}({})", fn_keyword, func_name, params_str.join(", "))
+        ("", "")
     };
+
+    let signature = if let Some(ref ret_ty) = return_type_str {
+        if ret_ty != "()" {
+            format!("{}{}{} {}({}) -> {}", vis_prefix, abi_prefix, fn_keyword, func_name, params_str.join(", "), ret_ty)
+        } else {
+            format!("{}{}{} {}({})", vis_prefix, abi_prefix, fn_keyword, func_name, params_str.join(", "))
+        }
+    } else {
+        format!("{}{}{} {}({})", vis_prefix, abi_prefix, fn_keyword, func_name, params_str.join(", "))
+    };
+
+    // FFI: Emit export attributes before the function
+    if is_exported {
+        match export_target_str.as_deref() {
+            None | Some("c") => {
+                writeln!(output, "#[no_mangle]").unwrap();
+            }
+            Some("wasm") => {
+                writeln!(output, "#[wasm_bindgen]").unwrap();
+            }
+            _ => {}
+        }
+    }
 
     // Phase 38: Handle native functions
     if is_native {
-        let (module, core_fn) = map_native_function(func_name);
-        writeln!(output, "{} {{", signature).unwrap();
-
-        // Generate call to logicaffeine_system
         let arg_names: Vec<&str> = params.iter()
             .map(|(n, _)| interner.resolve(*n))
             .collect();
 
-        writeln!(output, "    logicaffeine_system::{}::{}({})", module, core_fn, arg_names.join(", ")).unwrap();
-        writeln!(output, "}}\n").unwrap();
+        if let Some(path_sym) = native_path {
+            // User-defined native path: call the Rust path directly
+            let path = interner.resolve(path_sym);
+            writeln!(output, "{} {{", signature).unwrap();
+            writeln!(output, "    {}({})", path, arg_names.join(", ")).unwrap();
+            writeln!(output, "}}\n").unwrap();
+        } else {
+            // Legacy system functions: use map_native_function()
+            let (module, core_fn) = map_native_function(func_name);
+            writeln!(output, "{} {{", signature).unwrap();
+            writeln!(output, "    logicaffeine_system::{}::{}({})", module, core_fn, arg_names.join(", ")).unwrap();
+            writeln!(output, "}}\n").unwrap();
+        }
     } else {
-        // Non-native: emit body
+        // Non-native: emit body (also used for exported functions which have bodies)
         // Grand Challenge: Collect mutable vars for this function
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
@@ -1245,6 +1281,7 @@ fn codegen_function_def(
 }
 
 /// Phase 38: Map native function names to logicaffeine_system module paths.
+/// For system functions only — user-defined native paths bypass this entirely.
 fn map_native_function(name: &str) -> (&'static str, &'static str) {
     match name {
         "read" => ("file", "read"),
@@ -1255,7 +1292,12 @@ fn map_native_function(name: &str) -> (&'static str, &'static str) {
         "randomFloat" => ("random", "randomFloat"),
         "get" => ("env", "get"),
         "args" => ("env", "args"),
-        _ => panic!("Unknown native function: {}. Add mapping to map_native_function().", name),
+        _ => panic!(
+            "Unknown system native function: '{}'. \
+             Use `is native \"crate::path\"` syntax for user-defined native functions, \
+             or add mapping to map_native_function().",
+            name
+        ),
     }
 }
 
