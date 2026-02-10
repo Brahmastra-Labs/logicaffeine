@@ -18,7 +18,7 @@
 //! use logicaffeine_cli::compile::compile_project;
 //!
 //! let rust_code = compile_project(Path::new("src/main.lg"))?;
-//! println!("Generated {} bytes of Rust", rust_code.len());
+//! println!("Generated {} bytes of Rust", rust_code.rust_code.len());
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
