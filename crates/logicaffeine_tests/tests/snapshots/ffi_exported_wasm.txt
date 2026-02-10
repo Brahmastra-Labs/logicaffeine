@@ -1,0 +1,13 @@
+use logicaffeine_data::*;
+use logicaffeine_system::*;
+
+use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn greet() -> i64 {
+    return 42;
+}
+
+fn main() {
+    show(&42);
+}

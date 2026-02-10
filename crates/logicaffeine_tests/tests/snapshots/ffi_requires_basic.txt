@@ -1,0 +1,7 @@
+use logicaffeine_data::*;
+use logicaffeine_system::*;
+
+fn main() {
+    let x = 42;
+    show(&x);
+}

@@ -160,6 +160,16 @@ pub enum Commands {
         /// Can also be set via the `LOGOS_LICENSE` environment variable.
         #[arg(long)]
         license: Option<String>,
+
+        /// Build as a library instead of an executable.
+        /// Generates `lib.rs` with `crate-type = ["cdylib"]` instead of a binary.
+        #[arg(long)]
+        lib: bool,
+
+        /// Target triple for cross-compilation.
+        /// Use "wasm" as shorthand for "wasm32-unknown-unknown".
+        #[arg(long)]
+        target: Option<String>,
     },
 
     /// Run Z3 static verification without building.
@@ -324,7 +334,7 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
     match cli.command {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
-        Commands::Build { release, verify, license } => cmd_build(release, verify, license),
+        Commands::Build { release, verify, license, lib, target } => cmd_build(release, verify, license, lib, target),
         Commands::Run { release } => cmd_run(release),
         Commands::Check => cmd_check(),
         Commands::Verify { license } => cmd_verify(license),
@@ -418,6 +428,8 @@ fn cmd_build(
     release: bool,
     verify: bool,
     license: Option<String>,
+    lib: bool,
+    target: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
@@ -431,6 +443,8 @@ fn cmd_build(
     let config = BuildConfig {
         project_dir: project_root,
         release,
+        lib_mode: lib,
+        target,
     };
 
     let result = build::build(config)?;
@@ -509,6 +523,8 @@ fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
     let config = BuildConfig {
         project_dir: project_root,
         release,
+        lib_mode: false,
+        target: None,
     };
 
     let result = build::build(config)?;

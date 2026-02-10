@@ -1,0 +1,19 @@
+use logicaffeine_data::*;
+use logicaffeine_system::*;
+
+use std::ffi::{CStr, CString};
+
+fn greet_inner(name: String) -> String {
+    return String::from("hello");
+}
+
+#[no_mangle]
+pub extern "C" fn greet(name: *const std::os::raw::c_char) -> *mut std::os::raw::c_char {
+    let name = unsafe { std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned() };
+    let result = greet_inner(name);
+    std::ffi::CString::new(result).unwrap().into_raw()
+}
+
+fn main() {
+    show(&42);
+}

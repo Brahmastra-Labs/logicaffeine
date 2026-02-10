@@ -1,0 +1,11 @@
+use logicaffeine_data::*;
+use logicaffeine_system::*;
+
+#[no_mangle]
+pub extern "C" fn add(a: i64, b: i64) -> i64 {
+    return (a + b);
+}
+
+fn main() {
+    show(&42);
+}

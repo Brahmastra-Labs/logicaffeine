@@ -4609,7 +4609,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 is_exported = true;
                 if self.check_word("for") {
                     self.advance(); // consume "for"
-                    export_target = Some(self.expect_identifier()?);
+                    let target_sym = self.expect_identifier()?;
+                    let target_str = self.interner.resolve(target_sym);
+                    if !target_str.eq_ignore_ascii_case("c") && !target_str.eq_ignore_ascii_case("wasm") {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::Custom(
+                                format!("Unsupported export target \"{}\". Supported targets are \"c\" and \"wasm\".", target_str)
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+                    export_target = Some(target_sym);
                 }
             }
         }

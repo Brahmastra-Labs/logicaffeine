@@ -1,0 +1,10 @@
+use logicaffeine_data::*;
+use logicaffeine_system::*;
+
+fn cube(n: i64) -> i64 {
+    my_crate::cube(n)
+}
+
+fn main() {
+    show(&42);
+}

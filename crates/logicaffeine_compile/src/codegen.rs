@@ -337,6 +337,37 @@ fn analyze_variable_capabilities<'a>(
     caps
 }
 
+/// FFI: Detect if any function is exported for WASM.
+/// Used to emit `use wasm_bindgen::prelude::*;` preamble.
+fn has_wasm_exports(stmts: &[Stmt], interner: &Interner) -> bool {
+    stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target: Some(target), .. } = stmt {
+            interner.resolve(*target).eq_ignore_ascii_case("wasm")
+        } else {
+            false
+        }
+    })
+}
+
+/// FFI: Detect if any C-exported function uses Text (String) types.
+/// Used to emit `use std::ffi::{CStr, CString};` preamble.
+fn has_c_exports_with_text(stmts: &[Stmt], interner: &Interner) -> bool {
+    stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { return false; }
+            let has_text_param = params.iter().any(|(_, ty)| is_text_type(ty, interner));
+            let has_text_return = return_type.as_ref().map_or(false, |ty| is_text_type(ty, interner));
+            has_text_param || has_text_return
+        } else {
+            false
+        }
+    })
+}
+
 /// Phase 51: Detect if any statements require async execution.
 /// Returns true if the program needs #[tokio::main] async fn main().
 fn requires_async(stmts: &[Stmt]) -> bool {
@@ -1041,6 +1072,16 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     writeln!(output, "use logicaffeine_data::*;").unwrap();
     writeln!(output, "use logicaffeine_system::*;\n").unwrap();
 
+    // FFI: Emit wasm_bindgen preamble if any function is exported for WASM
+    if has_wasm_exports(stmts, interner) {
+        writeln!(output, "use wasm_bindgen::prelude::*;\n").unwrap();
+    }
+
+    // FFI: Emit CStr/CString imports if any C export uses Text types
+    if has_c_exports_with_text(stmts, interner) {
+        writeln!(output, "use std::ffi::{{CStr, CString}};\n").unwrap();
+    }
+
     // Phase 49: Collect CRDT register fields for special SetField handling
     // LWW fields need timestamp, MV fields don't
     let (lww_fields, mv_fields) = collect_crdt_register_fields(registry, interner);
@@ -1198,6 +1239,22 @@ fn codegen_function_def(
 
     // FFI: Exported functions need special signatures
     let export_target_str = export_target.map(|s| interner.resolve(s).to_lowercase());
+    let is_c_export = is_exported && matches!(export_target_str.as_deref(), None | Some("c"));
+
+    // FFI: Check if C export needs type marshaling (Text params/return)
+    let needs_c_marshaling = is_c_export && {
+        let has_text_param = params.iter().any(|(_, ty)| is_text_type(ty, interner));
+        let has_text_return = return_type.map_or(false, |ty| is_text_type(ty, interner));
+        has_text_param || has_text_return
+    };
+
+    if needs_c_marshaling {
+        // Generate two-function pattern: inner function + C ABI wrapper
+        return codegen_c_export_with_marshaling(
+            name, params, body, return_type, interner,
+            lww_fields, mv_fields, async_functions, boxed_fields, registry,
+        );
+    }
 
     // Build function signature
     let (vis_prefix, abi_prefix) = if is_exported {
@@ -1242,15 +1299,30 @@ fn codegen_function_def(
         if let Some(path_sym) = native_path {
             // User-defined native path: call the Rust path directly
             let path = interner.resolve(path_sym);
-            writeln!(output, "{} {{", signature).unwrap();
-            writeln!(output, "    {}({})", path, arg_names.join(", ")).unwrap();
-            writeln!(output, "}}\n").unwrap();
+            // Validate path looks like a valid Rust path (identifiers separated by ::)
+            let is_valid_path = !path.is_empty() && path.split("::").all(|seg| {
+                !seg.is_empty() && seg.chars().all(|c| c.is_alphanumeric() || c == '_')
+            });
+            if is_valid_path {
+                writeln!(output, "{} {{", signature).unwrap();
+                writeln!(output, "    {}({})", path, arg_names.join(", ")).unwrap();
+                writeln!(output, "}}\n").unwrap();
+            } else {
+                writeln!(output, "{} {{", signature).unwrap();
+                writeln!(output, "    compile_error!(\"Invalid native function path: '{}'. Path must be a valid Rust path like \\\"crate::module::function\\\".\")", path).unwrap();
+                writeln!(output, "}}\n").unwrap();
+            }
         } else {
             // Legacy system functions: use map_native_function()
-            let (module, core_fn) = map_native_function(func_name);
-            writeln!(output, "{} {{", signature).unwrap();
-            writeln!(output, "    logicaffeine_system::{}::{}({})", module, core_fn, arg_names.join(", ")).unwrap();
-            writeln!(output, "}}\n").unwrap();
+            if let Some((module, core_fn)) = map_native_function(func_name) {
+                writeln!(output, "{} {{", signature).unwrap();
+                writeln!(output, "    logicaffeine_system::{}::{}({})", module, core_fn, arg_names.join(", ")).unwrap();
+                writeln!(output, "}}\n").unwrap();
+            } else {
+                writeln!(output, "{} {{", signature).unwrap();
+                writeln!(output, "    compile_error!(\"Unknown system native function: '{}'. Use `is native \\\"crate::path\\\"` syntax for user-defined native functions.\")", func_name).unwrap();
+                writeln!(output, "}}\n").unwrap();
+            }
         }
     } else {
         // Non-native: emit body (also used for exported functions which have bodies)
@@ -1282,23 +1354,143 @@ fn codegen_function_def(
 
 /// Phase 38: Map native function names to logicaffeine_system module paths.
 /// For system functions only — user-defined native paths bypass this entirely.
-fn map_native_function(name: &str) -> (&'static str, &'static str) {
+/// Returns None for unknown functions (caller emits compile_error!).
+fn map_native_function(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
-        "read" => ("file", "read"),
-        "write" => ("file", "write"),
-        "now" => ("time", "now"),
-        "sleep" => ("time", "sleep"),
-        "randomInt" => ("random", "randomInt"),
-        "randomFloat" => ("random", "randomFloat"),
-        "get" => ("env", "get"),
-        "args" => ("env", "args"),
-        _ => panic!(
-            "Unknown system native function: '{}'. \
-             Use `is native \"crate::path\"` syntax for user-defined native functions, \
-             or add mapping to map_native_function().",
-            name
-        ),
+        "read" => Some(("file", "read")),
+        "write" => Some(("file", "write")),
+        "now" => Some(("time", "now")),
+        "sleep" => Some(("time", "sleep")),
+        "randomInt" => Some(("random", "randomInt")),
+        "randomFloat" => Some(("random", "randomFloat")),
+        "get" => Some(("env", "get")),
+        "args" => Some(("env", "args")),
+        _ => None,
     }
+}
+
+/// FFI: Check if a TypeExpr resolves to Text/String.
+fn is_text_type(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            matches!(interner.resolve(*sym), "Text" | "String")
+        }
+        TypeExpr::Refinement { base, .. } => is_text_type(base, interner),
+        _ => false,
+    }
+}
+
+/// FFI: Map a TypeExpr to its C ABI representation.
+/// Primitives pass through; Text becomes raw pointer.
+fn map_type_to_c_abi(ty: &TypeExpr, interner: &Interner, is_return: bool) -> String {
+    if is_text_type(ty, interner) {
+        if is_return {
+            "*mut std::os::raw::c_char".to_string()
+        } else {
+            "*const std::os::raw::c_char".to_string()
+        }
+    } else {
+        codegen_type_expr(ty, interner)
+    }
+}
+
+/// FFI: Generate a C-exported function with type marshaling for Text params/returns.
+/// Produces: 1) an inner function with normal Rust types, 2) a #[no_mangle] extern "C" wrapper.
+fn codegen_c_export_with_marshaling(
+    name: Symbol,
+    params: &[(Symbol, &TypeExpr)],
+    body: &[Stmt],
+    return_type: Option<&TypeExpr>,
+    interner: &Interner,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    async_functions: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &crate::analysis::registry::TypeRegistry,
+) -> String {
+    let mut output = String::new();
+    let func_name = interner.resolve(name);
+    let inner_name = format!("{}_inner", func_name);
+
+    // 1) Emit the inner function with normal Rust types
+    let inner_params: Vec<String> = params.iter()
+        .map(|(pname, ptype)| {
+            format!("{}: {}", interner.resolve(*pname), codegen_type_expr(ptype, interner))
+        })
+        .collect();
+    let inner_ret = return_type.map(|t| codegen_type_expr(t, interner));
+
+    let inner_sig = if let Some(ref ret) = inner_ret {
+        if ret != "()" {
+            format!("fn {}({}) -> {}", inner_name, inner_params.join(", "), ret)
+        } else {
+            format!("fn {}({})", inner_name, inner_params.join(", "))
+        }
+    } else {
+        format!("fn {}({})", inner_name, inner_params.join(", "))
+    };
+
+    writeln!(output, "{} {{", inner_sig).unwrap();
+    let func_mutable_vars = collect_mutable_vars(body);
+    let mut func_ctx = RefinementContext::new();
+    let mut func_synced_vars = HashSet::new();
+    let func_var_caps = analyze_variable_capabilities(body, interner);
+    for (param_name, param_type) in params {
+        let type_name = codegen_type_expr(param_type, interner);
+        func_ctx.register_variable_type(*param_name, type_name);
+    }
+    let func_pipe_vars = HashSet::new();
+    for stmt in body {
+        output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+    }
+    writeln!(output, "}}\n").unwrap();
+
+    // 2) Emit the #[no_mangle] extern "C" wrapper with C ABI types
+    let c_params: Vec<String> = params.iter()
+        .map(|(pname, ptype)| {
+            format!("{}: {}", interner.resolve(*pname), map_type_to_c_abi(ptype, interner, false))
+        })
+        .collect();
+    let c_ret = return_type.map(|t| map_type_to_c_abi(t, interner, true));
+
+    let c_sig = if let Some(ref ret) = c_ret {
+        if ret != "()" {
+            format!("pub extern \"C\" fn {}({}) -> {}", func_name, c_params.join(", "), ret)
+        } else {
+            format!("pub extern \"C\" fn {}({})", func_name, c_params.join(", "))
+        }
+    } else {
+        format!("pub extern \"C\" fn {}({})", func_name, c_params.join(", "))
+    };
+
+    writeln!(output, "#[no_mangle]").unwrap();
+    writeln!(output, "{} {{", c_sig).unwrap();
+
+    // Convert Text params: *const c_char → String
+    let call_args: Vec<String> = params.iter()
+        .map(|(pname, ptype)| {
+            let pname_str = interner.resolve(*pname);
+            if is_text_type(ptype, interner) {
+                writeln!(output, "    let {pn} = unsafe {{ std::ffi::CStr::from_ptr({pn}).to_string_lossy().into_owned() }};", pn = pname_str).unwrap();
+            }
+            pname_str.to_string()
+        })
+        .collect();
+
+    // Call inner function
+    let has_text_return = return_type.map_or(false, |t| is_text_type(t, interner));
+    if has_text_return {
+        writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
+        writeln!(output, "    std::ffi::CString::new(result).unwrap().into_raw()").unwrap();
+    } else if return_type.is_some() {
+        writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
+    } else {
+        writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
+    }
+
+    writeln!(output, "}}\n").unwrap();
+
+    output
 }
 
 /// Phase 38: Convert TypeExpr to Rust type string.

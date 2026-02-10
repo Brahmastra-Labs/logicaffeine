@@ -44,6 +44,8 @@ use super::manifest::{Manifest, ManifestError};
 /// let config = BuildConfig {
 ///     project_dir: PathBuf::from("my_project"),
 ///     release: false,
+///     lib_mode: false,
+///     target: None,
 /// };
 ///
 /// let result = build(config)?;
@@ -55,6 +57,11 @@ pub struct BuildConfig {
     pub project_dir: PathBuf,
     /// If `true`, build with optimizations (`cargo build --release`).
     pub release: bool,
+    /// If `true`, build as a library (cdylib) instead of a binary.
+    pub lib_mode: bool,
+    /// Target triple for cross-compilation (e.g., "wasm32-unknown-unknown").
+    /// "wasm" is expanded to "wasm32-unknown-unknown".
+    pub target: Option<String>,
 }
 
 /// Result of a successful build operation.
@@ -214,8 +221,24 @@ fn build_with_entry(
     let src_dir = rust_project_dir.join("src");
     fs::create_dir_all(&src_dir).map_err(|e| BuildError::Io(e.to_string()))?;
 
-    let main_rs = format!("use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\n{}", output.rust_code);
-    fs::write(src_dir.join("main.rs"), main_rs).map_err(|e| BuildError::Io(e.to_string()))?;
+    let rust_code = format!("use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\n{}", output.rust_code);
+
+    if config.lib_mode {
+        // Library mode: strip fn main() wrapper, write to lib.rs
+        let lib_code = strip_main_wrapper(&rust_code);
+        fs::write(src_dir.join("lib.rs"), lib_code).map_err(|e| BuildError::Io(e.to_string()))?;
+    } else {
+        fs::write(src_dir.join("main.rs"), &rust_code).map_err(|e| BuildError::Io(e.to_string()))?;
+    }
+
+    // Resolve target triple (expand "wasm" shorthand)
+    let resolved_target = config.target.as_deref().map(|t| {
+        if t.eq_ignore_ascii_case("wasm") {
+            "wasm32-unknown-unknown"
+        } else {
+            t
+        }
+    });
 
     // Write Cargo.toml for the generated project
     let mut cargo_toml = format!(
@@ -223,17 +246,34 @@ fn build_with_entry(
 name = "{}"
 version = "{}"
 edition = "2021"
-
-[dependencies]
-logicaffeine-data = {{ path = "./crates/logicaffeine_data" }}
-logicaffeine-system = {{ path = "./crates/logicaffeine_system", features = ["full"] }}
-tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
 "#,
         manifest.package.name, manifest.package.version
     );
 
+    // Library mode: add [lib] section with cdylib crate type
+    if config.lib_mode {
+        let _ = writeln!(cargo_toml, "\n[lib]\ncrate-type = [\"cdylib\"]");
+    }
+
+    let _ = writeln!(cargo_toml, "\n[dependencies]");
+    let _ = writeln!(cargo_toml, "logicaffeine-data = {{ path = \"./crates/logicaffeine_data\" }}");
+    let _ = writeln!(cargo_toml, "logicaffeine-system = {{ path = \"./crates/logicaffeine_system\", features = [\"full\"] }}");
+    let _ = writeln!(cargo_toml, "tokio = {{ version = \"1\", features = [\"rt-multi-thread\", \"macros\"] }}");
+
+    // Auto-inject wasm-bindgen when targeting wasm32
+    let mut has_wasm_bindgen = false;
+    if let Some(target) = resolved_target {
+        if target.starts_with("wasm32") {
+            let _ = writeln!(cargo_toml, "wasm-bindgen = \"0.2\"");
+            has_wasm_bindgen = true;
+        }
+    }
+
     // Append user-declared dependencies from ## Requires blocks
     for dep in &output.dependencies {
+        if dep.name == "wasm-bindgen" && has_wasm_bindgen {
+            continue; // Already injected
+        }
         if dep.features.is_empty() {
             let _ = writeln!(cargo_toml, "{} = \"{}\"", dep.name, dep.version);
         } else {
@@ -249,7 +289,7 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
         }
     }
 
-    fs::write(rust_project_dir.join("Cargo.toml"), cargo_toml)
+    fs::write(rust_project_dir.join("Cargo.toml"), &cargo_toml)
         .map_err(|e| BuildError::Io(e.to_string()))?;
 
     // Copy runtime crates
@@ -261,30 +301,82 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
     if config.release {
         cmd.arg("--release");
     }
+    if let Some(target) = resolved_target {
+        cmd.arg("--target").arg(target);
+    }
 
-    let output = cmd.output().map_err(|e| BuildError::Io(e.to_string()))?;
+    let cmd_output = cmd.output().map_err(|e| BuildError::Io(e.to_string()))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    if !cmd_output.status.success() {
+        let stderr = String::from_utf8_lossy(&cmd_output.stderr);
         return Err(BuildError::Cargo(stderr.to_string()));
     }
 
-    // Determine binary path
-    let binary_name = if cfg!(windows) {
-        format!("{}.exe", manifest.package.name)
+    // Determine binary/library path
+    let cargo_target_str = if config.release { "release" } else { "debug" };
+    let binary_path = if config.lib_mode {
+        // Library output
+        let lib_name = format!("lib{}", manifest.package.name.replace('-', "_"));
+        let ext = if cfg!(target_os = "macos") { "dylib" } else { "so" };
+        if let Some(target) = resolved_target {
+            rust_project_dir
+                .join("target")
+                .join(target)
+                .join(cargo_target_str)
+                .join(format!("{}.{}", lib_name, ext))
+        } else {
+            rust_project_dir
+                .join("target")
+                .join(cargo_target_str)
+                .join(format!("{}.{}", lib_name, ext))
+        }
     } else {
-        manifest.package.name.clone()
+        let binary_name = if cfg!(windows) {
+            format!("{}.exe", manifest.package.name)
+        } else {
+            manifest.package.name.clone()
+        };
+        if let Some(target) = resolved_target {
+            rust_project_dir
+                .join("target")
+                .join(target)
+                .join(cargo_target_str)
+                .join(&binary_name)
+        } else {
+            rust_project_dir
+                .join("target")
+                .join(cargo_target_str)
+                .join(&binary_name)
+        }
     };
-    let cargo_target = if config.release { "release" } else { "debug" };
-    let binary_path = rust_project_dir
-        .join("target")
-        .join(cargo_target)
-        .join(&binary_name);
 
     Ok(BuildResult {
         target_dir: build_dir,
         binary_path,
     })
+}
+
+/// Strip the `fn main() { ... }` wrapper from generated code for library mode.
+/// Keeps everything before `fn main()` (imports, types, functions) intact.
+fn strip_main_wrapper(code: &str) -> String {
+    // Find "fn main() {" and extract content before it
+    if let Some(main_pos) = code.find("fn main() {") {
+        let before_main = &code[..main_pos];
+        // Extract the body of main (between the opening { and closing })
+        let after_opening = &code[main_pos + "fn main() {".len()..];
+        if let Some(close_pos) = after_opening.rfind('}') {
+            let main_body = &after_opening[..close_pos];
+            // Dedent main body
+            let dedented: Vec<&str> = main_body.lines()
+                .map(|line| line.strip_prefix("    ").unwrap_or(line))
+                .collect();
+            format!("{}\n{}", before_main.trim_end(), dedented.join("\n"))
+        } else {
+            before_main.to_string()
+        }
+    } else {
+        code.to_string()
+    }
 }
 
 /// Execute a built LOGOS project.
@@ -335,5 +427,56 @@ mod tests {
         let temp = tempdir().unwrap();
         let found = find_project_root(temp.path());
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn strip_main_wrapper_extracts_body() {
+        let code = r#"use logicaffeine_data::*;
+
+fn add(a: i64, b: i64) -> i64 {
+    a + b
+}
+
+fn main() {
+    let x = add(1, 2);
+    println!("{}", x);
+}"#;
+        let result = strip_main_wrapper(code);
+        assert!(result.contains("fn add(a: i64, b: i64) -> i64"));
+        assert!(result.contains("let x = add(1, 2);"));
+        assert!(result.contains("println!(\"{}\", x);"));
+        assert!(!result.contains("fn main()"));
+    }
+
+    #[test]
+    fn strip_main_wrapper_preserves_imports() {
+        let code = "use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn main() {\n    println!(\"hello\");\n}\n";
+        let result = strip_main_wrapper(code);
+        assert!(result.contains("use logicaffeine_data::*;"));
+        assert!(result.contains("use logicaffeine_system::*;"));
+        assert!(result.contains("println!(\"hello\");"));
+        assert!(!result.contains("fn main()"));
+    }
+
+    #[test]
+    fn strip_main_wrapper_no_main_returns_unchanged() {
+        let code = "fn add(a: i64, b: i64) -> i64 { a + b }";
+        let result = strip_main_wrapper(code);
+        assert_eq!(result, code);
+    }
+
+    #[test]
+    fn strip_main_wrapper_dedents_body() {
+        let code = "fn main() {\n    let x = 1;\n    let y = 2;\n}\n";
+        let result = strip_main_wrapper(code);
+        // Body lines should be dedented by 4 spaces
+        assert!(result.contains("let x = 1;"));
+        assert!(result.contains("let y = 2;"));
+        // Should not have leading 4-space indent
+        for line in result.lines() {
+            if line.contains("let x") || line.contains("let y") {
+                assert!(!line.starts_with("    "), "Line should be dedented: {}", line);
+            }
+        }
     }
 }

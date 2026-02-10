@@ -183,7 +183,23 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
     let stmts = parser.parse_program()?;
 
     // Extract dependencies before escape analysis
-    let dependencies = extract_dependencies(&stmts, &interner);
+    let mut dependencies = extract_dependencies(&stmts, &interner)?;
+
+    // FFI: Auto-inject wasm-bindgen dependency if any function is exported for WASM
+    let needs_wasm_bindgen = stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target: Some(target), .. } = stmt {
+            interner.resolve(*target).eq_ignore_ascii_case("wasm")
+        } else {
+            false
+        }
+    });
+    if needs_wasm_bindgen && !dependencies.iter().any(|d| d.name == "wasm-bindgen") {
+        dependencies.push(CrateDependency {
+            name: "wasm-bindgen".to_string(),
+            version: "0.2".to_string(),
+            features: vec![],
+        });
+    }
 
     // Pass 3: Escape analysis - check for zone escape violations
     // This catches obvious cases like returning zone-local variables
@@ -206,18 +222,44 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
 }
 
 /// Extract crate dependencies from `Stmt::Require` nodes.
-fn extract_dependencies(stmts: &[Stmt], interner: &Interner) -> Vec<CrateDependency> {
-    stmts.iter().filter_map(|stmt| {
-        if let Stmt::Require { crate_name, version, features, .. } = stmt {
-            Some(CrateDependency {
-                name: interner.resolve(*crate_name).to_string(),
-                version: interner.resolve(*version).to_string(),
-                features: features.iter().map(|f| interner.resolve(*f).to_string()).collect(),
-            })
-        } else {
-            None
+///
+/// Deduplicates by crate name: same name + same version keeps one copy.
+/// Same name + different version returns a `ParseError`.
+/// Preserves declaration order (first occurrence wins).
+fn extract_dependencies(stmts: &[Stmt], interner: &Interner) -> Result<Vec<CrateDependency>, ParseError> {
+    use std::collections::HashMap;
+
+    let mut seen: HashMap<String, String> = HashMap::new(); // name → version
+    let mut deps: Vec<CrateDependency> = Vec::new();
+
+    for stmt in stmts {
+        if let Stmt::Require { crate_name, version, features, span } = stmt {
+            let name = interner.resolve(*crate_name).to_string();
+            let ver = interner.resolve(*version).to_string();
+
+            if let Some(existing_ver) = seen.get(&name) {
+                if *existing_ver != ver {
+                    return Err(ParseError {
+                        kind: crate::error::ParseErrorKind::Custom(format!(
+                            "Conflicting versions for crate \"{}\": \"{}\" and \"{}\".",
+                            name, existing_ver, ver
+                        )),
+                        span: *span,
+                    });
+                }
+                // Same name + same version: skip duplicate
+            } else {
+                seen.insert(name.clone(), ver.clone());
+                deps.push(CrateDependency {
+                    name,
+                    version: ver,
+                    features: features.iter().map(|f| interner.resolve(*f).to_string()).collect(),
+                });
+            }
         }
-    }).collect()
+    }
+
+    Ok(deps)
 }
 
 /// Compile LOGOS source to Rust with ownership checking enabled.
@@ -797,7 +839,23 @@ fn compile_to_rust_with_registry_full(
     let stmts = parser.parse_program()?;
 
     // Extract dependencies before escape analysis
-    let dependencies = extract_dependencies(&stmts, interner);
+    let mut dependencies = extract_dependencies(&stmts, interner)?;
+
+    // FFI: Auto-inject wasm-bindgen dependency if any function is exported for WASM
+    let needs_wasm_bindgen = stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target: Some(target), .. } = stmt {
+            interner.resolve(*target).eq_ignore_ascii_case("wasm")
+        } else {
+            false
+        }
+    });
+    if needs_wasm_bindgen && !dependencies.iter().any(|d| d.name == "wasm-bindgen") {
+        dependencies.push(CrateDependency {
+            name: "wasm-bindgen".to_string(),
+            version: "0.2".to_string(),
+            features: vec![],
+        });
+    }
 
     let mut escape_checker = EscapeChecker::new(interner);
     escape_checker.check_program(&stmts).map_err(|e| {
