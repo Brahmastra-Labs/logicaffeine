@@ -1,9 +1,128 @@
 use logicaffeine_data::*;
 use logicaffeine_system::*;
 
+// ═══ LogicAffeine Universal ABI Runtime ═══
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LogosStatus {
+    Ok = 0,
+    Error = 1,
+    RefinementViolation = 2,
+    NullPointer = 3,
+    OutOfBounds = 4,
+    DeserializationFailed = 5,
+    InvalidHandle = 6,
+    ContainsNullByte = 7,
+    ThreadPanic = 8,
+    MemoryExhausted = 9,
+}
+
+pub type LogosHandle = *const std::ffi::c_void;
+
+fn logos_error_store() -> &'static std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, String>> {
+    use std::sync::OnceLock;
+    static STORE: OnceLock<std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, String>>> = OnceLock::new();
+    STORE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn logos_set_last_error(msg: String) {
+    if let Ok(mut store) = logos_error_store().lock() {
+        store.insert(std::thread::current().id(), msg);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn logos_last_error() -> *const std::os::raw::c_char {
+    if let Ok(store) = logos_error_store().lock() {
+        if let Some(msg) = store.get(&std::thread::current().id()) {
+            return msg.as_ptr() as *const std::os::raw::c_char;
+        }
+    }
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub extern "C" fn logos_get_last_error() -> *const std::os::raw::c_char {
+    logos_last_error()
+}
+
+#[no_mangle]
+pub extern "C" fn logos_clear_error() {
+    if let Ok(mut store) = logos_error_store().lock() {
+        store.remove(&std::thread::current().id());
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn logos_free_string(ptr: *mut std::os::raw::c_char) {
+    if !ptr.is_null() {
+        unsafe { drop(std::ffi::CString::from_raw(ptr)); }
+    }
+}
+
+pub const LOGOS_ABI_VERSION: u32 = 1;
+
+#[no_mangle]
+pub extern "C" fn logos_version() -> *const std::os::raw::c_char {
+    b"0.8.0\0".as_ptr() as *const std::os::raw::c_char
+}
+
+#[no_mangle]
+pub extern "C" fn logos_abi_version() -> u32 {
+    LOGOS_ABI_VERSION
+}
+
+struct HandleEntry {
+    data: usize,
+    generation: u64,
+}
+
+struct HandleRegistry {
+    entries: std::collections::HashMap<u64, HandleEntry>,
+    counter: u64,
+}
+
+impl HandleRegistry {
+    fn new() -> Self {
+        HandleRegistry { entries: std::collections::HashMap::new(), counter: 0 }
+    }
+    fn register(&mut self, ptr: usize) -> (u64, u64) {
+        self.counter += 1;
+        let id = self.counter;
+        let generation = id;
+        self.entries.insert(id, HandleEntry { data: ptr, generation });
+        (id, generation)
+    }
+    fn validate_handle(&self, id: u64, generation: u64) -> bool {
+        self.entries.get(&id).map_or(false, |e| e.generation == generation)
+    }
+    fn deref(&self, id: u64) -> Option<usize> {
+        self.entries.get(&id).map(|e| e.data)
+    }
+    fn free(&mut self, id: u64) -> Result<(), ()> {
+        if self.entries.remove(&id).is_some() { Ok(()) } else { Err(()) }
+    }
+}
+
+fn logos_handle_registry() -> &'static std::sync::Mutex<HandleRegistry> {
+    use std::sync::OnceLock;
+    static REGISTRY: OnceLock<std::sync::Mutex<HandleRegistry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(HandleRegistry::new()))
+}
+
 #[no_mangle]
 pub extern "C" fn add(a: i64, b: i64) -> i64 {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
     return (a + b);
+    })) {
+        Ok(__v) => __v,
+        Err(__panic) => {
+            let __msg = if let Some(s) = __panic.downcast_ref::<String>() { s.clone() } else if let Some(s) = __panic.downcast_ref::<&str>() { s.to_string() } else { "Unknown panic".to_string() };
+            logos_set_last_error(__msg);
+            Default::default()
+        }
+    }
 }
 
 fn main() {

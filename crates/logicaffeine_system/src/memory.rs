@@ -22,9 +22,10 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::memory::Zone;
 //!
+//! # fn main() -> Result<(), std::io::Error> {
 //! // Heap zone for temporary allocations
 //! let zone = Zone::new_heap(1024 * 1024); // 1 MB arena
 //! let x = zone.alloc(42);
@@ -33,6 +34,8 @@
 //! // Mapped zone for zero-copy file access (requires persistence feature)
 //! let zone = Zone::new_mapped("data.bin")?;
 //! let bytes = zone.as_slice();
+//! # Ok(())
+//! # }
 //! ```
 
 #[cfg(feature = "persistence")]
@@ -61,9 +64,12 @@ impl Zone {
     /// Create a new empty zone on the heap with pre-sized capacity.
     ///
     /// # Example
-    /// ```ignore
+    /// ```
+    /// use logicaffeine_system::memory::Zone;
+    ///
     /// let zone = Zone::new_heap(1024 * 1024); // 1 MB arena
     /// let x = zone.alloc(42);
+    /// assert_eq!(*x, 42);
     /// ```
     pub fn new_heap(capacity_bytes: usize) -> Self {
         Zone::Heap(bumpalo::Bump::with_capacity(capacity_bytes))
@@ -76,9 +82,14 @@ impl Zone {
     /// Standard mmap safety caveats apply.
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
+    /// use logicaffeine_system::memory::Zone;
+    ///
+    /// # fn main() -> Result<(), std::io::Error> {
     /// let zone = Zone::new_mapped("data.bin")?;
     /// let bytes = zone.as_slice();
+    /// # Ok(())
+    /// # }
     /// ```
     ///
     /// Only available with the `persistence` feature.

@@ -744,16 +744,21 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
 /// real-time output display like a REPL. The callback receives the output line.
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
 /// use std::rc::Rc;
 /// use std::cell::RefCell;
+/// # use logicaffeine_compile::interpret_streaming;
 ///
+/// # fn main() {}
+/// # async fn example() {
+/// # let source = "## Main\nShow \"hello\".";
 /// let lines = Rc::new(RefCell::new(Vec::new()));
 /// let lines_clone = lines.clone();
 ///
 /// interpret_streaming(source, Rc::new(RefCell::new(move |line: String| {
 ///     lines_clone.borrow_mut().push(line);
 /// }))).await;
+/// # }
 /// ```
 pub async fn interpret_streaming<F>(input: &str, on_output: std::rc::Rc<std::cell::RefCell<F>>) -> InterpreterResult
 where

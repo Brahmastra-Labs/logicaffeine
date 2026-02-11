@@ -61,6 +61,10 @@ jobs:
       - name: Wait for crates.io index
         run: sleep 30
 
+      # Tier 4.5 — depends on base + language + compile + proof
+      - name: Publish logicaffeine-lsp
+        run: cargo publish -p logicaffeine-lsp --no-verify
+
       # Tier 5 — depends on base + kernel + language + compile
       - name: Publish logicaffeine-cli
         run: cargo publish -p logicaffeine-cli --no-verify

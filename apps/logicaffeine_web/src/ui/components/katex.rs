@@ -13,12 +13,17 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! // Inline math
-//! KatexSpan { latex: "x + y".to_string() }
-//!
-//! // Display mode (centered, larger)
-//! KatexSpan { latex: r"\forall x".to_string(), display: true }
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! # use logicaffeine_web::ui::components::katex::KatexSpan;
+//! # fn Example() -> Element {
+//! rsx! {
+//!     // Inline math
+//!     KatexSpan { latex: "x + y".to_string() }
+//!     // Display mode (centered, larger)
+//!     KatexSpan { latex: r"\forall x".to_string(), display: true }
+//! }
+//! # }
 //! ```
 
 use dioxus::prelude::*;

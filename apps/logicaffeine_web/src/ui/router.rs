@@ -20,13 +20,16 @@
 //!
 //! Use the Dioxus `Link` component with `Route` variants:
 //!
-//! ```ignore
-//! use crate::ui::router::Route;
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! use logicaffeine_web::ui::router::Route;
 //!
+//! # fn Example() -> Element {
 //! rsx! {
 //!     Link { to: Route::Learn {}, "Start Learning" }
 //!     Link { to: Route::Studio {}, "Open Studio" }
 //! }
+//! # }
 //! ```
 
 use dioxus::prelude::*;

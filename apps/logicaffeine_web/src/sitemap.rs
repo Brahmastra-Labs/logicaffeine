@@ -7,9 +7,10 @@
 //! # Usage
 //!
 //! Run the sitemap generator to output the XML:
-//! ```ignore
-//! use crate::sitemap::generate_sitemap;
+//! ```
+//! use logicaffeine_web::sitemap::generate_sitemap;
 //! let xml = generate_sitemap();
+//! assert!(!xml.is_empty());
 //! ```
 
 use std::fmt::Write;

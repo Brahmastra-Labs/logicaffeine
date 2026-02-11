@@ -117,6 +117,11 @@ impl<'a> OwnershipChecker<'a> {
         }
     }
 
+    /// Access the current variable ownership states.
+    pub fn var_states(&self) -> &HashMap<Symbol, VarState> {
+        &self.state
+    }
+
     /// Check a program for ownership violations
     pub fn check_program(&mut self, stmts: &[Stmt<'_>]) -> Result<(), OwnershipError> {
         self.check_block(stmts)
@@ -367,6 +372,9 @@ impl<'a> OwnershipChecker<'a> {
                 self.check_not_moved(left)?;
                 self.check_not_moved(right)
             }
+            Expr::OptionSome { value } => self.check_not_moved(value),
+            Expr::OptionNone => Ok(()),
+
             // Escape expressions are opaque — the Rust compiler handles ownership for raw code
             Expr::Escape { .. } => Ok(()),
 

@@ -1,0 +1,22 @@
+{
+  "comments": {},
+  "brackets": [
+    ["(", ")"],
+    ["[", "]"]
+  ],
+  "autoClosingPairs": [
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "\"", "close": "\"", "notIn": ["string"] }
+  ],
+  "surroundingPairs": [
+    ["(", ")"],
+    ["[", "]"],
+    ["\"", "\""]
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "^.*:\\s*$",
+    "decreaseIndentPattern": "^\\s*(Otherwise|Else|Elif)\\b"
+  },
+  "wordPattern": "[a-zA-Z_][a-zA-Z0-9_]*"
+}

@@ -47,7 +47,7 @@ struct InductionState {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
 /// use logicaffeine_proof::certifier::CertificationContext;
 /// use logicaffeine_kernel::Context;
 ///

@@ -26,10 +26,12 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::crdt::Synced;
 //! use logicaffeine_data::crdt::GCounter;
 //!
+//! # fn main() {}
+//! # async fn example() {
 //! let counter = GCounter::new();
 //! let synced = Synced::new(counter, "game-scores").await;
 //!
@@ -38,6 +40,7 @@
 //!
 //! // Read current state (includes merged remote updates)
 //! let value = synced.get().await;
+//! # }
 //! ```
 
 use logicaffeine_data::crdt::Merge;
@@ -50,12 +53,17 @@ use tokio::sync::Mutex;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// # use logicaffeine_system::crdt::Synced;
+/// # use logicaffeine_data::crdt::GCounter;
+/// # fn main() {}
+/// # async fn example() {
 /// let counter = GCounter::new();
 /// let synced = Synced::new(counter, "game-scores").await;
 ///
 /// // Mutations are automatically broadcast
 /// synced.mutate(|c| c.increment(5)).await;
+/// # }
 /// ```
 pub struct Synced<T: Merge + Serialize + DeserializeOwned + Clone + Send + 'static> {
     inner: Arc<Mutex<T>>,

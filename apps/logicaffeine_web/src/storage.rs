@@ -13,17 +13,16 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use logicaffeine_web::storage;
 //!
 //! // Load existing progress
 //! if let Some(json) = storage::load_raw() {
-//!     let progress: UserProgress = serde_json::from_str(&json)?;
+//!     println!("Loaded: {}", json);
 //! }
 //!
 //! // Save progress
-//! let json = serde_json::to_string(&progress)?;
-//! storage::save_raw(&json);
+//! storage::save_raw("{}");
 //!
 //! // Clear all progress (for reset functionality)
 //! storage::clear();

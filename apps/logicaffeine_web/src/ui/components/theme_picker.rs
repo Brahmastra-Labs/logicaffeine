@@ -4,12 +4,15 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use crate::ui::components::theme_picker::ThemePicker;
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! use logicaffeine_web::ui::components::theme_picker::ThemePicker;
 //!
+//! # fn Example() -> Element {
 //! rsx! {
 //!     ThemePicker {}
 //! }
+//! # }
 //! ```
 
 use dioxus::prelude::*;

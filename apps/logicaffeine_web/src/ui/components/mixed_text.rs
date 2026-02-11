@@ -9,8 +9,14 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! MixedText { content: "The formula $x + y$ equals...".to_string() }
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! # use logicaffeine_web::ui::components::mixed_text::MixedText;
+//! # fn Example() -> Element {
+//! rsx! {
+//!     MixedText { content: "The formula $x + y$ equals...".to_string() }
+//! }
+//! # }
 //! ```
 
 use dioxus::prelude::*;

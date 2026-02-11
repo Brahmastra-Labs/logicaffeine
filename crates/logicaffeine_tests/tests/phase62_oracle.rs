@@ -199,7 +199,7 @@ fn test_oracle_for_universal_arithmetic() {
 }
 
 #[test]
-#[ignore] // Requires Z3 to be installed and linked
+#[cfg_attr(not(feature = "verification"), ignore)]
 fn test_oracle_respects_context_assumptions() {
     use logicaffeine_proof::ProofGoal;
 

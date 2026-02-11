@@ -22,12 +22,17 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::distributed::Distributed;
 //! use logicaffeine_data::crdt::GCounter;
+//! # use logicaffeine_system::fs::NativeVfs;
+//! # use std::sync::Arc;
 //!
+//! # fn main() {}
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let vfs: Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> = Arc::new(NativeVfs::new("/data"));
 //! // Disk-only (same as Persistent<T>)
-//! let counter = Distributed::<GCounter>::mount(vfs, "counter.lsf", None).await?;
+//! let counter = Distributed::<GCounter>::mount(vfs.clone(), "counter.lsf", None).await?;
 //!
 //! // Disk + Network sync
 //! let counter = Distributed::<GCounter>::mount(
@@ -38,6 +43,8 @@
 //!
 //! // Mutations are persisted AND broadcast
 //! counter.mutate(|c| c.increment(1)).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 use logicaffeine_data::crdt::Merge;
@@ -163,12 +170,21 @@ where
     /// * `topic` - GossipSub topic (None for disk-only)
     ///
     /// # Example
-    /// ```ignore
+    /// ```no_run
+    /// # use logicaffeine_system::distributed::Distributed;
+    /// # use logicaffeine_data::crdt::GCounter;
+    /// # use logicaffeine_system::fs::NativeVfs;
+    /// # use std::sync::Arc;
+    /// # fn main() {}
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let vfs: Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> = Arc::new(NativeVfs::new("/data"));
     /// // Disk-only (same as Persistent<T>)
-    /// let counter = Distributed::mount(vfs, "counter.lsf", None).await?;
+    /// let counter = Distributed::<GCounter>::mount(vfs.clone(), "counter.lsf", None).await?;
     ///
     /// // Disk + Network
-    /// let counter = Distributed::mount(vfs, "counter.lsf", Some("game-scores".into())).await?;
+    /// let counter = Distributed::<GCounter>::mount(vfs, "counter.lsf", Some("game-scores".into())).await?;
+    /// # Ok(())
+    /// # }
     /// ```
     pub async fn mount(
         vfs: Arc<dyn Vfs + Send + Sync>,

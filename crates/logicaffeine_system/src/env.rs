@@ -9,18 +9,17 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```
 //! use logicaffeine_system::env;
 //!
 //! // Read environment variable
 //! if let Some(home) = env::get("HOME".to_string()) {
-//!     println!("Home directory: {}", home);
+//!     assert!(!home.is_empty());
 //! }
 //!
-//! // Iterate command-line arguments
-//! for arg in env::args() {
-//!     println!("Argument: {}", arg);
-//! }
+//! // Command-line arguments are always available
+//! let args = env::args();
+//! assert!(!args.is_empty());
 //! ```
 
 use std::env as std_env;
@@ -37,7 +36,9 @@ use std::env as std_env;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```
+/// use logicaffeine_system::env;
+///
 /// let path = env::get("PATH".to_string());
 /// ```
 pub fn get(key: String) -> Option<String> {
@@ -55,11 +56,11 @@ pub fn get(key: String) -> Option<String> {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```
+/// use logicaffeine_system::env;
+///
 /// let args = env::args();
-/// if args.len() > 1 {
-///     println!("First argument: {}", args[1]);
-/// }
+/// assert!(!args.is_empty());
 /// ```
 pub fn args() -> Vec<String> {
     std_env::args().collect()

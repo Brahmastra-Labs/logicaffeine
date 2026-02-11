@@ -10,7 +10,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::io::{show, println, read_line};
 //!
 //! // Natural formatting with show

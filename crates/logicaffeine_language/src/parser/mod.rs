@@ -30,11 +30,25 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use logicaffeine_language::parser::{Parser, ParserMode};
+//! ```no_run
+//! use logicaffeine_language::parser::{Parser, ParserMode, ClauseParsing};
+//! # use logicaffeine_base::{Arena, Interner};
+//! # use logicaffeine_language::{lexer::Lexer, drs::WorldState, arena_ctx::AstContext, analysis::DiscoveryPass, ParseError};
+//! # fn main() -> Result<(), ParseError> {
+//! # let mut interner = Interner::new();
+//! # let mut lexer = Lexer::new("Every cat runs.", &mut interner);
+//! # let tokens = lexer.tokenize();
+//! # let type_registry = { let mut d = DiscoveryPass::new(&tokens, &mut interner); d.run() };
+//! # let ea = Arena::new(); let ta = Arena::new(); let na = Arena::new();
+//! # let sa = Arena::new(); let ra = Arena::new(); let pa = Arena::new();
+//! # let ctx = AstContext::new(&ea, &ta, &na, &sa, &ra, &pa);
+//! # let mut ws = WorldState::new();
+//! # let mut parser = Parser::new(tokens, &mut ws, &mut interner, ctx, type_registry);
 //!
 //! // Lexer produces tokens, then parser produces LogicExpr
 //! let expr = parser.parse_sentence()?;
+//! # Ok(())
+//! # }
 //! ```
 
 mod clause;
@@ -146,13 +160,29 @@ struct ParserCheckpoint {
 ///
 /// # Usage
 ///
-/// ```ignore
-/// let guard = parser.guard();
+/// ```no_run
+/// # use logicaffeine_base::{Arena, Interner};
+/// # use logicaffeine_language::{lexer::Lexer, drs::WorldState, arena_ctx::AstContext, analysis::DiscoveryPass, ParseError};
+/// # use logicaffeine_language::parser::Parser;
+/// # fn try_parse<T>(_: &mut T) -> Result<(), ParseError> { todo!() }
+/// # fn main() -> Result<(), ParseError> {
+/// # let mut interner = Interner::new();
+/// # let mut lexer = Lexer::new("test.", &mut interner);
+/// # let tokens = lexer.tokenize();
+/// # let tr = { let mut d = DiscoveryPass::new(&tokens, &mut interner); d.run() };
+/// # let ea = Arena::new(); let ta = Arena::new(); let na = Arena::new();
+/// # let sa = Arena::new(); let ra = Arena::new(); let pa = Arena::new();
+/// # let ctx = AstContext::new(&ea, &ta, &na, &sa, &ra, &pa);
+/// # let mut ws = WorldState::new();
+/// # let mut parser = Parser::new(tokens, &mut ws, &mut interner, ctx, tr);
+/// let mut guard = parser.guard();
 /// if let Ok(result) = try_parse(&mut *guard) {
 ///     guard.commit(); // Success - keep changes
 ///     return Ok(result);
 /// }
 /// // guard dropped here - parser state restored
+/// # Ok(())
+/// # }
 /// ```
 pub struct ParserGuard<'p, 'a, 'ctx, 'int> {
     parser: &'p mut Parser<'a, 'ctx, 'int>,
@@ -1328,6 +1358,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse condition expression (simple: identifier equals value)
         let cond = self.parse_condition()?;
 
+        // Optionally consume "then" before the colon (supports "If x = 5 then:" syntax)
+        if self.check(&TokenType::Then) {
+            self.advance();
+        }
+
         // Expect colon
         if !self.check(&TokenType::Colon) {
             return Err(ParseError {
@@ -1982,7 +2017,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         } else if self.check(&TokenType::GtEq) {
             self.advance();
             Some(BinaryOpKind::GtEq)
-        } else if self.check(&TokenType::EqEq) {
+        } else if self.check(&TokenType::EqEq) || self.check(&TokenType::Assign) {
             self.advance();
             Some(BinaryOpKind::Eq)
         } else if self.check(&TokenType::NotEq) {
@@ -5165,6 +5200,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)))
             }
 
+            // Option constructors: "some <expr>" → Some(expr), "none" → None
+            TokenType::Some => {
+                self.advance(); // consume "some"
+                let value = self.parse_imperative_expr()?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::OptionSome { value }))
+            }
+
             // Phase 43D: Length expression: "length of items" or "length(items)"
             TokenType::Length => {
                 let func_name = self.peek().lexeme;
@@ -5337,6 +5379,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Nothing)));
                 }
 
+                // Option None literal: "none" → None
+                if word == "none" {
+                    self.advance();
+                    return Ok(self.ctx.alloc_imperative_expr(Expr::OptionNone));
+                }
+
                 // Don't verify as variable - might be a function call or enum variant
                 self.advance();
 
@@ -5347,10 +5395,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
                 // Phase 33: Check if this is a bare enum variant (e.g., "North" for Direction)
                 if let Some(enum_name) = self.find_variant(sym) {
+                    let fields = if self.check_word("with") {
+                        self.parse_variant_constructor_fields()?
+                    } else {
+                        vec![]
+                    };
                     let base = self.ctx.alloc_imperative_expr(Expr::NewVariant {
                         enum_name,
                         variant: sym,
-                        fields: vec![],
+                        fields,
                     });
                     return self.parse_field_access_chain(base);
                 }
@@ -5503,6 +5556,36 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance(); // consume ')'
                     Ok(first)
                 }
+            }
+
+            // "Call funcName with args" as an expression
+            TokenType::Call => {
+                self.advance(); // consume "Call"
+                let function = match &self.peek().kind {
+                    TokenType::Noun(sym) | TokenType::Adjective(sym) => {
+                        let s = *sym;
+                        self.advance();
+                        s
+                    }
+                    TokenType::Verb { .. } | TokenType::Ambiguous { .. } => {
+                        let s = self.peek().lexeme;
+                        self.advance();
+                        s
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedIdentifier,
+                            span: self.current_span(),
+                        });
+                    }
+                };
+                let args = if self.check_preposition_is("with") {
+                    self.advance(); // consume "with"
+                    self.parse_call_arguments()?
+                } else {
+                    Vec::new()
+                };
+                Ok(self.ctx.alloc_imperative_expr(Expr::Call { function, args }))
             }
 
             _ => {

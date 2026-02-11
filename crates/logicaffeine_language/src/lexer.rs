@@ -366,7 +366,7 @@ impl<'a> Lexer<'a> {
     ///
     /// # Example
     ///
-    /// ```ignore
+    /// ```
     /// use logicaffeine_language::lexer::Lexer;
     /// use logicaffeine_base::Interner;
     ///
@@ -374,7 +374,7 @@ impl<'a> Lexer<'a> {
     /// let mut lexer = Lexer::new("Every cat sleeps.", &mut interner);
     /// let tokens = lexer.tokenize();
     ///
-    /// assert_eq!(tokens.len(), 4); // Quantifier, Noun, Verb, Period
+    /// assert_eq!(tokens.len(), 5); // Quantifier, Noun, Verb, Period, EOI
     /// ```
     pub fn new(input: &str, interner: &'a mut Interner) -> Self {
         let escape_ranges = Self::find_escape_block_ranges(input);

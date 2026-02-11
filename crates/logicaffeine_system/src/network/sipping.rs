@@ -42,11 +42,16 @@ pub struct FileChunk {
 /// - Manifest generation for resumable transfers
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # use logicaffeine_system::memory::Zone;
+/// # use logicaffeine_system::network::FileSipper;
+/// # fn main() -> Result<(), std::io::Error> {
 /// let zone = Zone::new_mapped("large_file.bin")?;
 /// let sipper = FileSipper::from_zone(&zone);
 /// let manifest = sipper.manifest();
 /// let chunk = sipper.get_chunk(0);
+/// # Ok(())
+/// # }
 /// ```
 pub struct FileSipper<'a> {
     zone: &'a Zone,

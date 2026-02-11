@@ -6,13 +6,16 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use crate::ui::components::icon::{Icon, IconVariant, IconSize};
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! use logicaffeine_web::ui::components::icon::{Icon, IconVariant, IconSize};
 //!
+//! # fn Example() -> Element {
 //! rsx! {
 //!     Icon { variant: IconVariant::Book, size: IconSize::Medium }
 //!     Icon { variant: IconVariant::Fire, size: IconSize::Large, class: "text-orange" }
 //! }
+//! # }
 //! ```
 
 use dioxus::prelude::*;

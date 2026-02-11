@@ -14,10 +14,12 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::fs::{Vfs, NativeVfs};
 //! use std::sync::Arc;
 //!
+//! # fn main() {}
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let vfs: Arc<dyn Vfs + Send + Sync> = Arc::new(NativeVfs::new("/data"));
 //!
 //! // Write and read files
@@ -26,6 +28,8 @@
 //!
 //! // Atomic append for journaling
 //! vfs.append("log.txt", b"entry\n").await?;
+//! # Ok(())
+//! # }
 //! ```
 
 #[cfg(target_arch = "wasm32")]

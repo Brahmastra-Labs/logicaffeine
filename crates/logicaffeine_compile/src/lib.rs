@@ -54,31 +54,38 @@
 //!
 //! ### Basic Compilation
 //!
-//! ```ignore
+//! ```
 //! use logicaffeine_compile::compile::compile_to_rust;
+//! # use logicaffeine_compile::ParseError;
+//! # fn main() -> Result<(), ParseError> {
 //!
-//! let source = "## Main\nLet x be 5.\nShow x to show.";
+//! let source = "## Main\nLet x be 5.\nShow x.";
 //! let rust_code = compile_to_rust(source)?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ### With Ownership Checking
 //!
-//! ```ignore
+//! ```
 //! use logicaffeine_compile::compile::compile_to_rust_checked;
 //!
-//! let source = "## Main\nLet x be 5.\nGive x to show.\nShow x to show.";
+//! let source = "## Main\nLet x be 5.\nGive x to y.\nShow x.";
 //! // Returns error: use-after-move detected at check-time
 //! let result = compile_to_rust_checked(source);
 //! ```
 //!
 //! ### Interpretation
 //!
-//! ```ignore
+//! ```no_run
 //! use logicaffeine_compile::interpret_for_ui;
 //!
-//! let source = "## Main\nLet x be 5.\nShow x to show.";
+//! # fn main() {}
+//! # async fn example() {
+//! let source = "## Main\nLet x be 5.\nShow x.";
 //! let result = interpret_for_ui(source).await;
 //! // result.lines contains ["5"]
+//! # }
 //! ```
 
 // Re-export base types

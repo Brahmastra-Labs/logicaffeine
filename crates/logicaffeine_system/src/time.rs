@@ -9,7 +9,7 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::time;
 //!
 //! let start = time::now();
@@ -31,9 +31,11 @@ use std::thread;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```
+/// use logicaffeine_system::time;
+///
 /// let timestamp = time::now();
-/// println!("Current timestamp: {}", timestamp);
+/// assert!(timestamp > 0);
 /// ```
 pub fn now() -> u64 {
     SystemTime::now()
@@ -55,7 +57,9 @@ pub fn now() -> u64 {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```no_run
+/// use logicaffeine_system::time;
+///
 /// time::sleep(500); // Sleep for half a second
 /// ```
 pub fn sleep(ms: u64) {

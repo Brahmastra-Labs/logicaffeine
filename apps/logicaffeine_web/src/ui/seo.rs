@@ -12,11 +12,14 @@
 //!
 //! # Usage
 //!
-//! ```ignore
-//! use crate::ui::seo::{organization_schema, breadcrumb_schema};
+//! ```no_run
+//! use logicaffeine_web::ui::seo::{organization_schema, breadcrumb_schema, BreadcrumbItem};
 //!
 //! let org_json = organization_schema();
-//! let breadcrumbs = breadcrumb_schema(&[("Home", "/"), ("Learn", "/learn")]);
+//! let breadcrumbs = breadcrumb_schema(&[
+//!     BreadcrumbItem { name: "Home", path: "/" },
+//!     BreadcrumbItem { name: "Learn", path: "/learn" },
+//! ]);
 //! ```
 
 use dioxus::prelude::*;

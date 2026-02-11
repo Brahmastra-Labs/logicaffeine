@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "LogicAffeine",
+  "scopeName": "source.logicaffeine",
+  "patterns": [
+    { "include": "#block-header" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#quantifiers" },
+    { "include": "#modals" },
+    { "include": "#connectives" }
+  ],
+  "repository": {
+    "block-header": {
+      "match": "^##\\s+.*$",
+      "name": "entity.name.section.logicaffeine"
+    },
+    "strings": {
+      "begin": "\"",
+      "end": "\"",
+      "name": "string.quoted.double.logicaffeine",
+      "patterns": [
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.logicaffeine"
+        }
+      ]
+    },
+    "numbers": {
+      "match": "\\b\\d+(\\.\\d+)?\\b",
+      "name": "constant.numeric.logicaffeine"
+    },
+    "keywords": {
+      "match": "\\b(Let|Set|If|While|Repeat|Return|Show|Give|Push|Pop|Call|Inspect|Otherwise|Else|Elif|New|Check|Assert|Trust|Escape|Native|Read|Write|Sleep|Spawn|Send|Await|Merge|Increase|Decrease|Launch|Receive|Stop|Mount|Sync|Listen|For|In|From|Be|To)\\b",
+      "name": "keyword.control.logicaffeine"
+    },
+    "types": {
+      "match": "\\b(Int|Nat|Text|Bool|Float|Unit|Char|Byte|List|Seq|Map|Set|Option|Result|Shared|Portable|Persistent)\\b",
+      "name": "storage.type.logicaffeine"
+    },
+    "operators": {
+      "match": "(->|==|!=|<=|>=|<|>|\\+|-|\\*|/|%|=)",
+      "name": "keyword.operator.logicaffeine"
+    },
+    "quantifiers": {
+      "match": "\\b(All|Every|Some|No|Any|Most|Few|Many|Both)\\b",
+      "name": "keyword.other.quantifier.logicaffeine"
+    },
+    "modals": {
+      "match": "\\b(Must|Can|Should|Shall|May|Cannot|Would|Could|Might)\\b",
+      "name": "keyword.other.modal.logicaffeine"
+    },
+    "connectives": {
+      "match": "\\b(And|Or|Not|If|Then|Iff|Because)\\b",
+      "name": "keyword.operator.logical.logicaffeine"
+    }
+  }
+}

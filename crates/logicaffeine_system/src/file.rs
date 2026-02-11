@@ -15,15 +15,18 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::file;
 //!
+//! # fn main() -> Result<(), String> {
 //! // Write a file
 //! file::write("data.txt".to_string(), "Hello, World!".to_string())?;
 //!
 //! // Read it back
 //! let content = file::read("data.txt".to_string())?;
 //! assert_eq!(content, "Hello, World!");
+//! # Ok(())
+//! # }
 //! ```
 
 use std::fs;
@@ -47,7 +50,9 @@ use std::fs;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```no_run
+/// use logicaffeine_system::file;
+///
 /// match file::read("config.json".to_string()) {
 ///     Ok(content) => println!("Config: {}", content),
 ///     Err(e) => eprintln!("Error: {}", e),
@@ -75,8 +80,13 @@ pub fn read(path: String) -> Result<String, String> {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```no_run
+/// use logicaffeine_system::file;
+///
+/// # fn main() -> Result<(), String> {
 /// file::write("output.txt".to_string(), "Result: 42".to_string())?;
+/// # Ok(())
+/// # }
 /// ```
 pub fn write(path: String, content: String) -> Result<(), String> {
     fs::write(&path, &content).map_err(|e| format!("Failed to write '{}': {}", path, e))

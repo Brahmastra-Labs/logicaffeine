@@ -16,18 +16,22 @@
 //!
 //! Import tokens directly or use CSS custom properties:
 //!
-//! ```ignore
-//! use crate::ui::theme::{colors, font_size, spacing};
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! use logicaffeine_web::ui::theme::{self, colors, font_size, spacing};
 //!
 //! // Direct constant usage
 //! let style = format!("color: {}; font-size: {};", colors::PRIMARY_BLUE, font_size::BODY_LG);
 //!
 //! // Or inject CSS variables and use var(--name)
 //! let vars = theme::css_variables();
+//! # fn Example() -> Element {
+//! # let vars = theme::css_variables();
 //! rsx! {
 //!     style { "{vars}" }
 //!     div { style: "color: var(--color-primary-blue);", "Hello" }
 //! }
+//! # }
 //! ```
 //!
 //! # Accessibility

@@ -23,10 +23,16 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```no_run
+//! # use logicaffeine_compile::loader::Loader;
+//! # use std::path::{Path, PathBuf};
+//! # fn main() -> Result<(), String> {
+//! # let project_root = PathBuf::from(".");
 //! let mut loader = Loader::new(project_root);
 //! let source = loader.resolve(Path::new("main.md"), "file:./lib/math.md")?;
 //! println!("Loaded: {}", source.path.display());
+//! # Ok(())
+//! # }
 //! ```
 
 use std::collections::HashMap;

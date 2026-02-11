@@ -19,6 +19,7 @@ CRATES=(
     logicaffeine_kernel
     logicaffeine_language
     logicaffeine_lexicon
+    logicaffeine_lsp
     logicaffeine_proof
     logicaffeine_system
     logicaffeine_web
@@ -83,6 +84,7 @@ cat > apps/logicaffeine_docs/dist/index.html << 'EOF'
         <ul>
             <li><a href="logicaffeine_language/index.html">logicaffeine_language</a> - Core language</li>
             <li><a href="logicaffeine_compile/index.html">logicaffeine_compile</a> - Compiler</li>
+            <li><a href="logicaffeine_lsp/index.html">logicaffeine_lsp</a> - Language Server Protocol</li>
             <li><a href="logicaffeine_kernel/index.html">logicaffeine_kernel</a> - Runtime kernel</li>
             <li><a href="logicaffeine_proof/index.html">logicaffeine_proof</a> - Proof assistant</li>
             <li><a href="logicaffeine_lexicon/index.html">logicaffeine_lexicon</a> - Lexicon</li>

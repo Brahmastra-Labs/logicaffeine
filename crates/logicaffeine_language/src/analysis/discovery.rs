@@ -443,6 +443,21 @@ impl<'a> DiscoveryPass<'a> {
     }
 
     fn parse_type_definition_body(&mut self, registry: &mut TypeRegistry) {
+        // Phase 47/49: Check for pre-type modifiers: "A portable Config has:" or "A shared Config has:"
+        let mut is_portable = false;
+        let mut is_shared = false;
+        loop {
+            if self.check_portable() {
+                is_portable = true;
+                self.advance();
+            } else if self.check_shared() {
+                is_shared = true;
+                self.advance();
+            } else {
+                break;
+            }
+        }
+
         if let Some(name_sym) = self.consume_noun_or_proper() {
             // Phase 34: Check for "of [T]" which indicates user-defined generic
             let type_params = if self.check_preposition("of") {
@@ -451,10 +466,6 @@ impl<'a> DiscoveryPass<'a> {
             } else {
                 vec![]
             };
-
-            // Phase 47/49: Check for "is Portable/Shared and" pattern before "has:"
-            let mut is_portable = false;
-            let mut is_shared = false;
             if self.check_copula() {
                 let copula_pos = self.pos;
                 self.advance(); // consume is/are
@@ -657,6 +668,9 @@ impl<'a> DiscoveryPass<'a> {
                     if self.check_copula() {
                         self.advance();
                     }
+                    self.consume_field_type_with_params(type_params)
+                } else if self.check_colon() {
+                    self.advance(); // consume ":"
                     self.consume_field_type_with_params(type_params)
                 } else {
                     // Concise syntax: "radius Int" - type immediately follows field name

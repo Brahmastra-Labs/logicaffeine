@@ -707,6 +707,14 @@ pub enum Expr<'a> {
         language: Symbol,
         code: Symbol,
     },
+
+    /// Option Some: `some 30` → Some(30)
+    OptionSome {
+        value: &'a Expr<'a>,
+    },
+
+    /// Option None: `none` → None
+    OptionNone,
 }
 
 /// Literal values in LOGOS.

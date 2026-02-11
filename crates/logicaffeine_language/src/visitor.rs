@@ -8,7 +8,10 @@
 //!
 //! Implement [`Visitor`] and override the `visit_*` methods you need:
 //!
-//! ```ignore
+//! ```no_run
+//! # use logicaffeine_base::Symbol;
+//! # use logicaffeine_language::ast::Term;
+//! # use logicaffeine_language::visitor::{Visitor, walk_term};
 //! struct VariableCollector {
 //!     vars: Vec<Symbol>,
 //! }

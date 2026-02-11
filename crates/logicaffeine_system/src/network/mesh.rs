@@ -21,9 +21,14 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::network::{listen, connect, send, PeerAgent};
+//! # use serde::{Serialize, Deserialize};
 //!
+//! # #[derive(Serialize, Deserialize)]
+//! # struct MyMessage { data: i32 }
+//! # fn main() {}
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Start listening
 //! listen("/ip4/0.0.0.0/tcp/8000").await?;
 //!
@@ -33,6 +38,8 @@
 //! // Send a message
 //! let peer = PeerAgent::new("/ip4/192.168.1.100/tcp/8000/p2p/12D3Koo...")?;
 //! send(&peer, &MyMessage { data: 42 }).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::network::behaviour::{MeshBehaviour, MeshBehaviourEvent};
@@ -108,21 +115,32 @@ impl From<wire::WireError> for NetworkError {
 ///
 /// # Creating a PeerAgent
 ///
-/// ```rust,ignore
+/// ```no_run
+/// # use logicaffeine_system::network::PeerAgent;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// // Basic address (peer ID will be discovered on connect)
 /// let peer = PeerAgent::new("/ip4/192.168.1.100/tcp/8000")?;
 ///
 /// // Address with known peer ID (preferred for direct connections)
 /// let peer = PeerAgent::new("/ip4/192.168.1.100/tcp/8000/p2p/12D3KooW...")?;
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// # Sending Messages
 ///
-/// ```rust,ignore
-/// use logicaffeine_system::network::send;
+/// ```no_run
+/// use logicaffeine_system::network::{send, PeerAgent};
+/// # use serde::{Serialize, Deserialize};
 ///
+/// # #[derive(Serialize, Deserialize)]
+/// # struct MyMessage { data: i32 }
+/// # fn main() {}
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let peer = PeerAgent::new("/ip4/192.168.1.100/tcp/8000/p2p/12D3KooW...")?;
 /// send(&peer, &MyMessage { data: 42 }).await?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 pub struct PeerAgent {

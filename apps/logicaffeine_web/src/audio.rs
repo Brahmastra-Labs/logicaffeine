@@ -6,7 +6,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use logicaffeine_web::audio::{SoundEffect, play_sound};
 //!
 //! // Play a sound when the user answers correctly

@@ -17,9 +17,14 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::network::{listen, connect, send, PeerAgent};
+//! # use serde::{Serialize, Deserialize};
 //!
+//! # #[derive(Serialize, Deserialize)]
+//! # struct MyMessage { data: i32 }
+//! # fn main() {}
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Start listening for connections
 //! listen("/ip4/0.0.0.0/tcp/8000").await?;
 //!
@@ -29,6 +34,8 @@
 //! // Send a message to a specific peer
 //! let peer = PeerAgent::new("/ip4/192.168.1.100/tcp/8000/p2p/12D3Koo...")?;
 //! send(&peer, &MyMessage { data: 42 }).await?;
+//! # Ok(())
+//! # }
 //! ```
 
 // Sipping requires persistence (sha2, memmap2) AND concurrency (Zone/bumpalo)

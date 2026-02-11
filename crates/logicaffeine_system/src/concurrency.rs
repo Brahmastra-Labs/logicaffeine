@@ -20,9 +20,13 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::concurrency::{spawn, Pipe, check_preemption};
 //!
+//! # fn main() {}
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # async fn expensive_computation() -> i32 { 42 }
+//! # fn heavy_work(_: i32) {}
 //! // Spawn a task
 //! let handle = spawn(async { expensive_computation().await });
 //!
@@ -36,6 +40,8 @@
 //!     heavy_work(i);
 //!     check_preemption().await;
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
 use std::cell::RefCell;
@@ -60,12 +66,18 @@ pub use tokio::task::JoinError;
 /// Wraps `tokio::task::JoinHandle<T>` with a LOGOS-friendly API.
 ///
 /// # Example
-/// ```ignore
-/// let handle = spawn(async { expensive_computation() });
+/// ```no_run
+/// use logicaffeine_system::concurrency::spawn;
+///
+/// # fn main() {}
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let handle = spawn(async { 42 });
 /// // Do other work...
 /// if handle.is_finished() {
 ///     let result = handle.await?;
 /// }
+/// # Ok(())
+/// # }
 /// ```
 pub struct TaskHandle<T> {
     inner: JoinHandle<T>,
@@ -112,11 +124,17 @@ impl<T> Future for TaskHandle<T> {
 /// a `TaskHandle<T>` for LOGOS codegen.
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// use logicaffeine_system::concurrency::spawn;
+///
+/// # fn main() {}
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let handle = spawn(async {
-///     expensive_computation().await
+///     42
 /// });
 /// let result = handle.await?;
+/// # Ok(())
+/// # }
 /// ```
 pub fn spawn<F, T>(future: F) -> TaskHandle<T>
 where
@@ -136,14 +154,19 @@ where
 /// Unlike Go, sender and receiver are split for Rust's ownership model.
 ///
 /// # Example
-/// ```ignore
-/// let (tx, rx) = Pipe::<String>::new(16);
+/// ```no_run
+/// use logicaffeine_system::concurrency::{spawn, Pipe};
+///
+/// # fn main() {}
+/// # async fn example() {
+/// let (tx, mut rx) = Pipe::<String>::new(16);
 ///
 /// spawn(async move {
 ///     tx.send("hello".to_string()).await.unwrap();
 /// });
 ///
 /// let msg = rx.recv().await;
+/// # }
 /// ```
 pub struct Pipe<T>(std::marker::PhantomData<T>);
 
@@ -250,11 +273,17 @@ pub fn reset_preemption_timer() {
 /// Insert calls to `check_preemption().await` in long-running loops
 /// to ensure fair scheduling with other async tasks.
 ///
-/// ```ignore
+/// ```no_run
+/// use logicaffeine_system::concurrency::check_preemption;
+///
+/// # fn main() {}
+/// # async fn example() {
+/// # fn heavy_computation(_: i32) {}
 /// for i in 0..1_000_000 {
 ///     heavy_computation(i);
 ///     check_preemption().await;  // Yield if >10ms elapsed
 /// }
+/// # }
 /// ```
 pub async fn check_preemption() {
     let should_yield = LAST_YIELD.with(|cell| {

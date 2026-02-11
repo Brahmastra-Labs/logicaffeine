@@ -231,6 +231,13 @@ fn build_with_entry(
         fs::write(src_dir.join("main.rs"), &rust_code).map_err(|e| BuildError::Io(e.to_string()))?;
     }
 
+    // Universal ABI: Write C header alongside generated code if present
+    if let Some(ref c_header) = output.c_header {
+        let header_name = format!("{}.h", manifest.package.name);
+        fs::write(rust_project_dir.join(&header_name), c_header)
+            .map_err(|e| BuildError::Io(e.to_string()))?;
+    }
+
     // Resolve target triple (expand "wasm" shorthand)
     let resolved_target = config.target.as_deref().map(|t| {
         if t.eq_ignore_ascii_case("wasm") {
@@ -349,6 +356,17 @@ edition = "2021"
                 .join(&binary_name)
         }
     };
+
+    // Universal ABI: Copy .h file to the same directory as the binary/library
+    if let Some(ref _c_header) = output.c_header {
+        let header_name = format!("{}.h", manifest.package.name);
+        let src_header = rust_project_dir.join(&header_name);
+        if src_header.exists() {
+            if let Some(parent) = binary_path.parent() {
+                let _ = fs::copy(&src_header, parent.join(&header_name));
+            }
+        }
+    }
 
     Ok(BuildResult {
         target_dir: build_dir,

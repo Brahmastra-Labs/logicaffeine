@@ -349,6 +349,21 @@ fn has_wasm_exports(stmts: &[Stmt], interner: &Interner) -> bool {
     })
 }
 
+/// FFI: Detect if any function is exported for C ABI.
+/// Used to emit the LogosStatus runtime preamble and CStr/CString imports.
+fn has_c_exports(stmts: &[Stmt], interner: &Interner) -> bool {
+    stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target, .. } = stmt {
+            match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            }
+        } else {
+            false
+        }
+    })
+}
+
 /// FFI: Detect if any C-exported function uses Text (String) types.
 /// Used to emit `use std::ffi::{CStr, CString};` preamble.
 fn has_c_exports_with_text(stmts: &[Stmt], interner: &Interner) -> bool {
@@ -366,6 +381,1428 @@ fn has_c_exports_with_text(stmts: &[Stmt], interner: &Interner) -> bool {
             false
         }
     })
+}
+
+// =============================================================================
+// Universal ABI: Status-Code Error Runtime
+// =============================================================================
+
+/// Classification of a LOGOS type for C ABI boundary crossing.
+///
+/// Value types are passed directly as `#[repr(C)]` values.
+/// Reference types are passed as opaque handles with accessor functions.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum CAbiClass {
+    /// Passed directly by value (primitives, Text, small flat structs).
+    ValueType,
+    /// Passed as opaque `logos_handle_t` with generated accessors and free function.
+    ReferenceType,
+}
+
+/// Classify a LOGOS TypeExpr for C ABI boundary crossing.
+///
+/// Value types: Int, Nat, Real, Bool, Byte, Char, Text, small user structs (all value-type fields).
+/// Reference types: Seq, Map, Set, Option of reference, Result, large/recursive user types.
+fn classify_type_for_c_abi(ty: &TypeExpr, interner: &Interner, registry: &TypeRegistry) -> CAbiClass {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                "Int" | "Nat" | "Real" | "Float" | "Bool" | "Boolean"
+                | "Byte" | "Char" | "Unit" => CAbiClass::ValueType,
+                "Text" | "String" => CAbiClass::ValueType,
+                _ => {
+                    // Check registry for user-defined types
+                    if let Some(type_def) = registry.get(*sym) {
+                        match type_def {
+                            TypeDef::Struct { fields, .. } => {
+                                // Small struct with all value-type fields → ValueType
+                                let all_value = fields.iter().all(|f| {
+                                    is_value_type_field(&f.ty, interner)
+                                });
+                                if all_value && fields.len() <= 4 {
+                                    CAbiClass::ValueType
+                                } else {
+                                    CAbiClass::ReferenceType
+                                }
+                            }
+                            TypeDef::Enum { .. } => CAbiClass::ReferenceType,
+                            TypeDef::Primitive => CAbiClass::ValueType,
+                            TypeDef::Generic { .. } => CAbiClass::ReferenceType,
+                            TypeDef::Alias { .. } => CAbiClass::ValueType,
+                        }
+                    } else {
+                        CAbiClass::ValueType // Unknown → pass through
+                    }
+                }
+            }
+        }
+        TypeExpr::Refinement { base, .. } => classify_type_for_c_abi(base, interner, registry),
+        TypeExpr::Generic { base, .. } => {
+            let base_name = interner.resolve(*base);
+            match base_name {
+                "Option" => {
+                    // Option of value type → value type (struct { present, value })
+                    // Option of reference type → reference type
+                    // For simplicity, treat all Options as reference types for now
+                    CAbiClass::ReferenceType
+                }
+                "Result" | "Seq" | "List" | "Vec" | "Map" | "HashMap"
+                | "Set" | "HashSet" => CAbiClass::ReferenceType,
+                _ => CAbiClass::ReferenceType,
+            }
+        }
+        TypeExpr::Function { .. } => CAbiClass::ReferenceType,
+        TypeExpr::Persistent { .. } => CAbiClass::ReferenceType,
+    }
+}
+
+/// Check if a field type is a C ABI value type (for struct classification).
+fn is_value_type_field(ft: &FieldType, interner: &Interner) -> bool {
+    match ft {
+        FieldType::Primitive(sym) | FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "Int" | "Nat" | "Real" | "Float" | "Bool" | "Boolean"
+                | "Byte" | "Char" | "Unit" | "Text" | "String")
+        }
+        FieldType::Generic { .. } => false, // Generic fields are reference types
+        FieldType::TypeParam(_) => false,
+    }
+}
+
+/// Mangle a Rust type string into a C-safe identifier component.
+/// e.g., "i64" → "i64", "Vec<i64>" → "seq_i64", "HashMap<String, i64>" → "map_string_i64"
+fn mangle_type_for_c(ty: &TypeExpr, interner: &Interner) -> String {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                "Int" => "i64".to_string(),
+                "Nat" => "u64".to_string(),
+                "Real" | "Float" => "f64".to_string(),
+                "Bool" | "Boolean" => "bool".to_string(),
+                "Byte" => "u8".to_string(),
+                "Char" => "char".to_string(),
+                "Text" | "String" => "string".to_string(),
+                other => other.to_lowercase(),
+            }
+        }
+        TypeExpr::Refinement { base, .. } => mangle_type_for_c(base, interner),
+        TypeExpr::Generic { base, params } => {
+            let base_name = interner.resolve(*base);
+            let param_strs: Vec<String> = params.iter()
+                .map(|p| mangle_type_for_c(p, interner))
+                .collect();
+            match base_name {
+                "Seq" | "List" | "Vec" => format!("seq_{}", param_strs.join("_")),
+                "Map" | "HashMap" => format!("map_{}", param_strs.join("_")),
+                "Set" | "HashSet" => format!("set_{}", param_strs.join("_")),
+                "Option" => format!("option_{}", param_strs.join("_")),
+                "Result" => format!("result_{}", param_strs.join("_")),
+                other => format!("{}_{}", other.to_lowercase(), param_strs.join("_")),
+            }
+        }
+        TypeExpr::Function { .. } => "fn".to_string(),
+        TypeExpr::Persistent { inner } => mangle_type_for_c(inner, interner),
+    }
+}
+
+/// Generate the LogosStatus runtime preamble for C ABI exports.
+///
+/// Emits:
+/// - `LogosStatus` repr(C) enum
+/// - Thread-local error storage
+/// - `logos_get_last_error()` and `logos_clear_error()` extern C functions
+/// - `logos_free_string()` for freeing allocated CStrings
+fn codegen_logos_runtime_preamble() -> String {
+    let mut out = String::new();
+
+    writeln!(out, "// ═══ LogicAffeine Universal ABI Runtime ═══\n").unwrap();
+
+    // LogosStatus enum
+    writeln!(out, "#[repr(C)]").unwrap();
+    writeln!(out, "#[derive(Debug, Clone, Copy, PartialEq)]").unwrap();
+    writeln!(out, "pub enum LogosStatus {{").unwrap();
+    writeln!(out, "    Ok = 0,").unwrap();
+    writeln!(out, "    Error = 1,").unwrap();
+    writeln!(out, "    RefinementViolation = 2,").unwrap();
+    writeln!(out, "    NullPointer = 3,").unwrap();
+    writeln!(out, "    OutOfBounds = 4,").unwrap();
+    writeln!(out, "    DeserializationFailed = 5,").unwrap();
+    writeln!(out, "    InvalidHandle = 6,").unwrap();
+    writeln!(out, "    ContainsNullByte = 7,").unwrap();
+    writeln!(out, "    ThreadPanic = 8,").unwrap();
+    writeln!(out, "    MemoryExhausted = 9,").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // Opaque handle type alias
+    writeln!(out, "pub type LogosHandle = *const std::ffi::c_void;\n").unwrap();
+
+    // Thread-safe error storage (keyed by ThreadId)
+    writeln!(out, "fn logos_error_store() -> &'static std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, String>> {{").unwrap();
+    writeln!(out, "    use std::sync::OnceLock;").unwrap();
+    writeln!(out, "    static STORE: OnceLock<std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, String>>> = OnceLock::new();").unwrap();
+    writeln!(out, "    STORE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // set_last_error helper (not exported, internal only)
+    writeln!(out, "fn logos_set_last_error(msg: String) {{").unwrap();
+    writeln!(out, "    if let Ok(mut store) = logos_error_store().lock() {{").unwrap();
+    writeln!(out, "        store.insert(std::thread::current().id(), msg);").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // logos_last_error (exported) — canonical name
+    writeln!(out, "#[no_mangle]").unwrap();
+    writeln!(out, "pub extern \"C\" fn logos_last_error() -> *const std::os::raw::c_char {{").unwrap();
+    writeln!(out, "    if let Ok(store) = logos_error_store().lock() {{").unwrap();
+    writeln!(out, "        if let Some(msg) = store.get(&std::thread::current().id()) {{").unwrap();
+    writeln!(out, "            return msg.as_ptr() as *const std::os::raw::c_char;").unwrap();
+    writeln!(out, "        }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    std::ptr::null()").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // logos_get_last_error (exported) — backwards-compatible alias
+    writeln!(out, "#[no_mangle]").unwrap();
+    writeln!(out, "pub extern \"C\" fn logos_get_last_error() -> *const std::os::raw::c_char {{").unwrap();
+    writeln!(out, "    logos_last_error()").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // logos_clear_error (exported)
+    writeln!(out, "#[no_mangle]").unwrap();
+    writeln!(out, "pub extern \"C\" fn logos_clear_error() {{").unwrap();
+    writeln!(out, "    if let Ok(mut store) = logos_error_store().lock() {{").unwrap();
+    writeln!(out, "        store.remove(&std::thread::current().id());").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // logos_free_string (exported) — for freeing CStrings returned by accessors/JSON helpers
+    writeln!(out, "#[no_mangle]").unwrap();
+    writeln!(out, "pub extern \"C\" fn logos_free_string(ptr: *mut std::os::raw::c_char) {{").unwrap();
+    writeln!(out, "    if !ptr.is_null() {{").unwrap();
+    writeln!(out, "        unsafe {{ drop(std::ffi::CString::from_raw(ptr)); }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // ABI version constant and introspection functions
+    writeln!(out, "pub const LOGOS_ABI_VERSION: u32 = 1;\n").unwrap();
+
+    writeln!(out, "#[no_mangle]").unwrap();
+    writeln!(out, "pub extern \"C\" fn logos_version() -> *const std::os::raw::c_char {{").unwrap();
+    writeln!(out, "    b\"0.8.0\\0\".as_ptr() as *const std::os::raw::c_char").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    writeln!(out, "#[no_mangle]").unwrap();
+    writeln!(out, "pub extern \"C\" fn logos_abi_version() -> u32 {{").unwrap();
+    writeln!(out, "    LOGOS_ABI_VERSION").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    // Handle registry with generation counters for use-after-free protection
+    writeln!(out, "struct HandleEntry {{").unwrap();
+    writeln!(out, "    data: usize,").unwrap();
+    writeln!(out, "    generation: u64,").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    writeln!(out, "struct HandleRegistry {{").unwrap();
+    writeln!(out, "    entries: std::collections::HashMap<u64, HandleEntry>,").unwrap();
+    writeln!(out, "    counter: u64,").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    writeln!(out, "impl HandleRegistry {{").unwrap();
+    writeln!(out, "    fn new() -> Self {{").unwrap();
+    writeln!(out, "        HandleRegistry {{ entries: std::collections::HashMap::new(), counter: 0 }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    fn register(&mut self, ptr: usize) -> (u64, u64) {{").unwrap();
+    writeln!(out, "        self.counter += 1;").unwrap();
+    writeln!(out, "        let id = self.counter;").unwrap();
+    writeln!(out, "        let generation = id;").unwrap();
+    writeln!(out, "        self.entries.insert(id, HandleEntry {{ data: ptr, generation }});").unwrap();
+    writeln!(out, "        (id, generation)").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    fn validate_handle(&self, id: u64, generation: u64) -> bool {{").unwrap();
+    writeln!(out, "        self.entries.get(&id).map_or(false, |e| e.generation == generation)").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    fn deref(&self, id: u64) -> Option<usize> {{").unwrap();
+    writeln!(out, "        self.entries.get(&id).map(|e| e.data)").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "    fn free(&mut self, id: u64) -> Result<(), ()> {{").unwrap();
+    writeln!(out, "        if self.entries.remove(&id).is_some() {{ Ok(()) }} else {{ Err(()) }}").unwrap();
+    writeln!(out, "    }}").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    writeln!(out, "fn logos_handle_registry() -> &'static std::sync::Mutex<HandleRegistry> {{").unwrap();
+    writeln!(out, "    use std::sync::OnceLock;").unwrap();
+    writeln!(out, "    static REGISTRY: OnceLock<std::sync::Mutex<HandleRegistry>> = OnceLock::new();").unwrap();
+    writeln!(out, "    REGISTRY.get_or_init(|| std::sync::Mutex::new(HandleRegistry::new()))").unwrap();
+    writeln!(out, "}}\n").unwrap();
+
+    out
+}
+
+/// Generate accessor functions for a reference type (Seq, Map, Set, user structs).
+/// Returns the Rust source for the accessor/free functions.
+fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: &TypeRegistry) -> String {
+    let mut out = String::new();
+    let mangled = mangle_type_for_c(ty, interner);
+
+    match ty {
+        TypeExpr::Generic { base, params } => {
+            let base_name = interner.resolve(*base);
+            match base_name {
+                "Seq" | "List" | "Vec" if !params.is_empty() => {
+                    let inner_rust_type = codegen_type_expr(&params[0], interner);
+                    let inner_mangled = mangle_type_for_c(&params[0], interner);
+                    let is_inner_text = is_text_type(&params[0], interner);
+
+                    // len
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_len(handle: LogosHandle) -> usize {{", mangled).unwrap();
+                    writeln!(out, "    let seq = unsafe {{ &*(handle as *const Vec<{}>) }};", inner_rust_type).unwrap();
+                    writeln!(out, "    seq.len()").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // at (index access)
+                    if is_inner_text {
+                        // Text elements return *mut c_char
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_at(handle: LogosHandle, index: usize) -> *mut std::os::raw::c_char {{", mangled).unwrap();
+                        writeln!(out, "    let seq = unsafe {{ &*(handle as *const Vec<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    if index >= seq.len() {{").unwrap();
+                        writeln!(out, "        logos_set_last_error(format!(\"Index {{}} out of bounds (len {{}})\", index, seq.len()));").unwrap();
+                        writeln!(out, "        return std::ptr::null_mut();").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "    match std::ffi::CString::new(seq[index].clone()) {{").unwrap();
+                        writeln!(out, "        Ok(cstr) => cstr.into_raw(),").unwrap();
+                        writeln!(out, "        Err(_) => {{ logos_set_last_error(\"String contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    } else {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_at(handle: LogosHandle, index: usize, out: *mut {}) -> LogosStatus {{", mangled, inner_rust_type).unwrap();
+                        writeln!(out, "    let seq = unsafe {{ &*(handle as *const Vec<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    if index >= seq.len() {{").unwrap();
+                        writeln!(out, "        logos_set_last_error(format!(\"Index {{}} out of bounds (len {{}})\", index, seq.len()));").unwrap();
+                        writeln!(out, "        return LogosStatus::OutOfBounds;").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "    unsafe {{ *out = seq[index].clone(); }}").unwrap();
+                        writeln!(out, "    LogosStatus::Ok").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // create
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
+                    writeln!(out, "    let seq: Vec<{}> = Vec::new();", inner_rust_type).unwrap();
+                    writeln!(out, "    Box::into_raw(Box::new(seq)) as LogosHandle").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // push
+                    if is_inner_text {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_push(handle: LogosHandle, value: *const std::os::raw::c_char) {{", mangled).unwrap();
+                        writeln!(out, "    let seq = unsafe {{ &mut *(handle as *mut Vec<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    let val_str = unsafe {{ std::ffi::CStr::from_ptr(value).to_string_lossy().into_owned() }};").unwrap();
+                        writeln!(out, "    seq.push(val_str);").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    } else {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_push(handle: LogosHandle, value: {}) {{", mangled, inner_rust_type).unwrap();
+                        writeln!(out, "    let seq = unsafe {{ &mut *(handle as *mut Vec<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    seq.push(value);").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // to_json (collections always support JSON)
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_to_json(handle: LogosHandle) -> *mut std::os::raw::c_char {{", mangled).unwrap();
+                    writeln!(out, "    let seq = unsafe {{ &*(handle as *const Vec<{}>) }};", inner_rust_type).unwrap();
+                    writeln!(out, "    match serde_json::to_string(seq) {{").unwrap();
+                    writeln!(out, "        Ok(json) => match std::ffi::CString::new(json) {{").unwrap();
+                    writeln!(out, "            Ok(cstr) => cstr.into_raw(),").unwrap();
+                    writeln!(out, "            Err(_) => {{ logos_set_last_error(\"JSON contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                    writeln!(out, "        }},").unwrap();
+                    writeln!(out, "        Err(e) => {{ logos_set_last_error(e.to_string()); std::ptr::null_mut() }}").unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // free
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_free(handle: LogosHandle) {{", mangled).unwrap();
+                    writeln!(out, "    if !handle.is_null() {{").unwrap();
+                    writeln!(out, "        unsafe {{ drop(Box::from_raw(handle as *mut Vec<{}>)); }}", inner_rust_type).unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+                }
+
+                "Map" | "HashMap" if params.len() >= 2 => {
+                    let key_rust = codegen_type_expr(&params[0], interner);
+                    let val_rust = codegen_type_expr(&params[1], interner);
+                    let is_key_text = is_text_type(&params[0], interner);
+                    let is_val_text = is_text_type(&params[1], interner);
+
+                    // len
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_len(handle: LogosHandle) -> usize {{", mangled).unwrap();
+                    writeln!(out, "    let map = unsafe {{ &*(handle as *const std::collections::HashMap<{}, {}>) }};", key_rust, val_rust).unwrap();
+                    writeln!(out, "    map.len()").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // get (key lookup) — only for Text keys for now
+                    if is_key_text {
+                        if is_val_text {
+                            writeln!(out, "#[no_mangle]").unwrap();
+                            writeln!(out, "pub extern \"C\" fn logos_{}_get(handle: LogosHandle, key: *const std::os::raw::c_char) -> *mut std::os::raw::c_char {{", mangled).unwrap();
+                            writeln!(out, "    let map = unsafe {{ &*(handle as *const std::collections::HashMap<{}, {}>) }};", key_rust, val_rust).unwrap();
+                            writeln!(out, "    let key_str = unsafe {{ std::ffi::CStr::from_ptr(key).to_string_lossy().into_owned() }};").unwrap();
+                            writeln!(out, "    match map.get(&key_str) {{").unwrap();
+                            writeln!(out, "        Some(val) => match std::ffi::CString::new(val.clone()) {{").unwrap();
+                            writeln!(out, "            Ok(cstr) => cstr.into_raw(),").unwrap();
+                            writeln!(out, "            Err(_) => {{ logos_set_last_error(\"Value contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                            writeln!(out, "        }},").unwrap();
+                            writeln!(out, "        None => std::ptr::null_mut(),").unwrap();
+                            writeln!(out, "    }}").unwrap();
+                            writeln!(out, "}}\n").unwrap();
+                        } else {
+                            writeln!(out, "#[no_mangle]").unwrap();
+                            writeln!(out, "pub extern \"C\" fn logos_{}_get(handle: LogosHandle, key: *const std::os::raw::c_char, out: *mut {}) -> LogosStatus {{", mangled, val_rust).unwrap();
+                            writeln!(out, "    let map = unsafe {{ &*(handle as *const std::collections::HashMap<{}, {}>) }};", key_rust, val_rust).unwrap();
+                            writeln!(out, "    let key_str = unsafe {{ std::ffi::CStr::from_ptr(key).to_string_lossy().into_owned() }};").unwrap();
+                            writeln!(out, "    match map.get(&key_str) {{").unwrap();
+                            writeln!(out, "        Some(val) => {{ unsafe {{ *out = val.clone(); }} LogosStatus::Ok }}").unwrap();
+                            writeln!(out, "        None => {{ logos_set_last_error(format!(\"Key not found: {{}}\", key_str)); LogosStatus::Error }}").unwrap();
+                            writeln!(out, "    }}").unwrap();
+                            writeln!(out, "}}\n").unwrap();
+                        }
+                    }
+
+                    // keys
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_keys(handle: LogosHandle) -> LogosHandle {{", mangled).unwrap();
+                    writeln!(out, "    let map = unsafe {{ &*(handle as *const std::collections::HashMap<{}, {}>) }};", key_rust, val_rust).unwrap();
+                    writeln!(out, "    let keys: Vec<{}> = map.keys().cloned().collect();", key_rust).unwrap();
+                    writeln!(out, "    Box::into_raw(Box::new(keys)) as LogosHandle").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // values
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_values(handle: LogosHandle) -> LogosHandle {{", mangled).unwrap();
+                    writeln!(out, "    let map = unsafe {{ &*(handle as *const std::collections::HashMap<{}, {}>) }};", key_rust, val_rust).unwrap();
+                    writeln!(out, "    let values: Vec<{}> = map.values().cloned().collect();", val_rust).unwrap();
+                    writeln!(out, "    Box::into_raw(Box::new(values)) as LogosHandle").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // create
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
+                    writeln!(out, "    let map: std::collections::HashMap<{}, {}> = std::collections::HashMap::new();", key_rust, val_rust).unwrap();
+                    writeln!(out, "    Box::into_raw(Box::new(map)) as LogosHandle").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // insert
+                    if is_key_text {
+                        let val_param = if is_val_text {
+                            "value: *const std::os::raw::c_char".to_string()
+                        } else {
+                            format!("value: {}", val_rust)
+                        };
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_insert(handle: LogosHandle, key: *const std::os::raw::c_char, {}) {{", mangled, val_param).unwrap();
+                        writeln!(out, "    let map = unsafe {{ &mut *(handle as *mut std::collections::HashMap<{}, {}>) }};", key_rust, val_rust).unwrap();
+                        writeln!(out, "    let key_str = unsafe {{ std::ffi::CStr::from_ptr(key).to_string_lossy().into_owned() }};").unwrap();
+                        if is_val_text {
+                            writeln!(out, "    let val_str = unsafe {{ std::ffi::CStr::from_ptr(value).to_string_lossy().into_owned() }};").unwrap();
+                            writeln!(out, "    map.insert(key_str, val_str);").unwrap();
+                        } else {
+                            writeln!(out, "    map.insert(key_str, value);").unwrap();
+                        }
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // free
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_free(handle: LogosHandle) {{", mangled).unwrap();
+                    writeln!(out, "    if !handle.is_null() {{").unwrap();
+                    writeln!(out, "        unsafe {{ drop(Box::from_raw(handle as *mut std::collections::HashMap<{}, {}>)); }}", key_rust, val_rust).unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+                }
+
+                "Set" | "HashSet" if !params.is_empty() => {
+                    let inner_rust_type = codegen_type_expr(&params[0], interner);
+                    let is_inner_text = is_text_type(&params[0], interner);
+
+                    // len
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_len(handle: LogosHandle) -> usize {{", mangled).unwrap();
+                    writeln!(out, "    let set = unsafe {{ &*(handle as *const std::collections::HashSet<{}>) }};", inner_rust_type).unwrap();
+                    writeln!(out, "    set.len()").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // contains
+                    if is_inner_text {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_contains(handle: LogosHandle, value: *const std::os::raw::c_char) -> bool {{", mangled).unwrap();
+                        writeln!(out, "    let set = unsafe {{ &*(handle as *const std::collections::HashSet<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    let val_str = unsafe {{ std::ffi::CStr::from_ptr(value).to_string_lossy().into_owned() }};").unwrap();
+                        writeln!(out, "    set.contains(&val_str)").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    } else {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_contains(handle: LogosHandle, value: {}) -> bool {{", mangled, inner_rust_type).unwrap();
+                        writeln!(out, "    let set = unsafe {{ &*(handle as *const std::collections::HashSet<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    set.contains(&value)").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // create
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
+                    writeln!(out, "    let set: std::collections::HashSet<{}> = std::collections::HashSet::new();", inner_rust_type).unwrap();
+                    writeln!(out, "    Box::into_raw(Box::new(set)) as LogosHandle").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // insert
+                    if is_inner_text {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_insert(handle: LogosHandle, value: *const std::os::raw::c_char) {{", mangled).unwrap();
+                        writeln!(out, "    let set = unsafe {{ &mut *(handle as *mut std::collections::HashSet<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    let val_str = unsafe {{ std::ffi::CStr::from_ptr(value).to_string_lossy().into_owned() }};").unwrap();
+                        writeln!(out, "    set.insert(val_str);").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    } else {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_insert(handle: LogosHandle, value: {}) {{", mangled, inner_rust_type).unwrap();
+                        writeln!(out, "    let set = unsafe {{ &mut *(handle as *mut std::collections::HashSet<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    set.insert(value);").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // free
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_free(handle: LogosHandle) {{", mangled).unwrap();
+                    writeln!(out, "    if !handle.is_null() {{").unwrap();
+                    writeln!(out, "        unsafe {{ drop(Box::from_raw(handle as *mut std::collections::HashSet<{}>)); }}", inner_rust_type).unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+                }
+
+                "Option" if !params.is_empty() => {
+                    let inner_rust_type = codegen_type_expr(&params[0], interner);
+                    let is_inner_text = is_text_type(&params[0], interner);
+
+                    // is_some
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_is_some(handle: LogosHandle) -> bool {{", mangled).unwrap();
+                    writeln!(out, "    let opt = unsafe {{ &*(handle as *const Option<{}>) }};", inner_rust_type).unwrap();
+                    writeln!(out, "    opt.is_some()").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // unwrap
+                    if is_inner_text {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_unwrap(handle: LogosHandle) -> *mut std::os::raw::c_char {{", mangled).unwrap();
+                        writeln!(out, "    let opt = unsafe {{ &*(handle as *const Option<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    match opt {{").unwrap();
+                        writeln!(out, "        Some(val) => match std::ffi::CString::new(val.clone()) {{").unwrap();
+                        writeln!(out, "            Ok(cstr) => cstr.into_raw(),").unwrap();
+                        writeln!(out, "            Err(_) => {{ logos_set_last_error(\"Value contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                        writeln!(out, "        }},").unwrap();
+                        writeln!(out, "        None => {{ logos_set_last_error(\"Unwrap called on None\".to_string()); std::ptr::null_mut() }}").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    } else {
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_unwrap(handle: LogosHandle, out: *mut {}) -> LogosStatus {{", mangled, inner_rust_type).unwrap();
+                        writeln!(out, "    let opt = unsafe {{ &*(handle as *const Option<{}>) }};", inner_rust_type).unwrap();
+                        writeln!(out, "    match opt {{").unwrap();
+                        writeln!(out, "        Some(val) => {{ unsafe {{ *out = val.clone(); }} LogosStatus::Ok }}").unwrap();
+                        writeln!(out, "        None => {{ logos_set_last_error(\"Unwrap called on None\".to_string()); LogosStatus::Error }}").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // free
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_free(handle: LogosHandle) {{", mangled).unwrap();
+                    writeln!(out, "    if !handle.is_null() {{").unwrap();
+                    writeln!(out, "        unsafe {{ drop(Box::from_raw(handle as *mut Option<{}>)); }}", inner_rust_type).unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+                }
+
+                _ => {} // Other generic types: no accessors generated
+            }
+        }
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let type_name = interner.resolve(*sym);
+            let type_def = registry.get(*sym);
+
+            match type_def {
+                Some(TypeDef::Struct { fields, is_portable, .. }) => {
+                    let mangled_struct = type_name.to_lowercase();
+                    let rust_struct_name = type_name.to_string();
+
+                    // Per-field accessors
+                    for field in fields {
+                        let field_name = interner.resolve(field.name);
+                        let is_field_text = match &field.ty {
+                            FieldType::Primitive(s) | FieldType::Named(s) => {
+                                let n = interner.resolve(*s);
+                                n == "Text" || n == "String"
+                            }
+                            _ => false,
+                        };
+
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        if is_field_text {
+                            writeln!(out, "pub extern \"C\" fn logos_{}_{field}(handle: LogosHandle) -> *mut std::os::raw::c_char {{",
+                                mangled_struct, field = field_name).unwrap();
+                            writeln!(out, "    let obj = unsafe {{ &*(handle as *const {}) }};", rust_struct_name).unwrap();
+                            writeln!(out, "    match std::ffi::CString::new(obj.{}.clone()) {{", field_name).unwrap();
+                            writeln!(out, "        Ok(cstr) => cstr.into_raw(),").unwrap();
+                            writeln!(out, "        Err(_) => {{ logos_set_last_error(\"Field contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                            writeln!(out, "    }}").unwrap();
+                            writeln!(out, "}}\n").unwrap();
+                        } else {
+                            let field_rust_type = match &field.ty {
+                                FieldType::Primitive(s) | FieldType::Named(s) => {
+                                    let n = interner.resolve(*s);
+                                    match n {
+                                        "Int" => "i64",
+                                        "Nat" => "u64",
+                                        "Real" | "Float" => "f64",
+                                        "Bool" | "Boolean" => "bool",
+                                        "Byte" => "u8",
+                                        "Char" => "char",
+                                        _ => n,
+                                    }
+                                }
+                                _ => "LogosHandle",
+                            };
+                            writeln!(out, "pub extern \"C\" fn logos_{}_{field}(handle: LogosHandle) -> {} {{",
+                                mangled_struct, field_rust_type, field = field_name).unwrap();
+                            writeln!(out, "    let obj = unsafe {{ &*(handle as *const {}) }};", rust_struct_name).unwrap();
+                            writeln!(out, "    obj.{}.clone()", field_name).unwrap();
+                            writeln!(out, "}}\n").unwrap();
+                        }
+                    }
+
+                    // JSON accessors for portable structs
+                    if *is_portable {
+                        // to_json
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_to_json(handle: LogosHandle) -> *mut std::os::raw::c_char {{", mangled_struct).unwrap();
+                        writeln!(out, "    let obj = unsafe {{ &*(handle as *const {}) }};", rust_struct_name).unwrap();
+                        writeln!(out, "    match serde_json::to_string(obj) {{").unwrap();
+                        writeln!(out, "        Ok(json) => match std::ffi::CString::new(json) {{").unwrap();
+                        writeln!(out, "            Ok(cstr) => cstr.into_raw(),").unwrap();
+                        writeln!(out, "            Err(_) => {{ logos_set_last_error(\"JSON contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                        writeln!(out, "        }},").unwrap();
+                        writeln!(out, "        Err(e) => {{ logos_set_last_error(e.to_string()); std::ptr::null_mut() }}").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+
+                        // from_json
+                        writeln!(out, "#[no_mangle]").unwrap();
+                        writeln!(out, "pub extern \"C\" fn logos_{}_from_json(json: *const std::os::raw::c_char, out: *mut LogosHandle) -> LogosStatus {{", mangled_struct).unwrap();
+                        writeln!(out, "    if json.is_null() {{ logos_set_last_error(\"Null JSON pointer\".to_string()); return LogosStatus::NullPointer; }}").unwrap();
+                        writeln!(out, "    let json_str = unsafe {{ std::ffi::CStr::from_ptr(json).to_string_lossy() }};").unwrap();
+                        writeln!(out, "    match serde_json::from_str::<{}>(&json_str) {{", rust_struct_name).unwrap();
+                        writeln!(out, "        Ok(val) => {{ unsafe {{ *out = Box::into_raw(Box::new(val)) as LogosHandle; }} LogosStatus::Ok }}").unwrap();
+                        writeln!(out, "        Err(e) => {{ logos_set_last_error(e.to_string()); LogosStatus::DeserializationFailed }}").unwrap();
+                        writeln!(out, "    }}").unwrap();
+                        writeln!(out, "}}\n").unwrap();
+                    }
+
+                    // free
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_free(handle: LogosHandle) {{", mangled_struct).unwrap();
+                    writeln!(out, "    if !handle.is_null() {{").unwrap();
+                    writeln!(out, "        unsafe {{ drop(Box::from_raw(handle as *mut {})); }}", rust_struct_name).unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+                }
+                Some(TypeDef::Enum { variants, .. }) => {
+                    let mangled_enum = type_name.to_lowercase();
+                    let rust_enum_name = type_name.to_string();
+
+                    // tag accessor
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_tag(handle: LogosHandle) -> i32 {{", mangled_enum).unwrap();
+                    writeln!(out, "    let obj = unsafe {{ &*(handle as *const {}) }};", rust_enum_name).unwrap();
+                    writeln!(out, "    match obj {{").unwrap();
+                    for (i, variant) in variants.iter().enumerate() {
+                        let vname = interner.resolve(variant.name);
+                        if variant.fields.is_empty() {
+                            writeln!(out, "        {}::{} => {},", rust_enum_name, vname, i).unwrap();
+                        } else {
+                            writeln!(out, "        {}::{}{{ .. }} => {},", rust_enum_name, vname, i).unwrap();
+                        }
+                    }
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+
+                    // per-variant per-field accessors
+                    for variant in variants {
+                        let vname = interner.resolve(variant.name);
+                        let vname_lower = vname.to_lowercase();
+                        for field in &variant.fields {
+                            let fname = interner.resolve(field.name);
+                            let is_field_text = match &field.ty {
+                                FieldType::Primitive(s) | FieldType::Named(s) => {
+                                    let n = interner.resolve(*s);
+                                    n == "Text" || n == "String"
+                                }
+                                _ => false,
+                            };
+
+                            writeln!(out, "#[no_mangle]").unwrap();
+                            if is_field_text {
+                                writeln!(out, "pub extern \"C\" fn logos_{}_{}_{fname}(handle: LogosHandle) -> *mut std::os::raw::c_char {{",
+                                    mangled_enum, vname_lower, fname = fname).unwrap();
+                                writeln!(out, "    let obj = unsafe {{ &*(handle as *const {}) }};", rust_enum_name).unwrap();
+                                writeln!(out, "    if let {}::{} {{ {fname}, .. }} = obj {{", rust_enum_name, vname, fname = fname).unwrap();
+                                writeln!(out, "        match std::ffi::CString::new({fname}.clone()) {{", fname = fname).unwrap();
+                                writeln!(out, "            Ok(cstr) => cstr.into_raw(),").unwrap();
+                                writeln!(out, "            Err(_) => {{ logos_set_last_error(\"Field contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+                                writeln!(out, "        }}").unwrap();
+                                writeln!(out, "    }} else {{ std::ptr::null_mut() }}").unwrap();
+                                writeln!(out, "}}\n").unwrap();
+                            } else {
+                                let field_rust_type = match &field.ty {
+                                    FieldType::Primitive(s) | FieldType::Named(s) => {
+                                        let n = interner.resolve(*s);
+                                        match n {
+                                            "Int" => "i64",
+                                            "Nat" => "u64",
+                                            "Real" | "Float" => "f64",
+                                            "Bool" | "Boolean" => "bool",
+                                            "Byte" => "u8",
+                                            "Char" => "char",
+                                            _ => n,
+                                        }
+                                    }
+                                    _ => "LogosHandle",
+                                };
+                                writeln!(out, "pub extern \"C\" fn logos_{}_{}_{fname}(handle: LogosHandle) -> {} {{",
+                                    mangled_enum, vname_lower, field_rust_type, fname = fname).unwrap();
+                                writeln!(out, "    let obj = unsafe {{ &*(handle as *const {}) }};", rust_enum_name).unwrap();
+                                writeln!(out, "    if let {}::{} {{ {fname}, .. }} = obj {{", rust_enum_name, vname, fname = fname).unwrap();
+                                writeln!(out, "        {fname}.clone()", fname = fname).unwrap();
+                                writeln!(out, "    }} else {{ Default::default() }}").unwrap();
+                                writeln!(out, "}}\n").unwrap();
+                            }
+                        }
+                    }
+
+                    // free
+                    writeln!(out, "#[no_mangle]").unwrap();
+                    writeln!(out, "pub extern \"C\" fn logos_{}_free(handle: LogosHandle) {{", mangled_enum).unwrap();
+                    writeln!(out, "    if !handle.is_null() {{").unwrap();
+                    writeln!(out, "        unsafe {{ drop(Box::from_raw(handle as *mut {})); }}", rust_enum_name).unwrap();
+                    writeln!(out, "    }}").unwrap();
+                    writeln!(out, "}}\n").unwrap();
+                }
+                _ => {}
+            }
+        }
+        _ => {}
+    }
+
+    out
+}
+
+/// Collect all unique reference types that appear in C-exported function signatures.
+/// Used to emit accessor functions once per type.
+fn collect_c_export_reference_types<'a>(
+    stmts: &'a [Stmt<'a>],
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> Vec<&'a TypeExpr<'a>> {
+    let mut seen = HashSet::new();
+    let mut types = Vec::new();
+
+    for stmt in stmts {
+        if let Stmt::FunctionDef { is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { continue; }
+
+            for (_, ty) in params.iter() {
+                if classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType {
+                    let mangled = mangle_type_for_c(ty, interner);
+                    if seen.insert(mangled) {
+                        types.push(*ty);
+                    }
+                }
+            }
+            if let Some(ty) = return_type {
+                if classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType {
+                    let mangled = mangle_type_for_c(ty, interner);
+                    if seen.insert(mangled) {
+                        types.push(*ty);
+                    }
+                }
+            }
+        }
+    }
+
+    types
+}
+
+/// Generate the C header (.h) content for all C-exported functions.
+///
+/// Includes:
+/// - Runtime types (logos_status_t, logos_handle_t)
+/// - Runtime functions (logos_get_last_error, logos_clear_error, logos_free_string)
+/// - Value-type struct definitions
+/// - Exported function declarations
+/// - Accessor function declarations for reference types
+pub fn generate_c_header(
+    stmts: &[Stmt],
+    module_name: &str,
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> String {
+    let mut out = String::new();
+    let guard = module_name.to_uppercase().replace('-', "_");
+
+    writeln!(out, "// Generated from {}.lg — LogicAffeine Universal ABI", module_name).unwrap();
+    writeln!(out, "#ifndef {}_H", guard).unwrap();
+    writeln!(out, "#define {}_H\n", guard).unwrap();
+    writeln!(out, "#include <stdint.h>").unwrap();
+    writeln!(out, "#include <stdbool.h>").unwrap();
+    writeln!(out, "#include <stddef.h>\n").unwrap();
+
+    writeln!(out, "#ifdef __cplusplus").unwrap();
+    writeln!(out, "extern \"C\" {{").unwrap();
+    writeln!(out, "#endif\n").unwrap();
+
+    // Runtime types
+    writeln!(out, "// ═══ Runtime ═══").unwrap();
+    writeln!(out, "typedef enum {{").unwrap();
+    writeln!(out, "    LOGOS_STATUS_OK = 0,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_ERROR = 1,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_REFINEMENT_VIOLATION = 2,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_NULL_POINTER = 3,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_OUT_OF_BOUNDS = 4,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_DESERIALIZATION_FAILED = 5,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_INVALID_HANDLE = 6,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_CONTAINS_NULL_BYTE = 7,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_THREAD_PANIC = 8,").unwrap();
+    writeln!(out, "    LOGOS_STATUS_MEMORY_EXHAUSTED = 9,").unwrap();
+    writeln!(out, "}} logos_status_t;\n").unwrap();
+    writeln!(out, "typedef const void* logos_handle_t;\n").unwrap();
+    writeln!(out, "const char* logos_last_error(void);").unwrap();
+    writeln!(out, "const char* logos_get_last_error(void);").unwrap();
+    writeln!(out, "void logos_clear_error(void);").unwrap();
+    writeln!(out, "void logos_free_string(char* str);\n").unwrap();
+
+    writeln!(out, "#define LOGOS_ABI_VERSION 1").unwrap();
+    writeln!(out, "const char* logos_version(void);").unwrap();
+    writeln!(out, "uint32_t logos_abi_version(void);\n").unwrap();
+
+    // Collect value-type user structs used in exports
+    let mut emitted_structs = HashSet::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { continue; }
+
+            // Check params and return for user struct types
+            let all_types: Vec<&TypeExpr> = params.iter()
+                .map(|(_, ty)| *ty)
+                .chain(return_type.iter().copied())
+                .collect();
+
+            for ty in all_types {
+                if let TypeExpr::Primitive(sym) | TypeExpr::Named(sym) = ty {
+                    if classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ValueType {
+                        if let Some(TypeDef::Struct { fields, .. }) = registry.get(*sym) {
+                            let name = interner.resolve(*sym);
+                            if emitted_structs.insert(name.to_string()) {
+                                writeln!(out, "// ═══ Value Types ═══").unwrap();
+                                writeln!(out, "typedef struct {{").unwrap();
+                                for field in fields {
+                                    let c_type = map_field_type_to_c(&field.ty, interner);
+                                    writeln!(out, "    {} {};", c_type, interner.resolve(field.name)).unwrap();
+                                }
+                                writeln!(out, "}} {};\n", name).unwrap();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Exported function declarations
+    writeln!(out, "// ═══ Exported Functions ═══").unwrap();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { continue; }
+
+            let func_name = interner.resolve(*name);
+            let has_ref_params = params.iter().any(|(_, ty)| {
+                classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType
+            });
+            let has_ref_return = return_type.map_or(false, |ty| {
+                classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType
+            });
+            let has_result_return = return_type.map_or(false, |ty| is_result_type(ty, interner));
+
+            if has_ref_params || has_ref_return || has_result_return {
+                // Status-code signature with out-parameters
+                let mut c_params = Vec::new();
+                for (pname, ptype) in params.iter() {
+                    let pn = interner.resolve(*pname);
+                    if classify_type_for_c_abi(ptype, interner, registry) == CAbiClass::ReferenceType {
+                        c_params.push(format!("logos_handle_t {}", pn));
+                    } else {
+                        c_params.push(format!("{} {}", map_type_to_c_header(ptype, interner, false), pn));
+                    }
+                }
+                // Out parameter for return value
+                if let Some(ret_ty) = return_type {
+                    if is_result_type(ret_ty, interner) {
+                        // Result<T, E>: out param for T
+                        if let TypeExpr::Generic { params: ref rparams, .. } = ret_ty {
+                            if !rparams.is_empty() {
+                                let ok_ty = &rparams[0];
+                                if classify_type_for_c_abi(ok_ty, interner, registry) == CAbiClass::ReferenceType {
+                                    c_params.push("logos_handle_t* out".to_string());
+                                } else {
+                                    c_params.push(format!("{}* out", map_type_to_c_header(ok_ty, interner, false)));
+                                }
+                            }
+                        }
+                    } else if classify_type_for_c_abi(ret_ty, interner, registry) == CAbiClass::ReferenceType {
+                        c_params.push("logos_handle_t* out".to_string());
+                    }
+                }
+                writeln!(out, "logos_status_t {}({});", func_name, c_params.join(", ")).unwrap();
+            } else {
+                // Direct value return
+                let c_params: Vec<String> = params.iter()
+                    .map(|(pname, ptype)| {
+                        format!("{} {}", map_type_to_c_header(ptype, interner, false), interner.resolve(*pname))
+                    })
+                    .collect();
+                let ret = return_type
+                    .map(|ty| map_type_to_c_header(ty, interner, true))
+                    .unwrap_or_else(|| "void".to_string());
+                writeln!(out, "{} {}({});", ret, func_name, c_params.join(", ")).unwrap();
+            }
+        }
+    }
+    writeln!(out).unwrap();
+
+    // Accessor function declarations for reference types
+    let ref_types = collect_c_export_reference_types(stmts, interner, registry);
+    if !ref_types.is_empty() {
+        for ref_ty in &ref_types {
+            let mangled = mangle_type_for_c(ref_ty, interner);
+            writeln!(out, "// ═══ {} Accessors ═══", mangled).unwrap();
+
+            match ref_ty {
+                TypeExpr::Generic { base, params } => {
+                    let base_name = interner.resolve(*base);
+                    match base_name {
+                        "Seq" | "List" | "Vec" if !params.is_empty() => {
+                            let is_inner_text = is_text_type(&params[0], interner);
+                            writeln!(out, "size_t logos_{}_len(logos_handle_t handle);", mangled).unwrap();
+                            if is_inner_text {
+                                writeln!(out, "char* logos_{}_at(logos_handle_t handle, size_t index);", mangled).unwrap();
+                            } else {
+                                let inner_c = map_type_to_c_header(&params[0], interner, false);
+                                writeln!(out, "logos_status_t logos_{}_at(logos_handle_t handle, size_t index, {}* out);", mangled, inner_c).unwrap();
+                            }
+                            writeln!(out, "logos_handle_t logos_{}_create(void);", mangled).unwrap();
+                            if is_inner_text {
+                                writeln!(out, "void logos_{}_push(logos_handle_t handle, const char* value);", mangled).unwrap();
+                            } else {
+                                let inner_c = map_type_to_c_header(&params[0], interner, false);
+                                writeln!(out, "void logos_{}_push(logos_handle_t handle, {} value);", mangled, inner_c).unwrap();
+                            }
+                            writeln!(out, "char* logos_{}_to_json(logos_handle_t handle);", mangled).unwrap();
+                            writeln!(out, "void logos_{}_free(logos_handle_t handle);", mangled).unwrap();
+                        }
+                        "Map" | "HashMap" if params.len() >= 2 => {
+                            let is_key_text = is_text_type(&params[0], interner);
+                            let is_val_text = is_text_type(&params[1], interner);
+                            writeln!(out, "size_t logos_{}_len(logos_handle_t handle);", mangled).unwrap();
+                            if is_key_text {
+                                if is_val_text {
+                                    writeln!(out, "char* logos_{}_get(logos_handle_t handle, const char* key);", mangled).unwrap();
+                                } else {
+                                    let val_c = map_type_to_c_header(&params[1], interner, false);
+                                    writeln!(out, "logos_status_t logos_{}_get(logos_handle_t handle, const char* key, {}* out);", mangled, val_c).unwrap();
+                                }
+                            }
+                            writeln!(out, "logos_handle_t logos_{}_keys(logos_handle_t handle);", mangled).unwrap();
+                            writeln!(out, "logos_handle_t logos_{}_values(logos_handle_t handle);", mangled).unwrap();
+                            writeln!(out, "logos_handle_t logos_{}_create(void);", mangled).unwrap();
+                            if is_key_text {
+                                let val_c = if is_val_text { "const char*".to_string() } else { map_type_to_c_header(&params[1], interner, false) };
+                                writeln!(out, "void logos_{}_insert(logos_handle_t handle, const char* key, {} value);", mangled, val_c).unwrap();
+                            }
+                            writeln!(out, "void logos_{}_free(logos_handle_t handle);", mangled).unwrap();
+                        }
+                        "Set" | "HashSet" if !params.is_empty() => {
+                            let is_inner_text = is_text_type(&params[0], interner);
+                            writeln!(out, "size_t logos_{}_len(logos_handle_t handle);", mangled).unwrap();
+                            if is_inner_text {
+                                writeln!(out, "bool logos_{}_contains(logos_handle_t handle, const char* value);", mangled).unwrap();
+                            } else {
+                                let inner_c = map_type_to_c_header(&params[0], interner, false);
+                                writeln!(out, "bool logos_{}_contains(logos_handle_t handle, {} value);", mangled, inner_c).unwrap();
+                            }
+                            writeln!(out, "logos_handle_t logos_{}_create(void);", mangled).unwrap();
+                            if is_inner_text {
+                                writeln!(out, "void logos_{}_insert(logos_handle_t handle, const char* value);", mangled).unwrap();
+                            } else {
+                                let inner_c = map_type_to_c_header(&params[0], interner, false);
+                                writeln!(out, "void logos_{}_insert(logos_handle_t handle, {} value);", mangled, inner_c).unwrap();
+                            }
+                            writeln!(out, "void logos_{}_free(logos_handle_t handle);", mangled).unwrap();
+                        }
+                        "Option" if !params.is_empty() => {
+                            let is_inner_text = is_text_type(&params[0], interner);
+                            writeln!(out, "bool logos_{}_is_some(logos_handle_t handle);", mangled).unwrap();
+                            if is_inner_text {
+                                writeln!(out, "char* logos_{}_unwrap(logos_handle_t handle);", mangled).unwrap();
+                            } else {
+                                let inner_c = map_type_to_c_header(&params[0], interner, false);
+                                writeln!(out, "logos_status_t logos_{}_unwrap(logos_handle_t handle, {}* out);", mangled, inner_c).unwrap();
+                            }
+                            writeln!(out, "void logos_{}_free(logos_handle_t handle);", mangled).unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+                TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                    let type_name = interner.resolve(*sym);
+                    match registry.get(*sym) {
+                        Some(TypeDef::Struct { fields, is_portable, .. }) => {
+                            let struct_lower = type_name.to_lowercase();
+                            for field in fields {
+                                let field_name = interner.resolve(field.name);
+                                let is_field_text = match &field.ty {
+                                    FieldType::Primitive(s) | FieldType::Named(s) => {
+                                        let n = interner.resolve(*s);
+                                        n == "Text" || n == "String"
+                                    }
+                                    _ => false,
+                                };
+                                if is_field_text {
+                                    writeln!(out, "char* logos_{}_{}(logos_handle_t handle);", struct_lower, field_name).unwrap();
+                                } else {
+                                    let c_type = map_field_type_to_c(&field.ty, interner);
+                                    writeln!(out, "{} logos_{}_{}(logos_handle_t handle);", c_type, struct_lower, field_name).unwrap();
+                                }
+                            }
+                            if *is_portable {
+                                writeln!(out, "char* logos_{}_to_json(logos_handle_t handle);", struct_lower).unwrap();
+                                writeln!(out, "logos_status_t logos_{}_from_json(const char* json, logos_handle_t* out);", struct_lower).unwrap();
+                            }
+                            writeln!(out, "void logos_{}_free(logos_handle_t handle);", struct_lower).unwrap();
+                        }
+                        Some(TypeDef::Enum { variants, .. }) => {
+                            let enum_lower = type_name.to_lowercase();
+                            // Tag enum constants
+                            writeln!(out, "typedef enum {{").unwrap();
+                            for (i, variant) in variants.iter().enumerate() {
+                                let vname = interner.resolve(variant.name).to_uppercase();
+                                writeln!(out, "    LOGOS_{}_{} = {},", type_name.to_uppercase(), vname, i).unwrap();
+                            }
+                            writeln!(out, "}} logos_{}_tag_t;", enum_lower).unwrap();
+                            writeln!(out, "int32_t logos_{}_tag(logos_handle_t handle);", enum_lower).unwrap();
+                            // Per-variant field accessors
+                            for variant in variants {
+                                let vname = interner.resolve(variant.name);
+                                let vname_lower = vname.to_lowercase();
+                                for field in &variant.fields {
+                                    let fname = interner.resolve(field.name);
+                                    let is_field_text = match &field.ty {
+                                        FieldType::Primitive(s) | FieldType::Named(s) => {
+                                            let n = interner.resolve(*s);
+                                            n == "Text" || n == "String"
+                                        }
+                                        _ => false,
+                                    };
+                                    if is_field_text {
+                                        writeln!(out, "char* logos_{}_{}_{fname}(logos_handle_t handle);", enum_lower, vname_lower, fname = fname).unwrap();
+                                    } else {
+                                        let c_type = map_field_type_to_c(&field.ty, interner);
+                                        writeln!(out, "{} logos_{}_{}_{fname}(logos_handle_t handle);", c_type, enum_lower, vname_lower, fname = fname).unwrap();
+                                    }
+                                }
+                            }
+                            writeln!(out, "void logos_{}_free(logos_handle_t handle);", enum_lower).unwrap();
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+            writeln!(out).unwrap();
+        }
+    }
+
+    writeln!(out, "#ifdef __cplusplus").unwrap();
+    writeln!(out, "}}").unwrap();
+    writeln!(out, "#endif\n").unwrap();
+    writeln!(out, "#endif // {}_H", guard).unwrap();
+
+    out
+}
+
+/// Generate Python ctypes bindings for all C-exported functions.
+pub fn generate_python_bindings(
+    stmts: &[Stmt],
+    module_name: &str,
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> String {
+    let mut out = String::new();
+
+    writeln!(out, "\"\"\"Auto-generated Python bindings for {}.\"\"\"", module_name).unwrap();
+    writeln!(out, "import ctypes").unwrap();
+    writeln!(out, "from ctypes import c_int64, c_double, c_bool, c_char_p, c_void_p, c_uint32, c_size_t, POINTER").unwrap();
+    writeln!(out, "import os\n").unwrap();
+
+    writeln!(out, "class LogosError(Exception):").unwrap();
+    writeln!(out, "    pass\n").unwrap();
+
+    writeln!(out, "class LogosRefinementError(LogosError):").unwrap();
+    writeln!(out, "    pass\n").unwrap();
+
+    let class_name = module_name.chars().next().unwrap_or('M').to_uppercase().to_string()
+        + &module_name[1..];
+
+    writeln!(out, "class {}:", class_name).unwrap();
+    writeln!(out, "    OK = 0").unwrap();
+    writeln!(out, "    ERROR = 1").unwrap();
+    writeln!(out, "    REFINEMENT_VIOLATION = 2").unwrap();
+    writeln!(out, "    NULL_POINTER = 3").unwrap();
+    writeln!(out, "    OUT_OF_BOUNDS = 4\n").unwrap();
+
+    writeln!(out, "    def __init__(self, path=None):").unwrap();
+    writeln!(out, "        if path is None:").unwrap();
+    writeln!(out, "            path = os.path.join(os.path.dirname(__file__), \"lib{}.dylib\")", module_name).unwrap();
+    writeln!(out, "        self._lib = ctypes.CDLL(path)").unwrap();
+    writeln!(out, "        self._setup()\n").unwrap();
+
+    writeln!(out, "    def _check(self, status):").unwrap();
+    writeln!(out, "        if status != self.OK:").unwrap();
+    writeln!(out, "            err = self._lib.logos_get_last_error()").unwrap();
+    writeln!(out, "            msg = err.decode(\"utf-8\") if err else \"Unknown error\"").unwrap();
+    writeln!(out, "            self._lib.logos_clear_error()").unwrap();
+    writeln!(out, "            if status == self.REFINEMENT_VIOLATION:").unwrap();
+    writeln!(out, "                raise LogosRefinementError(msg)").unwrap();
+    writeln!(out, "            raise LogosError(msg)\n").unwrap();
+
+    // _setup method
+    writeln!(out, "    def _setup(self):").unwrap();
+    writeln!(out, "        self._lib.logos_get_last_error.restype = c_char_p").unwrap();
+    writeln!(out, "        self._lib.logos_clear_error.restype = None").unwrap();
+    writeln!(out, "        self._lib.logos_free_string.argtypes = [c_char_p]").unwrap();
+    writeln!(out, "        self._lib.logos_free_string.restype = None").unwrap();
+
+    // Per-function setup
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { continue; }
+
+            let func_name = interner.resolve(*name);
+            let mut argtypes = Vec::new();
+            for (_, ptype) in params.iter() {
+                argtypes.push(python_ctypes_type(ptype, interner, registry));
+            }
+            let restype = return_type
+                .map(|ty| python_ctypes_type(ty, interner, registry))
+                .unwrap_or_else(|| "None".to_string());
+
+            writeln!(out, "        self._lib.{}.argtypes = [{}]", func_name, argtypes.join(", ")).unwrap();
+            writeln!(out, "        self._lib.{}.restype = {}", func_name, restype).unwrap();
+        }
+    }
+    writeln!(out).unwrap();
+
+    // Per-function wrapper methods
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { continue; }
+
+            let func_name = interner.resolve(*name);
+            let param_names: Vec<String> = params.iter()
+                .map(|(pname, _)| interner.resolve(*pname).to_string())
+                .collect();
+            let type_hints: Vec<String> = params.iter()
+                .map(|(pname, ptype)| {
+                    format!("{}: {}", interner.resolve(*pname), python_type_hint(ptype, interner))
+                })
+                .collect();
+            let ret_hint = return_type
+                .map(|ty| format!(" -> {}", python_type_hint(ty, interner)))
+                .unwrap_or_default();
+
+            writeln!(out, "    def {}(self, {}){}:", func_name, type_hints.join(", "), ret_hint).unwrap();
+            writeln!(out, "        return self._lib.{}({})", func_name, param_names.join(", ")).unwrap();
+            writeln!(out).unwrap();
+        }
+    }
+
+    out
+}
+
+fn python_ctypes_type(ty: &TypeExpr, interner: &Interner, registry: &TypeRegistry) -> String {
+    match classify_type_for_c_abi(ty, interner, registry) {
+        CAbiClass::ReferenceType => "c_void_p".to_string(),
+        CAbiClass::ValueType => {
+            match ty {
+                TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                    let name = interner.resolve(*sym);
+                    match name {
+                        "Int" => "c_int64".to_string(),
+                        "Nat" => "c_uint32".to_string(),
+                        "Real" | "Float" => "c_double".to_string(),
+                        "Bool" | "Boolean" => "c_bool".to_string(),
+                        "Text" | "String" => "c_char_p".to_string(),
+                        _ => "c_void_p".to_string(),
+                    }
+                }
+                _ => "c_void_p".to_string(),
+            }
+        }
+    }
+}
+
+fn python_type_hint(ty: &TypeExpr, interner: &Interner) -> String {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                "Int" | "Nat" => "int".to_string(),
+                "Real" | "Float" => "float".to_string(),
+                "Bool" | "Boolean" => "bool".to_string(),
+                "Text" | "String" => "str".to_string(),
+                other => other.to_string(),
+            }
+        }
+        _ => "object".to_string(),
+    }
+}
+
+/// Generate TypeScript type declarations (.d.ts) and FFI bindings (.js).
+pub fn generate_typescript_bindings(
+    stmts: &[Stmt],
+    module_name: &str,
+    interner: &Interner,
+    registry: &TypeRegistry,
+) -> (String, String) {
+    let mut dts = String::new();
+    let mut js = String::new();
+
+    // .d.ts
+    writeln!(dts, "// Auto-generated TypeScript definitions for {}", module_name).unwrap();
+    let mut ffi_entries = Vec::new();
+
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, is_exported: true, export_target, params, return_type, .. } = stmt {
+            let is_c = match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            };
+            if !is_c { continue; }
+
+            let func_name = interner.resolve(*name);
+            let ts_params: Vec<String> = params.iter()
+                .map(|(pname, ptype)| format!("{}: {}", interner.resolve(*pname), typescript_type(ptype, interner)))
+                .collect();
+            let ts_ret = return_type
+                .map(|ty| typescript_type(ty, interner))
+                .unwrap_or_else(|| "void".to_string());
+            writeln!(dts, "export declare function {}({}): {};", func_name, ts_params.join(", "), ts_ret).unwrap();
+
+            // Collect FFI entries for .js
+            let ffi_params: Vec<String> = params.iter()
+                .map(|(_, ptype)| ffi_napi_type(ptype, interner, registry))
+                .collect();
+            let ffi_ret = return_type
+                .map(|ty| ffi_napi_type(ty, interner, registry))
+                .unwrap_or_else(|| "'void'".to_string());
+            ffi_entries.push((func_name.to_string(), ffi_ret, ffi_params));
+        }
+    }
+
+    // .js
+    writeln!(js, "const ffi = require('ffi-napi');").unwrap();
+    writeln!(js, "const ref = require('ref-napi');").unwrap();
+    writeln!(js, "const path = require('path');\n").unwrap();
+    writeln!(js, "const libPath = path.join(__dirname, 'lib{}');", module_name).unwrap();
+    writeln!(js, "const lib = ffi.Library(libPath, {{").unwrap();
+    writeln!(js, "  'logos_get_last_error': ['string', []],").unwrap();
+    writeln!(js, "  'logos_clear_error': ['void', []],").unwrap();
+    writeln!(js, "  'logos_free_string': ['void', ['pointer']],").unwrap();
+    for (fname, ffi_ret, ffi_params) in &ffi_entries {
+        writeln!(js, "  '{}': [{}, [{}]],", fname, ffi_ret, ffi_params.join(", ")).unwrap();
+    }
+    writeln!(js, "}});\n").unwrap();
+
+    writeln!(js, "function checkStatus(status) {{").unwrap();
+    writeln!(js, "  if (status !== 0) {{").unwrap();
+    writeln!(js, "    const err = lib.logos_get_last_error();").unwrap();
+    writeln!(js, "    lib.logos_clear_error();").unwrap();
+    writeln!(js, "    throw new Error(err || 'Unknown LogicAffeine error');").unwrap();
+    writeln!(js, "  }}").unwrap();
+    writeln!(js, "}}\n").unwrap();
+
+    for (fname, _, _) in &ffi_entries {
+        // Simple passthrough exports
+        let params_from_stmts = stmts.iter().find_map(|s| {
+            if let Stmt::FunctionDef { name, is_exported: true, params, .. } = s {
+                if interner.resolve(*name) == fname.as_str() {
+                    Some(params)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
+        if let Some(params) = params_from_stmts {
+            let param_names: Vec<String> = params.iter()
+                .map(|(pname, _)| interner.resolve(*pname).to_string())
+                .collect();
+            writeln!(js, "module.exports.{} = ({}) => lib.{}({});", fname, param_names.join(", "), fname, param_names.join(", ")).unwrap();
+        }
+    }
+
+    (js, dts)
+}
+
+fn typescript_type(ty: &TypeExpr, interner: &Interner) -> String {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                "Int" | "Nat" | "Real" | "Float" | "Byte" => "number".to_string(),
+                "Bool" | "Boolean" => "boolean".to_string(),
+                "Text" | "String" | "Char" => "string".to_string(),
+                "Unit" => "void".to_string(),
+                other => other.to_string(),
+            }
+        }
+        TypeExpr::Generic { base, params } => {
+            let base_name = interner.resolve(*base);
+            match base_name {
+                "Seq" | "List" | "Vec" if !params.is_empty() => {
+                    format!("{}[]", typescript_type(&params[0], interner))
+                }
+                "Option" if !params.is_empty() => {
+                    format!("{} | null", typescript_type(&params[0], interner))
+                }
+                _ => "any".to_string(),
+            }
+        }
+        _ => "any".to_string(),
+    }
+}
+
+fn ffi_napi_type(ty: &TypeExpr, interner: &Interner, registry: &TypeRegistry) -> String {
+    match classify_type_for_c_abi(ty, interner, registry) {
+        CAbiClass::ReferenceType => "'pointer'".to_string(),
+        CAbiClass::ValueType => {
+            match ty {
+                TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+                    let name = interner.resolve(*sym);
+                    match name {
+                        "Int" => "'int64'".to_string(),
+                        "Nat" => "'uint64'".to_string(),
+                        "Real" | "Float" => "'double'".to_string(),
+                        "Bool" | "Boolean" => "'bool'".to_string(),
+                        "Text" | "String" => "'string'".to_string(),
+                        _ => "'pointer'".to_string(),
+                    }
+                }
+                _ => "'pointer'".to_string(),
+            }
+        }
+    }
+}
+
+/// Map a TypeExpr to its C header type representation.
+fn map_type_to_c_header(ty: &TypeExpr, interner: &Interner, is_return: bool) -> String {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                "Int" => "int64_t".to_string(),
+                "Nat" => "uint64_t".to_string(),
+                "Real" | "Float" => "double".to_string(),
+                "Bool" | "Boolean" => "bool".to_string(),
+                "Byte" => "uint8_t".to_string(),
+                "Char" => "uint32_t".to_string(), // UTF-32 char
+                "Text" | "String" => {
+                    if is_return { "char*".to_string() } else { "const char*".to_string() }
+                }
+                "Unit" => "void".to_string(),
+                other => other.to_string(), // User struct name
+            }
+        }
+        TypeExpr::Refinement { base, .. } => map_type_to_c_header(base, interner, is_return),
+        TypeExpr::Generic { .. } => "logos_handle_t".to_string(),
+        _ => "logos_handle_t".to_string(),
+    }
+}
+
+/// Map a FieldType (from TypeRegistry) to a C header type string.
+fn map_field_type_to_c(ft: &FieldType, interner: &Interner) -> String {
+    match ft {
+        FieldType::Primitive(sym) | FieldType::Named(sym) => {
+            let name = interner.resolve(*sym);
+            match name {
+                "Int" => "int64_t".to_string(),
+                "Nat" => "uint64_t".to_string(),
+                "Real" | "Float" => "double".to_string(),
+                "Bool" | "Boolean" => "bool".to_string(),
+                "Byte" => "uint8_t".to_string(),
+                "Char" => "uint32_t".to_string(),
+                "Text" | "String" => "const char*".to_string(),
+                other => other.to_string(),
+            }
+        }
+        FieldType::Generic { .. } => "logos_handle_t".to_string(),
+        FieldType::TypeParam(_) => "logos_handle_t".to_string(),
+    }
+}
+
+/// Check if a TypeExpr is a Result type.
+fn is_result_type(ty: &TypeExpr, interner: &Interner) -> bool {
+    if let TypeExpr::Generic { base, .. } = ty {
+        interner.resolve(*base) == "Result"
+    } else {
+        false
+    }
 }
 
 /// Phase 51: Detect if any statements require async execution.
@@ -992,6 +2429,10 @@ fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
                 collect_expr_identifiers(value, identifiers);
             }
         }
+        Expr::OptionSome { value } => {
+            collect_expr_identifiers(value, identifiers);
+        }
+        Expr::OptionNone => {}
         Expr::Escape { .. } => {}
         Expr::Literal(_) => {}
     }
@@ -1082,6 +2523,12 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         writeln!(output, "use std::ffi::{{CStr, CString}};\n").unwrap();
     }
 
+    // Universal ABI: Emit LogosStatus runtime preamble if any C exports exist
+    let c_exports_exist = has_c_exports(stmts, interner);
+    if c_exports_exist {
+        output.push_str(&codegen_logos_runtime_preamble());
+    }
+
     // Phase 49: Collect CRDT register fields for special SetField handling
     // LWW fields need timestamp, MV fields don't
     let (lww_fields, mv_fields) = collect_crdt_register_fields(registry, interner);
@@ -1149,6 +2596,14 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native, native_path, is_exported, export_target } = stmt {
             output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry));
+        }
+    }
+
+    // Universal ABI: Emit accessor/free functions for reference types in C exports
+    if c_exports_exist {
+        let ref_types = collect_c_export_reference_types(stmts, interner, registry);
+        for ref_ty in &ref_types {
+            output.push_str(&codegen_c_accessors(ref_ty, interner, registry));
         }
     }
 
@@ -1241,11 +2696,23 @@ fn codegen_function_def(
     let export_target_str = export_target.map(|s| interner.resolve(s).to_lowercase());
     let is_c_export = is_exported && matches!(export_target_str.as_deref(), None | Some("c"));
 
-    // FFI: Check if C export needs type marshaling (Text params/return)
+    // FFI: Check if C export needs type marshaling
+    // Triggers for: Text params/return, reference types, Result return, refinement params
     let needs_c_marshaling = is_c_export && {
         let has_text_param = params.iter().any(|(_, ty)| is_text_type(ty, interner));
         let has_text_return = return_type.map_or(false, |ty| is_text_type(ty, interner));
-        has_text_param || has_text_return
+        let has_ref_param = params.iter().any(|(_, ty)| {
+            classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType
+        });
+        let has_ref_return = return_type.map_or(false, |ty| {
+            classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType
+        });
+        let has_result_return = return_type.map_or(false, |ty| is_result_type(ty, interner));
+        let has_refinement_param = params.iter().any(|(_, ty)| {
+            matches!(ty, TypeExpr::Refinement { .. })
+        });
+        has_text_param || has_text_return || has_ref_param || has_ref_return
+            || has_result_return || has_refinement_param
     };
 
     if needs_c_marshaling {
@@ -1329,6 +2796,13 @@ fn codegen_function_def(
         // Grand Challenge: Collect mutable vars for this function
         let func_mutable_vars = collect_mutable_vars(body);
         writeln!(output, "{} {{", signature).unwrap();
+
+        // Wrap exported C functions in catch_unwind for panic safety
+        let wrap_catch_unwind = is_c_export;
+        if wrap_catch_unwind {
+            writeln!(output, "    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {{").unwrap();
+        }
+
         let mut func_ctx = RefinementContext::new();
         let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
         // Phase 56: Pre-scan for Mount+Sync combinations in function body
@@ -1346,6 +2820,23 @@ fn codegen_function_def(
         for stmt in body {
             output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
         }
+
+        if wrap_catch_unwind {
+            writeln!(output, "    }})) {{").unwrap();
+            writeln!(output, "        Ok(__v) => __v,").unwrap();
+            writeln!(output, "        Err(__panic) => {{").unwrap();
+            writeln!(output, "            let __msg = if let Some(s) = __panic.downcast_ref::<String>() {{ s.clone() }} else if let Some(s) = __panic.downcast_ref::<&str>() {{ s.to_string() }} else {{ \"Unknown panic\".to_string() }};").unwrap();
+            writeln!(output, "            logos_set_last_error(__msg);").unwrap();
+            // Determine default for panic case based on return type
+            if let Some(ref ret_str) = return_type_str {
+                if ret_str != "()" {
+                    writeln!(output, "            Default::default()").unwrap();
+                }
+            }
+            writeln!(output, "        }}").unwrap();
+            writeln!(output, "    }}").unwrap();
+        }
+
         writeln!(output, "}}\n").unwrap();
     }
 
@@ -1394,8 +2885,15 @@ fn map_type_to_c_abi(ty: &TypeExpr, interner: &Interner, is_return: bool) -> Str
     }
 }
 
-/// FFI: Generate a C-exported function with type marshaling for Text params/returns.
+/// FFI: Generate a C-exported function with Universal ABI marshaling.
+///
 /// Produces: 1) an inner function with normal Rust types, 2) a #[no_mangle] extern "C" wrapper.
+///
+/// The wrapper handles:
+/// - Text param/return marshaling (*const c_char ↔ String)
+/// - Reference type params/returns via opaque LogosHandle
+/// - Result<T, E> returns via status code + out-parameter
+/// - Refinement type boundary guards
 fn codegen_c_export_with_marshaling(
     name: Symbol,
     params: &[(Symbol, &TypeExpr)],
@@ -1411,6 +2909,20 @@ fn codegen_c_export_with_marshaling(
     let mut output = String::new();
     let func_name = interner.resolve(name);
     let inner_name = format!("{}_inner", func_name);
+
+    // Classify return type
+    let has_ref_return = return_type.map_or(false, |ty| {
+        classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType
+    });
+    let has_result_return = return_type.map_or(false, |ty| is_result_type(ty, interner));
+    let has_text_return = return_type.map_or(false, |t| is_text_type(t, interner));
+
+    // Determine if we need status-code return pattern
+    let uses_status_code = has_ref_return || has_result_return
+        || params.iter().any(|(_, ty)| {
+            classify_type_for_c_abi(ty, interner, registry) == CAbiClass::ReferenceType
+        })
+        || params.iter().any(|(_, ty)| matches!(ty, TypeExpr::Refinement { .. }));
 
     // 1) Emit the inner function with normal Rust types
     let inner_params: Vec<String> = params.iter()
@@ -1445,17 +2957,55 @@ fn codegen_c_export_with_marshaling(
     }
     writeln!(output, "}}\n").unwrap();
 
-    // 2) Emit the #[no_mangle] extern "C" wrapper with C ABI types
-    let c_params: Vec<String> = params.iter()
-        .map(|(pname, ptype)| {
-            format!("{}: {}", interner.resolve(*pname), map_type_to_c_abi(ptype, interner, false))
-        })
-        .collect();
-    let c_ret = return_type.map(|t| map_type_to_c_abi(t, interner, true));
+    // 2) Build the C ABI wrapper parameters
+    let mut c_params: Vec<String> = Vec::new();
 
-    let c_sig = if let Some(ref ret) = c_ret {
-        if ret != "()" {
-            format!("pub extern \"C\" fn {}({}) -> {}", func_name, c_params.join(", "), ret)
+    for (pname, ptype) in params.iter() {
+        let pn = interner.resolve(*pname);
+        if classify_type_for_c_abi(ptype, interner, registry) == CAbiClass::ReferenceType {
+            c_params.push(format!("{}: LogosHandle", pn));
+        } else if is_text_type(ptype, interner) {
+            c_params.push(format!("{}: *const std::os::raw::c_char", pn));
+        } else {
+            c_params.push(format!("{}: {}", pn, codegen_type_expr(ptype, interner)));
+        }
+    }
+
+    // Add out-parameter if using status-code pattern with return value
+    if uses_status_code {
+        if let Some(ret_ty) = return_type {
+            if has_result_return {
+                // Result<T, E>: out param for the Ok(T) type
+                if let TypeExpr::Generic { params: ref rparams, .. } = ret_ty {
+                    if !rparams.is_empty() {
+                        let ok_ty = &rparams[0];
+                        if classify_type_for_c_abi(ok_ty, interner, registry) == CAbiClass::ReferenceType {
+                            c_params.push("out: *mut LogosHandle".to_string());
+                        } else if is_text_type(ok_ty, interner) {
+                            c_params.push("out: *mut *mut std::os::raw::c_char".to_string());
+                        } else {
+                            let ty_str = codegen_type_expr(ok_ty, interner);
+                            c_params.push(format!("out: *mut {}", ty_str));
+                        }
+                    }
+                }
+            } else if has_ref_return {
+                c_params.push("out: *mut LogosHandle".to_string());
+            } else if has_text_return {
+                c_params.push("out: *mut *mut std::os::raw::c_char".to_string());
+            }
+        }
+    }
+
+    // Build the wrapper signature
+    let c_sig = if uses_status_code {
+        format!("pub extern \"C\" fn {}({}) -> LogosStatus", func_name, c_params.join(", "))
+    } else if has_text_return {
+        format!("pub extern \"C\" fn {}({}) -> *mut std::os::raw::c_char", func_name, c_params.join(", "))
+    } else if let Some(ret_ty) = return_type {
+        let ret_str = codegen_type_expr(ret_ty, interner);
+        if ret_str != "()" {
+            format!("pub extern \"C\" fn {}({}) -> {}", func_name, c_params.join(", "), ret_str)
         } else {
             format!("pub extern \"C\" fn {}({})", func_name, c_params.join(", "))
         }
@@ -1466,27 +3016,136 @@ fn codegen_c_export_with_marshaling(
     writeln!(output, "#[no_mangle]").unwrap();
     writeln!(output, "{} {{", c_sig).unwrap();
 
-    // Convert Text params: *const c_char → String
+    // 3) Marshal parameters
     let call_args: Vec<String> = params.iter()
         .map(|(pname, ptype)| {
             let pname_str = interner.resolve(*pname);
-            if is_text_type(ptype, interner) {
-                writeln!(output, "    let {pn} = unsafe {{ std::ffi::CStr::from_ptr({pn}).to_string_lossy().into_owned() }};", pn = pname_str).unwrap();
+            if classify_type_for_c_abi(ptype, interner, registry) == CAbiClass::ReferenceType {
+                // Dereference opaque handle → &T, then clone for inner
+                let rust_ty = codegen_type_expr(ptype, interner);
+                writeln!(output, "    let {pn} = unsafe {{ &*({pn} as *const {ty}) }}.clone();",
+                    pn = pname_str, ty = rust_ty).unwrap();
+            } else if is_text_type(ptype, interner) {
+                writeln!(output, "    let {pn} = unsafe {{ std::ffi::CStr::from_ptr({pn}).to_string_lossy().into_owned() }};",
+                    pn = pname_str).unwrap();
             }
             pname_str.to_string()
         })
         .collect();
 
-    // Call inner function
-    let has_text_return = return_type.map_or(false, |t| is_text_type(t, interner));
-    if has_text_return {
+    // 4) Emit refinement guards for parameters
+    for (pname, ptype) in params.iter() {
+        if let TypeExpr::Refinement { base: _, var, predicate } = ptype {
+            let pname_str = interner.resolve(*pname);
+            let bound = interner.resolve(*var);
+            let assertion = codegen_assertion(predicate, interner);
+            let check = if bound == pname_str {
+                assertion
+            } else {
+                replace_word(&assertion, bound, pname_str)
+            };
+            writeln!(output, "    if !({}) {{", check).unwrap();
+            writeln!(output, "        logos_set_last_error(format!(\"Refinement violation: expected {check}, got {pn} = {{}}\", {pn}));",
+                check = check, pn = pname_str).unwrap();
+            writeln!(output, "        return LogosStatus::RefinementViolation;").unwrap();
+            writeln!(output, "    }}").unwrap();
+        }
+    }
+
+    // 5) Determine panic default for catch_unwind error arm
+    let panic_default = if uses_status_code {
+        "LogosStatus::ThreadPanic"
+    } else if has_text_return {
+        "std::ptr::null_mut()"
+    } else if return_type.map_or(false, |t| codegen_type_expr(t, interner) != "()") {
+        "Default::default()"
+    } else {
+        "" // void function
+    };
+
+    // 6) Open catch_unwind panic boundary
+    writeln!(output, "    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {{").unwrap();
+
+    // 7) Call inner and marshal return (inside catch_unwind closure)
+    if uses_status_code {
+        if has_result_return {
+            // Result<T, E>: match on Ok/Err
+            writeln!(output, "    match {}({}) {{", inner_name, call_args.join(", ")).unwrap();
+            writeln!(output, "        Ok(val) => {{").unwrap();
+
+            if let Some(TypeExpr::Generic { params: ref rparams, .. }) = return_type {
+                if !rparams.is_empty() {
+                    let ok_ty = &rparams[0];
+                    if classify_type_for_c_abi(ok_ty, interner, registry) == CAbiClass::ReferenceType {
+                        writeln!(output, "            unsafe {{ *out = Box::into_raw(Box::new(val)) as LogosHandle; }}").unwrap();
+                    } else if is_text_type(ok_ty, interner) {
+                        writeln!(output, "            match std::ffi::CString::new(val) {{").unwrap();
+                        writeln!(output, "                Ok(cstr) => unsafe {{ *out = cstr.into_raw(); }},").unwrap();
+                        writeln!(output, "                Err(_) => {{").unwrap();
+                        writeln!(output, "                    logos_set_last_error(\"Return value contains null byte\".to_string());").unwrap();
+                        writeln!(output, "                    return LogosStatus::ContainsNullByte;").unwrap();
+                        writeln!(output, "                }}").unwrap();
+                        writeln!(output, "            }}").unwrap();
+                    } else {
+                        writeln!(output, "            unsafe {{ *out = val; }}").unwrap();
+                    }
+                }
+            }
+
+            writeln!(output, "            LogosStatus::Ok").unwrap();
+            writeln!(output, "        }}").unwrap();
+            writeln!(output, "        Err(e) => {{").unwrap();
+            writeln!(output, "            logos_set_last_error(format!(\"{{}}\", e));").unwrap();
+            writeln!(output, "            LogosStatus::Error").unwrap();
+            writeln!(output, "        }}").unwrap();
+            writeln!(output, "    }}").unwrap();
+        } else if has_ref_return {
+            // Reference type return → box and write to out-parameter
+            writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
+            writeln!(output, "    unsafe {{ *out = Box::into_raw(Box::new(result)) as LogosHandle; }}").unwrap();
+            writeln!(output, "    LogosStatus::Ok").unwrap();
+        } else if has_text_return {
+            // Text return with status code → write to out-parameter
+            writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
+            writeln!(output, "    match std::ffi::CString::new(result) {{").unwrap();
+            writeln!(output, "        Ok(cstr) => {{").unwrap();
+            writeln!(output, "            unsafe {{ *out = cstr.into_raw(); }}").unwrap();
+            writeln!(output, "            LogosStatus::Ok").unwrap();
+            writeln!(output, "        }}").unwrap();
+            writeln!(output, "        Err(_) => {{").unwrap();
+            writeln!(output, "            logos_set_last_error(\"Return value contains null byte\".to_string());").unwrap();
+            writeln!(output, "            LogosStatus::ContainsNullByte").unwrap();
+            writeln!(output, "        }}").unwrap();
+            writeln!(output, "    }}").unwrap();
+        } else {
+            // No return value but status code (e.g., refinement-only)
+            writeln!(output, "    {}({});", inner_name, call_args.join(", ")).unwrap();
+            writeln!(output, "    LogosStatus::Ok").unwrap();
+        }
+    } else if has_text_return {
+        // Text-only marshaling (legacy path, no status code)
         writeln!(output, "    let result = {}({});", inner_name, call_args.join(", ")).unwrap();
-        writeln!(output, "    std::ffi::CString::new(result).unwrap().into_raw()").unwrap();
+        writeln!(output, "    match std::ffi::CString::new(result) {{").unwrap();
+        writeln!(output, "        Ok(cstr) => cstr.into_raw(),").unwrap();
+        writeln!(output, "        Err(_) => {{ logos_set_last_error(\"Return value contains null byte\".to_string()); std::ptr::null_mut() }}").unwrap();
+        writeln!(output, "    }}").unwrap();
     } else if return_type.is_some() {
         writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
     } else {
         writeln!(output, "    {}({})", inner_name, call_args.join(", ")).unwrap();
     }
+
+    // 8) Close catch_unwind with panic handler
+    writeln!(output, "    }})) {{").unwrap();
+    writeln!(output, "        Ok(__v) => __v,").unwrap();
+    writeln!(output, "        Err(__panic) => {{").unwrap();
+    writeln!(output, "            let __msg = if let Some(s) = __panic.downcast_ref::<String>() {{ s.clone() }} else if let Some(s) = __panic.downcast_ref::<&str>() {{ s.to_string() }} else {{ \"Unknown panic\".to_string() }};").unwrap();
+    writeln!(output, "            logos_set_last_error(__msg);").unwrap();
+    if !panic_default.is_empty() {
+        writeln!(output, "            {}", panic_default).unwrap();
+    }
+    writeln!(output, "        }}").unwrap();
+    writeln!(output, "    }}").unwrap();
 
     writeln!(output, "}}\n").unwrap();
 
@@ -3516,6 +5175,14 @@ fn codegen_expr_boxed_internal(
                     .collect();
                 format!("{}::{} {{ {} }}", enum_str, variant_str, fields_str.join(", "))
             }
+        }
+
+        Expr::OptionSome { value } => {
+            format!("Some({})", recurse!(value))
+        }
+
+        Expr::OptionNone => {
+            "None".to_string()
         }
 
         Expr::Escape { code, .. } => {

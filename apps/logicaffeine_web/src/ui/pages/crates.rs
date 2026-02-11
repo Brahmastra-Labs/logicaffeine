@@ -266,6 +266,12 @@ const CORE_CRATES: &[CrateInfo] = &[
         crates_io: Some("https://crates.io/crates/logicaffeine-compile"),
     },
     CrateInfo {
+        name: "logicaffeine_lsp",
+        description: "Language Server Protocol implementation for IDE integration with diagnostics, completion, and refactoring.",
+        is_core: true,
+        crates_io: Some("https://crates.io/crates/logicaffeine-lsp"),
+    },
+    CrateInfo {
         name: "logicaffeine_kernel",
         description: "Runtime kernel for executing LOGOS programs with built-in inference.",
         is_core: true,

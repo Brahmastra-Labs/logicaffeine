@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-tests"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 publish = false
 
@@ -9,6 +9,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
+verification = []
 
 [dev-dependencies]
 logicaffeine-base = { path = "../logicaffeine_base" }

@@ -46,20 +46,26 @@
 //!
 //! ## Basic Compilation
 //!
-//! ```ignore
-//! let source = "## Main\nLet x be 5.\nShow x to show.";
+//! ```
+//! # use logicaffeine_compile::compile::compile_to_rust;
+//! # use logicaffeine_compile::ParseError;
+//! # fn main() -> Result<(), ParseError> {
+//! let source = "## Main\nLet x be 5.\nShow x.";
 //! let rust_code = compile_to_rust(source)?;
 //! // rust_code contains:
 //! // fn main() {
 //! //     let x = 5;
 //! //     println!("{}", x);
 //! // }
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## With Ownership Checking
 //!
-//! ```ignore
-//! let source = "## Main\nLet x be 5.\nGive x to y.\nShow x to show.";
+//! ```
+//! # use logicaffeine_compile::compile::compile_to_rust_checked;
+//! let source = "## Main\nLet x be 5.\nGive x to y.\nShow x.";
 //! let result = compile_to_rust_checked(source);
 //! // Returns Err: "x has already been given away"
 //! ```
@@ -79,7 +85,7 @@ use crate::analysis::{DiscoveryPass, EscapeChecker, OwnershipChecker, PolicyRegi
 use crate::arena::Arena;
 use crate::arena_ctx::AstContext;
 use crate::ast::{Expr, Stmt, TypeExpr};
-use crate::codegen::codegen_program;
+use crate::codegen::{codegen_program, generate_c_header, generate_python_bindings, generate_typescript_bindings};
 use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
 use crate::drs::WorldState;
 use crate::error::ParseError;
@@ -101,6 +107,14 @@ pub struct CrateDependency {
 pub struct CompileOutput {
     pub rust_code: String,
     pub dependencies: Vec<CrateDependency>,
+    /// Generated C header content (populated when C exports exist).
+    pub c_header: Option<String>,
+    /// Generated Python ctypes bindings (populated when C exports exist).
+    pub python_bindings: Option<String>,
+    /// Generated TypeScript type declarations (.d.ts content, populated when C exports exist).
+    pub typescript_types: Option<String>,
+    /// Generated TypeScript FFI bindings (.js content, populated when C exports exist).
+    pub typescript_bindings: Option<String>,
 }
 
 /// Compile LOGOS source to Rust source code.
@@ -125,10 +139,15 @@ pub struct CompileOutput {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let source = "## Main\nLet x be 5.\nShow x to show.";
+/// ```
+/// # use logicaffeine_compile::compile::compile_to_rust;
+/// # use logicaffeine_compile::ParseError;
+/// # fn main() -> Result<(), ParseError> {
+/// let source = "## Main\nLet x be 5.\nShow x.";
 /// let rust_code = compile_to_rust(source)?;
 /// assert!(rust_code.contains("let x = 5;"));
+/// # Ok(())
+/// # }
 /// ```
 pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     compile_program_full(source).map(|o| o.rust_code)
@@ -218,7 +237,47 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
 
-    Ok(CompileOutput { rust_code, dependencies })
+    // Universal ABI: Generate C header + bindings if any C exports exist
+    let has_c = stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target, .. } = stmt {
+            match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            }
+        } else {
+            false
+        }
+    });
+
+    let c_header = if has_c {
+        Some(generate_c_header(&stmts, "module", &interner, &codegen_registry))
+    } else {
+        None
+    };
+
+    // Auto-inject serde_json dependency when C exports exist (needed for collection to_json and portable struct JSON accessors)
+    if has_c && !dependencies.iter().any(|d| d.name == "serde_json") {
+        dependencies.push(CrateDependency {
+            name: "serde_json".to_string(),
+            version: "1".to_string(),
+            features: vec![],
+        });
+    }
+
+    let python_bindings = if has_c {
+        Some(generate_python_bindings(&stmts, "module", &interner, &codegen_registry))
+    } else {
+        None
+    };
+
+    let (typescript_bindings, typescript_types) = if has_c {
+        let (js, dts) = generate_typescript_bindings(&stmts, "module", &interner, &codegen_registry);
+        (Some(js), Some(dts))
+    } else {
+        (None, None)
+    };
+
+    Ok(CompileOutput { rust_code, dependencies, c_header, python_bindings, typescript_types, typescript_bindings })
 }
 
 /// Extract crate dependencies from `Stmt::Require` nodes.
@@ -285,9 +344,10 @@ fn extract_dependencies(stmts: &[Stmt], interner: &Interner) -> Result<Vec<Crate
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// # use logicaffeine_compile::compile::compile_to_rust_checked;
 /// // This will fail ownership checking
-/// let source = "## Main\nLet x be 5.\nGive x to y.\nShow x to show.";
+/// let source = "## Main\nLet x be 5.\nGive x to y.\nShow x.";
 /// let result = compile_to_rust_checked(source);
 /// assert!(result.is_err()); // "x has already been given away"
 /// ```
@@ -386,13 +446,18 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// # use logicaffeine_compile::compile::compile_to_rust_verified;
+/// # use logicaffeine_compile::ParseError;
+/// # fn main() -> Result<(), ParseError> {
 /// let source = r#"
 /// ## Main
 /// Let x: { it: Int | it > 0 } be 5.
 /// Assert that x > 0.
 /// "#;
 /// let rust_code = compile_to_rust_verified(source)?;
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// # Feature Flag
@@ -494,10 +559,15 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let source = "## Main\nShow \"Hello\" to show.";
+/// ```no_run
+/// # use logicaffeine_compile::compile::{compile_to_dir, CompileError};
+/// # use std::path::Path;
+/// # fn main() -> Result<(), CompileError> {
+/// let source = "## Main\nShow \"Hello\".";
 /// compile_to_dir(source, Path::new("/tmp/my_project"))?;
 /// // Now /tmp/my_project is a buildable Cargo project
+/// # Ok(())
+/// # }
 /// ```
 pub fn compile_to_dir(source: &str, output_dir: &Path) -> Result<(), CompileError> {
     let output = compile_program_full(source).map_err(CompileError::Parse)?;
@@ -696,10 +766,15 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
 ///
 /// # Example
 ///
-/// ```ignore
-/// let source = "## Main\nShow \"Hello, World!\" to show.";
+/// ```no_run
+/// # use logicaffeine_compile::compile::{compile_and_run, CompileError};
+/// # use std::path::Path;
+/// # fn main() -> Result<(), CompileError> {
+/// let source = "## Main\nShow \"Hello, World!\".";
 /// let output = compile_and_run(source, Path::new("/tmp/run"))?;
 /// assert_eq!(output.trim(), "Hello, World!");
+/// # Ok(())
+/// # }
 /// ```
 pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, CompileError> {
     compile_to_dir(source, output_dir)?;
@@ -769,7 +844,9 @@ pub fn compile_file(path: &Path) -> Result<String, CompileError> {
 /// * `entry_file` - The main entry file to compile (root is derived from parent directory)
 ///
 /// # Example
-/// ```ignore
+/// ```no_run
+/// # use logicaffeine_compile::compile::compile_project;
+/// # use std::path::Path;
 /// let result = compile_project(Path::new("/project/main.md"));
 /// ```
 pub fn compile_project(entry_file: &Path) -> Result<CompileOutput, CompileError> {
@@ -867,7 +944,46 @@ fn compile_to_rust_with_registry_full(
 
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner);
 
-    Ok(CompileOutput { rust_code, dependencies })
+    // Universal ABI: Generate C header + bindings if any C exports exist
+    let has_c = stmts.iter().any(|stmt| {
+        if let Stmt::FunctionDef { is_exported: true, export_target, .. } = stmt {
+            match export_target {
+                None => true,
+                Some(t) => interner.resolve(*t).eq_ignore_ascii_case("c"),
+            }
+        } else {
+            false
+        }
+    });
+
+    let c_header = if has_c {
+        Some(generate_c_header(&stmts, "module", interner, &codegen_registry))
+    } else {
+        None
+    };
+
+    if has_c && !dependencies.iter().any(|d| d.name == "serde_json") {
+        dependencies.push(CrateDependency {
+            name: "serde_json".to_string(),
+            version: "1".to_string(),
+            features: vec![],
+        });
+    }
+
+    let python_bindings = if has_c {
+        Some(generate_python_bindings(&stmts, "module", interner, &codegen_registry))
+    } else {
+        None
+    };
+
+    let (typescript_bindings, typescript_types) = if has_c {
+        let (js, dts) = generate_typescript_bindings(&stmts, "module", interner, &codegen_registry);
+        (Some(js), Some(dts))
+    } else {
+        (None, None)
+    };
+
+    Ok(CompileOutput { rust_code, dependencies, c_header, python_bindings, typescript_types, typescript_bindings })
 }
 
 /// Errors that can occur during the LOGOS compilation pipeline.

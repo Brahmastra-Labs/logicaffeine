@@ -274,6 +274,11 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(right, max_depth)?;
             }
 
+            Expr::OptionSome { value } => {
+                self.check_no_escape(value, max_depth)?;
+            }
+            Expr::OptionNone => {}
+
             // Escape expressions are opaque — the Rust compiler handles zone safety for raw code
             Expr::Escape { .. } => {}
 

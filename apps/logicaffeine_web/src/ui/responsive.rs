@@ -24,9 +24,11 @@
 //!
 //! Include base styles in your root component:
 //!
-//! ```ignore
-//! use crate::ui::responsive::{MOBILE_BASE_STYLES, all_mobile_styles};
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! use logicaffeine_web::ui::responsive::{MOBILE_BASE_STYLES, all_mobile_styles};
 //!
+//! # fn Example() -> Element {
 //! rsx! {
 //!     // Option 1: Just the base utilities
 //!     style { "{MOBILE_BASE_STYLES}" }
@@ -34,6 +36,7 @@
 //!     // Option 2: All mobile styles including tabs, panels, buttons
 //!     style { "{all_mobile_styles()}" }
 //! }
+//! # }
 //! ```
 //!
 //! # CSS Classes

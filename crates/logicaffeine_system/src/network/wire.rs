@@ -30,7 +30,7 @@ impl std::error::Error for WireError {}
 /// Encode a serializable message to bytes.
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use serde::{Serialize, Deserialize};
 /// use logicaffeine_system::network::wire;
 ///

@@ -40,12 +40,14 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
 //! use logicaffeine_web::generator::Generator;
+//! use logicaffeine_web::content::ExerciseConfig;
 //! use rand::SeedableRng;
 //!
 //! let generator = Generator::new();
 //! let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+//! # let exercise_config: ExerciseConfig = serde_json::from_str(r#"{"id":"test","type":"Translation","difficulty":1,"prompt":"test"}"#).unwrap();
 //!
 //! if let Some(challenge) = generator.generate(&exercise_config, &mut rng) {
 //!     println!("Sentence: {}", challenge.sentence);

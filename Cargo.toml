@@ -12,6 +12,7 @@ members = [
     "crates/logicaffeine_tests",
     "apps/logicaffeine_cli",
     "apps/logicaffeine_web",
+    "crates/logicaffeine_lsp",
 ]
 exclude = ["crates/logicaffeine_verify"]
 

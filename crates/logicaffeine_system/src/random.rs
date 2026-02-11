@@ -16,17 +16,14 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```
 //! use logicaffeine_system::random;
 //!
 //! let dice_roll = random::randomInt(1, 6);
-//! let probability = random::randomFloat();
+//! assert!((1..=6).contains(&dice_roll));
 //!
-//! if probability < 0.5 {
-//!     println!("Heads!");
-//! } else {
-//!     println!("Tails!");
-//! }
+//! let probability = random::randomFloat();
+//! assert!((0.0..1.0).contains(&probability));
 //! ```
 
 use rand::Rng;
@@ -48,8 +45,11 @@ use rand::Rng;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```
+/// use logicaffeine_system::random;
+///
 /// let dice = random::randomInt(1, 6); // 1, 2, 3, 4, 5, or 6
+/// assert!((1..=6).contains(&dice));
 /// ```
 #[allow(non_snake_case)]
 pub fn randomInt(min: i64, max: i64) -> i64 {
@@ -65,11 +65,11 @@ pub fn randomInt(min: i64, max: i64) -> i64 {
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```
+/// use logicaffeine_system::random;
+///
 /// let chance = random::randomFloat();
-/// if chance < 0.1 {
-///     println!("Critical hit! (10% chance)");
-/// }
+/// assert!((0.0..1.0).contains(&chance));
 /// ```
 #[allow(non_snake_case)]
 pub fn randomFloat() -> f64 {

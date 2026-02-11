@@ -42,8 +42,16 @@ use super::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies};
 ///
 /// # Example
 ///
-/// ```ignore
-/// let mut loader = Loader::new(&root_path);
+/// ```no_run
+/// # use logicaffeine_compile::loader::Loader;
+/// # use logicaffeine_compile::analysis::discover_with_imports;
+/// # use logicaffeine_compile::Interner;
+/// # use std::path::{Path, PathBuf};
+/// # fn main() -> Result<(), String> {
+/// # let root_path = PathBuf::from(".");
+/// # let source = "";
+/// # let mut interner = Interner::new();
+/// let mut loader = Loader::new(root_path);
 /// let registry = discover_with_imports(
 ///     Path::new("main.md"),
 ///     source,
@@ -51,6 +59,8 @@ use super::{TypeRegistry, TypeDef, DiscoveryPass, scan_dependencies};
 ///     &mut interner
 /// )?;
 /// // registry now contains types from main.md and all imports
+/// # Ok(())
+/// # }
 /// ```
 pub fn discover_with_imports(
     file_path: &Path,

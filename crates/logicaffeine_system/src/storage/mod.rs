@@ -31,15 +31,21 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::storage::Persistent;
 //! use logicaffeine_data::crdt::GCounter;
+//! # use logicaffeine_system::fs::NativeVfs;
+//! # use std::sync::Arc;
 //!
-//! let vfs = Arc::new(NativeVfs::new("/data"));
+//! # fn main() {}
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let vfs: Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> = Arc::new(NativeVfs::new("/data"));
 //! let counter = Persistent::<GCounter>::mount(vfs, "counter.lsf").await?;
 //!
 //! counter.mutate(|c| c.increment(5)).await?;
 //! counter.compact().await?; // Reduce journal size
+//! # Ok(())
+//! # }
 //! ```
 
 use logicaffeine_data::crdt::Merge;

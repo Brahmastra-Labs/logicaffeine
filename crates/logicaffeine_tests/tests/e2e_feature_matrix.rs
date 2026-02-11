@@ -1088,7 +1088,6 @@ Call process with Give cfg's data.
 }
 
 #[test]
-#[ignore] // Parser limitation: Give with function call expressions not supported
 fn e2e_extreme_give_from_call() {
     // Extreme: Give result of function call
     // Bug: Parser doesn't support `Give <function_call>()` syntax
@@ -1123,7 +1122,6 @@ Show Call consume with Give makeData().
 }
 
 #[test]
-#[ignore] // Parser limitation: Give with complex index expressions not supported
 fn e2e_extreme_give_collection_item() {
     // Extreme: Give item from collection
     // Bug: Parser doesn't support `Give item N of collection` syntax

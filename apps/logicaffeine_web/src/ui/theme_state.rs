@@ -11,14 +11,20 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```no_run
+//! # use dioxus::prelude::*;
+//! use logicaffeine_web::ui::theme_state::{ThemeState, Theme};
+//!
+//! # fn Example() -> Element {
 //! // Provide at app root
 //! use_context_provider(ThemeState::new);
 //!
 //! // Use in components
-//! let theme_state = use_context::<ThemeState>();
+//! let mut theme_state = use_context::<ThemeState>();
 //! let current = theme_state.current();
 //! theme_state.set_theme(Theme::Ocean);
+//! # rsx! {}
+//! # }
 //! ```
 
 use dioxus::prelude::*;

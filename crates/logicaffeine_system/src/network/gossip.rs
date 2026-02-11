@@ -15,9 +15,14 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use logicaffeine_system::network::gossip;
+//! # use serde::{Serialize, Deserialize};
 //!
+//! # #[derive(Serialize, Deserialize)]
+//! # struct MyMessage { data: i32 }
+//! # fn main() {}
+//! # async fn example() {
 //! // Subscribe to a topic and receive raw messages
 //! let mut rx = gossip::subscribe("my-topic").await;
 //! while let Some(bytes) = rx.recv().await {
@@ -26,6 +31,7 @@
 //!
 //! // Publish a message
 //! gossip::publish("my-topic", &MyMessage { data: 42 }).await;
+//! # }
 //! ```
 
 use logicaffeine_data::crdt::Merge;

@@ -1436,6 +1436,14 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Nothing)
             }
 
+            Expr::OptionSome { value } => {
+                self.evaluate_expr(value).await
+            }
+
+            Expr::OptionNone => {
+                Ok(RuntimeValue::Nothing)
+            }
+
             Expr::Escape { .. } => {
                 Err("Escape expressions contain raw Rust code and cannot be interpreted. \
                      Use `largo build` or `largo run` to compile and run this program.".to_string())
