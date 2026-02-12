@@ -18,7 +18,7 @@ pub enum LogosStatus {
     MemoryExhausted = 9,
 }
 
-pub type LogosHandle = *const std::ffi::c_void;
+pub type LogosHandle = *mut std::ffi::c_void;
 
 fn logos_error_store() -> &'static std::sync::Mutex<std::collections::HashMap<std::thread::ThreadId, String>> {
     use std::sync::OnceLock;
@@ -27,19 +27,31 @@ fn logos_error_store() -> &'static std::sync::Mutex<std::collections::HashMap<st
 }
 
 fn logos_set_last_error(msg: String) {
-    if let Ok(mut store) = logos_error_store().lock() {
-        store.insert(std::thread::current().id(), msg);
-    }
+    let mut store = logos_error_store().lock().unwrap_or_else(|e| e.into_inner());
+    store.insert(std::thread::current().id(), msg);
+}
+
+thread_local! {
+    static LOGOS_ERROR_CACHE: std::cell::RefCell<Option<std::ffi::CString>> = std::cell::RefCell::new(None);
 }
 
 #[no_mangle]
 pub extern "C" fn logos_last_error() -> *const std::os::raw::c_char {
-    if let Ok(store) = logos_error_store().lock() {
-        if let Some(msg) = store.get(&std::thread::current().id()) {
-            return msg.as_ptr() as *const std::os::raw::c_char;
+    let msg = logos_error_store().lock().unwrap_or_else(|e| e.into_inner())
+        .get(&std::thread::current().id()).cloned();
+    match msg {
+        Some(s) => match std::ffi::CString::new(s) {
+            Ok(cstr) => {
+                let ptr = cstr.as_ptr();
+                LOGOS_ERROR_CACHE.with(|cache| { cache.borrow_mut().replace(cstr); });
+                LOGOS_ERROR_CACHE.with(|cache| {
+                    cache.borrow().as_ref().map_or(std::ptr::null(), |c| c.as_ptr())
+                })
+            }
+            Err(_) => std::ptr::null(),
         }
+        None => std::ptr::null(),
     }
-    std::ptr::null()
 }
 
 #[no_mangle]
@@ -49,9 +61,8 @@ pub extern "C" fn logos_get_last_error() -> *const std::os::raw::c_char {
 
 #[no_mangle]
 pub extern "C" fn logos_clear_error() {
-    if let Ok(mut store) = logos_error_store().lock() {
-        store.remove(&std::thread::current().id());
-    }
+    let mut store = logos_error_store().lock().unwrap_or_else(|e| e.into_inner());
+    store.remove(&std::thread::current().id());
 }
 
 #[no_mangle]
@@ -65,7 +76,7 @@ pub const LOGOS_ABI_VERSION: u32 = 1;
 
 #[no_mangle]
 pub extern "C" fn logos_version() -> *const std::os::raw::c_char {
-    b"0.8.0\0".as_ptr() as *const std::os::raw::c_char
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const std::os::raw::c_char
 }
 
 #[no_mangle]
@@ -100,8 +111,8 @@ impl HandleRegistry {
     fn deref(&self, id: u64) -> Option<usize> {
         self.entries.get(&id).map(|e| e.data)
     }
-    fn free(&mut self, id: u64) -> Result<(), ()> {
-        if self.entries.remove(&id).is_some() { Ok(()) } else { Err(()) }
+    fn free(&mut self, id: u64) -> Result<usize, ()> {
+        if let Some(entry) = self.entries.remove(&id) { Ok(entry.data) } else { Err(()) }
     }
 }
 
@@ -111,7 +122,7 @@ fn logos_handle_registry() -> &'static std::sync::Mutex<HandleRegistry> {
     REGISTRY.get_or_init(|| std::sync::Mutex::new(HandleRegistry::new()))
 }
 
-#[no_mangle]
+#[export_name = "logos_add"]
 pub extern "C" fn add(a: i64, b: i64) -> i64 {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
     return (a + b);

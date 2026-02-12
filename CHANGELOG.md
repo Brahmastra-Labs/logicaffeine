@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] - 2026-02-12
+
+### Added
+
+- Optimizer infrastructure with constant folding and dead code elimination
+- Interpreter mode (`largo run --interpret`) for sub-second development feedback
+- Map insertion syntax (`Set X at KEY to VALUE`)
+
+### Changed
+
+- FFI/C export safety: thread-local error cache, panic boundaries, null handle checks, dynamic `logos_version()`
+- `LogosHandle` from `*const c_void` to `*mut c_void`
+- Text/String excluded from C ABI value types
+
+### Fixed
+
+- UTF-8 string indexing in interpreter (`.len()` → `.chars().count()`)
+- Rust keyword escaping in generated FFI code
+
+## [0.8.1] - 2026-02-12
+
+### Fixed
+
+- Added `@types/node` to VSCode extension devDependencies
+
+## [0.8.0] - 2026-02-10
+
+### Added
+
+- LSP server with full language intelligence (definitions, references, hover, completions, rename, semantic tokens, diagnostics)
+- VSCode extension with bundled LSP binaries for 5 platforms
+- FFI/C export system for cross-language interop
+- CI/CD workflows for release, publish, and deployment
+
+### Changed
+
+- Compiler improvements and bug fixes
+
+## [0.7.0] - 2026-02-01
+
+### Added
+
+- Escape analysis for memory safety
+- Concurrency and async runtime
+- Syntactic sugar features
+- E2E test suite expansion (77 new tests)
+
+### Fixed
+
+- 10 compiler bugs across codegen, parser, and map handling
+- Async/concurrency correctness issues
+
+### Changed
+
+- Web platform: studio IDE, mobile responsiveness, homepage redesign
+
 ## [0.6.0] - 2026-01-17
 
 Initial crates.io release with lockstep versioning.

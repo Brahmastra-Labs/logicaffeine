@@ -285,3 +285,72 @@ impl std::ops::Div for Value {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn value_int_arithmetic() {
+        assert_eq!(Value::Int(10) + Value::Int(3), Value::Int(13));
+        assert_eq!(Value::Int(10) - Value::Int(3), Value::Int(7));
+        assert_eq!(Value::Int(10) * Value::Int(3), Value::Int(30));
+        assert_eq!(Value::Int(10) / Value::Int(3), Value::Int(3));
+    }
+
+    #[test]
+    fn value_float_arithmetic() {
+        assert_eq!(Value::Float(2.5) + Value::Float(1.5), Value::Float(4.0));
+        assert_eq!(Value::Float(5.0) - Value::Float(1.5), Value::Float(3.5));
+        assert_eq!(Value::Float(2.0) * Value::Float(3.0), Value::Float(6.0));
+        assert_eq!(Value::Float(7.0) / Value::Float(2.0), Value::Float(3.5));
+    }
+
+    #[test]
+    fn value_cross_type_promotion() {
+        assert_eq!(Value::Int(2) + Value::Float(1.5), Value::Float(3.5));
+        assert_eq!(Value::Float(2.5) + Value::Int(2), Value::Float(4.5));
+        assert_eq!(Value::Int(3) * Value::Float(2.0), Value::Float(6.0));
+        assert_eq!(Value::Float(6.0) / Value::Int(2), Value::Float(3.0));
+    }
+
+    #[test]
+    fn value_text_concat() {
+        assert_eq!(
+            Value::Text("hello".to_string()) + Value::Text(" world".to_string()),
+            Value::Text("hello world".to_string())
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "divide by zero")]
+    fn value_div_by_zero_panics() {
+        let _ = Value::Int(1) / Value::Int(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Cannot add")]
+    fn value_incompatible_types_panic() {
+        let _ = Value::Bool(true) + Value::Int(1);
+    }
+
+    #[test]
+    fn value_display() {
+        assert_eq!(format!("{}", Value::Int(42)), "42");
+        assert_eq!(format!("{}", Value::Float(3.14)), "3.14");
+        assert_eq!(format!("{}", Value::Bool(true)), "true");
+        assert_eq!(format!("{}", Value::Text("hi".to_string())), "hi");
+        assert_eq!(format!("{}", Value::Char('a')), "a");
+        assert_eq!(format!("{}", Value::Nothing), "nothing");
+    }
+
+    #[test]
+    fn value_from_conversions() {
+        assert_eq!(Value::from(42i64), Value::Int(42));
+        assert_eq!(Value::from(3.14f64), Value::Float(3.14));
+        assert_eq!(Value::from(true), Value::Bool(true));
+        assert_eq!(Value::from("hello"), Value::Text("hello".to_string()));
+        assert_eq!(Value::from("hello".to_string()), Value::Text("hello".to_string()));
+        assert_eq!(Value::from('x'), Value::Char('x'));
+    }
+}

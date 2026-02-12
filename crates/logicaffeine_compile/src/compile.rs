@@ -117,6 +117,37 @@ pub struct CompileOutput {
     pub typescript_bindings: Option<String>,
 }
 
+/// Interpret LOGOS source and return output as a string.
+///
+/// Runs the full pipeline (lex → discovery → parse → interpret) without
+/// generating Rust code. Useful for sub-second feedback during development.
+///
+/// # Arguments
+///
+/// * `source` - LOGOS source code as a string
+///
+/// # Returns
+///
+/// The collected output from `Show` statements, joined by newlines.
+///
+/// # Errors
+///
+/// Returns [`ParseError`] if parsing fails or the interpreter encounters
+/// a runtime error.
+pub fn interpret_program(source: &str) -> Result<String, ParseError> {
+    use futures::executor::block_on;
+
+    let result = block_on(crate::ui_bridge::interpret_for_ui(source));
+    if let Some(err) = result.error {
+        Err(ParseError {
+            kind: crate::error::ParseErrorKind::Custom(err),
+            span: crate::token::Span::default(),
+        })
+    } else {
+        Ok(result.lines.join("\n"))
+    }
+}
+
 /// Compile LOGOS source to Rust source code.
 ///
 /// This is the basic compilation function that runs lexing, parsing, and
@@ -200,6 +231,9 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
     // Note: Don't call process_block_headers() - parse_program handles blocks itself
 
     let stmts = parser.parse_program()?;
+
+    // Pass 2.5: Optimization - constant folding and dead code elimination
+    let stmts = crate::optimize::optimize_program(stmts, &imperative_expr_arena, &stmt_arena, &mut interner);
 
     // Extract dependencies before escape analysis
     let mut dependencies = extract_dependencies(&stmts, &interner)?;

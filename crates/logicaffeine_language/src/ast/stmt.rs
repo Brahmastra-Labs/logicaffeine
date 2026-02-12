@@ -101,7 +101,7 @@ pub enum BinaryOpKind {
 pub type Block<'a> = &'a [Stmt<'a>];
 
 /// Match arm for pattern matching in Inspect statements.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MatchArm<'a> {
     pub enum_name: Option<Symbol>,          // The enum type (e.g., Shape)
     pub variant: Option<Symbol>,            // None = Otherwise (wildcard)
@@ -113,7 +113,7 @@ pub struct MatchArm<'a> {
 ///
 /// Stmt is the primary AST node for imperative code blocks like `## Main`
 /// and function bodies. The Assert variant bridges to the Logic Kernel.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt<'a> {
     /// Variable binding: `Let x be 5.` or `Let x: Int be 5.`
     Let {
@@ -568,7 +568,7 @@ pub enum Stmt<'a> {
 }
 
 /// A branch in a Select statement.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SelectBranch<'a> {
     /// Receive from a pipe: `Receive x from ch:`
     Receive {

@@ -18,7 +18,7 @@
 use super::logic::LogicExpr;
 
 /// A theorem block containing premises, goal, and proof strategy.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TheoremBlock<'a> {
     /// The name of the theorem (e.g., "Socrates_Mortality")
     pub name: String,

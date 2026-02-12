@@ -2354,6 +2354,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Parse target - can be identifier or field access expression
         let target_expr = self.parse_imperative_expr()?;
 
+        // Support "Set X at KEY to VALUE" syntax for map insertion
+        let target_expr = if self.check(&TokenType::At) {
+            self.advance(); // consume "at"
+            let key = self.parse_imperative_expr()?;
+            self.ctx.alloc_imperative_expr(Expr::Index { collection: target_expr, index: key })
+        } else {
+            target_expr
+        };
+
         // Expect "to" - can be TokenType::To or Preposition("to")
         let is_to = self.check(&TokenType::To) || matches!(
             &self.peek().kind,
@@ -2374,13 +2383,13 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Also handle index targets: Set item N of X to Y
         match target_expr {
             Expr::FieldAccess { object, field } => {
-                Ok(Stmt::SetField { object, field: *field, value })
+                Ok(Stmt::SetField { object: *object, field: *field, value })
             }
             Expr::Identifier(target) => {
                 Ok(Stmt::Set { target: *target, value })
             }
             Expr::Index { collection, index } => {
-                Ok(Stmt::SetIndex { collection, index, value })
+                Ok(Stmt::SetIndex { collection: *collection, index: *index, value })
             }
             _ => Err(ParseError {
                 kind: ParseErrorKind::ExpectedIdentifier,

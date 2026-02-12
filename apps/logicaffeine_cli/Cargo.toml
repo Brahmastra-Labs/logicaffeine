@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-cli"
-version = "0.8.1"
+version = "0.8.2"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -22,13 +22,14 @@ path = "src/main.rs"
 
 [dependencies]
 # Core language crates
-logicaffeine-base = { version = "0.8.1", path = "../../crates/logicaffeine_base" }
-logicaffeine-kernel = { version = "0.8.1", path = "../../crates/logicaffeine_kernel" }
-logicaffeine-language = { version = "0.8.1", path = "../../crates/logicaffeine_language" }
-logicaffeine-compile = { version = "0.8.1", path = "../../crates/logicaffeine_compile" }
+logicaffeine-base = { version = "0.8.2", path = "../../crates/logicaffeine_base" }
+logicaffeine-kernel = { version = "0.8.2", path = "../../crates/logicaffeine_kernel" }
+logicaffeine-language = { version = "0.8.2", path = "../../crates/logicaffeine_language" }
+logicaffeine-compile = { version = "0.8.2", path = "../../crates/logicaffeine_compile" }
 
 # CLI dependencies
 clap = { version = "4.4", features = ["derive"] }
+futures = "0.3"
 rand = "0.8"
 toml = "0.8"
 ureq = { version = "2.9", features = ["json"] }

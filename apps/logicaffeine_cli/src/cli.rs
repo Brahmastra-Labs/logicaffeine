@@ -200,16 +200,25 @@ pub enum Commands {
     /// Equivalent to `largo build` followed by executing the resulting binary.
     /// The exit code of the built program is propagated.
     ///
+    /// With `--interpret`, skips Rust compilation and uses the tree-walking
+    /// interpreter for sub-second feedback during development.
+    ///
     /// # Example
     ///
     /// ```bash
-    /// largo run              # Debug mode
+    /// largo run              # Debug mode (compile to Rust)
     /// largo run --release    # Release mode
+    /// largo run --interpret  # Interpret directly (no compilation)
     /// ```
     Run {
         /// Build with optimizations enabled.
         #[arg(long, short)]
         release: bool,
+
+        /// Run using the interpreter instead of compiling to Rust.
+        /// Provides sub-second feedback but lacks full Rust performance.
+        #[arg(long, short)]
+        interpret: bool,
     },
 
     /// Check the project for errors without producing a binary.
@@ -335,7 +344,8 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
         Commands::Build { release, verify, license, lib, target } => cmd_build(release, verify, license, lib, target),
-        Commands::Run { release } => cmd_run(release),
+        Commands::Run { release, interpret } if interpret => cmd_run_interpret(),
+        Commands::Run { release, .. } => cmd_run(release),
         Commands::Check => cmd_check(),
         Commands::Verify { license } => cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
@@ -532,6 +542,29 @@ fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
 
     if exit_code != 0 {
         std::process::exit(exit_code);
+    }
+
+    Ok(())
+}
+
+fn cmd_run_interpret() -> Result<(), Box<dyn std::error::Error>> {
+    let current_dir = env::current_dir()?;
+    let project_root =
+        find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
+
+    let manifest = Manifest::load(&project_root)?;
+    let entry_path = project_root.join(&manifest.package.entry);
+    let source = fs::read_to_string(&entry_path)?;
+
+    let result = futures::executor::block_on(logicaffeine_compile::interpret_for_ui(&source));
+
+    for line in &result.lines {
+        println!("{}", line);
+    }
+
+    if let Some(err) = result.error {
+        eprintln!("{}", err);
+        std::process::exit(1);
     }
 
     Ok(())

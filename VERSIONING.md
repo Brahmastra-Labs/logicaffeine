@@ -206,5 +206,9 @@ These crates still follow lockstep versioning for consistency.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.8.2 | 2026-02-12 | Optimizer, interpreter mode, FFI safety |
+| 0.8.1 | 2026-02-12 | VSCode extension fix |
+| 0.8.0 | 2026-02-10 | LSP, VSCode extension, FFI/C exports, CI/CD |
+| 0.7.0 | 2026-02-01 | Escape analysis, concurrency, web platform |
 | 0.6.0 | 2026-01-17 | Initial crates.io release |
 | 0.5.5 | 2026-01-01 | First public release (pre-crates.io) |

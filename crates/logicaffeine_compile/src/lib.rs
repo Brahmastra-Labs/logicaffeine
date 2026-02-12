@@ -129,6 +129,9 @@ pub mod sourcemap;
 // Extraction (proof term extraction)
 pub mod extraction;
 
+// Optimization passes
+pub mod optimize;
+
 // Interpreter
 pub mod interpreter;
 

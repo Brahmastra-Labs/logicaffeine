@@ -1224,7 +1224,7 @@ impl<'a> Interpreter<'a> {
                     }
                     (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
                         let idx = *idx as usize;
-                        if idx == 0 || idx > s.len() {
+                        if idx == 0 || idx > s.chars().count() {
                             return Err(format!("Index {} out of bounds", idx));
                         }
                         Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))

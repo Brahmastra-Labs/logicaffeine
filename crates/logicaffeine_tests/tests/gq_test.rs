@@ -47,5 +47,6 @@ fn test_all_vs_most_body_structure() {
         "All should use implication: {}", all_result);
     
     // Most uses ∧ (conjunction) - NOT implication
-    // Note: This test will fail if Most incorrectly uses implication
+    assert!(most_result.contains("∧") || most_result.contains("And"),
+        "Most should use conjunction (∧), not implication: {}", most_result);
 }

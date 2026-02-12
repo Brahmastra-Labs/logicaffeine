@@ -437,6 +437,183 @@ pub fn assert_panics(source: &str, expected_msg: &str) {
 }
 
 // ============================================================
+// C ABI Linkage Tests — compile Rust staticlib, link with C
+// ============================================================
+
+pub struct CLinkResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub success: bool,
+    pub rust_code: String,
+    pub c_code: String,
+}
+
+/// Compile LOGOS source to a staticlib, compile C code, link, and run.
+/// The generated Rust is built as a staticlib, then a C file is compiled
+/// and linked against it to verify the ABI works end-to-end.
+#[allow(dead_code)]
+pub fn compile_and_link_c(source: &str, c_code: &str) -> CLinkResult {
+    // 1. Compile LOGOS to Rust
+    let compile_output = match compile_program_full(source) {
+        Ok(out) => out,
+        Err(e) => {
+            return CLinkResult {
+                stdout: String::new(),
+                stderr: format!("LOGOS compile error: {:?}", e),
+                success: false,
+                rust_code: String::new(),
+                c_code: c_code.to_string(),
+            };
+        }
+    };
+    let rust_code = compile_output.rust_code;
+    let user_deps = format_user_deps(&compile_output.dependencies);
+
+    // 2. Create temp project configured as staticlib
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let project_dir = temp_dir.path();
+
+    let pkg_id = COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let pkg_name = format!("logos_clink_{}_{}", get_run_id(), pkg_id);
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap());
+    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+
+    let cargo_toml = format!(
+        r#"[package]
+name = "{}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
+logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
+tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
+serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
+{}"#,
+        pkg_name,
+        workspace_root.display(),
+        workspace_root.display(),
+        user_deps
+    );
+
+    // Strip fn main() from the generated Rust — staticlib doesn't need it
+    let lib_code = strip_main_function(&rust_code);
+
+    std::fs::create_dir_all(project_dir.join("src")).unwrap();
+    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
+    std::fs::write(project_dir.join("src/lib.rs"), &lib_code).unwrap();
+
+    // 3. Build the staticlib
+    let build_output = Command::new("cargo")
+        .args(["build", "--quiet"])
+        .current_dir(project_dir)
+        .env("CARGO_TARGET_DIR", get_shared_target_dir())
+        .output()
+        .expect("cargo build");
+
+    if !build_output.status.success() {
+        return CLinkResult {
+            stdout: String::new(),
+            stderr: format!(
+                "Rust staticlib build failed:\n{}\n\nLib code:\n{}",
+                String::from_utf8_lossy(&build_output.stderr),
+                lib_code
+            ),
+            success: false,
+            rust_code: rust_code.clone(),
+            c_code: c_code.to_string(),
+        };
+    }
+
+    let lib_path = get_shared_target_dir().join(format!("debug/lib{}.a", pkg_name.replace('-', "_")));
+
+    // 4. Write C code
+    let c_file = project_dir.join("test.c");
+    std::fs::write(&c_file, c_code).unwrap();
+
+    // 5. Compile and link C code against the staticlib
+    let binary_path = project_dir.join("test_binary");
+    let cc_output = Command::new("cc")
+        .args([
+            "-Wall",
+            c_file.to_str().unwrap(),
+            lib_path.to_str().unwrap(),
+            "-o", binary_path.to_str().unwrap(),
+            "-framework", "Security",
+            "-framework", "CoreFoundation",
+            "-framework", "SystemConfiguration",
+            "-lSystem",
+            "-lresolv",
+            "-liconv",
+        ])
+        .output()
+        .expect("cc command");
+
+    if !cc_output.status.success() {
+        return CLinkResult {
+            stdout: String::new(),
+            stderr: format!(
+                "C linking failed:\n{}\n\nC code:\n{}\n\nLib path: {:?}",
+                String::from_utf8_lossy(&cc_output.stderr),
+                c_code,
+                lib_path
+            ),
+            success: false,
+            rust_code: rust_code.clone(),
+            c_code: c_code.to_string(),
+        };
+    }
+
+    // 6. Run the linked binary
+    let run_output = Command::new(&binary_path)
+        .output()
+        .expect("run test binary");
+
+    CLinkResult {
+        stdout: String::from_utf8_lossy(&run_output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&run_output.stderr).to_string(),
+        success: run_output.status.success(),
+        rust_code,
+        c_code: c_code.to_string(),
+    }
+}
+
+/// Strip the `fn main() { ... }` block from generated Rust code.
+/// Used when building as a staticlib (no main needed).
+fn strip_main_function(code: &str) -> String {
+    let lines: Vec<&str> = code.lines().collect();
+    let mut result = Vec::new();
+    let mut skip = false;
+    let mut depth = 0i32;
+
+    for line in &lines {
+        if line.trim_start().starts_with("fn main()") {
+            skip = true;
+            depth = 0;
+        }
+        if skip {
+            for ch in line.chars() {
+                if ch == '{' { depth += 1; }
+                if ch == '}' { depth -= 1; }
+            }
+            if depth <= 0 && line.contains('}') {
+                skip = false;
+            }
+            continue;
+        }
+        result.push(*line);
+    }
+
+    result.join("\n")
+}
+
+// ============================================================
 // Interpreter Tests (no Rust compilation)
 // ============================================================
 

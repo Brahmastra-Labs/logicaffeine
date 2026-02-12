@@ -3,11 +3,11 @@ use logicaffeine_language::compile;
 #[test]
 fn debug_tense_structures() {
     let past = compile("John ran.");
-    println!("John ran: {:?}", past);
+    assert!(past.is_ok(), "Failed: John ran: {:?}", past);
 
     let future = compile("John will run.");
-    println!("John will run: {:?}", future);
+    assert!(future.is_ok(), "Failed: John will run: {:?}", future);
 
     let present = compile("John runs.");
-    println!("John runs: {:?}", present);
+    assert!(present.is_ok(), "Failed: John runs: {:?}", present);
 }

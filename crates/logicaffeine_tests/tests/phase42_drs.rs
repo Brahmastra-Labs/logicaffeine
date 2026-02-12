@@ -112,11 +112,15 @@ fn drs_antecedent_accessible() {
 /// Tests gender matching in DRS pronoun resolution.
 #[test]
 fn drs_pronoun_gender_mismatch() {
-    let output = compile("Every man who owns a donkey loves her.").unwrap();
-    eprintln!("DEBUG drs_pronoun_gender_mismatch: {}", output);
+    let output = compile("Every man who owns a donkey loves her.");
+    assert!(output.is_ok(), "Should compile: {:?}", output);
+    let output = output.unwrap();
 
     // "her" should NOT bind to "donkey" (gender mismatch: donkey is neuter)
-    // This might have unresolved pronoun (?) or different binding
+    // Should have universal quantifier and Love predicate
+    assert!(output.contains("∀"), "Should have universal quantifier: {}", output);
+    assert!(output.contains("L(") || output.contains("Love("),
+        "Should have Love predicate: {}", output);
 }
 
 /// Multiple donkey referents - simplified to avoid parse issues
