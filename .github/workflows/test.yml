@@ -40,7 +40,7 @@ jobs:
       - name: Run all tests
         run: |
           set -o pipefail
-          cargo test --workspace 2>&1 | tee test_output.txt
+          cargo test --workspace --features logicaffeine-tests/ffi-link-tests 2>&1 | tee test_output.txt
 
       - name: Extract test count
         if: github.ref == 'refs/heads/main'

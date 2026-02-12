@@ -539,19 +539,31 @@ rayon = "1"
 
     // 5. Compile and link C code against the staticlib
     let binary_path = project_dir.join("test_binary");
-    let cc_output = Command::new("cc")
-        .args([
-            "-Wall",
-            c_file.to_str().unwrap(),
-            lib_path.to_str().unwrap(),
-            "-o", binary_path.to_str().unwrap(),
+    let mut cc_args = vec![
+        "-Wall",
+        c_file.to_str().unwrap(),
+        lib_path.to_str().unwrap(),
+        "-o",
+        binary_path.to_str().unwrap(),
+    ];
+
+    #[cfg(target_os = "macos")]
+    {
+        cc_args.extend_from_slice(&[
             "-framework", "Security",
             "-framework", "CoreFoundation",
             "-framework", "SystemConfiguration",
-            "-lSystem",
-            "-lresolv",
-            "-liconv",
-        ])
+            "-lSystem", "-lresolv", "-liconv",
+        ]);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        cc_args.extend_from_slice(&["-ldl", "-lpthread", "-lm"]);
+    }
+
+    let cc_output = Command::new("cc")
+        .args(&cc_args)
         .output()
         .expect("cc command");
 

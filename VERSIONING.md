@@ -206,6 +206,7 @@ These crates still follow lockstep versioning for consistency.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.8.3 | 2026-02-12 | FFI test CI compatibility, platform-aware C linkage |
 | 0.8.2 | 2026-02-12 | Optimizer, interpreter mode, FFI safety |
 | 0.8.1 | 2026-02-12 | VSCode extension fix |
 | 0.8.0 | 2026-02-10 | LSP, VSCode extension, FFI/C exports, CI/CD |

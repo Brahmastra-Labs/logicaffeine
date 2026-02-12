@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.3] - 2026-02-12
+
+### Fixed
+- FFI C-linkage tests gated behind `ffi-link-tests` feature (CI compatibility)
+- Platform-aware linker flags for C ABI tests (macOS + Linux)
+
 ## [0.8.2] - 2026-02-12
 
 ### Added

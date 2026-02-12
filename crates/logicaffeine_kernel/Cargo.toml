@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-kernel"
-version = "0.8.2"
+version = "0.8.3"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -13,5 +13,5 @@ description = "Pure Calculus of Constructions type theory - NO LEXICON"
 readme = "README.md"
 
 [dependencies]
-logicaffeine-base = { version = "0.8.2", path = "../logicaffeine_base" }
+logicaffeine-base = { version = "0.8.3", path = "../logicaffeine_base" }
 # CRITICAL: NO LEXICON DEPENDENCY - Milner Invariant

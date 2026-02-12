@@ -194,6 +194,7 @@ Show 42.
 // Tier 4: E2E — Compile + Run with real crate
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_requires_itoa_in_escape_block() {
     let source = r#"## Requires
@@ -208,6 +209,7 @@ Escape to Rust:
     assert_exact_output(source, "12345");
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_requires_with_features_in_escape_block() {
     let source = r#"## Requires
@@ -554,6 +556,7 @@ Show 42.
     assert!(rust.contains("return (a + b);"), "Exported function should have body. Generated:\n{}", rust);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_exported_c_function_runs() {
     let source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -632,6 +635,7 @@ Show 42.
         "Wrapper should call inner by raw name. Generated:\n{}", rust);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_internal_call_to_exported_function_works() {
     let source = r#"## To square (n: Int) -> Int is exported:
@@ -772,6 +776,7 @@ Show 42.
 // Enhancement 4: Integration tests — Requires + Escape + Native
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_requires_and_escape_regex() {
     let source = r#"## Requires
@@ -786,6 +791,7 @@ Escape to Rust:
     assert_exact_output(source, "123");
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_requires_multiple_crates_in_escape() {
     let source = r#"## Requires
@@ -803,6 +809,7 @@ Escape to Rust:
     assert_exact_output(source, "NDI=");
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_requires_in_function_escape() {
     let source = r#"## Requires
@@ -889,6 +896,7 @@ Show 42.
 // Tier 13: E2E integration tests — combined FFI features
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_requires_plus_escape_plus_function() {
     let source = r#"## Requires
@@ -907,6 +915,7 @@ Escape to Rust:
     assert_exact_output(source, "42");
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_exported_function_called_from_main() {
     let source = r#"## To triple (n: Int) -> Int is exported:
@@ -2383,6 +2392,7 @@ Show 42.
 // ─────────────────────────────────────────────────────────
 
 // E2E: Struct export with handle registry compiles
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_struct_export_compiles_with_registry() {
     let source = r#"## A Person has:
@@ -2403,6 +2413,7 @@ Show "ok".
 }
 
 // E2E: Seq export compiles
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_seq_export_compiles_with_registry() {
     let source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -2422,6 +2433,7 @@ Show "ok".
 }
 
 // E2E: Map export compiles with registry
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_map_export_compiles_with_registry() {
     let source = r#"## To getConfig () -> Map of Text to Text is exported:
@@ -2438,6 +2450,7 @@ Show "ok".
 }
 
 // E2E: Enum export compiles with registry
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_enum_export_compiles_with_registry() {
     let source = r#"## A Shape is one of:
@@ -2458,6 +2471,7 @@ Show "ok".
 }
 
 // E2E: Multiple exports with mixed types compile
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_multiple_exports_compile_with_registry() {
     let source = r#"## A Person has:
@@ -2485,6 +2499,7 @@ Show r.
 }
 
 // E2E: Exported value-type functions run correctly
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn e2e_exported_value_types_run_correctly() {
     let source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -2671,6 +2686,7 @@ Show 42.
 // ─────────────────────────────────────────────────────────
 
 // C-Link: Call exported Int function from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_call_exported_int_function() {
     let logos_source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -2700,6 +2716,7 @@ int main() {
 }
 
 // C-Link: Call multiple exported functions from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_multiple_exported_functions() {
     let logos_source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -2734,6 +2751,7 @@ int main() {
 }
 
 // C-Link: Call ABI runtime functions from C (version, error API)
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_runtime_functions() {
     let logos_source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -2777,6 +2795,7 @@ int main() {
 }
 
 // C-Link: Call exported Real function from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_call_exported_real_function() {
     let logos_source = r#"## To halve (n: Real) -> Real is exported:
@@ -2804,6 +2823,7 @@ int main() {
 }
 
 // C-Link: Call exported Bool function from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_call_exported_bool_function() {
     let logos_source = r#"## To isPositive (n: Int) -> Bool is exported:
@@ -2835,6 +2855,7 @@ int main() {
 }
 
 // C-Link: Struct handle accessors from C — create, access fields, free
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_struct_handle_lifecycle() {
     let logos_source = r#"## A Person has:
@@ -2900,6 +2921,7 @@ int main() {
 }
 
 // C-Link: Seq create, push, len, at from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_operations() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -2956,6 +2978,7 @@ int main() {
 }
 
 // C-Link: Seq create/push/len from C (independent of exported function)
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_create_push_len() {
     let logos_source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -3005,6 +3028,7 @@ int main() {
 }
 
 // C-Link: Enum tag accessor from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_enum_tag_accessor() {
     let logos_source = r#"## A Shape is one of:
@@ -3075,6 +3099,7 @@ int main() {
 }
 
 // C-Link: Text marshaling — passing and receiving strings
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_text_marshaling() {
     let logos_source = r#"## To greet (name: Text) -> Text is exported:
@@ -3149,6 +3174,7 @@ Show 42.
 // ─────────────────────────────────────────────────────────
 
 // C-Link: Map of Text to Int — create, insert, get, len, free
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_create_insert_get_len() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -3213,6 +3239,7 @@ int main() {
 }
 
 // C-Link: Map keys/values — needs both Map and Seq types so accessors are generated
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_keys_values() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -3276,6 +3303,7 @@ int main() {
 }
 
 // C-Link: Map of Text to Text — create, insert, get
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_text_to_text() {
     let logos_source = r#"## To getLabels () -> Map of Text to Text is exported:
@@ -3334,6 +3362,7 @@ int main() {
 }
 
 // C-Link: Set of Text — create, insert, contains, len, free
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_set_create_insert_contains() {
     let logos_source = r#"## To getTags () -> Set of Text is exported:
@@ -3392,6 +3421,7 @@ int main() {
 }
 
 // C-Link: Option of Int — is_some, unwrap with Some value
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_option_some_unwrap() {
     let logos_source = r#"## To findAge (name: Text) -> Option of Int is exported:
@@ -3460,6 +3490,7 @@ int main() {
 }
 
 // C-Link: Null handle error handling — passing NULL to accessors
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_null_handle_graceful_error() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -3510,6 +3541,7 @@ int main() {
 }
 
 // C-Link: Double-free protection — freeing same handle twice must not crash
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_double_free_no_crash() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -3566,6 +3598,7 @@ int main() {
 }
 
 // C-Link: Seq out-of-bounds access returns error status
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_out_of_bounds() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -3626,6 +3659,7 @@ int main() {
 }
 
 // C-Link: Wrong enum variant field access sets error
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_wrong_enum_variant_error() {
     let logos_source = r#"## A Shape is one of:
@@ -3687,6 +3721,7 @@ int main() {
 }
 
 // C-Link: Struct with Bool and Real fields — verify all field types
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_struct_bool_real_fields() {
     let logos_source = r#"## A Sensor has:
@@ -3760,6 +3795,7 @@ int main() {
 }
 
 // C-Link: Seq of Real — push, len, at
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_of_real() {
     let logos_source = r#"## To getMeasurements () -> Seq of Real is exported:
@@ -3813,6 +3849,7 @@ int main() {
 }
 
 // C-Link: Seq of Text — push, len, at with string values
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_of_text() {
     let logos_source = r#"## To getNames () -> Seq of Text is exported:
@@ -3866,6 +3903,7 @@ int main() {
 }
 
 // C-Link: Seq to_json serialization from C
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_to_json() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -3915,6 +3953,7 @@ int main() {
 }
 
 // C-Link: Error API — set, read, clear cycle
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_error_api_full_cycle() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -3975,6 +4014,7 @@ int main() {
 }
 
 // C-Link: Multiple text function calls — verify no memory corruption
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_text_multiple_calls() {
     let logos_source = r#"## To greet (name: Text) -> Text is exported:
@@ -4018,6 +4058,7 @@ int main() {
 }
 
 // C-Link: Map returned from exported function — populated with data
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_from_exported_function() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -4074,6 +4115,7 @@ int main() {
 }
 
 // C-Link: Use-after-free detection — accessor on freed handle
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_use_after_free_graceful() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -4139,6 +4181,7 @@ int main() {
 
 // C-Link: Exported function taking a Seq handle parameter
 // CRITICAL: Tests that ref-type params are correctly unmarshaled from handle IDs
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_function_takes_seq_parameter() {
     let logos_source = r#"## To sumAll (numbers: Seq of Int) -> Int is exported:
@@ -4189,6 +4232,7 @@ int main() {
 }
 
 // C-Link: Exported function taking a struct handle parameter
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_function_takes_struct_parameter() {
     let logos_source = r#"## A Person has:
@@ -4240,6 +4284,7 @@ int main() {
 }
 
 // C-Link: Enum with Text variant fields — string marshaling inside enums
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_enum_with_text_fields() {
     let logos_source = r#"## A Message is one of:
@@ -4317,6 +4362,7 @@ int main() {
 }
 
 // C-Link: Enum with 3 variants
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_enum_three_variants() {
     let logos_source = r#"## A Color is one of:
@@ -4387,6 +4433,7 @@ int main() {
 }
 
 // C-Link: Portable struct to_json and from_json
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_struct_json_serialization() {
     let logos_source = r#"## A portable Config has:
@@ -4459,6 +4506,7 @@ int main() {
 }
 
 // C-Link: Complex multi-type function — mixed Int, Real, Text, Bool params
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_complex_multi_type_params() {
     let logos_source = r#"## To describe (name: Text, age: Int, height: Real, active: Bool) -> Text is exported:
@@ -4506,6 +4554,7 @@ int main() {
 }
 
 // C-Link: Multiple struct types in the same program
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_multiple_struct_types() {
     let logos_source = r#"## A Person has:
@@ -4584,6 +4633,7 @@ int main() {
 }
 
 // C-Link: String edge cases — empty strings, special characters
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_string_edge_cases() {
     let logos_source = r#"## To echo (s: Text) -> Text is exported:
@@ -4642,6 +4692,7 @@ int main() {
 }
 
 // C-Link: Chained exported function calls — output of one feeds into another
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_chained_function_calls() {
     let logos_source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -4691,6 +4742,7 @@ int main() {
 // ─────────────────────────────────────────────────────────
 
 // Batch A.1: Seq _at with NULL out pointer returns NullPointer(3)
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_null_out_seq_at() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -4745,6 +4797,7 @@ int main() {
 }
 
 // Batch A.2: Map _get with NULL out pointer returns NullPointer(3)
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_null_out_map_get() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -4799,6 +4852,7 @@ int main() {
 }
 
 // Batch A.3: Option _unwrap with NULL out pointer returns NullPointer(3)
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_null_out_option_unwrap() {
     let logos_source = r#"## To getMaybe () -> Option of Int is exported:
@@ -4852,6 +4906,7 @@ int main() {
 }
 
 // Batch A.4: Struct _from_json with NULL out pointer returns NullPointer(3)
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_null_out_from_json() {
     let logos_source = r#"## A Config has:
@@ -4995,6 +5050,7 @@ fn map_int_key_int_val_c_header_insert() {
 // Non-text key Map — C linkage end-to-end tests
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_int_to_text() {
     let logos_source = r#"## To getNames () -> Map of Int to Text is exported:
@@ -5071,6 +5127,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_int_to_int() {
     let logos_source = r#"## To getGrid () -> Map of Int to Int is exported:
@@ -5140,6 +5197,7 @@ int main() {
 // Phase 2: C-Link Tests — Missing Type Coverage
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_option_none_from_logos() {
     let logos_source = r#"## To getNone () -> Option of Int is exported:
@@ -5185,6 +5243,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_of_bool() {
     let logos_source = r#"## To getFlags () -> Seq of Bool is exported:
@@ -5241,6 +5300,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_set_of_text() {
     let logos_source = r#"## To getNames () -> Set of Text is exported:
@@ -5298,6 +5358,7 @@ int main() {
 // Phase 3: C-Link Tests — Safety Hardening
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_garbage_handle_id() {
     let logos_source = r#"## To add (a: Int, b: Int) -> Int is exported:
@@ -5340,6 +5401,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_null_string_parameter() {
     let logos_source = r#"## To greet (name: Text) -> Text is exported:
@@ -5382,6 +5444,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_very_long_string() {
     let logos_source = r#"## To echo (msg: Text) -> Text is exported:
@@ -5434,6 +5497,7 @@ int main() {
 // Phase 4: C-Link Tests — New Accessor Coverage
 // ─────────────────────────────────────────────────────────
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_pop() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -5493,6 +5557,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_seq_from_json() {
     let logos_source = r#"## To getNumbers () -> Seq of Int is exported:
@@ -5558,6 +5623,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_remove() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -5610,6 +5676,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_to_json() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -5659,6 +5726,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_map_from_json_round_trip() {
     let logos_source = r#"## To getScores () -> Map of Text to Int is exported:
@@ -5724,6 +5792,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_set_remove() {
     let logos_source = r#"## To getIds () -> Set of Int is exported:
@@ -5779,6 +5848,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_set_to_json() {
     let logos_source = r#"## To getIds () -> Set of Int is exported:
@@ -5826,6 +5896,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_option_create_some_from_c() {
     let logos_source = r#"## To getSome () -> Option of Int is exported:
@@ -5872,6 +5943,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_option_create_none_from_c() {
     let logos_source = r#"## To getSome () -> Option of Int is exported:
@@ -5916,6 +5988,7 @@ int main() {
     assert!(output.contains("done"), "Should complete. Got:\n{}", output);
 }
 
+#[cfg(feature = "ffi-link-tests")]
 #[test]
 fn c_link_json_round_trip_struct() {
     let logos_source = r#"## A Particle has:
