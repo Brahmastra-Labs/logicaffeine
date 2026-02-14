@@ -715,6 +715,14 @@ pub enum Expr<'a> {
 
     /// Option None: `none` → None
     OptionNone,
+
+    /// Pre-allocation capacity hint wrapping an inner value expression.
+    /// `"" with capacity 100` or `a new Seq of Int with capacity n`
+    /// Codegen uses with_capacity(); interpreter ignores the hint.
+    WithCapacity {
+        value: &'a Expr<'a>,
+        capacity: &'a Expr<'a>,
+    },
 }
 
 /// Literal values in LOGOS.

@@ -1,0 +1,14 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable result be "" with capacity n * 6.
+Let mutable i be 0.
+While i is less than n:
+    Set result to result + i + " ".
+    Set i to i + 1.
+Let count: Int be Escape to Rust:
+    result.chars().filter(|c| *c == ' ').count() as i64
+Show count.

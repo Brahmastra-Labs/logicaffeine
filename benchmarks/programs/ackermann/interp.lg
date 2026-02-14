@@ -1,0 +1,9 @@
+## To ackermann (m: Int) and (n: Int) -> Int:
+    If m equals 0:
+        Return n + 1.
+    If n equals 0:
+        Return ackermann(m - 1, 1).
+    Return ackermann(m - 1, ackermann(m, n - 1)).
+
+## Main
+Show ackermann(3, 3).

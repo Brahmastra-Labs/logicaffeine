@@ -20,6 +20,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -31,6 +34,9 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+
       - name: Build workspace
         run: cargo build --workspace --verbose
 
@@ -40,15 +46,25 @@ jobs:
       - name: Run all tests
         run: |
           set -o pipefail
-          cargo test --workspace --features logicaffeine-tests/ffi-link-tests 2>&1 | tee test_output.txt
+          cargo nextest run --workspace --features logicaffeine-tests/ffi-link-tests --profile ci 2>&1 | tee test_output.txt
+
+      - name: Run web tests
+        run: |
+          set -o pipefail
+          cargo nextest run -p logicaffeine-tests --features web-tests --profile ci 2>&1 | tee -a test_output.txt
+
+      - name: Run doctests
+        run: |
+          set -o pipefail
+          cargo test --workspace --doc 2>&1 | tee -a test_output.txt
 
       - name: Extract test count
         if: github.ref == 'refs/heads/main'
         id: test_count
         run: |
-          TOTAL=$(grep -oP '\d+ passed' test_output.txt | awk '{s+=$1} END {print s}')
-          echo "count=$TOTAL" >> "$GITHUB_OUTPUT"
-          echo "Total tests: $TOTAL"
+          NEXTEST=$(grep -oP '\d+ passed' test_output.txt | awk '{s+=$1} END {print s}')
+          echo "count=$NEXTEST" >> "$GITHUB_OUTPUT"
+          echo "Total tests: $NEXTEST"
 
       - name: Push badge to badges branch
         if: github.ref == 'refs/heads/main'

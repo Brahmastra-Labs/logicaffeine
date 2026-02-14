@@ -2204,6 +2204,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
         }
 
+        // Check for optional "with capacity <expr>" — wraps value in Expr::WithCapacity
+        let value = if self.check_word("with") {
+            let saved = self.current;
+            self.advance(); // consume "with"
+            if self.check_word("capacity") {
+                self.advance(); // consume "capacity"
+                let cap_expr = self.parse_imperative_expr()?;
+                self.ctx.alloc_imperative_expr(Expr::WithCapacity { value, capacity: cap_expr })
+            } else {
+                self.current = saved; // backtrack — "with" belongs to something else
+                value
+            }
+        } else {
+            value
+        };
+
         // Register variable in WorldState's DRS with Owned state for ownership tracking
         self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
 
@@ -2340,6 +2356,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         // Parse value expression
         let value = self.parse_imperative_expr()?;
+
+        // Check for optional "with capacity <expr>" — wraps value in Expr::WithCapacity
+        let value = if self.check_word("with") {
+            let saved = self.current;
+            self.advance(); // consume "with"
+            if self.check_word("capacity") {
+                self.advance(); // consume "capacity"
+                let cap_expr = self.parse_imperative_expr()?;
+                self.ctx.alloc_imperative_expr(Expr::WithCapacity { value, capacity: cap_expr })
+            } else {
+                self.current = saved; // backtrack
+                value
+            }
+        } else {
+            value
+        };
 
         // Register variable in WorldState's DRS
         self.world_state.drs.introduce_referent(var, var, crate::drs::Gender::Unknown, crate::drs::Number::Singular);
@@ -4797,7 +4829,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let type_args = self.parse_generic_type_args(type_name)?;
 
                 // Parse optional "with field value" pairs for struct initialization
-                let init_fields = if self.check_word("with") {
+                // But NOT "with capacity" — that's a pre-allocation hint handled by parse_let_statement
+                let init_fields = if self.check_word("with") && !self.peek_word_at(1, "capacity") {
                     self.parse_struct_init_fields()?
                 } else {
                     vec![]
@@ -4822,6 +4855,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     if matches!(next.kind, TokenType::Chunk) {
                         self.advance(); // consume "the"
                         // Delegate to Chunk handling
+                        return self.parse_primary_expr();
+                    }
+                    if matches!(next.kind, TokenType::Length) {
+                        self.advance(); // consume "the"
                         return self.parse_primary_expr();
                     }
                 }
@@ -4864,7 +4901,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         let type_args = self.parse_generic_type_args(type_name)?;
 
                         // Parse optional "with field value" pairs for struct initialization
-                        let init_fields = if self.check_word("with") {
+                        // But NOT "with capacity" — that's a pre-allocation hint handled by parse_let_statement
+                        let init_fields = if self.check_word("with") && !self.peek_word_at(1, "capacity") {
                             self.parse_struct_init_fields()?
                         } else {
                             vec![]
@@ -4922,10 +4960,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.advance();
                     self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Text(sym)))
                 } else if !self.check_preposition_is("of") {
-                    // Variable identifier like i, j, idx (any token that's not "of")
-                    let sym = self.peek().lexeme;
-                    self.advance();
-                    self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
+                    // Check for boolean literals before treating as variable
+                    let word = self.interner.resolve(self.peek().lexeme);
+                    if word == "true" {
+                        self.advance();
+                        self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Boolean(true)))
+                    } else if word == "false" {
+                        self.advance();
+                        self.ctx.alloc_imperative_expr(Expr::Literal(crate::ast::Literal::Boolean(false)))
+                    } else {
+                        // Variable identifier like i, j, idx (any token that's not "of")
+                        let sym = self.peek().lexeme;
+                        self.advance();
+                        self.ctx.alloc_imperative_expr(Expr::Identifier(sym))
+                    }
                 } else {
                     return Err(ParseError {
                         kind: ParseErrorKind::ExpectedExpression,
@@ -8667,6 +8715,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Check if current token is a word (noun/adj/verb lexeme) matching the given string
     fn check_word(&self, word: &str) -> bool {
         let token = self.peek();
+        let lexeme = self.interner.resolve(token.lexeme);
+        lexeme.eq_ignore_ascii_case(word)
+    }
+
+    fn peek_word_at(&self, offset: usize, word: &str) -> bool {
+        if self.current + offset >= self.tokens.len() {
+            return false;
+        }
+        let token = &self.tokens[self.current + offset];
         let lexeme = self.interner.resolve(token.lexeme);
         lexeme.eq_ignore_ascii_case(word)
     }

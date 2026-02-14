@@ -650,3 +650,88 @@ pub fn run_interpreter(source: &str) -> InterpreterTestResult {
         success,
     }
 }
+
+/// Assert that LOGOS code produces exactly the expected output via the interpreter.
+/// No Rust compilation — runs directly through interpret_for_ui.
+#[allow(dead_code)]
+pub fn assert_interpreter_output(source: &str, expected: &str) {
+    let result = run_interpreter(source);
+    assert!(
+        result.success,
+        "Interpreter should succeed.\nSource:\n{}\n\nError: {}",
+        source,
+        result.error
+    );
+    assert_eq!(
+        result.output.trim(),
+        expected,
+        "\nSource:\n{}",
+        source
+    );
+}
+
+/// Assert that LOGOS code produces exactly the expected lines via the interpreter.
+#[allow(dead_code)]
+pub fn assert_interpreter_output_lines(source: &str, expected_lines: &[&str]) {
+    let result = run_interpreter(source);
+    assert!(
+        result.success,
+        "Interpreter should succeed.\nSource:\n{}\n\nError: {}",
+        source,
+        result.error
+    );
+    let actual_lines: Vec<&str> = result.output.trim().lines().collect();
+    assert_eq!(
+        actual_lines.len(),
+        expected_lines.len(),
+        "Line count mismatch.\nExpected {} lines: {:?}\nGot {} lines: {:?}\n\nSource:\n{}",
+        expected_lines.len(),
+        expected_lines,
+        actual_lines.len(),
+        actual_lines,
+        source
+    );
+    for (i, (actual, expected)) in actual_lines.iter().zip(expected_lines.iter()).enumerate() {
+        assert_eq!(
+            actual.trim(),
+            *expected,
+            "Line {} mismatch.\nExpected: '{}'\nGot:      '{}'\n\nFull output:\n{}\n\nSource:\n{}",
+            i + 1,
+            expected,
+            actual.trim(),
+            result.output.trim(),
+            source
+        );
+    }
+}
+
+/// Assert that LOGOS code runs successfully via the interpreter (no output check).
+#[allow(dead_code)]
+pub fn assert_interpreter_runs(source: &str) {
+    let result = run_interpreter(source);
+    assert!(
+        result.success,
+        "Interpreter should succeed.\nSource:\n{}\n\nError: {}",
+        source,
+        result.error
+    );
+}
+
+/// Assert that LOGOS code produces output containing the expected substring via the interpreter.
+#[allow(dead_code)]
+pub fn assert_interpreter_output_contains(source: &str, expected: &str) {
+    let result = run_interpreter(source);
+    assert!(
+        result.success,
+        "Interpreter should succeed.\nSource:\n{}\n\nError: {}",
+        source,
+        result.error
+    );
+    assert!(
+        result.output.trim().contains(expected),
+        "Expected '{}' in output.\nGot: '{}'\n\nSource:\n{}",
+        expected,
+        result.output.trim(),
+        source
+    );
+}

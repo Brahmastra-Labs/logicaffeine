@@ -15,7 +15,7 @@ mod common;
 #[cfg(not(target_arch = "wasm32"))]
 use common::assert_output;
 
-use logicaffeine_compile::interpreter::RuntimeValue;
+use logicaffeine_compile::interpreter::{RuntimeValue, InductiveValue};
 
 // =============================================================================
 // PHASE 102a: RuntimeValue::Inductive variant
@@ -23,95 +23,93 @@ use logicaffeine_compile::interpreter::RuntimeValue;
 
 #[test]
 fn test_runtime_inductive_zero() {
-    // Can construct an Inductive RuntimeValue for Zero
-    let val = RuntimeValue::Inductive {
+    let val = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
-    };
+    }));
     assert_eq!(val.type_name(), "Nat");
 }
 
 #[test]
 fn test_runtime_inductive_succ() {
-    // Succ wraps another Nat
-    let zero = RuntimeValue::Inductive {
+    let zero = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
-    };
-    let one = RuntimeValue::Inductive {
+    }));
+    let one = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![zero],
-    };
+    }));
     assert_eq!(one.type_name(), "Nat");
     assert!(one.to_display_string().contains("Succ"));
 }
 
 #[test]
 fn test_runtime_inductive_list() {
-    // List with Nil and Cons
-    let nil = RuntimeValue::Inductive {
+    let nil = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "List".to_string(),
         constructor: "Nil".to_string(),
         args: vec![],
-    };
-    let cons = RuntimeValue::Inductive {
+    }));
+    let cons = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "List".to_string(),
         constructor: "Cons".to_string(),
         args: vec![RuntimeValue::Int(42), nil],
-    };
+    }));
     assert_eq!(cons.type_name(), "List");
     assert!(cons.to_display_string().contains("Cons"));
 }
 
 #[test]
 fn test_runtime_inductive_display_nested() {
-    // Two : Succ(Succ(Zero))
-    let zero = RuntimeValue::Inductive {
+    let zero = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
-    };
-    let one = RuntimeValue::Inductive {
+    }));
+    let one = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![zero],
-    };
-    let two = RuntimeValue::Inductive {
+    }));
+    let two = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![one],
-    };
+    }));
 
     let display = two.to_display_string();
-    // Should show nested structure
     assert!(display.contains("Succ"), "Display: {}", display);
 }
 
 #[test]
 fn test_runtime_inductive_equality() {
-    let zero1 = RuntimeValue::Inductive {
+    use logicaffeine_base::Interner;
+    use logicaffeine_compile::interpreter::Interpreter;
+
+    let zero1 = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
-    };
-    let zero2 = RuntimeValue::Inductive {
+    }));
+    let zero2 = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Zero".to_string(),
         args: vec![],
-    };
-    let one = RuntimeValue::Inductive {
+    }));
+    let one = RuntimeValue::Inductive(Box::new(InductiveValue {
         inductive_type: "Nat".to_string(),
         constructor: "Succ".to_string(),
         args: vec![zero1.clone()],
-    };
+    }));
 
-    // Same constructor, same args = equal
-    assert_eq!(zero1, zero2);
-    // Different constructor = not equal
-    assert_ne!(zero1, one);
+    let interner = Interner::new();
+    let interp = Interpreter::new(&interner);
+    assert!(interp.values_equal_pub(&zero1, &zero2));
+    assert!(!interp.values_equal_pub(&zero1, &one));
 }
 
 // =============================================================================
@@ -125,9 +123,7 @@ fn test_interpreter_with_kernel_context() {
     use logicaffeine_compile::interpreter::Interpreter;
     use std::sync::Arc;
 
-    // Create kernel context with standard library
     let mut ctx = Context::new();
-    // Register Nat (the prelude should do this, but we do it manually for test)
     ctx.add_inductive("Nat", logicaffeine_kernel::Term::Sort(logicaffeine_kernel::Universe::Type(0)));
     ctx.add_constructor("Zero", "Nat", logicaffeine_kernel::Term::Global("Nat".to_string()));
 
@@ -135,7 +131,6 @@ fn test_interpreter_with_kernel_context() {
     let interp = Interpreter::new(&interner)
         .with_kernel(Arc::new(ctx));
 
-    // Interpreter should know Nat is an inductive
     assert!(interp.is_kernel_inductive("Nat"));
     assert!(!interp.is_kernel_inductive("NotAType"));
 }
@@ -167,7 +162,6 @@ fn test_interpreter_get_constructors() {
 // These require the full compile pipeline
 // =============================================================================
 
-// This test verifies that "is one of:" now creates kernel inductives
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_is_one_of_creates_inductive() {
@@ -188,7 +182,6 @@ Inspect c:
     );
 }
 
-// This test verifies "is either:" also creates kernel inductives
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_is_either_creates_inductive() {
@@ -207,7 +200,6 @@ Inspect s:
     );
 }
 
-// Test recursive inductive (like Nat)
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_recursive_inductive() {
@@ -228,7 +220,6 @@ Inspect n2:
     );
 }
 
-// Test nested pattern matching
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_nested_inductive_inspect() {

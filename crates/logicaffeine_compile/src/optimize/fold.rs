@@ -185,6 +185,15 @@ pub fn fold_expr<'a>(
                 arena.alloc(Expr::BinaryOp { op: *op, left: folded_left, right: folded_right })
             }
         }
+        Expr::WithCapacity { value, capacity } => {
+            let folded_value = fold_expr(value, arena, interner);
+            let folded_cap = fold_expr(capacity, arena, interner);
+            if std::ptr::eq(folded_value, *value) && std::ptr::eq(folded_cap, *capacity) {
+                expr
+            } else {
+                arena.alloc(Expr::WithCapacity { value: folded_value, capacity: folded_cap })
+            }
+        }
         _ => expr,
     }
 }

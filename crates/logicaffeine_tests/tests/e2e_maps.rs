@@ -3,11 +3,11 @@
 //! Verifies Map operations work end-to-end.
 
 mod common;
-use common::assert_exact_output;
+use common::assert_interpreter_output;
 
 #[test]
 fn e2e_map_create_empty() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let prices be a new Map of Text to Int.
 Show "ok".
@@ -18,7 +18,7 @@ Show "ok".
 
 #[test]
 fn e2e_map_set_and_get() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set item "iron" of prices to 100.
@@ -31,7 +31,7 @@ Show cost.
 
 #[test]
 fn e2e_map_multiple_keys() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut inventory be a new Map of Text to Int.
 Set item "iron" of inventory to 50.
@@ -46,7 +46,7 @@ Show total.
 
 #[test]
 fn e2e_map_overwrite_key() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set item "iron" of prices to 100.
@@ -60,7 +60,7 @@ Show cost.
 
 #[test]
 fn e2e_map_with_text_values() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut names be a new Map of Text to Text.
 Set item "player1" of names to "Alice".
@@ -73,7 +73,7 @@ Show name.
 
 #[test]
 fn e2e_map_bracket_get() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set prices["iron"] to 100.
@@ -86,7 +86,7 @@ Show cost.
 
 #[test]
 fn e2e_map_bracket_set() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut prices be a new Map of Text to Int.
 Set prices["copper"] to 50.
@@ -100,7 +100,7 @@ Show cost.
 
 #[test]
 fn e2e_map_mixed_syntax() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mut inventory be a new Map of Text to Int.
 Set item "iron" of inventory to 10.

@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-tests"
-version = "0.8.3"
+version = "0.8.4"
 edition = "2021"
 publish = false
 
@@ -11,6 +11,10 @@ path = "src/lib.rs"
 default = []
 verification = []
 ffi-link-tests = []
+web-tests = ["dep:logicaffeine-web"]
+
+[dependencies]
+logicaffeine-web = { path = "../../apps/logicaffeine_web", optional = true }
 
 [dev-dependencies]
 logicaffeine-base = { path = "../logicaffeine_base" }
@@ -21,7 +25,6 @@ logicaffeine-proof = { path = "../logicaffeine_proof" }
 logicaffeine-data = { path = "../logicaffeine_data" }
 logicaffeine-system = { path = "../logicaffeine_system", features = ["full"] }
 logicaffeine-lexicon = { path = "../logicaffeine_lexicon" }
-logicaffeine-web = { path = "../../apps/logicaffeine_web" }
 tempfile = "3"
 futures = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

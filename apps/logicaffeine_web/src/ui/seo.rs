@@ -444,6 +444,13 @@ pub mod pages {
         canonical_path: "/registry",
         og_image: Some("/assets/OG-photo.png"),
     };
+
+    pub const BENCHMARKS: PageMeta = PageMeta {
+        title: "Benchmarks | LOGICAFFEINE",
+        description: "LOGOS performance benchmarks across 13 languages. Near-native speed from English source code.",
+        canonical_path: "/benchmarks",
+        og_image: Some("/assets/OG-photo.png"),
+    };
 }
 
 /// Update document head meta tags for SEO on every page render.

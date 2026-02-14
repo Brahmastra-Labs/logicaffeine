@@ -1,3 +1,4 @@
+#![cfg(feature = "web-tests")]
 /// Tests for Struggle Detection Logic
 ///
 /// Struggle detection triggers Socratic hints when:

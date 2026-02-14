@@ -1,0 +1,21 @@
+## Main
+Let n be 1000.
+Let mutable arr be a new Seq of Int.
+Let mutable seed be 42.
+Let mutable i be 0.
+While i is less than n:
+    Set seed to (seed * 1103515245 + 12345) % 4294967296.
+    Push (seed / 65536) % 32768 to arr.
+    Set i to i + 1.
+Set i to 0.
+While i is less than n - 1:
+    Let mutable j be 1.
+    While j is at most n - 1 - i:
+        Let a be item j of arr.
+        Let b be item (j + 1) of arr.
+        If a is greater than b:
+            Set item j of arr to b.
+            Set item (j + 1) of arr to a.
+        Set j to j + 1.
+    Set i to i + 1.
+Show item 1 of arr.

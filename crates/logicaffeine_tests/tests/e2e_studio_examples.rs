@@ -9,7 +9,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::run_logos;
+use common::{run_logos, run_interpreter};
 
 use logicaffeine_language::{compile, compile_all_scopes};
 use logicaffeine_language::ast::{QuantifierKind, TemporalOperator};
@@ -208,13 +208,12 @@ Show "The sum is:".
 Show sum.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "hello-world should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("Hello, LOGOS!"),
-        "Should output greeting. Got: {}", result.stdout);
-    assert!(result.stdout.contains("30"),
-        "Should output sum 30. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "hello-world should run.\nError: {}", result.error);
+    assert!(result.output.contains("Hello, LOGOS!"),
+        "Should output greeting. Got: {}", result.output);
+    assert!(result.output.contains("30"),
+        "Should output sum 30. Got: {}", result.output);
 }
 
 /// Test: fibonacci.logos
@@ -237,12 +236,11 @@ Repeat for i from 1 to n:
     Set b to temp.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "fibonacci should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("0"), "Should contain 0");
-    assert!(result.stdout.contains("1"), "Should contain 1");
-    assert!(result.stdout.contains("55"), "Should contain fib(10)=55. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "fibonacci should run.\nError: {}", result.error);
+    assert!(result.output.contains("0"), "Should contain 0");
+    assert!(result.output.contains("1"), "Should contain 1");
+    assert!(result.output.contains("55"), "Should contain fib(10)=55. Got: {}", result.output);
 }
 
 /// Test: fizzbuzz.logos
@@ -264,12 +262,11 @@ Repeat for i from 1 to 20:
                 Show i.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "fizzbuzz should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("FizzBuzz"), "Should contain FizzBuzz. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Fizz"), "Should contain Fizz. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Buzz"), "Should contain Buzz. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "fizzbuzz should run.\nError: {}", result.error);
+    assert!(result.output.contains("FizzBuzz"), "Should contain FizzBuzz. Got: {}", result.output);
+    assert!(result.output.contains("Fizz"), "Should contain Fizz. Got: {}", result.output);
+    assert!(result.output.contains("Buzz"), "Should contain Buzz. Got: {}", result.output);
 }
 
 /// Test: collections.logos
@@ -296,15 +293,14 @@ Show "Last item:".
 Show item 6 of numbers.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "collections should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("[1, 2, 3, 4, 5]"),
-        "Should show initial list. Got: {}", result.stdout);
-    assert!(result.stdout.contains("[1, 2, 3, 4, 5, 6]"),
-        "Should show list after push. Got: {}", result.stdout);
-    assert!(result.stdout.contains("6"), "Should show length 6. Got: {}", result.stdout);
-    assert!(result.stdout.contains("1"), "Should show first item. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "collections should run.\nError: {}", result.error);
+    assert!(result.output.contains("[1, 2, 3, 4, 5]"),
+        "Should show initial list. Got: {}", result.output);
+    assert!(result.output.contains("[1, 2, 3, 4, 5, 6]"),
+        "Should show list after push. Got: {}", result.output);
+    assert!(result.output.contains("6"), "Should show length 6. Got: {}", result.output);
+    assert!(result.output.contains("1"), "Should show first item. Got: {}", result.output);
 }
 
 // ============================================================
@@ -736,13 +732,12 @@ Let big be factorial(10).
 Show big.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "factorial should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("120"),
-        "Should output factorial(5)=120. Got: {}", result.stdout);
-    assert!(result.stdout.contains("3628800"),
-        "Should output factorial(10)=3628800. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "factorial should run.\nError: {}", result.error);
+    assert!(result.output.contains("120"),
+        "Should output factorial(5)=120. Got: {}", result.output);
+    assert!(result.output.contains("3628800"),
+        "Should output factorial(10)=3628800. Got: {}", result.output);
 }
 
 /// Test: prime-check.logos (loops and conditionals)
@@ -767,14 +762,13 @@ Repeat for num from 2 to 30:
         Show num.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "prime-check should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("2"), "Should find 2 is prime");
-    assert!(result.stdout.contains("3"), "Should find 3 is prime");
-    assert!(result.stdout.contains("5"), "Should find 5 is prime");
-    assert!(result.stdout.contains("7"), "Should find 7 is prime");
-    assert!(result.stdout.contains("29"), "Should find 29 is prime");
+    let result = run_interpreter(source);
+    assert!(result.success, "prime-check should run.\nError: {}", result.error);
+    assert!(result.output.contains("2"), "Should find 2 is prime");
+    assert!(result.output.contains("3"), "Should find 3 is prime");
+    assert!(result.output.contains("5"), "Should find 5 is prime");
+    assert!(result.output.contains("7"), "Should find 7 is prime");
+    assert!(result.output.contains("29"), "Should find 29 is prime");
 }
 
 /// Test: sum-list.logos (list iteration)
@@ -793,11 +787,10 @@ Show "Sum of [10, 20, 30, 40, 50]:".
 Show total.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "sum-list should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("150"),
-        "Should output sum 150. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "sum-list should run.\nError: {}", result.error);
+    assert!(result.output.contains("150"),
+        "Should output sum 150. Got: {}", result.output);
 }
 
 /// Test: bubble-sort.logos (nested loops and list mutation)
@@ -824,13 +817,12 @@ Show "After sorting:".
 Show numbers.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "bubble-sort should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("[64, 34, 25, 12, 22, 11, 90]"),
-        "Should show unsorted list. Got: {}", result.stdout);
-    assert!(result.stdout.contains("[11, 12, 22, 25, 34, 64, 90]"),
-        "Should show sorted list. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "bubble-sort should run.\nError: {}", result.error);
+    assert!(result.output.contains("[64, 34, 25, 12, 22, 11, 90]"),
+        "Should show unsorted list. Got: {}", result.output);
+    assert!(result.output.contains("[11, 12, 22, 25, 34, 64, 90]"),
+        "Should show sorted list. Got: {}", result.output);
 }
 
 /// Test: struct-demo.logos (custom types)
@@ -862,17 +854,16 @@ Show bob's name.
 Show bob's age.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "struct-demo should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("Alice"),
-        "Should output Alice. Got: {}", result.stdout);
-    assert!(result.stdout.contains("30"),
-        "Should output age 30. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Bob"),
-        "Should output Bob. Got: {}", result.stdout);
-    assert!(result.stdout.contains("25"),
-        "Should output age 25. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "struct-demo should run.\nError: {}", result.error);
+    assert!(result.output.contains("Alice"),
+        "Should output Alice. Got: {}", result.output);
+    assert!(result.output.contains("30"),
+        "Should output age 30. Got: {}", result.output);
+    assert!(result.output.contains("Bob"),
+        "Should output Bob. Got: {}", result.output);
+    assert!(result.output.contains("25"),
+        "Should output age 25. Got: {}", result.output);
 }
 
 // ============================================================
@@ -993,13 +984,12 @@ Inspect c2:
     Otherwise: Show "not red".
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "enums example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("It's red!"),
-        "Should output 'It's red!'. Got: {}", result.stdout);
-    assert!(result.stdout.contains("not red"),
-        "Should output 'not red'. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "enums example should run.\nError: {}", result.error);
+    assert!(result.output.contains("It's red!"),
+        "Should output 'It's red!'. Got: {}", result.output);
+    assert!(result.output.contains("not red"),
+        "Should output 'not red'. Got: {}", result.output);
 }
 
 /// Test: types/generics.logos (generic map types)
@@ -1026,15 +1016,14 @@ Show "Total:".
 Show total.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "generics/maps example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("100"),
-        "Should output Alice's score 100. Got: {}", result.stdout);
-    assert!(result.stdout.contains("90"),
-        "Should output Bob's new score 90. Got: {}", result.stdout);
-    assert!(result.stdout.contains("282"),
-        "Should output total 282. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "generics/maps example should run.\nError: {}", result.error);
+    assert!(result.output.contains("100"),
+        "Should output Alice's score 100. Got: {}", result.output);
+    assert!(result.output.contains("90"),
+        "Should output Bob's new score 90. Got: {}", result.output);
+    assert!(result.output.contains("282"),
+        "Should output total 282. Got: {}", result.output);
 }
 
 /// Test: collections/sets.logos (set operations)
@@ -1070,17 +1059,16 @@ Show "Sum of numbers:".
 Show sum.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "sets example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("3"),
-        "Should output set size 3. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Bob is in the set!"),
-        "Should find Bob. Got: {}", result.stdout);
-    assert!(result.stdout.contains("2"),
-        "Should output size 2 after removing. Got: {}", result.stdout);
-    assert!(result.stdout.contains("60"),
-        "Should output sum 60. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "sets example should run.\nError: {}", result.error);
+    assert!(result.output.contains("3"),
+        "Should output set size 3. Got: {}", result.output);
+    assert!(result.output.contains("Bob is in the set!"),
+        "Should find Bob. Got: {}", result.output);
+    assert!(result.output.contains("2"),
+        "Should output size 2 after removing. Got: {}", result.output);
+    assert!(result.output.contains("60"),
+        "Should output sum 60. Got: {}", result.output);
 }
 
 /// Test: collections/maps.logos (map operations with mixed syntax)
@@ -1109,17 +1097,16 @@ Show "Total resources:".
 Show total.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "maps example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("50"),
-        "Should output iron count 50. Got: {}", result.stdout);
-    assert!(result.stdout.contains("30"),
-        "Should output copper count 30. Got: {}", result.stdout);
-    assert!(result.stdout.contains("100"),
-        "Should output updated iron 100. Got: {}", result.stdout);
-    assert!(result.stdout.contains("140"),
-        "Should output total 140. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "maps example should run.\nError: {}", result.error);
+    assert!(result.output.contains("50"),
+        "Should output iron count 50. Got: {}", result.output);
+    assert!(result.output.contains("30"),
+        "Should output copper count 30. Got: {}", result.output);
+    assert!(result.output.contains("100"),
+        "Should output updated iron 100. Got: {}", result.output);
+    assert!(result.output.contains("140"),
+        "Should output total 140. Got: {}", result.output);
 }
 
 /// Test: functions/higher-order.logos (advanced function features)
@@ -1150,15 +1137,14 @@ Show "Is 17 even?".
 Show isEven(17).
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "advanced functions example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("42"),
-        "Should output double(21)=42. Got: {}", result.stdout);
-    assert!(result.stdout.contains("true"),
-        "Should output true for isEven(42). Got: {}", result.stdout);
-    assert!(result.stdout.contains("false"),
-        "Should output false for isEven(17). Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "advanced functions example should run.\nError: {}", result.error);
+    assert!(result.output.contains("42"),
+        "Should output double(21)=42. Got: {}", result.output);
+    assert!(result.output.contains("true"),
+        "Should output true for isEven(42). Got: {}", result.output);
+    assert!(result.output.contains("false"),
+        "Should output false for isEven(17). Got: {}", result.output);
 }
 
 /// Test: distributed/counters.logos (CRDT counters)
@@ -1208,13 +1194,12 @@ Let guest be a new User with role "guest".
 Show "Guest created (would fail admin check)".
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "policies example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("Admin check passed!"),
-        "Should pass admin check. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Guest created"),
-        "Should create guest. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "policies example should run.\nError: {}", result.error);
+    assert!(result.output.contains("Admin check passed!"),
+        "Should pass admin check. Got: {}", result.output);
+    assert!(result.output.contains("Guest created"),
+        "Should create guest. Got: {}", result.output);
 }
 
 /// Test: memory/zones.logos (memory zone allocation)
@@ -1242,15 +1227,14 @@ Inside a zone called "Buffer" of size 1 MB:
 Show "Zones cleaned up!".
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "zones example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("Working with memory zones"),
-        "Should output intro. Got: {}", result.stdout);
-    assert!(result.stdout.contains("100"),
-        "Should output zone sum 100. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Zones cleaned up!"),
-        "Should output cleanup. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "zones example should run.\nError: {}", result.error);
+    assert!(result.output.contains("Working with memory zones"),
+        "Should output intro. Got: {}", result.output);
+    assert!(result.output.contains("100"),
+        "Should output zone sum 100. Got: {}", result.output);
+    assert!(result.output.contains("Zones cleaned up!"),
+        "Should output cleanup. Got: {}", result.output);
 }
 
 /// Test: native/tasks.logos (task spawning - native only)
@@ -1338,13 +1322,12 @@ Let doubled be count * 2.
 Show doubled.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "variables example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("Alice"), "Should output name. Got: {}", result.stdout);
-    assert!(result.stdout.contains("25"), "Should output age. Got: {}", result.stdout);
-    assert!(result.stdout.contains("true"), "Should output active. Got: {}", result.stdout);
-    assert!(result.stdout.contains("200"), "Should output doubled. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "variables example should run.\nError: {}", result.error);
+    assert!(result.output.contains("Alice"), "Should output name. Got: {}", result.output);
+    assert!(result.output.contains("25"), "Should output age. Got: {}", result.output);
+    assert!(result.output.contains("true"), "Should output active. Got: {}", result.output);
+    assert!(result.output.contains("200"), "Should output doubled. Got: {}", result.output);
 }
 
 /// Test: basics/operators.logos
@@ -1372,14 +1355,13 @@ Show x or y.
 Show not x.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "operators example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("13"), "Should output 10+3=13. Got: {}", result.stdout);
-    assert!(result.stdout.contains("7"), "Should output 10-3=7. Got: {}", result.stdout);
-    assert!(result.stdout.contains("30"), "Should output 10*3=30. Got: {}", result.stdout);
-    assert!(result.stdout.contains("true"), "Should output comparisons. Got: {}", result.stdout);
-    assert!(result.stdout.contains("false"), "Should output logical. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "operators example should run.\nError: {}", result.error);
+    assert!(result.output.contains("13"), "Should output 10+3=13. Got: {}", result.output);
+    assert!(result.output.contains("7"), "Should output 10-3=7. Got: {}", result.output);
+    assert!(result.output.contains("30"), "Should output 10*3=30. Got: {}", result.output);
+    assert!(result.output.contains("true"), "Should output comparisons. Got: {}", result.output);
+    assert!(result.output.contains("false"), "Should output logical. Got: {}", result.output);
 }
 
 /// Test: basics/control-flow.logos
@@ -1407,16 +1389,15 @@ Repeat for n in items:
     Show n.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "control-flow example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("Grade: B"), "Should output Grade B. Got: {}", result.stdout);
-    assert!(result.stdout.contains("1"), "Should output while 1. Got: {}", result.stdout);
-    assert!(result.stdout.contains("2"), "Should output while 2. Got: {}", result.stdout);
-    assert!(result.stdout.contains("3"), "Should output while 3. Got: {}", result.stdout);
-    assert!(result.stdout.contains("10"), "Should output for-each 10. Got: {}", result.stdout);
-    assert!(result.stdout.contains("20"), "Should output for-each 20. Got: {}", result.stdout);
-    assert!(result.stdout.contains("30"), "Should output for-each 30. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "control-flow example should run.\nError: {}", result.error);
+    assert!(result.output.contains("Grade: B"), "Should output Grade B. Got: {}", result.output);
+    assert!(result.output.contains("1"), "Should output while 1. Got: {}", result.output);
+    assert!(result.output.contains("2"), "Should output while 2. Got: {}", result.output);
+    assert!(result.output.contains("3"), "Should output while 3. Got: {}", result.output);
+    assert!(result.output.contains("10"), "Should output for-each 10. Got: {}", result.output);
+    assert!(result.output.contains("20"), "Should output for-each 20. Got: {}", result.output);
+    assert!(result.output.contains("30"), "Should output for-each 30. Got: {}", result.output);
 }
 
 // ============================================================
@@ -1448,11 +1429,10 @@ Inspect s2:
     Otherwise: Show "not active".
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "enums-patterns example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("In progress"), "Should match Active. Got: {}", result.stdout);
-    assert!(result.stdout.contains("not active"), "Should match Otherwise. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "enums-patterns example should run.\nError: {}", result.error);
+    assert!(result.output.contains("In progress"), "Should match Active. Got: {}", result.output);
+    assert!(result.output.contains("not active"), "Should match Otherwise. Got: {}", result.output);
 }
 
 // ============================================================
@@ -1478,13 +1458,12 @@ Let duplicate be "Copy of data".
 Show duplicate.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "ownership example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("User Profile Data"),
-        "Should show profile. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Copy of data"),
-        "Should show duplicate. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "ownership example should run.\nError: {}", result.error);
+    assert!(result.output.contains("User Profile Data"),
+        "Should show profile. Got: {}", result.output);
+    assert!(result.output.contains("Copy of data"),
+        "Should show duplicate. Got: {}", result.output);
 }
 
 // ============================================================
@@ -1511,13 +1490,12 @@ Let y be 20.
 Show x + y.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "concurrency example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("100"), "Should output a=100. Got: {}", result.stdout);
-    assert!(result.stdout.contains("200"), "Should output b=200. Got: {}", result.stdout);
-    assert!(result.stdout.contains("20000"), "Should output product. Got: {}", result.stdout);
-    assert!(result.stdout.contains("30"), "Should output sum. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "concurrency example should run.\nError: {}", result.error);
+    assert!(result.output.contains("100"), "Should output a=100. Got: {}", result.output);
+    assert!(result.output.contains("200"), "Should output b=200. Got: {}", result.output);
+    assert!(result.output.contains("20000"), "Should output product. Got: {}", result.output);
+    assert!(result.output.contains("30"), "Should output sum. Got: {}", result.output);
 }
 
 // ============================================================
@@ -1613,14 +1591,13 @@ Show validate_age(25).
 Show validate_age(0 - 5).
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "error-handling example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("5"), "Should output 10/2=5. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Error: Cannot divide by zero"),
-        "Should show divide error. Got: {}", result.stdout);
-    assert!(result.stdout.contains("Error: Age cannot be negative"),
-        "Should show age error. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "error-handling example should run.\nError: {}", result.error);
+    assert!(result.output.contains("5"), "Should output 10/2=5. Got: {}", result.output);
+    assert!(result.output.contains("Error: Cannot divide by zero"),
+        "Should show divide error. Got: {}", result.output);
+    assert!(result.output.contains("Error: Age cannot be negative"),
+        "Should show age error. Got: {}", result.output);
 }
 
 // ============================================================
@@ -1640,11 +1617,10 @@ Show positive.
 Show percentage.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "refinement example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("5"), "Should output positive. Got: {}", result.stdout);
-    assert!(result.stdout.contains("85"), "Should output percentage. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "refinement example should run.\nError: {}", result.error);
+    assert!(result.output.contains("5"), "Should output positive. Got: {}", result.output);
+    assert!(result.output.contains("85"), "Should output percentage. Got: {}", result.output);
 }
 
 /// Test: advanced/assertions.logos - basic validation pattern
@@ -1663,11 +1639,10 @@ Let another be double(5).
 Show another.
 "#;
 
-    let result = run_logos(source);
-    assert!(result.success, "assertions example should run.\nstderr: {}\nrust: {}",
-        result.stderr, result.rust_code);
-    assert!(result.stdout.contains("50"), "Should output 25*2=50. Got: {}", result.stdout);
-    assert!(result.stdout.contains("10"), "Should output 5*2=10. Got: {}", result.stdout);
+    let result = run_interpreter(source);
+    assert!(result.success, "assertions example should run.\nError: {}", result.error);
+    assert!(result.output.contains("50"), "Should output 25*2=50. Got: {}", result.output);
+    assert!(result.output.contains("10"), "Should output 5*2=10. Got: {}", result.output);
 }
 
 // ============================================================

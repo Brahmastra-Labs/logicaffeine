@@ -47,7 +47,13 @@ cargo-args = ["--workspace"]
 rustdoc-args = ["--document-private-items", "--enable-index-page", "-Zunstable-options"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
-[profile]
+[profile.dev]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
+
+[profile.test]
+debug = "line-tables-only"
+split-debuginfo = "unpacked"
 
 [profile.wasm-dev]
 inherits = "dev"

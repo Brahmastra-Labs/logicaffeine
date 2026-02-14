@@ -1,0 +1,8 @@
+[profile.default]
+retries = 0
+slow-warning = { period = "60s" }
+fail-fast = false
+
+[profile.ci]
+retries = 1
+fail-fast = true

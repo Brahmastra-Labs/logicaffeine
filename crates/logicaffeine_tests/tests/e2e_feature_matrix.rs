@@ -5,7 +5,7 @@
 //! hide: ownership, borrowing, type inference, and clone issues at feature boundaries.
 
 mod common;
-use common::{run_logos, assert_exact_output, assert_output_lines, assert_panics};
+use common::{run_logos, compile_logos, assert_panics, assert_exact_output, assert_interpreter_output, assert_interpreter_output_lines};
 
 // =============================================================================
 // Category 1: Functions + Collections Integration
@@ -13,7 +13,7 @@ use common::{run_logos, assert_exact_output, assert_output_lines, assert_panics}
 
 #[test]
 fn e2e_function_takes_map() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To totalCost (prices: Map of Text to Int) -> Int:
     Let a be item "apple" of prices.
     Let b be item "bread" of prices.
@@ -31,7 +31,7 @@ Show totalCost(prices).
 
 #[test]
 fn e2e_function_returns_map() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To makeConfig -> Map of Text to Int:
     Let mut m be a new Map of Text to Int.
     Set item "timeout" of m to 42.
@@ -47,7 +47,7 @@ Show item "timeout" of config.
 
 #[test]
 fn e2e_function_takes_set() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To hasAdmin (users: Set of Text) -> Bool:
     Return users contains "admin".
 
@@ -64,7 +64,7 @@ If hasAdmin(s):
 
 #[test]
 fn e2e_function_builds_list_in_loop() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To evens (n: Int) -> Seq of Int:
     Let result be a new Seq of Int.
     Let i be 1.
@@ -83,7 +83,7 @@ Show evens(10).
 
 #[test]
 fn e2e_function_takes_seq_returns_seq() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To reversed (items: Seq of Int) -> Seq of Int:
     Let result be a new Seq of Int.
     Let i be length of items.
@@ -101,7 +101,7 @@ Show reversed([1, 2, 3]).
 
 #[test]
 fn e2e_function_with_loop_and_conditional() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To countOnes (items: Seq of Int) -> Int:
     Let count be 0.
     Repeat for x in items:
@@ -216,7 +216,7 @@ Show sum.
 
 #[test]
 fn e2e_struct_computation_function() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Rect has:
     A width: Int.
     A height: Int.
@@ -306,7 +306,7 @@ Show sum.
 
 #[test]
 fn e2e_enum_function_return_branch() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Sign is one of:
     A Positive.
     A Negative.
@@ -414,7 +414,7 @@ Show sumLeaves(tree).
 
 #[test]
 fn e2e_binary_search() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To binarySearch (items: Seq of Int) and (target: Int) -> Int:
     Let low be 1.
     Let high be length of items.
@@ -439,7 +439,7 @@ Show binarySearch(sorted, 40).
 
 #[test]
 fn e2e_insertion_sort() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To insertionSort (items: Seq of Int) -> Seq of Int:
     Let result be copy of items.
     Let n be length of result.
@@ -504,7 +504,7 @@ Show length of s's elements.
 
 #[test]
 fn e2e_max_of_list() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To maxOf (items: Seq of Int) -> Int:
     Let best be item 1 of items.
     Repeat for x in items:
@@ -521,7 +521,7 @@ Show maxOf([3, 99, 7, 42, 1]).
 
 #[test]
 fn e2e_count_occurrences() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To countOf (items: Seq of Int) and (target: Int) -> Int:
     Let count be 0.
     Repeat for x in items:
@@ -538,7 +538,7 @@ Show countOf([1, 2, 3, 2, 4, 2], 2).
 
 #[test]
 fn e2e_dot_product() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To dot (a: Seq of Int) and (b: Seq of Int) -> Int:
     Let sum be 0.
     Let i be 1.
@@ -695,7 +695,7 @@ fn e2e_select_receive_with_computation() {
 
 #[test]
 fn e2e_enum_state_machine() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A State is one of:
     A Start.
     A Running with step Int.
@@ -723,7 +723,7 @@ Show "done".
 
 #[test]
 fn e2e_multi_function_pipeline() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To generate (n: Int) -> Seq of Int:
     Let result be a new Seq of Int.
     Repeat for i from 1 to n:
@@ -754,7 +754,7 @@ Show sumAll(evens).
 
 #[test]
 fn e2e_struct_with_enum_field() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Priority is one of:
     A High with level Int.
     A Low.
@@ -775,7 +775,7 @@ Inspect t's priority:
 
 #[test]
 fn e2e_policy_with_struct_function() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Definition
 A User has:
     a role, which is Text.
@@ -797,7 +797,7 @@ process(u).
 
 #[test]
 fn e2e_refinement_in_function() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To squarePositive (n: Int) -> Int:
     Let x: Int where x > 0 be n.
     Return x * x.
@@ -816,7 +816,7 @@ Show squarePositive(5).
 #[test]
 fn e2e_gap_1_function_returns_map_basic() {
     // Gap: Functions returning Map - ownership transfer through return
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To makeConfig -> Map of Text to Int:
     Let m be a new Map of Text to Int.
     Set item "timeout" of m to 5000.
@@ -833,7 +833,7 @@ Show item "timeout" of config.
 #[test]
 fn e2e_gap_2_function_returns_set_basic() {
     // Gap: Functions returning Set - ownership transfer
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To makeTags -> Set of Text:
     Let s be a new Set of Text.
     Add "rust" to s.
@@ -851,7 +851,7 @@ If tags contains "rust":
 #[test]
 fn e2e_gap_3_function_returns_map_iteration() {
     // Gap: Functions returning Map with iteration - now supports tuple destructuring!
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To makeScores -> Map of Text to Int:
     Let m be a new Map of Text to Int.
     Set item "alice" of m to 10.
@@ -1012,7 +1012,7 @@ fn e2e_gap_8_give_to_function_basic() {
 Let items be [1, 2, 3].
 Call consume with Give items.
 "#;
-    assert_exact_output(source, "3");
+    assert_interpreter_output(source, "3");
 }
 
 #[test]
@@ -1028,7 +1028,7 @@ Let x be [1, 2].
 Let y be [3, 4, 5].
 Call combine with Give x and Give y.
 "#;
-    assert_exact_output(source, "5");
+    assert_interpreter_output(source, "5");
 }
 
 #[test]
@@ -1046,7 +1046,7 @@ fn e2e_gap_10_give_struct_to_function() {
 Let m be a new Message with content "hello".
 Call consume with Give m.
 "#;
-    assert_exact_output(source, "hello");
+    assert_interpreter_output(source, "hello");
 }
 
 // =============================================================================
@@ -1303,7 +1303,7 @@ Show length of retrieved.
 #[test]
 fn e2e_copy_of_map() {
     // Bug A target: copy of Map generates .to_vec() which doesn't exist on HashMap
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let m be a new Map of Text to Int.
 Set item "x" of m to 1.
@@ -1318,7 +1318,7 @@ Show item "x" of m2.
 #[test]
 fn e2e_copy_of_set() {
     // Bug A target: copy of Set generates .to_vec() which doesn't exist on HashSet
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let s be a new Set of Text.
 Add "hello" to s.
@@ -1336,7 +1336,7 @@ Otherwise:
 #[test]
 fn e2e_copy_of_seq_independence() {
     // Baseline: copy of Vec should already work - verify independence
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let a be [1, 2, 3].
 Let mutable b be copy of a.
@@ -1350,7 +1350,7 @@ Show item 1 of a.
 #[test]
 fn e2e_copy_of_struct_seq_field() {
     // Copy struct's collection field, then mutate independently
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Basket has:
     An items: Seq of Int.
 
@@ -1369,7 +1369,7 @@ Show length of snapshot.
 #[test]
 fn e2e_copy_seq_mutate_both() {
     // Copy a seq, mutate both independently
-    assert_output_lines(
+    assert_interpreter_output_lines(
         r#"## Main
 Let mutable a be [1, 2, 3].
 Let mutable b be copy of a.
@@ -1389,7 +1389,7 @@ Show item 1 of b.
 #[test]
 fn e2e_string_concat_field_access() {
     // Bug B target: "Hello " + person's name should use format!()
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Person has:
     A name: Text.
 
@@ -1404,7 +1404,7 @@ Show "Hello " + p's name.
 #[test]
 fn e2e_string_concat_function_return() {
     // Bug B target: "Hello " + getName() should use format!()
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To getName -> Text:
     Return "Bob".
 
@@ -1418,7 +1418,7 @@ Show "Hello " + getName().
 #[test]
 fn e2e_string_concat_index_result() {
     // Bug B target: "Winner: " + item 1 of names should use format!()
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let names be ["Alice", "Bob"].
 Show "Winner: " + item 1 of names.
@@ -1430,7 +1430,7 @@ Show "Winner: " + item 1 of names.
 #[test]
 fn e2e_string_contains_on_field() {
     // Contains check on a struct's text field
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Doc has:
     A body: Text.
 
@@ -1448,7 +1448,7 @@ Otherwise:
 #[test]
 fn e2e_string_length_of_text() {
     // Length of a text string
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let s be "hello".
 Show length of s.
@@ -1464,7 +1464,7 @@ Show length of s.
 #[test]
 fn e2e_enum_returned_from_function() {
     // Function returns enum, caller inspects it
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Result is one of:
     A Success with value Int.
     A Failure with message Text.
@@ -1487,7 +1487,7 @@ Inspect r:
 #[test]
 fn e2e_enum_passed_to_function() {
     // Function receives enum, inspects it
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Shape is one of:
     A Circle with radius Int.
     A Square with side Int.
@@ -1508,7 +1508,7 @@ Show area(c).
 #[test]
 fn e2e_seq_of_enums_iterate_inspect() {
     // Collection of enums, iterate and inspect each
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Shape is one of:
     A Circle with radius Int.
     A Square with side Int.
@@ -1532,7 +1532,7 @@ Show sum.
 fn e2e_struct_enum_field_inspect() {
     // Struct with enum field, access and inspect
     // Tests that CalendarUnit tokens (Year) work as enum variant names
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Period is one of:
     A Year with value Int.
     A Unknown.
@@ -1553,7 +1553,7 @@ Inspect e's period:
 #[test]
 fn e2e_nested_inspect_boxed() {
     // Nested inspect on recursive boxed enum
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Expr is one of:
     A Num with value Int.
     A Add with left Expr and right Expr.
@@ -1576,7 +1576,7 @@ Show eval(sum).
 #[test]
 fn e2e_enum_func_return_to_collection() {
     // Function returns enum, push to collection, iterate
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Wrapped is one of:
     A Num with n Int.
     A Nothing.
@@ -1609,7 +1609,7 @@ Show sum.
 #[test]
 fn e2e_set_index_swap_pattern() {
     // Swap two elements using a temp variable
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mutable items be [10, 20, 30, 40, 50].
 Let temp be item 2 of items.
@@ -1624,7 +1624,7 @@ Show items.
 #[test]
 fn e2e_set_index_computed() {
     // Set index at a computed position
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mutable items be [1, 2, 3, 4, 5].
 Let pos be 3.
@@ -1638,7 +1638,7 @@ Show items.
 #[test]
 fn e2e_set_field_increment() {
     // Read a struct field, compute, write back
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Counter has:
     A count: Int.
 
@@ -1656,7 +1656,7 @@ Show c's count.
 #[test]
 fn e2e_nested_field_chain_3_levels() {
     // 3-level struct nesting: set and get deep field
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Inner has:
     A value: Int.
 
@@ -1683,7 +1683,7 @@ Show o's middle's inner's value.
 #[test]
 fn e2e_function_calling_function() {
     // Function calls another function
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To double (x: Int) -> Int:
     Return x * 2.
 
@@ -1700,7 +1700,7 @@ Show quadruple(5).
 #[test]
 fn e2e_func_returns_struct_with_collection() {
     // Function builds and returns a struct containing a collection
-    assert_output_lines(
+    assert_interpreter_output_lines(
         r#"## A Report has:
     A totals: Seq of Int.
 
@@ -1726,7 +1726,7 @@ Show length of report's totals.
 #[test]
 fn e2e_multi_param_mixed_types() {
     // Function taking multiple params of different types
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To compute (name: Text) and (base: Int) and (multiplier: Int) -> Int:
     Return base * multiplier.
 
@@ -1740,7 +1740,7 @@ Show compute("test", 50, 10).
 #[test]
 fn e2e_function_chain_struct_transform() {
     // Pass struct through a chain of functions
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Box has:
     A value: Int.
 
@@ -1767,7 +1767,7 @@ Show b3's value.
 #[test]
 fn e2e_show_slice_result() {
     // Bug C target: Show + Slice creates double-reference show(&&items[...])
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let items be [10, 20, 30, 40, 50].
 Show items 2 through 4.
@@ -1779,7 +1779,7 @@ Show items 2 through 4.
 #[test]
 fn e2e_length_in_condition() {
     // Use length of collection in an If condition
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let items be [1, 2, 3, 4, 5].
 If length of items is greater than 3:
@@ -1794,7 +1794,7 @@ Otherwise:
 #[test]
 fn e2e_contains_set_conditional() {
     // Contains check on Set in If condition
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let roles be a new Set of Text.
 Add "admin" to roles.
@@ -1811,7 +1811,7 @@ Otherwise:
 #[test]
 fn e2e_while_set_accumulator() {
     // Build a set in a while loop until it has enough elements
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mutable s be a new Set of Int.
 Let i be 1.
@@ -1831,7 +1831,7 @@ Show length of s.
 
 #[test]
 fn e2e_while_inside_repeat() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let items be [3, 2, 1].
 Let total be 0.
@@ -1848,7 +1848,7 @@ Show total.
 
 #[test]
 fn e2e_repeat_inside_while() {
-    assert_output_lines(
+    assert_interpreter_output_lines(
         r#"## Main
 Let mutable items be a new Seq of Int.
 Push 1 to items.
@@ -1868,7 +1868,7 @@ Show length of items.
 
 #[test]
 fn e2e_nested_for_in_same_collection() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let nums be [1, 2, 3].
 Let total be 0.
@@ -1883,7 +1883,7 @@ Show total.
 
 #[test]
 fn e2e_early_return_in_nested_loop() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To findFirst (items: Seq of Int) and (target: Int) -> Int:
     Let pos be 0.
     Repeat for x in items:
@@ -1901,7 +1901,7 @@ Show findFirst([10, 20, 30, 40], 30).
 
 #[test]
 fn e2e_while_with_compound_boolean() {
-    assert_output_lines(
+    assert_interpreter_output_lines(
         r#"## Main
 Let x be 10.
 Let y be 20.
@@ -1921,7 +1921,7 @@ Show y.
 
 #[test]
 fn e2e_map_iteration_build_seq() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let prices be a new Map of Text to Int.
 Set item "apple" of prices to 3.
@@ -1940,7 +1940,7 @@ Show total.
 
 #[test]
 fn e2e_map_iteration_filter_to_new_map() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let scores be a new Map of Text to Int.
 Set item "alice" of scores to 90.
@@ -1958,7 +1958,7 @@ Show length of passed.
 
 #[test]
 fn e2e_map_iteration_keys_to_set() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let data be a new Map of Text to Int.
 Set item "x" of data to 10.
@@ -1974,7 +1974,7 @@ Show length of keys.
 
 #[test]
 fn e2e_map_contains_key_check() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let data be a new Map of Text to Int.
 Set item "x" of data to 10.
@@ -1989,7 +1989,7 @@ Otherwise:
 
 #[test]
 fn e2e_function_takes_map_returns_seq() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To getValues (m: Map of Text to Int) -> Seq of Int:
     Let result be a new Seq of Int.
     Repeat for (k, v) in m:
@@ -2013,7 +2013,7 @@ Show length of vals.
 
 #[test]
 fn e2e_refinement_with_loop_decrement() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x: Int where x > 0 be 10.
 While x is greater than 1:
@@ -2039,7 +2039,7 @@ Show x.
 
 #[test]
 fn e2e_refinement_as_collection_index() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let items be [10, 20, 30, 40, 50].
 Let idx: Int where idx > 0 be 3.
@@ -2051,7 +2051,7 @@ Show item idx of items.
 
 #[test]
 fn e2e_refinement_multiple_variables() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x: Int where x > 0 be 5.
 Let y: Int where y > 0 be 10.
@@ -2067,7 +2067,7 @@ Show x + y.
 
 #[test]
 fn e2e_early_return_both_branches() {
-    assert_output_lines(
+    assert_interpreter_output_lines(
         r#"## To abs (n: Int) -> Int:
     If n is less than 0:
         Return 0 - n.
@@ -2084,7 +2084,7 @@ Show abs(3).
 
 #[test]
 fn e2e_early_return_in_while() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To findDivisor (n: Int) -> Int:
     Let d be 2.
     While d * d is at most n:
@@ -2102,7 +2102,7 @@ Show findDivisor(15).
 
 #[test]
 fn e2e_cascading_if_returns() {
-    assert_output_lines(
+    assert_interpreter_output_lines(
         r#"## To classify (x: Int) -> Int:
     If x is greater than 10:
         Return 1.
@@ -2121,7 +2121,7 @@ Show classify(2).
 
 #[test]
 fn e2e_nested_if_chain() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 42.
 If x is greater than 100:
@@ -2141,7 +2141,7 @@ Otherwise:
 
 #[test]
 fn e2e_return_from_inspect() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Shape is one of:
     A Circle with radius Int.
     A Square with side Int.
@@ -2165,7 +2165,7 @@ Show area(c).
 
 #[test]
 fn e2e_empty_seq_length() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let items be a new Seq of Int.
 Show length of items.
@@ -2176,7 +2176,7 @@ Show length of items.
 
 #[test]
 fn e2e_empty_map_length() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let m be a new Map of Text to Int.
 Show length of m.
@@ -2187,7 +2187,7 @@ Show length of m.
 
 #[test]
 fn e2e_empty_set_contains() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let s be a new Set of Int.
 If s contains 1:
@@ -2201,7 +2201,7 @@ Otherwise:
 
 #[test]
 fn e2e_iterate_empty_seq() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let items be a new Seq of Int.
 Let count be 0.
@@ -2219,7 +2219,7 @@ Show count.
 
 #[test]
 fn e2e_string_concat_two_variables() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let first be "Hello".
 Let second be " World".
@@ -2231,7 +2231,7 @@ Show first + second.
 
 #[test]
 fn e2e_string_concat_variable_plus_literal() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let prefix be "Count: ".
 Show prefix + "42".
@@ -2242,7 +2242,7 @@ Show prefix + "42".
 
 #[test]
 fn e2e_string_concat_in_loop() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let mutable result be "".
 Repeat for i from 1 to 3:
@@ -2255,7 +2255,7 @@ Show result.
 
 #[test]
 fn e2e_string_concat_from_function() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To getName -> Text:
     Return "Alice".
 
@@ -2269,7 +2269,7 @@ Show greeting.
 
 #[test]
 fn e2e_string_concat_three_parts() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let a be "one".
 Let b be "two".
@@ -2281,12 +2281,123 @@ Show a + b + c.
 }
 
 // =============================================================================
+// Category 22b: String Self-Append write! Optimization
+// =============================================================================
+
+#[test]
+fn e2e_string_self_append_in_while_loop() {
+    // Self-append pattern: result = result + x should use write!() for O(n) perf
+    assert_exact_output(
+        r#"## Main
+Let mutable result be "".
+Let mutable i be 1.
+While i is at most 5:
+    Set result to result + i + " ".
+    Set i to i + 1.
+Show result.
+"#,
+        "1 2 3 4 5",
+    );
+}
+
+#[test]
+fn e2e_string_self_append_in_repeat_loop() {
+    // Self-append in a Repeat loop
+    assert_exact_output(
+        r#"## Main
+Let mutable result be "items:".
+Repeat for i from 1 to 3:
+    Set result to result + " " + i.
+Show result.
+"#,
+        "items: 1 2 3",
+    );
+}
+
+#[test]
+fn e2e_string_self_reference_fallback() {
+    // s = s + s — target appears in tail, must NOT use write! (borrow conflict)
+    // Falls back to format!() which is correct
+    assert_exact_output(
+        r#"## Main
+Let mutable s be "ab".
+Set s to s + s.
+Show s.
+"#,
+        "abab",
+    );
+}
+
+#[test]
+fn e2e_string_prepend_fallback() {
+    // result = "prefix" + result — target is NOT leftmost, must fall back to format!()
+    assert_exact_output(
+        r#"## Main
+Let mutable result be "world".
+Set result to "hello " + result.
+Show result.
+"#,
+        "hello world",
+    );
+}
+
+#[test]
+fn e2e_string_self_append_codegen_uses_write() {
+    // Verify generated Rust code uses write!() for self-append pattern
+    use logicaffeine_compile::compile_program_full;
+    let source = r#"## Main
+Let mutable result be "".
+Repeat for i from 1 to 3:
+    Set result to result + " " + i.
+Show result.
+"#;
+    let output = compile_program_full(source).expect("should compile");
+    assert!(
+        output.rust_code.contains("write!(result,"),
+        "Expected write!() in generated code, got:\n{}",
+        output.rust_code
+    );
+    assert!(
+        !output.rust_code.contains("result = format!"),
+        "Should NOT have result = format!() for self-append, got:\n{}",
+        output.rust_code
+    );
+    // String literals inside write!() should be &str, not String::from()
+    // e.g. write!(result, "{}{}", i, " ") not write!(result, "{}{}", i, String::from(" "))
+    let write_line = output.rust_code.lines()
+        .find(|l| l.contains("write!(result,"))
+        .expect("should have a write! line");
+    assert!(
+        !write_line.contains("String::from"),
+        "write!() args should use &str literals, not String::from(): {}",
+        write_line
+    );
+}
+
+#[test]
+fn e2e_string_self_reference_codegen_uses_format() {
+    // s = s + s should NOT use write!() (borrow conflict), must use format!()
+    use logicaffeine_compile::compile_program_full;
+    let source = r#"## Main
+Let mutable s be "ab".
+Set s to s + s.
+Show s.
+"#;
+    let output = compile_program_full(source).expect("should compile");
+    assert!(
+        output.rust_code.contains("s = format!"),
+        "Expected s = format!() for self-referencing concat, got:\n{}",
+        output.rust_code
+    );
+}
+
+// =============================================================================
 // Category 23: Recursive Functions + Complex Types
 // =============================================================================
 
 #[test]
 fn e2e_recursive_fibonacci() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To fib (n: Int) -> Int:
     If n is at most 1:
         Return n.
@@ -2301,7 +2412,7 @@ Show fib(10).
 
 #[test]
 fn e2e_recursive_list_sum() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To sumFrom (items: Seq of Int) and (idx: Int) -> Int:
     If idx is greater than length of items:
         Return 0.
@@ -2316,7 +2427,7 @@ Show sumFrom([10, 20, 30], 1).
 
 #[test]
 fn e2e_recursive_countdown_builds_seq() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To countdown (n: Int) -> Seq of Int:
     Let result be a new Seq of Int.
     If n is at most 0:
@@ -2335,7 +2446,7 @@ Show length of items.
 
 #[test]
 fn e2e_mutual_recursion() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To isEven (n: Int) -> Bool:
     If n equals 0:
         Return true.
@@ -2358,7 +2469,7 @@ Otherwise:
 
 #[test]
 fn e2e_recursive_tree_count_nodes() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Tree is one of:
     A Leaf with value Int.
     A Node with left Tree and right Tree.
@@ -2382,7 +2493,7 @@ Show countNodes(tree).
 
 #[test]
 fn e2e_function_as_predicate_in_filter() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To isPositive (n: Int) -> Bool:
     Return n is greater than 0.
 
@@ -2400,7 +2511,7 @@ Show length of positives.
 
 #[test]
 fn e2e_recursive_gcd() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## To gcd (a: Int) and (b: Int) -> Int:
     If b equals 0:
         Return a.
@@ -2410,5 +2521,176 @@ fn e2e_recursive_gcd() {
 Show gcd(48, 18).
 "#,
         "6",
+    );
+}
+
+// =============================================================================
+// Category 12: With Capacity — Pre-allocation Hints
+// =============================================================================
+
+#[test]
+fn e2e_string_with_capacity_codegen() {
+    let result = compile_logos(
+        r#"## Main
+Let mutable s be "" with capacity 100.
+Show s.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("String::with_capacity("),
+        "Should generate String::with_capacity.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_string_with_capacity_nonempty() {
+    let result = compile_logos(
+        r#"## Main
+Let mutable s be "hello" with capacity 100.
+Show s.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("String::with_capacity("),
+        "Should generate String::with_capacity.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+    assert!(
+        result.rust_code.contains("push_str(\"hello\")"),
+        "Should push_str the initial content.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_seq_with_capacity_codegen() {
+    let result = compile_logos(
+        r#"## Main
+Let mutable v be a new Seq of Int with capacity 50.
+Push 1 to v.
+Show length of v.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("Vec::with_capacity("),
+        "Should generate Vec::with_capacity.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_map_with_capacity_codegen() {
+    let result = compile_logos(
+        r#"## Main
+Let mutable m be a new Map of Int to Int with capacity 50.
+Set item 1 of m to 10.
+Show item 1 of m.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("HashMap::with_capacity("),
+        "Should generate HashMap::with_capacity.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_string_with_capacity_runtime() {
+    assert_exact_output(
+        r#"## Main
+Let mutable result be "" with capacity 100.
+Set result to result + "hello" + " " + "world".
+Show result.
+"#,
+        "hello world",
+    );
+}
+
+#[test]
+fn e2e_collection_with_capacity_runtime() {
+    assert_exact_output(
+        r#"## Main
+Let mutable items be a new Seq of Int with capacity 10.
+Push 1 to items.
+Push 2 to items.
+Push 3 to items.
+Show length of items.
+"#,
+        "3",
+    );
+}
+
+#[test]
+fn e2e_with_capacity_expression() {
+    let result = compile_logos(
+        r#"## Main
+Let n be 50.
+Let mutable s be "" with capacity n * 6.
+Show s.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("String::with_capacity("),
+        "Should generate String::with_capacity with expression.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_strings_bench_codegen_verify() {
+    let result = compile_logos(
+        r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable result be "" with capacity n * 6.
+Let mutable i be 0.
+While i is less than n:
+    Set result to result + i + " ".
+    Set i to i + 1.
+Let count: Int be Escape to Rust:
+    result.chars().filter(|c| *c == ' ').count() as i64
+Show count.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        result.rust_code.contains("String::with_capacity("),
+        "Should generate String::with_capacity.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+    assert!(
+        result.rust_code.contains("write!("),
+        "Should generate write!() for self-append.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+    assert!(
+        !result.rust_code.contains("format!"),
+        "Should NOT generate format!() for self-append.\nGenerated Rust:\n{}",
+        result.rust_code
+    );
+}
+
+#[test]
+fn e2e_without_capacity_unchanged() {
+    let result = compile_logos(
+        r#"## Main
+Let mutable s be "hello".
+Show s.
+"#,
+    );
+    assert!(result.success, "Should compile.\nstderr: {}\n\nGenerated Rust:\n{}", result.stderr, result.rust_code);
+    assert!(
+        !result.rust_code.contains("with_capacity"),
+        "Should NOT generate with_capacity when not specified.\nGenerated Rust:\n{}",
+        result.rust_code
     );
 }

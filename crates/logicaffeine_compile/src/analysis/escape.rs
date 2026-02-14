@@ -274,6 +274,11 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(right, max_depth)?;
             }
 
+            Expr::WithCapacity { value, capacity } => {
+                self.check_no_escape(value, max_depth)?;
+                self.check_no_escape(capacity, max_depth)?;
+            }
+
             Expr::OptionSome { value } => {
                 self.check_no_escape(value, max_depth)?;
             }

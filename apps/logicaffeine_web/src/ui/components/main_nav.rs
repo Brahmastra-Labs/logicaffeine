@@ -29,6 +29,7 @@ pub enum ActivePage {
     Registry,
     Profile,
     News,
+    Benchmarks,
     Other,
 }
 
@@ -50,6 +51,7 @@ impl ActivePage {
             Route::Profile {} => ActivePage::Profile,
             Route::News {} => ActivePage::News,
             Route::NewsArticle { .. } => ActivePage::News,
+            Route::Benchmarks {} => ActivePage::Benchmarks,
             _ => ActivePage::Other,
         }
     }
@@ -553,6 +555,11 @@ pub fn MainNav(
                             class: if active == ActivePage::News { "main-nav-link active" } else { "main-nav-link" },
                             "News"
                         }
+                        Link {
+                            to: Route::Benchmarks {},
+                            class: if active == ActivePage::Benchmarks { "main-nav-link active" } else { "main-nav-link" },
+                            "Benchmarks"
+                        }
                     }
                 }
 
@@ -748,6 +755,15 @@ pub fn MainNav(
                         Icon { variant: IconVariant::Newspaper, size: IconSize::Medium }
                     }
                     "News"
+                }
+                Link {
+                    to: Route::Benchmarks {},
+                    class: if active == ActivePage::Benchmarks { "mobile-nav-link active" } else { "mobile-nav-link" },
+                    onclick: move |_| drawer_open.set(false),
+                    span { class: "mobile-nav-link-icon",
+                        Icon { variant: IconVariant::Lightning, size: IconSize::Medium }
+                    }
+                    "Benchmarks"
                 }
 
                 div { class: "mobile-nav-divider" }

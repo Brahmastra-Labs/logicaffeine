@@ -1,0 +1,16 @@
+## To benchmark (n: Int) -> Int:
+    Let mutable m be a new Map of Int to Int.
+    Let mutable i be 1.
+    While i is less than n + 1:
+        Set item i of m to i * 2.
+        Set i to i + 1.
+    Let mutable found be 0.
+    Set i to 1.
+    While i is less than n + 1:
+        If item i of m equals i * 2:
+            Set found to found + 1.
+        Set i to i + 1.
+    Return found.
+
+## Main
+Show benchmark(1000).

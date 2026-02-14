@@ -33,7 +33,7 @@
 //! ```
 
 use dioxus::prelude::*;
-use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide, Crates, News, NewsArticle};
+use crate::ui::pages::{Landing, Learn, Pricing, Privacy, Profile, Roadmap, Success, Terms, Workspace, Studio, Guide, Crates, News, NewsArticle, Benchmarks};
 use crate::ui::pages::registry::{Registry, PackageDetail};
 
 /// Application routes.
@@ -105,6 +105,10 @@ pub enum Route {
         /// The package name to display.
         name: String,
     },
+
+    /// Performance benchmarks at `/benchmarks`.
+    #[route("/benchmarks")]
+    Benchmarks {},
 
     /// News index page at `/news`.
     #[route("/news")]

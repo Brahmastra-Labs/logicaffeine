@@ -1,3 +1,4 @@
+#![cfg(feature = "web-tests")]
 /// Tests for module unlock logic
 ///
 /// Unlock Rules:

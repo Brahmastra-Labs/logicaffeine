@@ -55,65 +55,89 @@ pub type OutputCallback = Rc<RefCell<dyn FnMut(String)>>;
 /// Represents all possible values that can exist at runtime when executing
 /// a LOGOS program. Includes primitives, collections, user-defined structs,
 /// and kernel inductive types.
-#[derive(Debug, Clone, PartialEq)]
+/// User-defined struct with named fields (boxed to reduce enum size).
+#[derive(Debug, Clone)]
+pub struct StructValue {
+    pub type_name: String,
+    pub fields: HashMap<String, RuntimeValue>,
+}
+
+/// Kernel inductive value (boxed to reduce enum size).
+#[derive(Debug, Clone)]
+pub struct InductiveValue {
+    pub inductive_type: String,
+    pub constructor: String,
+    pub args: Vec<RuntimeValue>,
+}
+
+#[derive(Debug, Clone)]
 pub enum RuntimeValue {
-    /// Signed 64-bit integer.
     Int(i64),
-    /// 64-bit floating-point number.
     Float(f64),
-    /// Boolean value.
     Bool(bool),
-    /// UTF-8 string.
-    Text(String),
-    /// Single Unicode character.
+    Text(Rc<String>),
     Char(char),
-    /// Ordered, indexable collection of values.
-    List(Vec<RuntimeValue>),
-    /// Fixed-size heterogeneous tuple.
-    Tuple(Vec<RuntimeValue>),
-    /// Unordered collection with unique values.
-    Set(Vec<RuntimeValue>),
-    /// Key-value mapping with string keys.
-    Map(HashMap<String, RuntimeValue>),
-    /// User-defined struct with named fields.
-    Struct {
-        /// The struct's type name.
-        type_name: String,
-        /// Field name to value mapping.
-        fields: HashMap<String, RuntimeValue>,
-    },
-    /// Kernel inductive value.
-    ///
-    /// Represents a value of a kernel-defined inductive type. At compile time,
-    /// the kernel verifies exhaustiveness and type correctness. At runtime,
-    /// this is a thin wrapper holding the constructor and arguments.
-    ///
-    /// This follows the "Dual Life" architecture:
-    /// - **Soul (Kernel)**: Full inductive type with proofs
-    /// - **Body (Rust)**: Efficient runtime representation
-    Inductive {
-        /// The inductive type name (e.g., "Nat", "List", "Color")
-        inductive_type: String,
-        /// The constructor name (e.g., "Zero", "Succ", "Red")
-        constructor: String,
-        /// Constructor arguments (e.g., Succ has one Nat argument)
-        args: Vec<RuntimeValue>,
-    },
-    /// Unit/void value representing absence of a meaningful value.
+    List(Rc<RefCell<Vec<RuntimeValue>>>),
+    Tuple(Rc<Vec<RuntimeValue>>),
+    Set(Rc<RefCell<Vec<RuntimeValue>>>),
+    Map(Rc<RefCell<HashMap<RuntimeValue, RuntimeValue>>>),
+    Struct(Box<StructValue>),
+    Inductive(Box<InductiveValue>),
     Nothing,
-    /// Duration in nanoseconds (signed for negative offsets like "5 minutes early").
     Duration(i64),
-    /// Date as days since Unix epoch (1970-01-01).
     Date(i32),
-    /// Moment as nanoseconds since Unix epoch.
     Moment(i64),
-    /// Calendar span with separate month and day components.
-    /// Months and days are kept separate because they're incommensurable
-    /// (1 month = 28-31 days depending on the month).
     Span { months: i32, days: i32 },
-    /// Time-of-day as nanoseconds from midnight (00:00:00).
-    /// Range: 0 to 86_399_999_999_999 (just under 24 hours).
     Time(i64),
+}
+
+impl PartialEq for RuntimeValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => a.to_bits() == b.to_bits(),
+            (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => **a == **b,
+            (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
+            (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
+            (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => a == b,
+            (RuntimeValue::Date(a), RuntimeValue::Date(b)) => a == b,
+            (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => a == b,
+            (RuntimeValue::Span { months: m1, days: d1 }, RuntimeValue::Span { months: m2, days: d2 }) => {
+                m1 == m2 && d1 == d2
+            }
+            (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for RuntimeValue {}
+
+impl std::hash::Hash for RuntimeValue {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            RuntimeValue::Int(n) => n.hash(state),
+            RuntimeValue::Float(f) => f.to_bits().hash(state),
+            RuntimeValue::Bool(b) => b.hash(state),
+            RuntimeValue::Text(s) => s.hash(state),
+            RuntimeValue::Char(c) => c.hash(state),
+            RuntimeValue::Nothing => {}
+            RuntimeValue::Duration(d) => d.hash(state),
+            RuntimeValue::Date(d) => d.hash(state),
+            RuntimeValue::Moment(m) => m.hash(state),
+            RuntimeValue::Span { months, days } => { months.hash(state); days.hash(state); }
+            RuntimeValue::Time(t) => t.hash(state),
+            // Collections are not meaningfully hashable — hash by identity/length
+            RuntimeValue::List(items) => items.borrow().len().hash(state),
+            RuntimeValue::Tuple(items) => items.len().hash(state),
+            RuntimeValue::Set(items) => items.borrow().len().hash(state),
+            RuntimeValue::Map(m) => m.borrow().len().hash(state),
+            RuntimeValue::Struct(s) => s.type_name.hash(state),
+            RuntimeValue::Inductive(i) => { i.inductive_type.hash(state); i.constructor.hash(state); }
+        }
+    }
 }
 
 impl RuntimeValue {
@@ -131,8 +155,8 @@ impl RuntimeValue {
             RuntimeValue::Tuple(_) => "Tuple",
             RuntimeValue::Set(_) => "Set",
             RuntimeValue::Map(_) => "Map",
-            RuntimeValue::Struct { .. } => "Struct",
-            RuntimeValue::Inductive { inductive_type, .. } => inductive_type.as_str(),
+            RuntimeValue::Struct(s) => &s.type_name,
+            RuntimeValue::Inductive(ind) => ind.inductive_type.as_str(),
             RuntimeValue::Nothing => "Nothing",
             RuntimeValue::Duration(_) => "Duration",
             RuntimeValue::Date(_) => "Date",
@@ -148,6 +172,43 @@ impl RuntimeValue {
     /// - `Int(n)` → true if n ≠ 0
     /// - `Nothing` → false
     /// - All other values → true
+    pub fn deep_clone(&self) -> RuntimeValue {
+        match self {
+            RuntimeValue::List(items) => {
+                let cloned = items.borrow().iter().map(|v| v.deep_clone()).collect();
+                RuntimeValue::List(Rc::new(RefCell::new(cloned)))
+            }
+            RuntimeValue::Set(items) => {
+                let cloned = items.borrow().iter().map(|v| v.deep_clone()).collect();
+                RuntimeValue::Set(Rc::new(RefCell::new(cloned)))
+            }
+            RuntimeValue::Map(m) => {
+                let cloned = m.borrow().iter().map(|(k, v)| (k.deep_clone(), v.deep_clone())).collect();
+                RuntimeValue::Map(Rc::new(RefCell::new(cloned)))
+            }
+            RuntimeValue::Tuple(items) => {
+                let cloned = items.iter().map(|v| v.deep_clone()).collect();
+                RuntimeValue::Tuple(Rc::new(cloned))
+            }
+            RuntimeValue::Struct(s) => {
+                let cloned_fields = s.fields.iter().map(|(k, v)| (k.clone(), v.deep_clone())).collect();
+                RuntimeValue::Struct(Box::new(StructValue {
+                    type_name: s.type_name.clone(),
+                    fields: cloned_fields,
+                }))
+            }
+            RuntimeValue::Inductive(ind) => {
+                let cloned_args = ind.args.iter().map(|v| v.deep_clone()).collect();
+                RuntimeValue::Inductive(Box::new(InductiveValue {
+                    inductive_type: ind.inductive_type.clone(),
+                    constructor: ind.constructor.clone(),
+                    args: cloned_args,
+                }))
+            }
+            other => other.clone(),
+        }
+    }
+
     pub fn is_truthy(&self) -> bool {
         match self {
             RuntimeValue::Bool(b) => *b,
@@ -167,9 +228,10 @@ impl RuntimeValue {
             RuntimeValue::Int(n) => n.to_string(),
             RuntimeValue::Float(f) => format!("{:.6}", f).trim_end_matches('0').trim_end_matches('.').to_string(),
             RuntimeValue::Bool(b) => if *b { "true" } else { "false" }.to_string(),
-            RuntimeValue::Text(s) => s.clone(),
+            RuntimeValue::Text(s) => s.as_str().to_string(),
             RuntimeValue::Char(c) => c.to_string(),
             RuntimeValue::List(items) => {
+                let items = items.borrow();
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("[{}]", parts.join(", "))
             }
@@ -178,38 +240,37 @@ impl RuntimeValue {
                 format!("({})", parts.join(", "))
             }
             RuntimeValue::Set(items) => {
+                let items = items.borrow();
                 let parts: Vec<String> = items.iter().map(|v| v.to_display_string()).collect();
                 format!("{{{}}}", parts.join(", "))
             }
             RuntimeValue::Map(m) => {
+                let m = m.borrow();
                 let pairs: Vec<String> = m.iter()
-                    .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
+                    .map(|(k, v)| format!("{}: {}", k.to_display_string(), v.to_display_string()))
                     .collect();
                 format!("{{{}}}", pairs.join(", "))
             }
-            RuntimeValue::Struct { type_name, fields } => {
-                if fields.is_empty() {
-                    // Unit variant - just show the name
-                    type_name.clone()
+            RuntimeValue::Struct(s) => {
+                if s.fields.is_empty() {
+                    s.type_name.clone()
                 } else {
-                    let field_strs: Vec<String> = fields
+                    let field_strs: Vec<String> = s.fields
                         .iter()
                         .map(|(k, v)| format!("{}: {}", k, v.to_display_string()))
                         .collect();
-                    format!("{} {{ {} }}", type_name, field_strs.join(", "))
+                    format!("{} {{ {} }}", s.type_name, field_strs.join(", "))
                 }
             }
-            RuntimeValue::Inductive { constructor, args, .. } => {
-                if args.is_empty() {
-                    // Nullary constructor (e.g., Zero, Nil, Red)
-                    constructor.clone()
+            RuntimeValue::Inductive(ind) => {
+                if ind.args.is_empty() {
+                    ind.constructor.clone()
                 } else {
-                    // Constructor with arguments (e.g., Succ(Zero), Cons(1, Nil))
-                    let arg_strs: Vec<String> = args
+                    let arg_strs: Vec<String> = ind.args
                         .iter()
                         .map(|v| v.to_display_string())
                         .collect();
-                    format!("{}({})", constructor, arg_strs.join(", "))
+                    format!("{}({})", ind.constructor, arg_strs.join(", "))
                 }
             }
             RuntimeValue::Nothing => "nothing".to_string(),
@@ -349,33 +410,83 @@ pub struct FunctionDef<'a> {
 ///
 /// Phase 55: Now async with optional VFS for file operations.
 /// Phase 102: Kernel context for inductive type support.
+/// Flat environment with O(1) lookup and undo-log scoping.
+struct Environment {
+    values: HashMap<Symbol, RuntimeValue>,
+    save_stack: Vec<Vec<(Symbol, Option<RuntimeValue>)>>,
+}
+
+impl Environment {
+    fn new() -> Self {
+        Environment {
+            values: HashMap::new(),
+            save_stack: Vec::new(),
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.save_stack.push(Vec::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if let Some(saves) = self.save_stack.pop() {
+            for (sym, old_val) in saves.into_iter().rev() {
+                match old_val {
+                    Some(val) => { self.values.insert(sym, val); }
+                    None => { self.values.remove(&sym); }
+                }
+            }
+        }
+    }
+
+    fn define(&mut self, name: Symbol, value: RuntimeValue) {
+        let old = self.values.insert(name, value);
+        if let Some(frame) = self.save_stack.last_mut() {
+            frame.push((name, old));
+        }
+    }
+
+    fn lookup(&self, name: Symbol) -> Option<&RuntimeValue> {
+        self.values.get(&name)
+    }
+
+    fn assign(&mut self, name: Symbol, value: RuntimeValue) -> bool {
+        if self.values.contains_key(&name) {
+            self.values.insert(name, value);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 pub struct Interpreter<'a> {
     interner: &'a Interner,
-    /// Scope stack - each HashMap is a scope level
-    env: Vec<HashMap<Symbol, RuntimeValue>>,
-    /// User-defined functions
+    env: Environment,
     functions: HashMap<Symbol, FunctionDef<'a>>,
-    /// Struct type definitions (for constructor validation)
     struct_defs: HashMap<Symbol, Vec<(Symbol, Symbol, bool)>>,
-    /// Output lines from show() calls
     pub output: Vec<String>,
-    /// Phase 55: VFS for file operations (OPFS on WASM, NativeVfs on native)
     vfs: Option<Arc<dyn Vfs>>,
-    /// Phase 102: Kernel context for inductive type lookup.
-    /// When set, the interpreter can query the kernel for inductive types
-    /// and their constructors, enabling the "Dual Life" architecture.
     kernel_ctx: Option<Arc<crate::kernel::Context>>,
-    /// Policy registry for security predicate/capability checks.
     policy_registry: Option<PolicyRegistry>,
-    /// Optional callback for streaming output (called on each Show)
     output_callback: Option<OutputCallback>,
+    // Pre-interned builtin function symbols for O(1) dispatch
+    sym_show: Option<Symbol>,
+    sym_length: Option<Symbol>,
+    sym_format: Option<Symbol>,
+    sym_parse_int: Option<Symbol>,
+    sym_parse_float: Option<Symbol>,
+    sym_abs: Option<Symbol>,
+    sym_min: Option<Symbol>,
+    sym_max: Option<Symbol>,
+    sym_copy: Option<Symbol>,
 }
 
 impl<'a> Interpreter<'a> {
     pub fn new(interner: &'a Interner) -> Self {
         Interpreter {
             interner,
-            env: vec![HashMap::new()], // Global scope
+            env: Environment::new(),
             functions: HashMap::new(),
             struct_defs: HashMap::new(),
             output: Vec::new(),
@@ -383,6 +494,15 @@ impl<'a> Interpreter<'a> {
             kernel_ctx: None,
             policy_registry: None,
             output_callback: None,
+            sym_show: interner.lookup("show"),
+            sym_length: interner.lookup("length"),
+            sym_format: interner.lookup("format"),
+            sym_parse_int: interner.lookup("parseInt"),
+            sym_parse_float: interner.lookup("parseFloat"),
+            sym_abs: interner.lookup("abs"),
+            sym_min: interner.lookup("min"),
+            sym_max: interner.lookup("max"),
+            sym_copy: interner.lookup("copy"),
         }
     }
 
@@ -404,6 +524,26 @@ impl<'a> Interpreter<'a> {
     /// Set the policy registry for security checks.
     pub fn with_policies(mut self, registry: PolicyRegistry) -> Self {
         self.policy_registry = Some(registry);
+        self
+    }
+
+    /// Populate struct_defs from a TypeRegistry (DiscoveryPass results).
+    /// This allows the interpreter to initialize default field values for
+    /// structs created with `new Point` (no explicit fields).
+    pub fn with_type_registry(mut self, registry: &crate::analysis::TypeRegistry) -> Self {
+        use crate::analysis::registry::{TypeDef, FieldType};
+        for (name_sym, type_def) in registry.iter_types() {
+            if let TypeDef::Struct { fields, .. } = type_def {
+                let field_defs: Vec<(Symbol, Symbol, bool)> = fields.iter().map(|f| {
+                    let type_sym = match &f.ty {
+                        FieldType::Primitive(s) | FieldType::Named(s) | FieldType::TypeParam(s) => *s,
+                        FieldType::Generic { base, .. } => *base,
+                    };
+                    (f.name, type_sym, f.is_public)
+                }).collect();
+                self.struct_defs.insert(*name_sym, field_defs);
+            }
+        }
         self
     }
 
@@ -519,11 +659,16 @@ impl<'a> Interpreter<'a> {
                 use crate::ast::stmt::Pattern;
 
                 let iter_val = self.evaluate_expr(iterable).await?;
-                let items = match iter_val {
-                    RuntimeValue::List(list) => list,
-                    RuntimeValue::Set(set) => set,
+                let items: Vec<RuntimeValue> = match &iter_val {
+                    RuntimeValue::List(list) => list.borrow().clone(),
+                    RuntimeValue::Set(set) => set.borrow().clone(),
                     RuntimeValue::Text(s) => {
-                        s.chars().map(|c| RuntimeValue::Text(c.to_string())).collect()
+                        s.chars().map(|c| RuntimeValue::Text(Rc::new(c.to_string()))).collect()
+                    }
+                    RuntimeValue::Map(map) => {
+                        map.borrow().iter()
+                            .map(|(k, v)| RuntimeValue::Tuple(Rc::new(vec![k.clone(), v.clone()])))
+                            .collect()
                     }
                     _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
                 };
@@ -536,8 +681,7 @@ impl<'a> Interpreter<'a> {
                             self.define(*sym, item);
                         }
                         Pattern::Tuple(syms) => {
-                            // Destructure tuple (for Map iteration: (key, value))
-                            if let RuntimeValue::Tuple(tuple_vals) = item {
+                            if let RuntimeValue::Tuple(ref tuple_vals) = item {
                                 for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
                                     self.define(*sym, val.clone());
                                 }
@@ -587,9 +731,9 @@ impl<'a> Interpreter<'a> {
                 let new_val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(obj_sym) = object {
                     let mut obj_val = self.lookup(*obj_sym)?.clone();
-                    if let RuntimeValue::Struct { fields, .. } = &mut obj_val {
+                    if let RuntimeValue::Struct(ref mut s) = obj_val {
                         let field_name = self.interner.resolve(*field).to_string();
-                        fields.insert(field_name, new_val);
+                        s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
                         return Err(format!("Cannot set field on non-struct value"));
@@ -603,25 +747,39 @@ impl<'a> Interpreter<'a> {
             Stmt::Push { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
-                    let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::List(ref mut items) = coll_val {
-                        items.push(val);
-                        self.assign(*coll_sym, coll_val)?;
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::List(items) = coll_val {
+                        items.borrow_mut().push(val);
                     } else {
                         return Err("Can only push to a List".to_string());
                     }
+                } else if let Expr::FieldAccess { object, field } = collection {
+                    if let Expr::Identifier(obj_sym) = *object {
+                        let obj_val = self.lookup(*obj_sym)?;
+                        if let RuntimeValue::Struct(s) = obj_val {
+                            let field_name = self.interner.resolve(*field).to_string();
+                            if let Some(RuntimeValue::List(items)) = s.fields.get(&field_name) {
+                                items.borrow_mut().push(val);
+                            } else {
+                                return Err(format!("Field '{}' is not a List", field_name));
+                            }
+                        } else {
+                            return Err("Cannot push to field of non-struct".to_string());
+                        }
+                    } else {
+                        return Err("Push to nested field access not supported".to_string());
+                    }
                 } else {
-                    return Err("Push collection must be an identifier".to_string());
+                    return Err("Push collection must be an identifier or field access".to_string());
                 }
                 Ok(ControlFlow::Continue)
             }
 
             Stmt::Pop { collection, into } => {
                 if let Expr::Identifier(coll_sym) = collection {
-                    let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::List(ref mut items) = coll_val {
-                        let popped = items.pop().unwrap_or(RuntimeValue::Nothing);
-                        self.assign(*coll_sym, coll_val)?;
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::List(items) = coll_val {
+                        let popped = items.borrow_mut().pop().unwrap_or(RuntimeValue::Nothing);
                         if let Some(into_var) = into {
                             self.define(*into_var, popped);
                         }
@@ -637,13 +795,12 @@ impl<'a> Interpreter<'a> {
             Stmt::Add { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
-                    let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::Set(ref mut items) = coll_val {
-                        // Only add if not already present
-                        if !items.iter().any(|x| self.values_equal(x, &val)) {
-                            items.push(val);
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::Set(items) = coll_val {
+                        let already_present = items.borrow().iter().any(|x| self.values_equal(x, &val));
+                        if !already_present {
+                            items.borrow_mut().push(val);
                         }
-                        self.assign(*coll_sym, coll_val)?;
                     } else {
                         return Err("Can only add to a Set".to_string());
                     }
@@ -656,10 +813,9 @@ impl<'a> Interpreter<'a> {
             Stmt::Remove { value, collection } => {
                 let val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
-                    let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    if let RuntimeValue::Set(ref mut items) = coll_val {
-                        items.retain(|x| !self.values_equal(x, &val));
-                        self.assign(*coll_sym, coll_val)?;
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::Set(items) = coll_val {
+                        items.borrow_mut().retain(|x| !self.values_equal(x, &val));
                     } else {
                         return Err("Can only remove from a Set".to_string());
                     }
@@ -673,29 +829,26 @@ impl<'a> Interpreter<'a> {
                 let idx_val = self.evaluate_expr(index).await?;
                 let new_val = self.evaluate_expr(value).await?;
                 if let Expr::Identifier(coll_sym) = collection {
-                    let mut coll_val = self.lookup(*coll_sym)?.clone();
-                    match (&mut coll_val, &idx_val) {
-                        (RuntimeValue::List(ref mut items), RuntimeValue::Int(n)) => {
+                    let coll_val = self.lookup(*coll_sym)?;
+                    match (coll_val, &idx_val) {
+                        (RuntimeValue::List(items), RuntimeValue::Int(n)) => {
                             let idx = *n as usize;
+                            let mut items = items.borrow_mut();
                             if idx == 0 || idx > items.len() {
                                 return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
                             }
                             items[idx - 1] = new_val;
                         }
-                        (RuntimeValue::Map(ref mut map), RuntimeValue::Text(key)) => {
-                            map.insert(key.clone(), new_val);
+                        (RuntimeValue::Map(map), key) => {
+                            map.borrow_mut().insert(key.clone(), new_val);
                         }
                         (RuntimeValue::List(_), _) => {
                             return Err("List index must be an integer".to_string());
-                        }
-                        (RuntimeValue::Map(_), _) => {
-                            return Err("Map key must be a string".to_string());
                         }
                         _ => {
                             return Err(format!("Cannot index into {}", coll_val.type_name()));
                         }
                     }
-                    self.assign(*coll_sym, coll_val)?;
                 } else {
                     return Err("SetIndex collection must be an identifier".to_string());
                 }
@@ -704,8 +857,7 @@ impl<'a> Interpreter<'a> {
 
             Stmt::Inspect { target, arms, .. } => {
                 let target_val = self.evaluate_expr(target).await?;
-                self.execute_inspect(&target_val, arms).await?;
-                Ok(ControlFlow::Continue)
+                self.execute_inspect(&target_val, arms).await
             }
 
             Stmt::Zone { name, body, .. } => {
@@ -776,7 +928,7 @@ impl<'a> Interpreter<'a> {
                         }
                     }
                 };
-                self.define(*var, RuntimeValue::Text(content));
+                self.define(*var, RuntimeValue::Text(Rc::new(content)));
                 Ok(ControlFlow::Continue)
             }
 
@@ -808,32 +960,28 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::MergeCrdt { source, target } => {
-                // Evaluate source (the struct to merge from)
                 let source_val = self.evaluate_expr(source).await?;
                 let source_fields = match &source_val {
-                    RuntimeValue::Struct { fields, .. } => fields.clone(),
+                    RuntimeValue::Struct(s) => s.fields.clone(),
                     _ => return Err("Merge source must be a struct".to_string()),
                 };
 
-                // Target must be an identifier so we can mutate it
                 if let Expr::Identifier(target_sym) = target {
                     let mut target_val = self.lookup(*target_sym)?.clone();
 
-                    if let RuntimeValue::Struct { ref mut fields, .. } = target_val {
-                        // For each field in source, merge into target
+                    if let RuntimeValue::Struct(ref mut s) = target_val {
                         for (field_name, source_field_val) in source_fields {
-                            let current = fields.get(&field_name)
+                            let current = s.fields.get(&field_name)
                                 .cloned()
                                 .unwrap_or(RuntimeValue::Int(0));
 
-                            // Merge counters by adding values
                             let merged = match (&current, &source_field_val) {
                                 (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
                                     RuntimeValue::Int(a + b)
                                 }
-                                _ => source_field_val, // Non-counter fields: just take source value
+                                _ => source_field_val,
                             };
-                            fields.insert(field_name, merged);
+                            s.fields.insert(field_name, merged);
                         }
                         self.assign(*target_sym, target_val)?;
                     } else {
@@ -846,29 +994,27 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::IncreaseCrdt { object, field, amount } => {
-                // Evaluate the amount expression
                 let amount_val = self.evaluate_expr(amount).await?;
                 let amount_int = match amount_val {
                     RuntimeValue::Int(n) => n,
                     _ => return Err("CRDT increment amount must be an integer".to_string()),
                 };
 
-                // Get the object (must be an identifier for mutation)
                 if let Expr::Identifier(obj_sym) = object {
                     let mut obj_val = self.lookup(*obj_sym)?.clone();
 
-                    // Mutate the field
-                    if let RuntimeValue::Struct { ref mut fields, .. } = obj_val {
+                    if let RuntimeValue::Struct(ref mut s) = obj_val {
                         let field_name = self.interner.resolve(*field).to_string();
-                        let current = fields.get(&field_name)
+                        let current = s.fields.get(&field_name)
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
                         let new_val = match current {
                             RuntimeValue::Int(n) => RuntimeValue::Int(n + amount_int),
+                            RuntimeValue::Nothing => RuntimeValue::Int(amount_int),
                             _ => return Err(format!("Field '{}' is not a counter", field_name)),
                         };
-                        fields.insert(field_name, new_val);
+                        s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
                         return Err("Cannot increase field on non-struct value".to_string());
@@ -880,29 +1026,27 @@ impl<'a> Interpreter<'a> {
             }
 
             Stmt::DecreaseCrdt { object, field, amount } => {
-                // Evaluate the amount expression
                 let amount_val = self.evaluate_expr(amount).await?;
                 let amount_int = match amount_val {
                     RuntimeValue::Int(n) => n,
                     _ => return Err("CRDT decrement amount must be an integer".to_string()),
                 };
 
-                // Get the object (must be an identifier for mutation)
                 if let Expr::Identifier(obj_sym) = object {
                     let mut obj_val = self.lookup(*obj_sym)?.clone();
 
-                    // Mutate the field
-                    if let RuntimeValue::Struct { ref mut fields, .. } = obj_val {
+                    if let RuntimeValue::Struct(ref mut s) = obj_val {
                         let field_name = self.interner.resolve(*field).to_string();
-                        let current = fields.get(&field_name)
+                        let current = s.fields.get(&field_name)
                             .cloned()
                             .unwrap_or(RuntimeValue::Int(0));
 
                         let new_val = match current {
                             RuntimeValue::Int(n) => RuntimeValue::Int(n - amount_int),
+                            RuntimeValue::Nothing => RuntimeValue::Int(-amount_int),
                             _ => return Err(format!("Field '{}' is not a counter", field_name)),
                         };
-                        fields.insert(field_name, new_val);
+                        s.fields.insert(field_name, new_val);
                         self.assign(*obj_sym, obj_val)?;
                     } else {
                         return Err("Cannot decrease field on non-struct value".to_string());
@@ -928,10 +1072,9 @@ impl<'a> Interpreter<'a> {
                     None => return Err("Security Check requires policies. Use compiled Rust or add ## Policy block.".to_string()),
                 };
 
-                // Get the subject value
                 let subj_val = self.lookup(*subject)?.clone();
                 let subj_type_name = match &subj_val {
-                    RuntimeValue::Struct { type_name, .. } => type_name.clone(),
+                    RuntimeValue::Struct(s) => s.type_name.clone(),
                     _ => return Err(format!("Check subject must be a struct, got {}", subj_val.type_name())),
                 };
 
@@ -1029,8 +1172,7 @@ impl<'a> Interpreter<'a> {
                             Ok(s) => s,
                             Err(_) => String::new(),
                         };
-                        // Store as a simple value for now (full Persistent<T> requires more work)
-                        self.define(*var, RuntimeValue::Text(content));
+                        self.define(*var, RuntimeValue::Text(Rc::new(content)));
                     }
                     None => return Err("VFS not initialized. Use Interpreter::with_vfs()".to_string()),
                 }
@@ -1095,53 +1237,48 @@ impl<'a> Interpreter<'a> {
     /// Phase 55: Now async.
     /// Phase 102: Extended to handle kernel inductives.
     #[async_recursion(?Send)]
-    async fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<(), String> {
+    async fn execute_inspect(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<ControlFlow, String> {
         for arm in arms {
             // Handle Otherwise (wildcard) case
             if arm.variant.is_none() {
-                self.execute_block(arm.body).await?;
-                return Ok(());
+                let flow = self.execute_block(arm.body).await?;
+                return Ok(flow);
             }
 
             match target {
-                // Original Struct handling (for backward compatibility during transition)
-                RuntimeValue::Struct { type_name, fields } => {
+                RuntimeValue::Struct(s) => {
                     if let Some(variant) = arm.variant {
                         let variant_name = self.interner.resolve(variant);
-                        if type_name == variant_name {
+                        if s.type_name == variant_name {
                             self.push_scope();
                             for (field_name, binding_name) in &arm.bindings {
                                 let field_str = self.interner.resolve(*field_name);
-                                if let Some(val) = fields.get(field_str) {
+                                if let Some(val) = s.fields.get(field_str) {
                                     self.define(*binding_name, val.clone());
                                 }
                             }
                             let result = self.execute_block(arm.body).await;
                             self.pop_scope();
-                            result?;
-                            return Ok(());
+                            let flow = result?;
+                            return Ok(flow);
                         }
                     }
                 }
 
-                // Phase 102: Kernel inductive handling
-                RuntimeValue::Inductive { constructor, args, .. } => {
+                RuntimeValue::Inductive(ind) => {
                     if let Some(variant) = arm.variant {
                         let variant_name = self.interner.resolve(variant);
-                        if constructor == variant_name {
+                        if ind.constructor == variant_name {
                             self.push_scope();
-                            // Bind args positionally to binding names
-                            // arm.bindings is Vec<(field_name, binding_name)>
-                            // For inductives, we use bindings positionally
                             for (i, (_, binding_name)) in arm.bindings.iter().enumerate() {
-                                if i < args.len() {
-                                    self.define(*binding_name, args[i].clone());
+                                if i < ind.args.len() {
+                                    self.define(*binding_name, ind.args[i].clone());
                                 }
                             }
                             let result = self.execute_block(arm.body).await;
                             self.pop_scope();
-                            result?;
-                            return Ok(());
+                            let flow = result?;
+                            return Ok(flow);
                         }
                     }
                 }
@@ -1149,7 +1286,7 @@ impl<'a> Interpreter<'a> {
                 _ => {}
             }
         }
-        Ok(())
+        Ok(ControlFlow::Continue)
     }
 
     /// Evaluate an expression to a runtime value.
@@ -1195,9 +1332,29 @@ impl<'a> Interpreter<'a> {
             }
 
             Expr::BinaryOp { op, left, right } => {
-                let left_val = self.evaluate_expr(left).await?;
-                let right_val = self.evaluate_expr(right).await?;
-                self.apply_binary_op(*op, left_val, right_val)
+                match op {
+                    BinaryOpKind::And => {
+                        let left_val = self.evaluate_expr(left).await?;
+                        if !left_val.is_truthy() {
+                            return Ok(RuntimeValue::Bool(false));
+                        }
+                        let right_val = self.evaluate_expr(right).await?;
+                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
+                    }
+                    BinaryOpKind::Or => {
+                        let left_val = self.evaluate_expr(left).await?;
+                        if left_val.is_truthy() {
+                            return Ok(RuntimeValue::Bool(true));
+                        }
+                        let right_val = self.evaluate_expr(right).await?;
+                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
+                    }
+                    _ => {
+                        let left_val = self.evaluate_expr(left).await?;
+                        let right_val = self.evaluate_expr(right).await?;
+                        self.apply_binary_op(*op, left_val, right_val)
+                    }
+                }
             }
 
             Expr::Call { function, args } => {
@@ -1210,6 +1367,7 @@ impl<'a> Interpreter<'a> {
                 match (&coll_val, &idx_val) {
                     (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
                         let idx = *idx as usize;
+                        let items = items.borrow();
                         if idx == 0 || idx > items.len() {
                             return Err(format!("Index {} out of bounds", idx));
                         }
@@ -1227,12 +1385,13 @@ impl<'a> Interpreter<'a> {
                         if idx == 0 || idx > s.chars().count() {
                             return Err(format!("Index {} out of bounds", idx));
                         }
-                        Ok(RuntimeValue::Text(s.chars().nth(idx - 1).unwrap().to_string()))
+                        Ok(RuntimeValue::Text(Rc::new(s.chars().nth(idx - 1).unwrap().to_string())))
                     }
-                    (RuntimeValue::Map(map), RuntimeValue::Text(key)) => {
+                    (RuntimeValue::Map(map), key) => {
+                        let map = map.borrow();
                         match map.get(key) {
                             Some(val) => Ok(val.clone()),
-                            None => Err(format!("Key '{}' not found in map", key)),
+                            None => Err(format!("Key '{}' not found in map", key.to_display_string())),
                         }
                     }
                     _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
@@ -1245,17 +1404,19 @@ impl<'a> Interpreter<'a> {
                 let end_val = self.evaluate_expr(end).await?;
                 match (&coll_val, &start_val, &end_val) {
                     (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let items = items.borrow();
                         let start = (*s as usize).saturating_sub(1);
                         let end = *e as usize;
                         let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
-                        Ok(RuntimeValue::List(slice))
+                        Ok(RuntimeValue::List(Rc::new(RefCell::new(slice))))
                     }
                     _ => Err("Slice requires List and Int indices".to_string()),
                 }
             }
 
             Expr::Copy { expr: inner } => {
-                self.evaluate_expr(inner).await
+                let val = self.evaluate_expr(inner).await?;
+                Ok(val.deep_clone())
             }
 
             Expr::Give { value } => {
@@ -1266,10 +1427,11 @@ impl<'a> Interpreter<'a> {
             Expr::Length { collection } => {
                 let coll_val = self.evaluate_expr(collection).await?;
                 match &coll_val {
-                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
                     RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
-                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
                     RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
                     _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
                 }
             }
@@ -1279,23 +1441,19 @@ impl<'a> Interpreter<'a> {
                 let val = self.evaluate_expr(value).await?;
                 match &coll_val {
                     RuntimeValue::Set(items) => {
+                        let items = items.borrow();
                         let found = items.iter().any(|item| self.values_equal(item, &val));
                         Ok(RuntimeValue::Bool(found))
                     }
                     RuntimeValue::List(items) => {
+                        let items = items.borrow();
                         let found = items.iter().any(|item| self.values_equal(item, &val));
                         Ok(RuntimeValue::Bool(found))
                     }
                     RuntimeValue::Map(entries) => {
-                        // For maps, check if key exists (keys are Strings)
-                        if let RuntimeValue::Text(key) = &val {
-                            Ok(RuntimeValue::Bool(entries.contains_key(key)))
-                        } else {
-                            Err(format!("Map key must be Text, got {}", val.type_name()))
-                        }
+                        Ok(RuntimeValue::Bool(entries.borrow().contains_key(&val)))
                     }
                     RuntimeValue::Text(s) => {
-                        // For text, check if substring exists
                         if let RuntimeValue::Text(needle) = &val {
                             Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
                         } else if let RuntimeValue::Char(c) = &val {
@@ -1313,13 +1471,15 @@ impl<'a> Interpreter<'a> {
                 let right_val = self.evaluate_expr(right).await?;
                 match (&left_val, &right_val) {
                     (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let a = a.borrow();
+                        let b = b.borrow();
                         let mut result = a.clone();
                         for item in b.iter() {
                             if !result.iter().any(|x| self.values_equal(x, item)) {
                                 result.push(item.clone());
                             }
                         }
-                        Ok(RuntimeValue::Set(result))
+                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
                     }
                     _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
                 }
@@ -1330,23 +1490,24 @@ impl<'a> Interpreter<'a> {
                 let right_val = self.evaluate_expr(right).await?;
                 match (&left_val, &right_val) {
                     (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let a = a.borrow();
+                        let b = b.borrow();
                         let result: Vec<RuntimeValue> = a.iter()
                             .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
                             .cloned()
                             .collect();
-                        Ok(RuntimeValue::Set(result))
+                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
                     }
                     _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
                 }
             }
 
             Expr::List(items) => {
-                // Can't use .map() with async, so manual loop
                 let mut values = Vec::with_capacity(items.len());
                 for e in items.iter() {
                     values.push(self.evaluate_expr(e).await?);
                 }
-                Ok(RuntimeValue::List(values))
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(values))))
             }
 
             Expr::Tuple(items) => {
@@ -1354,7 +1515,7 @@ impl<'a> Interpreter<'a> {
                 for e in items.iter() {
                     values.push(self.evaluate_expr(e).await?);
                 }
-                Ok(RuntimeValue::Tuple(values))
+                Ok(RuntimeValue::Tuple(Rc::new(values)))
             }
 
             Expr::Range { start, end } => {
@@ -1365,7 +1526,7 @@ impl<'a> Interpreter<'a> {
                         let range: Vec<RuntimeValue> = (*s..=*e)
                             .map(RuntimeValue::Int)
                             .collect();
-                        Ok(RuntimeValue::List(range))
+                        Ok(RuntimeValue::List(Rc::new(RefCell::new(range))))
                     }
                     _ => Err("Range requires Int bounds".to_string()),
                 }
@@ -1374,9 +1535,9 @@ impl<'a> Interpreter<'a> {
             Expr::FieldAccess { object, field } => {
                 let obj_val = self.evaluate_expr(object).await?;
                 match &obj_val {
-                    RuntimeValue::Struct { fields, .. } => {
+                    RuntimeValue::Struct(s) => {
                         let field_name = self.interner.resolve(*field);
-                        fields.get(field_name).cloned()
+                        s.fields.get(field_name).cloned()
                             .ok_or_else(|| format!("Field '{}' not found", field_name))
                     }
                     _ => Err(format!("Cannot access field on {}", obj_val.type_name())),
@@ -1387,15 +1548,15 @@ impl<'a> Interpreter<'a> {
                 let name = self.interner.resolve(*type_name).to_string();
 
                 if name == "Seq" || name == "List" {
-                    return Ok(RuntimeValue::List(vec![]));
+                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))));
                 }
 
                 if name == "Set" || name == "HashSet" {
-                    return Ok(RuntimeValue::Set(vec![]));
+                    return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
                 }
 
                 if name == "Map" || name == "HashMap" {
-                    return Ok(RuntimeValue::Map(HashMap::new()));
+                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))));
                 }
 
                 let mut fields = HashMap::new();
@@ -1404,7 +1565,30 @@ impl<'a> Interpreter<'a> {
                     let field_val = self.evaluate_expr(field_expr).await?;
                     fields.insert(field_name, field_val);
                 }
-                Ok(RuntimeValue::Struct { type_name: name, fields })
+
+                if let Some(def) = self.struct_defs.get(type_name) {
+                    for (field_sym, type_sym, _) in def {
+                        let field_name = self.interner.resolve(*field_sym).to_string();
+                        if !fields.contains_key(&field_name) {
+                            let type_name_str = self.interner.resolve(*type_sym).to_string();
+                            let default = match type_name_str.as_str() {
+                                "Int" => RuntimeValue::Int(0),
+                                "Float" => RuntimeValue::Float(0.0),
+                                "Bool" => RuntimeValue::Bool(false),
+                                "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
+                                "Char" => RuntimeValue::Char('\0'),
+                                "Byte" => RuntimeValue::Int(0),
+                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(vec![]))),
+                                "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
+                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))),
+                                _ => RuntimeValue::Nothing,
+                            };
+                            fields.insert(field_name, default);
+                        }
+                    }
+                }
+
+                Ok(RuntimeValue::Struct(Box::new(StructValue { type_name: name, fields })))
             }
 
             // Phase 102: Enum variant constructor
@@ -1413,27 +1597,29 @@ impl<'a> Interpreter<'a> {
                 let inductive_type = self.interner.resolve(*enum_name).to_string();
                 let constructor = self.interner.resolve(*variant).to_string();
 
-                // Evaluate field values in order (positional for inductives)
                 let mut args = Vec::new();
                 for (_, field_expr) in fields {
                     let field_val = self.evaluate_expr(field_expr).await?;
                     args.push(field_val);
                 }
 
-                // Create unified inductive value
-                Ok(RuntimeValue::Inductive {
+                Ok(RuntimeValue::Inductive(Box::new(InductiveValue {
                     inductive_type,
                     constructor,
                     args,
-                })
+                })))
             }
 
             Expr::ManifestOf { .. } => {
-                Ok(RuntimeValue::List(vec![]))
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))))
             }
 
             Expr::ChunkAt { .. } => {
                 Ok(RuntimeValue::Nothing)
+            }
+
+            Expr::WithCapacity { value, .. } => {
+                self.evaluate_expr(value).await
             }
 
             Expr::OptionSome { value } => {
@@ -1456,7 +1642,7 @@ impl<'a> Interpreter<'a> {
         match lit {
             Literal::Number(n) => Ok(RuntimeValue::Int(*n)),
             Literal::Float(f) => Ok(RuntimeValue::Float(*f)),
-            Literal::Text(sym) => Ok(RuntimeValue::Text(self.interner.resolve(*sym).to_string())),
+            Literal::Text(sym) => Ok(RuntimeValue::Text(Rc::new(self.interner.resolve(*sym).to_string()))),
             Literal::Boolean(b) => Ok(RuntimeValue::Bool(*b)),
             Literal::Nothing => Ok(RuntimeValue::Nothing),
             Literal::Char(c) => Ok(RuntimeValue::Char(*c)),
@@ -1495,12 +1681,10 @@ impl<'a> Interpreter<'a> {
             (RuntimeValue::Float(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(a + b)),
             (RuntimeValue::Int(a), RuntimeValue::Float(b)) => Ok(RuntimeValue::Float(*a as f64 + b)),
             (RuntimeValue::Float(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Float(a + *b as f64)),
-            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", a, b))),
-            (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(format!("{}{}", a, other.to_display_string()))),
-            (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(format!("{}{}", other.to_display_string(), b))),
-            // Duration arithmetic
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(Rc::new(format!("{}{}", a, b)))),
+            (RuntimeValue::Text(a), other) => Ok(RuntimeValue::Text(Rc::new(format!("{}{}", a, other.to_display_string())))),
+            (other, RuntimeValue::Text(b)) => Ok(RuntimeValue::Text(Rc::new(format!("{}{}", other.to_display_string(), b)))),
             (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Duration(a + b)),
-            // Date + Span → Date (calendar-aware)
             (RuntimeValue::Date(days), RuntimeValue::Span { months, days: span_days }) => {
                 let result_days = Self::date_add_span(*days, *months, *span_days);
                 Ok(RuntimeValue::Date(result_days))
@@ -1509,9 +1693,8 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Phase 53: String concatenation ("combined with")
     fn apply_concat(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
-        Ok(RuntimeValue::Text(format!("{}{}", left.to_display_string(), right.to_display_string())))
+        Ok(RuntimeValue::Text(Rc::new(format!("{}{}", left.to_display_string(), right.to_display_string()))))
     }
 
     fn apply_subtract(&self, left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
@@ -1672,15 +1855,18 @@ impl<'a> Interpreter<'a> {
         }
     }
 
+    pub fn values_equal_pub(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
+        self.values_equal(left, right)
+    }
+
     fn values_equal(&self, left: &RuntimeValue, right: &RuntimeValue) -> bool {
         match (left, right) {
             (RuntimeValue::Int(a), RuntimeValue::Int(b)) => a == b,
             (RuntimeValue::Float(a), RuntimeValue::Float(b)) => (a - b).abs() < f64::EPSILON,
             (RuntimeValue::Bool(a), RuntimeValue::Bool(b)) => a == b,
-            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => a == b,
+            (RuntimeValue::Text(a), RuntimeValue::Text(b)) => **a == **b,
             (RuntimeValue::Char(a), RuntimeValue::Char(b)) => a == b,
             (RuntimeValue::Nothing, RuntimeValue::Nothing) => true,
-            // Temporal type equality
             (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => a == b,
             (RuntimeValue::Date(a), RuntimeValue::Date(b)) => a == b,
             (RuntimeValue::Moment(a), RuntimeValue::Moment(b)) => a == b,
@@ -1688,11 +1874,10 @@ impl<'a> Interpreter<'a> {
                 m1 == m2 && d1 == d2
             }
             (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
-            // Phase 102: Inductive equality - same type, same constructor, equal args
-            (RuntimeValue::Inductive { inductive_type: t1, constructor: c1, args: a1 },
-             RuntimeValue::Inductive { inductive_type: t2, constructor: c2, args: a2 }) => {
-                t1 == t2 && c1 == c2 && a1.len() == a2.len() &&
-                a1.iter().zip(a2.iter()).all(|(x, y)| self.values_equal(x, y))
+            (RuntimeValue::Inductive(a), RuntimeValue::Inductive(b)) => {
+                a.inductive_type == b.inductive_type && a.constructor == b.constructor &&
+                a.args.len() == b.args.len() &&
+                a.args.iter().zip(b.args.iter()).all(|(x, y)| self.values_equal(x, y))
             }
             _ => false,
         }
@@ -1701,105 +1886,116 @@ impl<'a> Interpreter<'a> {
     /// Call a function (built-in or user-defined).
     #[async_recursion(?Send)]
     async fn call_function(&mut self, function: Symbol, args: &[&'async_recursion Expr<'a>]) -> Result<RuntimeValue, String> {
-        let func_name = self.interner.resolve(function);
-
-        // Built-in functions
-        match func_name {
-            "show" => {
-                for arg in args {
-                    let val = self.evaluate_expr(arg).await?;
-                    self.emit_output(val.to_display_string());
-                }
-                return Ok(RuntimeValue::Nothing);
+        // Built-in functions — Symbol comparison (integer) instead of string matching
+        let func_sym = Some(function);
+        if func_sym == self.sym_show {
+            for arg in args {
+                let val = self.evaluate_expr(arg).await?;
+                self.emit_output(val.to_display_string());
             }
-            "length" => {
-                if args.len() != 1 {
-                    return Err("length() takes exactly 1 argument".to_string());
-                }
-                let val = self.evaluate_expr(args[0]).await?;
-                return match &val {
-                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.len() as i64)),
-                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
-                    _ => Err(format!("Cannot get length of {}", val.type_name())),
-                };
+            return Ok(RuntimeValue::Nothing);
+        } else if func_sym == self.sym_length {
+            if args.len() != 1 {
+                return Err("length() takes exactly 1 argument".to_string());
             }
-            "format" => {
-                if args.is_empty() {
-                    return Ok(RuntimeValue::Text(String::new()));
-                }
-                let val = self.evaluate_expr(args[0]).await?;
-                return Ok(RuntimeValue::Text(val.to_display_string()));
+            let val = self.evaluate_expr(args[0]).await?;
+            return match &val {
+                RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
+                RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
+                _ => Err(format!("Cannot get length of {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_format {
+            if args.is_empty() {
+                return Ok(RuntimeValue::Text(Rc::new(String::new())));
             }
-            "abs" => {
-                if args.len() != 1 {
-                    return Err("abs() takes exactly 1 argument".to_string());
-                }
-                let val = self.evaluate_expr(args[0]).await?;
-                return match val {
-                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
-                    RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
-                    _ => Err(format!("abs() requires a number, got {}", val.type_name())),
-                };
+            let val = self.evaluate_expr(args[0]).await?;
+            return Ok(RuntimeValue::Text(Rc::new(val.to_display_string())));
+        } else if func_sym == self.sym_parse_int {
+            if args.len() != 1 {
+                return Err("parseInt() takes exactly 1 argument".to_string());
             }
-            "min" => {
-                if args.len() != 2 {
-                    return Err("min() takes exactly 2 arguments".to_string());
-                }
-                let a = self.evaluate_expr(args[0]).await?;
-                let b = self.evaluate_expr(args[1]).await?;
-                return match (&a, &b) {
-                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
-                    _ => Err("min() requires integers".to_string()),
-                };
+            let val = self.evaluate_expr(args[0]).await?;
+            if let RuntimeValue::Text(s) = &val {
+                return Ok(RuntimeValue::Int(s.trim().parse::<i64>()
+                    .map_err(|_| format!("Cannot parse '{}' as Int", s))?));
             }
-            "max" => {
-                if args.len() != 2 {
-                    return Err("max() takes exactly 2 arguments".to_string());
-                }
-                let a = self.evaluate_expr(args[0]).await?;
-                let b = self.evaluate_expr(args[1]).await?;
-                return match (&a, &b) {
-                    (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
-                    _ => Err("max() requires integers".to_string()),
-                };
+            return Err("parseInt requires a Text argument".to_string());
+        } else if func_sym == self.sym_parse_float {
+            if args.len() != 1 {
+                return Err("parseFloat() takes exactly 1 argument".to_string());
             }
-            "copy" => {
-                if args.len() != 1 {
-                    return Err("copy() takes exactly 1 argument".to_string());
-                }
-                let val = self.evaluate_expr(args[0]).await?;
-                return Ok(val.clone());
+            let val = self.evaluate_expr(args[0]).await?;
+            if let RuntimeValue::Text(s) = &val {
+                return Ok(RuntimeValue::Float(s.trim().parse::<f64>()
+                    .map_err(|_| format!("Cannot parse '{}' as Float", s))?));
             }
-            _ => {}
+            return Err("parseFloat requires a Text argument".to_string());
+        } else if func_sym == self.sym_abs {
+            if args.len() != 1 {
+                return Err("abs() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr(args[0]).await?;
+            return match val {
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
+                _ => Err(format!("abs() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_min {
+            if args.len() != 2 {
+                return Err("min() takes exactly 2 arguments".to_string());
+            }
+            let a = self.evaluate_expr(args[0]).await?;
+            let b = self.evaluate_expr(args[1]).await?;
+            return match (&a, &b) {
+                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
+                _ => Err("min() requires integers".to_string()),
+            };
+        } else if func_sym == self.sym_max {
+            if args.len() != 2 {
+                return Err("max() takes exactly 2 arguments".to_string());
+            }
+            let a = self.evaluate_expr(args[0]).await?;
+            let b = self.evaluate_expr(args[1]).await?;
+            return match (&a, &b) {
+                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
+                _ => Err("max() requires integers".to_string()),
+            };
+        } else if func_sym == self.sym_copy {
+            if args.len() != 1 {
+                return Err("copy() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr(args[0]).await?;
+            return Ok(val.deep_clone());
         }
 
-        // User-defined function lookup
-        // Need to get the function separately to avoid borrow conflicts
-        let func_data = self.functions.get(&function)
-            .map(|f| (f.params.clone(), f.body))
-            .ok_or_else(|| format!("Unknown function: {}", func_name))?;
+        // User-defined function lookup — extract metadata without cloning params
+        let (param_count, body) = {
+            let func = self.functions.get(&function)
+                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
+            (func.params.len(), func.body)
+        };
 
-        let (params, body) = func_data;
-
-        if args.len() != params.len() {
+        if args.len() != param_count {
             return Err(format!(
                 "Function {} expects {} arguments, got {}",
-                func_name,
-                params.len(),
+                self.interner.resolve(function),
+                param_count,
                 args.len()
             ));
         }
 
         // Evaluate arguments before pushing scope
-        let mut arg_values = Vec::new();
+        let mut arg_values = Vec::with_capacity(param_count);
         for arg in args {
             arg_values.push(self.evaluate_expr(arg).await?);
         }
 
-        // Push new scope and bind parameters
+        // Bind parameters — re-borrow self.functions for param names (no clone needed)
         self.push_scope();
-        for ((param_name, _), arg_val) in params.iter().zip(arg_values) {
-            self.define(*param_name, arg_val);
+        for i in 0..param_count {
+            let param_name = self.functions[&function].params[i].0;
+            self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
         }
 
         // Execute function body
@@ -1822,35 +2018,34 @@ impl<'a> Interpreter<'a> {
     /// Call a function with pre-evaluated RuntimeValue arguments.
     /// Used by Give and Show statements where the object is already evaluated.
     #[async_recursion(?Send)]
-    async fn call_function_with_values(&mut self, function: Symbol, args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
-        let func_name = self.interner.resolve(function);
-
-        // Handle built-in "show"
-        if func_name == "show" {
+    async fn call_function_with_values(&mut self, function: Symbol, mut args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
+        // Handle built-in "show" via Symbol comparison
+        if Some(function) == self.sym_show {
             for val in args {
                 self.emit_output(val.to_display_string());
             }
             return Ok(RuntimeValue::Nothing);
         }
 
-        // User-defined function lookup
-        let func_data = self.functions.get(&function)
-            .map(|f| (f.params.clone(), f.body))
-            .ok_or_else(|| format!("Unknown function: {}", func_name))?;
+        // User-defined function lookup — extract metadata without cloning params
+        let (param_count, body) = {
+            let func = self.functions.get(&function)
+                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
+            (func.params.len(), func.body)
+        };
 
-        let (params, body) = func_data;
-
-        if args.len() != params.len() {
+        if args.len() != param_count {
             return Err(format!(
                 "Function {} expects {} arguments, got {}",
-                func_name, params.len(), args.len()
+                self.interner.resolve(function), param_count, args.len()
             ));
         }
 
-        // Push new scope and bind parameters
+        // Bind parameters — re-borrow self.functions for param names (no clone needed)
         self.push_scope();
-        for ((param_name, _), arg_val) in params.iter().zip(args) {
-            self.define(*param_name, arg_val);
+        for i in 0..param_count {
+            let param_name = self.functions[&function].params[i].0;
+            self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
         }
 
         // Execute function body
@@ -1873,40 +2068,28 @@ impl<'a> Interpreter<'a> {
     // Scope management
 
     fn push_scope(&mut self) {
-        self.env.push(HashMap::new());
+        self.env.push_scope();
     }
 
     fn pop_scope(&mut self) {
-        if self.env.len() > 1 {
-            self.env.pop();
-        }
+        self.env.pop_scope();
     }
 
     fn define(&mut self, name: Symbol, value: RuntimeValue) {
-        if let Some(scope) = self.env.last_mut() {
-            scope.insert(name, value);
-        }
+        self.env.define(name, value);
     }
 
     fn assign(&mut self, name: Symbol, value: RuntimeValue) -> Result<(), String> {
-        // Search from innermost to outermost scope
-        for scope in self.env.iter_mut().rev() {
-            if scope.contains_key(&name) {
-                scope.insert(name, value);
-                return Ok(());
-            }
+        if self.env.assign(name, value) {
+            Ok(())
+        } else {
+            Err(format!("Undefined variable: {}", self.interner.resolve(name)))
         }
-        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
     }
 
     fn lookup(&self, name: Symbol) -> Result<&RuntimeValue, String> {
-        // Search from innermost to outermost scope
-        for scope in self.env.iter().rev() {
-            if let Some(value) = scope.get(&name) {
-                return Ok(value);
-            }
-        }
-        Err(format!("Undefined variable: {}", self.interner.resolve(name)))
+        self.env.lookup(name)
+            .ok_or_else(|| format!("Undefined variable: {}", self.interner.resolve(name)))
     }
 
     /// Evaluate a policy condition against a subject value.
@@ -1918,17 +2101,15 @@ impl<'a> Interpreter<'a> {
     ) -> bool {
         match condition {
             PolicyCondition::FieldEquals { field, value, is_string_literal } => {
-                // subject's field equals value
-                if let RuntimeValue::Struct { fields, .. } = subject {
+                if let RuntimeValue::Struct(s) = subject {
                     let field_name = self.interner.resolve(*field);
-                    if let Some(field_val) = fields.get(field_name) {
+                    if let Some(field_val) = s.fields.get(field_name) {
                         let expected = self.interner.resolve(*value);
-                        // Compare based on type
                         match field_val {
-                            RuntimeValue::Text(s) => s == expected,
+                            RuntimeValue::Text(s) => s.as_str() == expected,
                             RuntimeValue::Int(n) => {
                                 if *is_string_literal {
-                                    false // Can't compare int to string
+                                    false
                                 } else {
                                     expected.parse::<i64>().map(|e| *n == e).unwrap_or(false)
                                 }
@@ -1950,9 +2131,9 @@ impl<'a> Interpreter<'a> {
                 }
             }
             PolicyCondition::FieldBool { field, value } => {
-                if let RuntimeValue::Struct { fields, .. } = subject {
+                if let RuntimeValue::Struct(s) = subject {
                     let field_name = self.interner.resolve(*field);
-                    if let Some(RuntimeValue::Bool(b)) = fields.get(field_name) {
+                    if let Some(RuntimeValue::Bool(b)) = s.fields.get(field_name) {
                         *b == *value
                     } else {
                         false
@@ -1962,10 +2143,9 @@ impl<'a> Interpreter<'a> {
                 }
             }
             PolicyCondition::Predicate { predicate, .. } => {
-                // Recursively evaluate another predicate
                 if let Some(registry) = &self.policy_registry {
-                    if let RuntimeValue::Struct { type_name, .. } = subject {
-                        if let Some(subj_type_sym) = self.interner.lookup(type_name) {
+                    if let RuntimeValue::Struct(s) = subject {
+                        if let Some(subj_type_sym) = self.interner.lookup(&s.type_name) {
                             if let Some(preds) = registry.get_predicates(subj_type_sym) {
                                 if let Some(pred) = preds.iter().find(|p| p.predicate_name == *predicate) {
                                     return self.evaluate_policy_condition(&pred.condition, subject, object);
@@ -1977,19 +2157,16 @@ impl<'a> Interpreter<'a> {
                 false
             }
             PolicyCondition::ObjectFieldEquals { subject: subj_field, object: obj_sym, field } => {
-                // subject's subj_field equals object's field
                 let obj = match object {
                     Some(o) => o,
                     None => return false,
                 };
-                if let (RuntimeValue::Struct { fields: subj_fields, .. },
-                        RuntimeValue::Struct { fields: obj_fields, .. }) = (subject, obj) {
+                if let (RuntimeValue::Struct(subj_s), RuntimeValue::Struct(obj_s)) = (subject, obj) {
                     let subj_field_name = self.interner.resolve(*subj_field);
                     let obj_field_name = self.interner.resolve(*field);
-                    if let (Some(subj_val), Some(obj_val)) = (subj_fields.get(subj_field_name), obj_fields.get(obj_field_name)) {
+                    if let (Some(subj_val), Some(obj_val)) = (subj_s.fields.get(subj_field_name), obj_s.fields.get(obj_field_name)) {
                         self.values_equal(subj_val, obj_val)
                     } else {
-                        // Check if comparing the whole subject/object
                         let _obj_sym_name = self.interner.resolve(*obj_sym);
                         false
                     }
@@ -2006,6 +2183,1177 @@ impl<'a> Interpreter<'a> {
                     && self.evaluate_policy_condition(right, subject, object)
             }
         }
+    }
+
+    // =========================================================================
+    // Sync execution path — eliminates async/Future overhead for pure programs
+    // =========================================================================
+
+    /// Execute a program synchronously (no async/Future allocation).
+    /// Use when `needs_async(stmts)` returns false.
+    pub fn run_sync(&mut self, stmts: &[Stmt<'a>]) -> Result<(), String> {
+        for stmt in stmts {
+            match self.execute_stmt_sync(stmt)? {
+                ControlFlow::Return(_) => break,
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn execute_stmt_sync(&mut self, stmt: &Stmt<'a>) -> Result<ControlFlow, String> {
+        match stmt {
+            Stmt::Let { var, value, .. } => {
+                let val = self.evaluate_expr_sync(value)?;
+                self.define(*var, val);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Set { target, value } => {
+                let val = self.evaluate_expr_sync(value)?;
+                self.assign(*target, val)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Call { function, args } => {
+                self.call_function_sync(*function, args)?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::If { cond, then_block, else_block } => {
+                let condition = self.evaluate_expr_sync(cond)?;
+                if condition.is_truthy() {
+                    let flow = self.execute_block_sync(then_block)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow);
+                    }
+                } else if let Some(else_stmts) = else_block {
+                    let flow = self.execute_block_sync(else_stmts)?;
+                    if !matches!(flow, ControlFlow::Continue) {
+                        return Ok(flow);
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::While { cond, body, .. } => {
+                loop {
+                    let condition = self.evaluate_expr_sync(cond)?;
+                    if !condition.is_truthy() {
+                        break;
+                    }
+                    match self.execute_block_sync(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => return Ok(ControlFlow::Return(v)),
+                        ControlFlow::Continue => {}
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Repeat { pattern, iterable, body } => {
+                use crate::ast::stmt::Pattern;
+
+                let iter_val = self.evaluate_expr_sync(iterable)?;
+                let items: Vec<RuntimeValue> = match &iter_val {
+                    RuntimeValue::List(list) => list.borrow().clone(),
+                    RuntimeValue::Set(set) => set.borrow().clone(),
+                    RuntimeValue::Text(s) => {
+                        s.chars().map(|c| RuntimeValue::Text(Rc::new(c.to_string()))).collect()
+                    }
+                    RuntimeValue::Map(map) => {
+                        map.borrow().iter()
+                            .map(|(k, v)| RuntimeValue::Tuple(Rc::new(vec![k.clone(), v.clone()])))
+                            .collect()
+                    }
+                    _ => return Err(format!("Cannot iterate over {}", iter_val.type_name())),
+                };
+
+                self.push_scope();
+                for item in items {
+                    match pattern {
+                        Pattern::Identifier(sym) => {
+                            self.define(*sym, item);
+                        }
+                        Pattern::Tuple(syms) => {
+                            if let RuntimeValue::Tuple(ref tuple_vals) = item {
+                                for (sym, val) in syms.iter().zip(tuple_vals.iter()) {
+                                    self.define(*sym, val.clone());
+                                }
+                            } else {
+                                return Err(format!("Expected tuple for pattern, got {}", item.type_name()));
+                            }
+                        }
+                    }
+
+                    match self.execute_block_sync(body)? {
+                        ControlFlow::Break => break,
+                        ControlFlow::Return(v) => {
+                            self.pop_scope();
+                            return Ok(ControlFlow::Return(v));
+                        }
+                        ControlFlow::Continue => {}
+                    }
+                }
+                self.pop_scope();
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Return { value } => {
+                let ret_val = match value {
+                    Some(expr) => self.evaluate_expr_sync(expr)?,
+                    None => RuntimeValue::Nothing,
+                };
+                Ok(ControlFlow::Return(ret_val))
+            }
+
+            Stmt::FunctionDef { name, params, body, return_type, .. } => {
+                let func = FunctionDef {
+                    params: params.clone(),
+                    body: *body,
+                    return_type: *return_type,
+                };
+                self.functions.insert(*name, func);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::StructDef { name, fields, .. } => {
+                self.struct_defs.insert(*name, fields.clone());
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetField { object, field, value } => {
+                let new_val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+                    if let RuntimeValue::Struct(ref mut s) = obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        s.fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err(format!("Cannot set field on non-struct value"));
+                    }
+                } else {
+                    return Err("SetField target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Push { value, collection } => {
+                let val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::List(items) = coll_val {
+                        items.borrow_mut().push(val);
+                    } else {
+                        return Err("Can only push to a List".to_string());
+                    }
+                } else if let Expr::FieldAccess { object, field } = collection {
+                    if let Expr::Identifier(obj_sym) = *object {
+                        let obj_val = self.lookup(*obj_sym)?;
+                        if let RuntimeValue::Struct(s) = obj_val {
+                            let field_name = self.interner.resolve(*field).to_string();
+                            if let Some(RuntimeValue::List(items)) = s.fields.get(&field_name) {
+                                items.borrow_mut().push(val);
+                            } else {
+                                return Err(format!("Field '{}' is not a List", field_name));
+                            }
+                        } else {
+                            return Err("Cannot push to field of non-struct".to_string());
+                        }
+                    } else {
+                        return Err("Push to nested field access not supported".to_string());
+                    }
+                } else {
+                    return Err("Push collection must be an identifier or field access".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Pop { collection, into } => {
+                if let Expr::Identifier(coll_sym) = collection {
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::List(items) = coll_val {
+                        let popped = items.borrow_mut().pop().unwrap_or(RuntimeValue::Nothing);
+                        if let Some(into_var) = into {
+                            self.define(*into_var, popped);
+                        }
+                    } else {
+                        return Err("Can only pop from a List".to_string());
+                    }
+                } else {
+                    return Err("Pop collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Add { value, collection } => {
+                let val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::Set(items) = coll_val {
+                        let already_present = items.borrow().iter().any(|x| self.values_equal(x, &val));
+                        if !already_present {
+                            items.borrow_mut().push(val);
+                        }
+                    } else {
+                        return Err("Can only add to a Set".to_string());
+                    }
+                } else {
+                    return Err("Add collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Remove { value, collection } => {
+                let val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let coll_val = self.lookup(*coll_sym)?;
+                    if let RuntimeValue::Set(items) = coll_val {
+                        items.borrow_mut().retain(|x| !self.values_equal(x, &val));
+                    } else {
+                        return Err("Can only remove from a Set".to_string());
+                    }
+                } else {
+                    return Err("Remove collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SetIndex { collection, index, value } => {
+                let idx_val = self.evaluate_expr_sync(index)?;
+                let new_val = self.evaluate_expr_sync(value)?;
+                if let Expr::Identifier(coll_sym) = collection {
+                    let coll_val = self.lookup(*coll_sym)?;
+                    match (coll_val, &idx_val) {
+                        (RuntimeValue::List(items), RuntimeValue::Int(n)) => {
+                            let idx = *n as usize;
+                            let mut items = items.borrow_mut();
+                            if idx == 0 || idx > items.len() {
+                                return Err(format!("Index {} out of bounds for list of length {}", idx, items.len()));
+                            }
+                            items[idx - 1] = new_val;
+                        }
+                        (RuntimeValue::Map(map), key) => {
+                            map.borrow_mut().insert(key.clone(), new_val);
+                        }
+                        (RuntimeValue::List(_), _) => {
+                            return Err("List index must be an integer".to_string());
+                        }
+                        _ => {
+                            return Err(format!("Cannot index into {}", coll_val.type_name()));
+                        }
+                    }
+                } else {
+                    return Err("SetIndex collection must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Inspect { target, arms, .. } => {
+                let target_val = self.evaluate_expr_sync(target)?;
+                self.execute_inspect_sync(&target_val, arms)
+            }
+
+            Stmt::Zone { name, body, .. } => {
+                self.push_scope();
+                self.define(*name, RuntimeValue::Nothing);
+                let result = self.execute_block_sync(body);
+                self.pop_scope();
+                result?;
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+                for task in tasks.iter() {
+                    self.execute_stmt_sync(task)?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Assert { .. } | Stmt::Trust { .. } => {
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::RuntimeAssert { condition } => {
+                let val = self.evaluate_expr_sync(condition)?;
+                if !val.is_truthy() {
+                    return Err("Assertion failed".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Give { object, recipient } => {
+                let obj_val = self.evaluate_expr_sync(object)?;
+                if let Expr::Identifier(sym) = recipient {
+                    self.call_function_with_values_sync(*sym, vec![obj_val])?;
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Show { object, recipient } => {
+                let obj_val = self.evaluate_expr_sync(object)?;
+                if let Expr::Identifier(sym) = recipient {
+                    let name = self.interner.resolve(*sym);
+                    if name == "show" {
+                        self.emit_output(obj_val.to_display_string());
+                    } else {
+                        self.call_function_with_values_sync(*sym, vec![obj_val])?;
+                    }
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            // Async-only operations — unreachable in sync path (checked by needs_async)
+            Stmt::ReadFrom { var, source } => {
+                match source {
+                    ReadSource::Console => {
+                        self.define(*var, RuntimeValue::Text(Rc::new(String::new())));
+                        Ok(ControlFlow::Continue)
+                    }
+                    ReadSource::File(_) => {
+                        Err("File read requires async execution path".to_string())
+                    }
+                }
+            }
+
+            Stmt::WriteFile { .. } => {
+                Err("File write requires async execution path".to_string())
+            }
+
+            Stmt::Spawn { name, .. } => {
+                self.define(*name, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::SendMessage { .. } => {
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::AwaitMessage { into, .. } => {
+                self.define(*into, RuntimeValue::Nothing);
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::MergeCrdt { source, target } => {
+                let source_val = self.evaluate_expr_sync(source)?;
+                let source_fields = match &source_val {
+                    RuntimeValue::Struct(s) => s.fields.clone(),
+                    _ => return Err("Merge source must be a struct".to_string()),
+                };
+
+                if let Expr::Identifier(target_sym) = target {
+                    let mut target_val = self.lookup(*target_sym)?.clone();
+
+                    if let RuntimeValue::Struct(ref mut s) = target_val {
+                        for (field_name, source_field_val) in source_fields {
+                            let current = s.fields.get(&field_name)
+                                .cloned()
+                                .unwrap_or(RuntimeValue::Int(0));
+
+                            let merged = match (&current, &source_field_val) {
+                                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => {
+                                    RuntimeValue::Int(a + b)
+                                }
+                                _ => source_field_val,
+                            };
+                            s.fields.insert(field_name, merged);
+                        }
+                        self.assign(*target_sym, target_val)?;
+                    } else {
+                        return Err("Merge target must be a struct".to_string());
+                    }
+                } else {
+                    return Err("Merge target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::IncreaseCrdt { object, field, amount } => {
+                let amount_val = self.evaluate_expr_sync(amount)?;
+                let amount_int = match amount_val {
+                    RuntimeValue::Int(n) => n,
+                    _ => return Err("CRDT increment amount must be an integer".to_string()),
+                };
+
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+
+                    if let RuntimeValue::Struct(ref mut s) = obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        let current = s.fields.get(&field_name)
+                            .cloned()
+                            .unwrap_or(RuntimeValue::Int(0));
+
+                        let new_val = match current {
+                            RuntimeValue::Int(n) => RuntimeValue::Int(n + amount_int),
+                            RuntimeValue::Nothing => RuntimeValue::Int(amount_int),
+                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
+                        };
+                        s.fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err("Cannot increase field on non-struct value".to_string());
+                    }
+                } else {
+                    return Err("IncreaseCrdt target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::DecreaseCrdt { object, field, amount } => {
+                let amount_val = self.evaluate_expr_sync(amount)?;
+                let amount_int = match amount_val {
+                    RuntimeValue::Int(n) => n,
+                    _ => return Err("CRDT decrement amount must be an integer".to_string()),
+                };
+
+                if let Expr::Identifier(obj_sym) = object {
+                    let mut obj_val = self.lookup(*obj_sym)?.clone();
+
+                    if let RuntimeValue::Struct(ref mut s) = obj_val {
+                        let field_name = self.interner.resolve(*field).to_string();
+                        let current = s.fields.get(&field_name)
+                            .cloned()
+                            .unwrap_or(RuntimeValue::Int(0));
+
+                        let new_val = match current {
+                            RuntimeValue::Int(n) => RuntimeValue::Int(n - amount_int),
+                            RuntimeValue::Nothing => RuntimeValue::Int(-amount_int),
+                            _ => return Err(format!("Field '{}' is not a counter", field_name)),
+                        };
+                        s.fields.insert(field_name, new_val);
+                        self.assign(*obj_sym, obj_val)?;
+                    } else {
+                        return Err("Cannot decrease field on non-struct value".to_string());
+                    }
+                } else {
+                    return Err("DecreaseCrdt target must be an identifier".to_string());
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::AppendToSequence { .. } => {
+                Err("Append to sequence is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::ResolveConflict { .. } => {
+                Err("Resolve conflict is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+
+            Stmt::Check { subject, predicate, is_capability, object, source_text, .. } => {
+                let registry = match &self.policy_registry {
+                    Some(r) => r,
+                    None => return Err("Security Check requires policies. Use compiled Rust or add ## Policy block.".to_string()),
+                };
+
+                let subj_val = self.lookup(*subject)?.clone();
+                let subj_type_name = match &subj_val {
+                    RuntimeValue::Struct(s) => s.type_name.clone(),
+                    _ => return Err(format!("Check subject must be a struct, got {}", subj_val.type_name())),
+                };
+
+                let subj_type_sym = match self.interner.lookup(&subj_type_name) {
+                    Some(sym) => sym,
+                    None => return Err(format!("Unknown type '{}' in Check statement", subj_type_name)),
+                };
+
+                let passed = if *is_capability {
+                    let obj_val = match object {
+                        Some(obj_sym) => Some(self.lookup(*obj_sym)?.clone()),
+                        None => None,
+                    };
+
+                    let caps = registry.get_capabilities(subj_type_sym);
+                    let cap = caps
+                        .and_then(|caps| caps.iter().find(|c| c.action == *predicate));
+
+                    match cap {
+                        Some(cap) => self.evaluate_policy_condition(&cap.condition, &subj_val, obj_val.as_ref()),
+                        None => {
+                            let pred_name = self.interner.resolve(*predicate);
+                            return Err(format!("No capability '{}' defined for type '{}'", pred_name, subj_type_name));
+                        }
+                    }
+                } else {
+                    let preds = registry.get_predicates(subj_type_sym);
+                    let pred_def = preds
+                        .and_then(|preds| preds.iter().find(|p| p.predicate_name == *predicate));
+
+                    match pred_def {
+                        Some(pred) => self.evaluate_policy_condition(&pred.condition, &subj_val, None),
+                        None => {
+                            let pred_name = self.interner.resolve(*predicate);
+                            return Err(format!("No predicate '{}' defined for type '{}'", pred_name, subj_type_name));
+                        }
+                    }
+                };
+
+                if !passed {
+                    return Err(format!("Security Check Failed: {}", source_text));
+                }
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Listen { .. } => {
+                Err("Listen is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::ConnectTo { .. } => {
+                Err("Connect is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::LetPeerAgent { .. } => {
+                Err("PeerAgent is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::Sleep { .. } => {
+                Err("Sleep requires async execution path".to_string())
+            }
+            Stmt::Sync { .. } => {
+                Err("Sync is not supported in the interpreter. Use compiled Rust.".to_string())
+            }
+            Stmt::Mount { .. } => {
+                Err("Mount requires async execution path".to_string())
+            }
+
+            Stmt::LaunchTask { .. } |
+            Stmt::LaunchTaskWithHandle { .. } |
+            Stmt::CreatePipe { .. } |
+            Stmt::SendPipe { .. } |
+            Stmt::ReceivePipe { .. } |
+            Stmt::TrySendPipe { .. } |
+            Stmt::TryReceivePipe { .. } |
+            Stmt::StopTask { .. } |
+            Stmt::Select { .. } => {
+                Err("Go-like concurrency (Launch, Pipe, Select) is only supported in compiled mode".to_string())
+            }
+
+            Stmt::Escape { .. } => {
+                Err(
+                    "Escape blocks contain raw Rust code and cannot be interpreted. \
+                     Use `largo build` or `largo run` to compile and run this program."
+                    .to_string()
+                )
+            }
+
+            Stmt::Require { .. } => {
+                Ok(ControlFlow::Continue)
+            }
+
+            Stmt::Theorem(_) => {
+                Ok(ControlFlow::Continue)
+            }
+        }
+    }
+
+    fn execute_block_sync(&mut self, block: Block<'a>) -> Result<ControlFlow, String> {
+        self.push_scope();
+        for stmt in block.iter() {
+            match self.execute_stmt_sync(stmt)? {
+                ControlFlow::Continue => {}
+                flow => {
+                    self.pop_scope();
+                    return Ok(flow);
+                }
+            }
+        }
+        self.pop_scope();
+        Ok(ControlFlow::Continue)
+    }
+
+    fn execute_inspect_sync(&mut self, target: &RuntimeValue, arms: &[MatchArm<'a>]) -> Result<ControlFlow, String> {
+        for arm in arms {
+            if arm.variant.is_none() {
+                let flow = self.execute_block_sync(arm.body)?;
+                return Ok(flow);
+            }
+
+            match target {
+                RuntimeValue::Struct(s) => {
+                    if let Some(variant) = arm.variant {
+                        let variant_name = self.interner.resolve(variant);
+                        if s.type_name == variant_name {
+                            self.push_scope();
+                            for (field_name, binding_name) in &arm.bindings {
+                                let field_str = self.interner.resolve(*field_name);
+                                if let Some(val) = s.fields.get(field_str) {
+                                    self.define(*binding_name, val.clone());
+                                }
+                            }
+                            let result = self.execute_block_sync(arm.body);
+                            self.pop_scope();
+                            let flow = result?;
+                            return Ok(flow);
+                        }
+                    }
+                }
+
+                RuntimeValue::Inductive(ind) => {
+                    if let Some(variant) = arm.variant {
+                        let variant_name = self.interner.resolve(variant);
+                        if ind.constructor == variant_name {
+                            self.push_scope();
+                            for (i, (_, binding_name)) in arm.bindings.iter().enumerate() {
+                                if i < ind.args.len() {
+                                    self.define(*binding_name, ind.args[i].clone());
+                                }
+                            }
+                            let result = self.execute_block_sync(arm.body);
+                            self.pop_scope();
+                            let flow = result?;
+                            return Ok(flow);
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+        Ok(ControlFlow::Continue)
+    }
+
+    fn evaluate_expr_sync(&mut self, expr: &Expr<'a>) -> Result<RuntimeValue, String> {
+        match expr {
+            Expr::Literal(lit) => self.evaluate_literal(lit),
+
+            Expr::Identifier(sym) => {
+                let name = self.interner.resolve(*sym);
+                match name {
+                    "today" => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            use std::time::{SystemTime, UNIX_EPOCH};
+                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                            let days = (duration.as_secs() / 86400) as i32;
+                            return Ok(RuntimeValue::Date(days));
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            return Ok(RuntimeValue::Date(0));
+                        }
+                    }
+                    "now" => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            use std::time::{SystemTime, UNIX_EPOCH};
+                            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+                            let nanos = duration.as_nanos() as i64;
+                            return Ok(RuntimeValue::Moment(nanos));
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            return Ok(RuntimeValue::Moment(0));
+                        }
+                    }
+                    _ => {}
+                }
+                self.lookup(*sym).cloned()
+            }
+
+            Expr::BinaryOp { op, left, right } => {
+                match op {
+                    BinaryOpKind::And => {
+                        let left_val = self.evaluate_expr_sync(left)?;
+                        if !left_val.is_truthy() {
+                            return Ok(RuntimeValue::Bool(false));
+                        }
+                        let right_val = self.evaluate_expr_sync(right)?;
+                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
+                    }
+                    BinaryOpKind::Or => {
+                        let left_val = self.evaluate_expr_sync(left)?;
+                        if left_val.is_truthy() {
+                            return Ok(RuntimeValue::Bool(true));
+                        }
+                        let right_val = self.evaluate_expr_sync(right)?;
+                        Ok(RuntimeValue::Bool(right_val.is_truthy()))
+                    }
+                    _ => {
+                        let left_val = self.evaluate_expr_sync(left)?;
+                        let right_val = self.evaluate_expr_sync(right)?;
+                        self.apply_binary_op(*op, left_val, right_val)
+                    }
+                }
+            }
+
+            Expr::Call { function, args } => {
+                self.call_function_sync(*function, args)
+            }
+
+            Expr::Index { collection, index } => {
+                let coll_val = self.evaluate_expr_sync(collection)?;
+                let idx_val = self.evaluate_expr_sync(index)?;
+                match (&coll_val, &idx_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        let items = items.borrow();
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
+                    (RuntimeValue::Tuple(items), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > items.len() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(items[idx - 1].clone())
+                    }
+                    (RuntimeValue::Text(s), RuntimeValue::Int(idx)) => {
+                        let idx = *idx as usize;
+                        if idx == 0 || idx > s.chars().count() {
+                            return Err(format!("Index {} out of bounds", idx));
+                        }
+                        Ok(RuntimeValue::Text(Rc::new(s.chars().nth(idx - 1).unwrap().to_string())))
+                    }
+                    (RuntimeValue::Map(map), key) => {
+                        let map = map.borrow();
+                        match map.get(key) {
+                            Some(val) => Ok(val.clone()),
+                            None => Err(format!("Key '{}' not found in map", key.to_display_string())),
+                        }
+                    }
+                    _ => Err(format!("Cannot index {} with {}", coll_val.type_name(), idx_val.type_name())),
+                }
+            }
+
+            Expr::Slice { collection, start, end } => {
+                let coll_val = self.evaluate_expr_sync(collection)?;
+                let start_val = self.evaluate_expr_sync(start)?;
+                let end_val = self.evaluate_expr_sync(end)?;
+                match (&coll_val, &start_val, &end_val) {
+                    (RuntimeValue::List(items), RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let items = items.borrow();
+                        let start = (*s as usize).saturating_sub(1);
+                        let end = *e as usize;
+                        let slice: Vec<RuntimeValue> = items.get(start..end).unwrap_or(&[]).to_vec();
+                        Ok(RuntimeValue::List(Rc::new(RefCell::new(slice))))
+                    }
+                    _ => Err("Slice requires List and Int indices".to_string()),
+                }
+            }
+
+            Expr::Copy { expr: inner } => {
+                let val = self.evaluate_expr_sync(inner)?;
+                Ok(val.deep_clone())
+            }
+
+            Expr::Give { value } => {
+                self.evaluate_expr_sync(value)
+            }
+
+            Expr::Length { collection } => {
+                let coll_val = self.evaluate_expr_sync(collection)?;
+                match &coll_val {
+                    RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
+                    RuntimeValue::Tuple(items) => Ok(RuntimeValue::Int(items.len() as i64)),
+                    RuntimeValue::Set(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
+                    RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                    RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
+                    _ => Err(format!("Cannot get length of {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Contains { collection, value } => {
+                let coll_val = self.evaluate_expr_sync(collection)?;
+                let val = self.evaluate_expr_sync(value)?;
+                match &coll_val {
+                    RuntimeValue::Set(items) => {
+                        let items = items.borrow();
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::List(items) => {
+                        let items = items.borrow();
+                        let found = items.iter().any(|item| self.values_equal(item, &val));
+                        Ok(RuntimeValue::Bool(found))
+                    }
+                    RuntimeValue::Map(entries) => {
+                        Ok(RuntimeValue::Bool(entries.borrow().contains_key(&val)))
+                    }
+                    RuntimeValue::Text(s) => {
+                        if let RuntimeValue::Text(needle) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(needle.as_str())))
+                        } else if let RuntimeValue::Char(c) = &val {
+                            Ok(RuntimeValue::Bool(s.contains(*c)))
+                        } else {
+                            Err(format!("Cannot check if Text contains {}", val.type_name()))
+                        }
+                    }
+                    _ => Err(format!("Cannot check contains on {}", coll_val.type_name())),
+                }
+            }
+
+            Expr::Union { left, right } => {
+                let left_val = self.evaluate_expr_sync(left)?;
+                let right_val = self.evaluate_expr_sync(right)?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let a = a.borrow();
+                        let b = b.borrow();
+                        let mut result = a.clone();
+                        for item in b.iter() {
+                            if !result.iter().any(|x| self.values_equal(x, item)) {
+                                result.push(item.clone());
+                            }
+                        }
+                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
+                    }
+                    _ => Err(format!("Cannot union {} and {}", left_val.type_name(), right_val.type_name())),
+                }
+            }
+
+            Expr::Intersection { left, right } => {
+                let left_val = self.evaluate_expr_sync(left)?;
+                let right_val = self.evaluate_expr_sync(right)?;
+                match (&left_val, &right_val) {
+                    (RuntimeValue::Set(a), RuntimeValue::Set(b)) => {
+                        let a = a.borrow();
+                        let b = b.borrow();
+                        let result: Vec<RuntimeValue> = a.iter()
+                            .filter(|item| b.iter().any(|x| self.values_equal(x, item)))
+                            .cloned()
+                            .collect();
+                        Ok(RuntimeValue::Set(Rc::new(RefCell::new(result))))
+                    }
+                    _ => Err(format!("Cannot intersect {} and {}", left_val.type_name(), right_val.type_name())),
+                }
+            }
+
+            Expr::List(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr_sync(e)?);
+                }
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(values))))
+            }
+
+            Expr::Tuple(items) => {
+                let mut values = Vec::with_capacity(items.len());
+                for e in items.iter() {
+                    values.push(self.evaluate_expr_sync(e)?);
+                }
+                Ok(RuntimeValue::Tuple(Rc::new(values)))
+            }
+
+            Expr::Range { start, end } => {
+                let start_val = self.evaluate_expr_sync(start)?;
+                let end_val = self.evaluate_expr_sync(end)?;
+                match (&start_val, &end_val) {
+                    (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
+                        let range: Vec<RuntimeValue> = (*s..=*e)
+                            .map(RuntimeValue::Int)
+                            .collect();
+                        Ok(RuntimeValue::List(Rc::new(RefCell::new(range))))
+                    }
+                    _ => Err("Range requires Int bounds".to_string()),
+                }
+            }
+
+            Expr::FieldAccess { object, field } => {
+                let obj_val = self.evaluate_expr_sync(object)?;
+                match &obj_val {
+                    RuntimeValue::Struct(s) => {
+                        let field_name = self.interner.resolve(*field);
+                        s.fields.get(field_name).cloned()
+                            .ok_or_else(|| format!("Field '{}' not found", field_name))
+                    }
+                    _ => Err(format!("Cannot access field on {}", obj_val.type_name())),
+                }
+            }
+
+            Expr::New { type_name, init_fields, .. } => {
+                let name = self.interner.resolve(*type_name).to_string();
+
+                if name == "Seq" || name == "List" {
+                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))));
+                }
+
+                if name == "Set" || name == "HashSet" {
+                    return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
+                }
+
+                if name == "Map" || name == "HashMap" {
+                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))));
+                }
+
+                let mut fields = HashMap::new();
+                for (field_sym, field_expr) in init_fields {
+                    let field_name = self.interner.resolve(*field_sym).to_string();
+                    let field_val = self.evaluate_expr_sync(field_expr)?;
+                    fields.insert(field_name, field_val);
+                }
+
+                if let Some(def) = self.struct_defs.get(type_name) {
+                    for (field_sym, type_sym, _) in def {
+                        let field_name = self.interner.resolve(*field_sym).to_string();
+                        if !fields.contains_key(&field_name) {
+                            let type_name_str = self.interner.resolve(*type_sym).to_string();
+                            let default = match type_name_str.as_str() {
+                                "Int" => RuntimeValue::Int(0),
+                                "Float" => RuntimeValue::Float(0.0),
+                                "Bool" => RuntimeValue::Bool(false),
+                                "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
+                                "Char" => RuntimeValue::Char('\0'),
+                                "Byte" => RuntimeValue::Int(0),
+                                "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(vec![]))),
+                                "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
+                                "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(HashMap::new()))),
+                                _ => RuntimeValue::Nothing,
+                            };
+                            fields.insert(field_name, default);
+                        }
+                    }
+                }
+
+                Ok(RuntimeValue::Struct(Box::new(StructValue { type_name: name, fields })))
+            }
+
+            Expr::NewVariant { enum_name, variant, fields } => {
+                let inductive_type = self.interner.resolve(*enum_name).to_string();
+                let constructor = self.interner.resolve(*variant).to_string();
+
+                let mut args = Vec::new();
+                for (_, field_expr) in fields {
+                    let field_val = self.evaluate_expr_sync(field_expr)?;
+                    args.push(field_val);
+                }
+
+                Ok(RuntimeValue::Inductive(Box::new(InductiveValue {
+                    inductive_type,
+                    constructor,
+                    args,
+                })))
+            }
+
+            Expr::ManifestOf { .. } => {
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(vec![]))))
+            }
+
+            Expr::ChunkAt { .. } => {
+                Ok(RuntimeValue::Nothing)
+            }
+
+            Expr::WithCapacity { value, .. } => {
+                self.evaluate_expr_sync(value)
+            }
+
+            Expr::OptionSome { value } => {
+                self.evaluate_expr_sync(value)
+            }
+
+            Expr::OptionNone => {
+                Ok(RuntimeValue::Nothing)
+            }
+
+            Expr::Escape { .. } => {
+                Err("Escape expressions contain raw Rust code and cannot be interpreted. \
+                     Use `largo build` or `largo run` to compile and run this program.".to_string())
+            }
+        }
+    }
+
+    fn call_function_sync(&mut self, function: Symbol, args: &[&Expr<'a>]) -> Result<RuntimeValue, String> {
+        // Built-in functions — Symbol comparison (integer) instead of string matching
+        let func_sym = Some(function);
+        if func_sym == self.sym_show {
+            for arg in args {
+                let val = self.evaluate_expr_sync(arg)?;
+                self.emit_output(val.to_display_string());
+            }
+            return Ok(RuntimeValue::Nothing);
+        } else if func_sym == self.sym_length {
+            if args.len() != 1 {
+                return Err("length() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return match &val {
+                RuntimeValue::List(items) => Ok(RuntimeValue::Int(items.borrow().len() as i64)),
+                RuntimeValue::Text(s) => Ok(RuntimeValue::Int(s.len() as i64)),
+                RuntimeValue::Map(map) => Ok(RuntimeValue::Int(map.borrow().len() as i64)),
+                _ => Err(format!("Cannot get length of {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_format {
+            if args.is_empty() {
+                return Ok(RuntimeValue::Text(Rc::new(String::new())));
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return Ok(RuntimeValue::Text(Rc::new(val.to_display_string())));
+        } else if func_sym == self.sym_parse_int {
+            if args.len() != 1 {
+                return Err("parseInt() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            if let RuntimeValue::Text(s) = &val {
+                return Ok(RuntimeValue::Int(s.trim().parse::<i64>()
+                    .map_err(|_| format!("Cannot parse '{}' as Int", s))?));
+            }
+            return Err("parseInt requires a Text argument".to_string());
+        } else if func_sym == self.sym_parse_float {
+            if args.len() != 1 {
+                return Err("parseFloat() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            if let RuntimeValue::Text(s) = &val {
+                return Ok(RuntimeValue::Float(s.trim().parse::<f64>()
+                    .map_err(|_| format!("Cannot parse '{}' as Float", s))?));
+            }
+            return Err("parseFloat requires a Text argument".to_string());
+        } else if func_sym == self.sym_abs {
+            if args.len() != 1 {
+                return Err("abs() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return match val {
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n.abs())),
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
+                _ => Err(format!("abs() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_min {
+            if args.len() != 2 {
+                return Err("min() takes exactly 2 arguments".to_string());
+            }
+            let a = self.evaluate_expr_sync(args[0])?;
+            let b = self.evaluate_expr_sync(args[1])?;
+            return match (&a, &b) {
+                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
+                _ => Err("min() requires integers".to_string()),
+            };
+        } else if func_sym == self.sym_max {
+            if args.len() != 2 {
+                return Err("max() takes exactly 2 arguments".to_string());
+            }
+            let a = self.evaluate_expr_sync(args[0])?;
+            let b = self.evaluate_expr_sync(args[1])?;
+            return match (&a, &b) {
+                (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
+                _ => Err("max() requires integers".to_string()),
+            };
+        } else if func_sym == self.sym_copy {
+            if args.len() != 1 {
+                return Err("copy() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return Ok(val.deep_clone());
+        }
+
+        // User-defined function lookup — extract metadata without cloning params
+        let (param_count, body) = {
+            let func = self.functions.get(&function)
+                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
+            (func.params.len(), func.body)
+        };
+
+        if args.len() != param_count {
+            return Err(format!(
+                "Function {} expects {} arguments, got {}",
+                self.interner.resolve(function),
+                param_count,
+                args.len()
+            ));
+        }
+
+        // Evaluate arguments before pushing scope
+        let mut arg_values = Vec::with_capacity(param_count);
+        for arg in args {
+            arg_values.push(self.evaluate_expr_sync(arg)?);
+        }
+
+        // Bind parameters
+        self.push_scope();
+        for i in 0..param_count {
+            let param_name = self.functions[&function].params[i].0;
+            self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+        }
+
+        // Execute function body
+        let mut return_value = RuntimeValue::Nothing;
+        for stmt in body.iter() {
+            match self.execute_stmt_sync(stmt)? {
+                ControlFlow::Return(val) => {
+                    return_value = val;
+                    break;
+                }
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+
+        self.pop_scope();
+        Ok(return_value)
+    }
+
+    fn call_function_with_values_sync(&mut self, function: Symbol, mut args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
+        // Handle built-in "show" via Symbol comparison
+        if Some(function) == self.sym_show {
+            for val in args {
+                self.emit_output(val.to_display_string());
+            }
+            return Ok(RuntimeValue::Nothing);
+        }
+
+        // User-defined function lookup — extract metadata without cloning params
+        let (param_count, body) = {
+            let func = self.functions.get(&function)
+                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
+            (func.params.len(), func.body)
+        };
+
+        if args.len() != param_count {
+            return Err(format!(
+                "Function {} expects {} arguments, got {}",
+                self.interner.resolve(function), param_count, args.len()
+            ));
+        }
+
+        // Bind parameters
+        self.push_scope();
+        for i in 0..param_count {
+            let param_name = self.functions[&function].params[i].0;
+            self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
+        }
+
+        // Execute function body
+        let mut return_value = RuntimeValue::Nothing;
+        for stmt in body.iter() {
+            match self.execute_stmt_sync(stmt)? {
+                ControlFlow::Return(val) => {
+                    return_value = val;
+                    break;
+                }
+                ControlFlow::Break => break,
+                ControlFlow::Continue => {}
+            }
+        }
+
+        self.pop_scope();
+        Ok(return_value)
+    }
+}
+
+/// Check whether a program requires async execution.
+///
+/// Only 4 statement types need async: ReadFrom (file), WriteFile, Sleep, Mount.
+/// If none are present, the sync execution path can be used for better performance.
+pub fn needs_async(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| stmt_needs_async(s))
+}
+
+fn stmt_needs_async(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::ReadFrom { source, .. } => {
+            matches!(source, ReadSource::File(_))
+        }
+        Stmt::WriteFile { .. } | Stmt::Sleep { .. } | Stmt::Mount { .. } => true,
+        Stmt::If { then_block, else_block, .. } => {
+            needs_async(then_block)
+                || else_block.as_ref().map_or(false, |b| needs_async(b))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => needs_async(body),
+        Stmt::FunctionDef { body, .. } => needs_async(body),
+        Stmt::Zone { body, .. } => needs_async(body),
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => needs_async(tasks),
+        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| needs_async(arm.body)),
+        _ => false,
     }
 }
 

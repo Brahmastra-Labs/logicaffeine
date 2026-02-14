@@ -221,7 +221,7 @@ fn build_with_entry(
     let src_dir = rust_project_dir.join("src");
     fs::create_dir_all(&src_dir).map_err(|e| BuildError::Io(e.to_string()))?;
 
-    let rust_code = format!("use logicaffeine_data::*;\nuse logicaffeine_system::*;\n\n{}", output.rust_code);
+    let rust_code = output.rust_code.clone();
 
     if config.lib_mode {
         // Library mode: strip fn main() wrapper, write to lib.rs
@@ -413,8 +413,9 @@ fn strip_main_wrapper(code: &str) -> String {
 /// # Errors
 ///
 /// Returns [`BuildError::Io`] if the process cannot be spawned.
-pub fn run(build_result: &BuildResult) -> Result<i32, BuildError> {
+pub fn run(build_result: &BuildResult, args: &[String]) -> Result<i32, BuildError> {
     let mut child = Command::new(&build_result.binary_path)
+        .args(args)
         .spawn()
         .map_err(|e| BuildError::Io(e.to_string()))?;
 

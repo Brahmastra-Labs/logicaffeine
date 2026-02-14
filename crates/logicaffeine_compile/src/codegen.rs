@@ -3032,6 +3032,10 @@ fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
         Expr::OptionSome { value } => {
             collect_expr_identifiers(value, identifiers);
         }
+        Expr::WithCapacity { value, capacity } => {
+            collect_expr_identifiers(value, identifiers);
+            collect_expr_identifiers(capacity, identifiers);
+        }
         Expr::OptionNone => {}
         Expr::Escape { .. } => {}
         Expr::Literal(_) => {}
@@ -3110,6 +3114,8 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     // Prelude
     // Use extracted crates instead of logos_core
+    writeln!(output, "#[allow(unused_imports)]").unwrap();
+    writeln!(output, "use std::fmt::Write as _;").unwrap();
     writeln!(output, "use logicaffeine_data::*;").unwrap();
     writeln!(output, "use logicaffeine_system::*;\n").unwrap();
 
@@ -3471,6 +3477,9 @@ fn map_native_function(name: &str) -> Option<(&'static str, &'static str)> {
         "randomFloat" => Some(("random", "randomFloat")),
         "get" => Some(("env", "get")),
         "args" => Some(("env", "args")),
+        "parseInt" => Some(("text", "parseInt")),
+        "parseFloat" => Some(("text", "parseFloat")),
+        "format" => Some(("fmt", "format")),
         _ => None,
     }
 }
@@ -4318,13 +4327,61 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
-            // Phase 54+: Use codegen_expr_boxed with string tracking for proper concatenation
-            let value_str = codegen_expr_boxed_with_strings(
-                value, interner, synced_vars, boxed_fields, registry, async_functions,
-                ctx.get_string_vars()
-            );
+            let string_vars = ctx.get_string_vars();
 
-            writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
+            // Optimization: detect self-append pattern (result = result + x + y)
+            // and emit write!(result, "{}{}", x, y) instead of result = format!(...).
+            // This is O(n) amortized (in-place append) vs O(n²) (full copy each iteration).
+            let used_write = if ctx.is_string_var(*target)
+                && is_definitely_string_expr_with_vars(value, string_vars)
+            {
+                let mut operands = Vec::new();
+                collect_string_concat_operands(value, string_vars, &mut operands);
+
+                // Need at least 2 operands, leftmost must be the target variable
+                if operands.len() >= 2 && matches!(operands[0], Expr::Identifier(sym) if *sym == *target) {
+                    // Check no other operand references target (would cause borrow conflict)
+                    let tail = &operands[1..];
+                    let mut tail_ids = HashSet::new();
+                    for op in tail {
+                        collect_expr_identifiers(op, &mut tail_ids);
+                    }
+
+                    if !tail_ids.contains(target) {
+                        // Safe to emit write!() — target not referenced in tail operands
+                        let placeholders: String = tail.iter().map(|_| "{}").collect::<Vec<_>>().join("");
+                        let values: Vec<String> = tail.iter().map(|e| {
+                            // String literals can be &str inside write!() — no heap allocation needed
+                            if let Expr::Literal(Literal::Text(sym)) = e {
+                                format!("\"{}\"", interner.resolve(*sym))
+                            } else {
+                                codegen_expr_boxed_with_strings(
+                                    e, interner, synced_vars, boxed_fields, registry, async_functions,
+                                    string_vars
+                                )
+                            }
+                        }).collect();
+                        writeln!(output, "{}write!({}, \"{}\", {}).unwrap();",
+                            indent_str, target_name, placeholders, values.join(", ")).unwrap();
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if !used_write {
+                // Fallback: standard assignment with format!
+                let value_str = codegen_expr_boxed_with_strings(
+                    value, interner, synced_vars, boxed_fields, registry, async_functions,
+                    string_vars
+                );
+                writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
+            }
 
             // Phase 43C: Check if this variable has a refinement constraint
             if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
@@ -5504,6 +5561,8 @@ fn is_definitely_string_expr_with_vars(expr: &Expr, string_vars: &HashSet<Symbol
             is_definitely_string_expr_with_vars(left, string_vars)
                 || is_definitely_string_expr_with_vars(right, string_vars)
         }
+        // WithCapacity wrapping a string value is a string
+        Expr::WithCapacity { value, .. } => is_definitely_string_expr_with_vars(value, string_vars),
         _ => false,
     }
 }
@@ -5513,6 +5572,38 @@ fn is_definitely_string_expr_with_vars(expr: &Expr, string_vars: &HashSet<Symbol
 fn is_definitely_string_expr(expr: &Expr) -> bool {
     let empty = HashSet::new();
     is_definitely_string_expr_with_vars(expr, &empty)
+}
+
+/// Collect leaf operands from a chain of string Add/Concat operations.
+///
+/// Walks left-leaning trees of `+` (on strings) and `Concat` operations,
+/// collecting all leaf expressions into a flat Vec. This enables emitting
+/// a single `format!("{}{}{}", a, b, c)` instead of nested
+/// `format!("{}{}", format!("{}{}", a, b), c)`, avoiding O(n^2) allocation.
+fn collect_string_concat_operands<'a, 'b>(
+    expr: &'b Expr<'a>,
+    string_vars: &HashSet<Symbol>,
+    operands: &mut Vec<&'b Expr<'a>>,
+) {
+    match expr {
+        Expr::BinaryOp { op: BinaryOpKind::Concat, left, right } => {
+            collect_string_concat_operands(left, string_vars, operands);
+            collect_string_concat_operands(right, string_vars, operands);
+        }
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            let has_string = is_definitely_string_expr_with_vars(left, string_vars)
+                || is_definitely_string_expr_with_vars(right, string_vars);
+            if has_string {
+                collect_string_concat_operands(left, string_vars, operands);
+                collect_string_concat_operands(right, string_vars, operands);
+            } else {
+                operands.push(expr);
+            }
+        }
+        _ => {
+            operands.push(expr);
+        }
+    }
 }
 
 /// Phase 102: Codegen with boxed field support for recursive enums.
@@ -5578,22 +5669,30 @@ fn codegen_expr_boxed_internal(
         }
 
         Expr::BinaryOp { op, left, right } => {
+            // Flatten chained string concat/add into a single format! call.
+            // Turns O(n^2) nested format! into O(n) single-allocation.
+            let is_string_concat = matches!(op, BinaryOpKind::Concat)
+                || (matches!(op, BinaryOpKind::Add)
+                    && (is_definitely_string_expr_with_vars(left, string_vars)
+                        || is_definitely_string_expr_with_vars(right, string_vars)));
+
+            if is_string_concat {
+                let mut operands = Vec::new();
+                collect_string_concat_operands(expr, string_vars, &mut operands);
+                let placeholders: String = operands.iter().map(|_| "{}").collect::<Vec<_>>().join("");
+                let values: Vec<String> = operands.iter().map(|e| {
+                    // String literals can be &str inside format!() — no heap allocation needed
+                    if let Expr::Literal(Literal::Text(sym)) = e {
+                        format!("\"{}\"", interner.resolve(*sym))
+                    } else {
+                        recurse!(e)
+                    }
+                }).collect();
+                return format!("format!(\"{}\", {})", placeholders, values.join(", "));
+            }
+
             let left_str = recurse!(left);
             let right_str = recurse!(right);
-            // Phase 53: String concatenation requires special handling
-            if matches!(op, BinaryOpKind::Concat) {
-                return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
-            }
-            // Handle Add operator: use format!() only if either operand is definitely a string.
-            // This handles cases like `"hello" + x` or `a + "world"` or `a + b` (both strings).
-            // For numeric expressions, use regular + and let Rust type-check.
-            if matches!(op, BinaryOpKind::Add) {
-                let has_string = is_definitely_string_expr_with_vars(left, string_vars)
-                    || is_definitely_string_expr_with_vars(right, string_vars);
-                if has_string {
-                    return format!("format!(\"{{}}{{}}\", {}, {})", left_str, right_str);
-                }
-            }
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -5845,6 +5944,49 @@ fn codegen_expr_boxed_internal(
             }
             block.push('}');
             block
+        }
+
+        Expr::WithCapacity { value, capacity } => {
+            let cap_str = recurse!(capacity);
+            match value {
+                // Empty string → String::with_capacity(cap)
+                Expr::Literal(Literal::Text(sym)) if interner.resolve(*sym).is_empty() => {
+                    format!("String::with_capacity(({}) as usize)", cap_str)
+                }
+                // Non-empty string → { let mut __s = String::with_capacity(cap); __s.push_str("..."); __s }
+                Expr::Literal(Literal::Text(sym)) => {
+                    let text = interner.resolve(*sym);
+                    format!("{{ let mut __s = String::with_capacity(({}) as usize); __s.push_str(\"{}\"); __s }}", cap_str, text)
+                }
+                // Collection Expr::New → Type::with_capacity(cap)
+                Expr::New { type_name, type_args, .. } => {
+                    let type_str = interner.resolve(*type_name);
+                    match type_str {
+                        "Seq" | "List" | "Vec" => {
+                            let elem = if !type_args.is_empty() {
+                                codegen_type_expr(&type_args[0], interner)
+                            } else { "()".to_string() };
+                            format!("{{ let __v: Vec<{}> = Vec::with_capacity(({}) as usize); __v }}", elem, cap_str)
+                        }
+                        "Map" | "HashMap" => {
+                            let (k, v) = if type_args.len() >= 2 {
+                                (codegen_type_expr(&type_args[0], interner),
+                                 codegen_type_expr(&type_args[1], interner))
+                            } else { ("String".to_string(), "String".to_string()) };
+                            format!("{{ let __m: std::collections::HashMap<{}, {}> = std::collections::HashMap::with_capacity(({}) as usize); __m }}", k, v, cap_str)
+                        }
+                        "Set" | "HashSet" => {
+                            let elem = if !type_args.is_empty() {
+                                codegen_type_expr(&type_args[0], interner)
+                            } else { "()".to_string() };
+                            format!("{{ let __s: std::collections::HashSet<{}> = std::collections::HashSet::with_capacity(({}) as usize); __s }}", elem, cap_str)
+                        }
+                        _ => recurse!(value) // Unknown type — ignore capacity
+                    }
+                }
+                // Other expressions — ignore capacity hint
+                _ => recurse!(value)
+            }
         }
     }
 }

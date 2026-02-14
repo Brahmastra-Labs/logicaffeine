@@ -1,0 +1,14 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To ackermann (m: Int) and (n: Int) -> Int:
+    If m equals 0:
+        Return n + 1.
+    If n equals 0:
+        Return ackermann(m - 1, 1).
+    Return ackermann(m - 1, ackermann(m, n - 1)).
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Show ackermann(3, n).

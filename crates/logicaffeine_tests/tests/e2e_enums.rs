@@ -7,14 +7,14 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_exact_output;
+use common::assert_interpreter_output;
 
 // === UNIT VARIANTS ===
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_enum_unit_variant() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Color is one of:
     A Red.
     A Green.
@@ -36,7 +36,7 @@ Inspect c:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_enum_payload_variant() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Shape is one of:
     A Circle with radius Int.
     A Rectangle with width Int and height Int.
@@ -56,7 +56,7 @@ Inspect s:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_inspect_simple() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Color is one of:
     A Red.
     A Green.
@@ -78,7 +78,7 @@ Inspect c:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_inspect_with_binding() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Shape is one of:
     A Circle with radius Int.
     A Rectangle with width Int and height Int.
@@ -98,7 +98,7 @@ Inspect s:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_inspect_otherwise() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Color is one of:
     A Red.
     A Green.
@@ -119,7 +119,7 @@ Inspect c:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_enum_in_function() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Color is one of:
     A Red.
     A Green.
@@ -143,7 +143,7 @@ Show isRed(c).
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_enum_return() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Color is one of:
     A Red.
     A Green.
@@ -167,7 +167,7 @@ Inspect c:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_nested_inspect() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## A Color is one of:
     A Red.
     A Green.

@@ -1,0 +1,141 @@
+name: Benchmarks
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION=$(grep '^version' apps/logicaffeine_cli/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mold linker
+        run: sudo apt-get update && sudo apt-get install -y mold
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-bench-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: sudo apt-get install -y jq bc
+
+      - name: Install hyperfine
+        run: |
+          wget -q https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine_1.18.0_amd64.deb
+          sudo dpkg -i hyperfine_1.18.0_amd64.deb
+          rm hyperfine_1.18.0_amd64.deb
+
+      - name: Install Zig
+        run: |
+          wget -q https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          tar xf zig-linux-x86_64-0.13.0.tar.xz
+          sudo mv zig-linux-x86_64-0.13.0 /usr/local/zig
+          echo "/usr/local/zig" >> $GITHUB_PATH
+
+      - name: Install Nim
+        run: |
+          wget -q https://nim-lang.org/download/nim-2.0.4-linux_x64.tar.xz
+          tar xf nim-2.0.4-linux_x64.tar.xz
+          sudo mv nim-2.0.4 /usr/local/nim
+          echo "/usr/local/nim/bin" >> $GITHUB_PATH
+
+      - name: Verify compilers
+        run: |
+          echo "=== Compiler versions ==="
+          gcc --version | head -1
+          g++ --version | head -1
+          rustc --version
+          zig version
+          go version
+          java --version 2>&1 | head -1
+          javac -version
+          node --version
+          python3 --version
+          ruby --version
+          nim --version | head -1
+          hyperfine --version
+          jq --version
+
+      - name: Build largo
+        run: cargo build -p logicaffeine-cli --release
+
+      - name: Run benchmarks
+        env:
+          LOGOS_VERSION: ${{ steps.version.outputs.version }}
+        run: bash benchmarks/run.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-v${{ steps.version.outputs.version }}
+          path: benchmarks/results/latest.json
+          retention-days: 90
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: benchmarks/results/latest.json
+
+      - name: Commit results to main
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout main
+          cp benchmarks/results/latest.json benchmarks/results/latest.json.tmp
+          git pull --rebase origin main
+          mv benchmarks/results/latest.json.tmp benchmarks/results/latest.json
+          mkdir -p benchmarks/results/history
+          cp benchmarks/results/latest.json "benchmarks/results/history/v${VERSION}.json"
+          git add benchmarks/results/latest.json "benchmarks/results/history/v${VERSION}.json"
+          git commit -m "chore: update benchmark results for v${VERSION}" || echo "No changes to commit"
+          git push origin main
+
+      - name: Step summary
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          CPU=$(jq -r '.metadata.cpu' benchmarks/results/latest.json)
+          DATE=$(jq -r '.metadata.date' benchmarks/results/latest.json)
+          LOGOS_VS_C=$(jq -r '.summary.geometric_mean_speedup_vs_c.logos_release // "N/A"' benchmarks/results/latest.json)
+          echo "## Benchmark Results v${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | ${VERSION} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CPU | ${CPU} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Date | ${DATE} |" >> $GITHUB_STEP_SUMMARY
+          echo "| LOGOS vs C | ${LOGOS_VS_C}x |" >> $GITHUB_STEP_SUMMARY

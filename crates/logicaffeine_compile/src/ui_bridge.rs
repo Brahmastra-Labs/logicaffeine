@@ -711,11 +711,13 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     );
 
     let mut world_state = drs::WorldState::new();
+    let type_registry_for_interp = type_registry.clone();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
 
     match parser.parse_program() {
         Ok(stmts) => {
             let mut interp = crate::interpreter::Interpreter::new(&interner)
+                .with_type_registry(&type_registry_for_interp)
                 .with_policies(policy_registry);
             match interp.run(&stmts).await {
                 Ok(()) => InterpreterResult {
@@ -726,6 +728,95 @@ pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
                     lines: interp.output,
                     error: Some(e),
                 },
+            }
+        }
+        Err(e) => {
+            let advice = socratic_explanation(&e, &interner);
+            InterpreterResult {
+                lines: vec![],
+                error: Some(advice),
+            }
+        }
+    }
+}
+
+/// Interpret LOGOS imperative code synchronously (no async runtime needed).
+///
+/// Uses the sync execution path when the program has no async operations
+/// (no file I/O, sleep, or mount). Falls back to async via block_on otherwise.
+pub fn interpret_for_ui_sync(input: &str) -> InterpreterResult {
+    use logicaffeine_language::ast::stmt::{Stmt, Expr, TypeExpr};
+
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(input, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let mwe_trie = mwe::build_mwe_trie();
+    let tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
+
+    let (type_registry, policy_registry) = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        (result.types, result.policies)
+    };
+
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ctx = AstContext::with_types(
+        &expr_arena,
+        &term_arena,
+        &np_arena,
+        &sym_arena,
+        &role_arena,
+        &pp_arena,
+        &stmt_arena,
+        &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut world_state = drs::WorldState::new();
+    let type_registry_for_interp = type_registry.clone();
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
+
+    match parser.parse_program() {
+        Ok(stmts) => {
+            let mut interp = crate::interpreter::Interpreter::new(&interner)
+                .with_type_registry(&type_registry_for_interp)
+                .with_policies(policy_registry);
+
+            if crate::interpreter::needs_async(&stmts) {
+                // Fall back to async path
+                use futures::executor::block_on;
+                match block_on(interp.run(&stmts)) {
+                    Ok(()) => InterpreterResult {
+                        lines: interp.output,
+                        error: None,
+                    },
+                    Err(e) => InterpreterResult {
+                        lines: interp.output,
+                        error: Some(e),
+                    },
+                }
+            } else {
+                // Use sync path — no Future allocation overhead
+                match interp.run_sync(&stmts) {
+                    Ok(()) => InterpreterResult {
+                        lines: interp.output,
+                        error: None,
+                    },
+                    Err(e) => InterpreterResult {
+                        lines: interp.output,
+                        error: Some(e),
+                    },
+                }
             }
         }
         Err(e) => {
@@ -803,6 +894,7 @@ where
     );
 
     let mut world_state = drs::WorldState::new();
+    let type_registry_for_interp = type_registry.clone();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
 
     match parser.parse_program() {
@@ -813,6 +905,7 @@ where
             }));
 
             let mut interp = crate::interpreter::Interpreter::new(&interner)
+                .with_type_registry(&type_registry_for_interp)
                 .with_policies(policy_registry)
                 .with_output_callback(callback);
 

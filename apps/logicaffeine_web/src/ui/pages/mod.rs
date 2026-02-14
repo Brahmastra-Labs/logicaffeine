@@ -46,6 +46,7 @@ pub mod guide;
 pub mod crates;
 pub mod profile;
 pub mod news;
+pub mod benchmarks;
 
 pub use landing::Landing;
 pub use learn::Learn;
@@ -60,3 +61,4 @@ pub use guide::Guide;
 pub use crates::Crates;
 pub use profile::Profile;
 pub use news::{News, NewsArticle};
+pub use benchmarks::Benchmarks;

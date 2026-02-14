@@ -219,6 +219,10 @@ pub enum Commands {
         /// Provides sub-second feedback but lacks full Rust performance.
         #[arg(long, short)]
         interpret: bool,
+
+        /// Arguments to pass to the program.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Check the project for errors without producing a binary.
@@ -344,8 +348,8 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::New { name } => cmd_new(&name),
         Commands::Init { name } => cmd_init(name.as_deref()),
         Commands::Build { release, verify, license, lib, target } => cmd_build(release, verify, license, lib, target),
-        Commands::Run { release, interpret } if interpret => cmd_run_interpret(),
-        Commands::Run { release, .. } => cmd_run(release),
+        Commands::Run { interpret, .. } if interpret => cmd_run_interpret(),
+        Commands::Run { release, args, .. } => cmd_run(release, &args),
         Commands::Check => cmd_check(),
         Commands::Verify { license } => cmd_verify(license),
         Commands::Publish { registry, dry_run, allow_dirty } => {
@@ -525,7 +529,7 @@ fn run_verification(
         .into())
 }
 
-fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn cmd_run(release: bool, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let current_dir = env::current_dir()?;
     let project_root =
         find_project_root(&current_dir).ok_or("Not in a LOGOS project (Largo.toml not found)")?;
@@ -538,7 +542,7 @@ fn cmd_run(release: bool) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let result = build::build(config)?;
-    let exit_code = build::run(&result)?;
+    let exit_code = build::run(&result, args)?;
 
     if exit_code != 0 {
         std::process::exit(exit_code);

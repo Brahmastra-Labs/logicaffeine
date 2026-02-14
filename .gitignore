@@ -22,6 +22,12 @@ node_modules/
 *.swp
 *.swo
 
+# Benchmarks
+benchmarks/.logos-bench-target/
+benchmarks/bin/
+benchmarks/generated/
+benchmarks/results/
+
 # Environment
 .env
 .env.local

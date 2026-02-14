@@ -1,0 +1,12 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To fib (n: Int) -> Int:
+    If n is less than 2:
+        Return n.
+    Return fib(n - 1) + fib(n - 2).
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Show fib(n).

@@ -24,6 +24,8 @@ pub mod time;
 pub mod env;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod random;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod text;
 
 // === Feature-Gated Modules ===
 

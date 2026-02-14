@@ -6,12 +6,12 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_exact_output;
+use common::assert_interpreter_output;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_if_true_branch() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 10.
 If x is greater than 5:
@@ -24,7 +24,7 @@ If x is greater than 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_if_otherwise() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 3.
 If x is greater than 5:
@@ -39,7 +39,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_while_loop_sum() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let i be 1.
 Let sum be 0.
@@ -55,7 +55,7 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_compound_condition_and() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let a be 3.
 Let b be 4.
@@ -69,12 +69,9 @@ If a is less than 5 and b is less than 5:
 // === NEW TESTS ===
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_runs;
-
-#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_nested_if() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 15.
 If x is greater than 5:
@@ -88,7 +85,7 @@ If x is greater than 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_if_in_while() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let i be 1.
 Let found be 0.
@@ -105,7 +102,7 @@ Show found.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_while_in_if() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let should_count be true.
 Let sum be 0.
@@ -123,7 +120,7 @@ Show sum.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_multiple_sequential_if() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 5.
 Let result be 0.
@@ -143,7 +140,7 @@ Show result.
 #[test]
 fn e2e_while_zero_iterations() {
     // While condition false from start - body never executes
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 10.
 While x is less than 5:
@@ -157,7 +154,7 @@ Show x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_while_single_iteration() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 0.
 While x is less than 1:
@@ -171,7 +168,7 @@ Show x.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_condition_with_expr() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 5.
 Let y be 6.
@@ -185,7 +182,7 @@ If (x + y) is greater than 10:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_deeply_nested() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let a be 1.
 Let b be 2.
@@ -203,7 +200,7 @@ If a is less than 5:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_if_else() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 3.
 If x is greater than 5:
@@ -219,7 +216,7 @@ Else:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_otherwise_if_chain() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 7.
 If x is greater than 10:
@@ -236,7 +233,7 @@ Otherwise:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_else_if_chain() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 3.
 If x is greater than 10:
@@ -254,7 +251,7 @@ Else:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_elif_chain() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 7.
 If x is greater than 10:
@@ -271,7 +268,7 @@ Else:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_elif_multiple() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 Let x be 2.
 If x is greater than 10:
@@ -294,7 +291,7 @@ Else:
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_equals_assignment() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 greeting = "Hello World".
 Show greeting.
@@ -306,7 +303,7 @@ Show greeting.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_mut_assignment() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 mut count = 0.
 Set count to 5.
@@ -319,7 +316,7 @@ Show count.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_equals_auto_mutability() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 counter = 0.
 Set counter to counter + 1.
@@ -332,7 +329,7 @@ Show counter.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_equals_in_control_flow() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 x = 10.
 result = 0.
@@ -347,7 +344,7 @@ Show result.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_equals_with_while() {
-    assert_exact_output(
+    assert_interpreter_output(
         r#"## Main
 sum = 0.
 i = 1.

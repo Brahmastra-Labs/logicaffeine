@@ -372,6 +372,10 @@ impl<'a> OwnershipChecker<'a> {
                 self.check_not_moved(left)?;
                 self.check_not_moved(right)
             }
+            Expr::WithCapacity { value, capacity } => {
+                self.check_not_moved(value)?;
+                self.check_not_moved(capacity)
+            }
             Expr::OptionSome { value } => self.check_not_moved(value),
             Expr::OptionNone => Ok(()),
 

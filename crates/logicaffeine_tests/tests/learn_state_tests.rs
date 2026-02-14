@@ -1,3 +1,4 @@
+#![cfg(feature = "web-tests")]
 /// Tests for Tab and Focus state management
 ///
 /// Tab Modes: LESSON | EXAMPLES | PRACTICE | TEST

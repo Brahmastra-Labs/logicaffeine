@@ -7,55 +7,55 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_exact_output;
+use common::assert_interpreter_output;
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_arithmetic_add() {
-    assert_exact_output("## Main\nShow 2 + 3.", "5");
+    assert_interpreter_output("## Main\nShow 2 + 3.", "5");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_arithmetic_subtract() {
-    assert_exact_output("## Main\nShow 10 - 4.", "6");
+    assert_interpreter_output("## Main\nShow 10 - 4.", "6");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_arithmetic_multiply() {
-    assert_exact_output("## Main\nShow 3 * 4.", "12");
+    assert_interpreter_output("## Main\nShow 3 * 4.", "12");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_arithmetic_divide() {
-    assert_exact_output("## Main\nShow 10 / 2.", "5");
+    assert_interpreter_output("## Main\nShow 10 / 2.", "5");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_arithmetic_nested() {
     // Test parenthesized expressions
-    assert_exact_output("## Main\nShow (2 + 3) * 4.", "20");
+    assert_interpreter_output("## Main\nShow (2 + 3) * 4.", "20");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_boolean_true() {
-    assert_exact_output("## Main\nShow true.", "true");
+    assert_interpreter_output("## Main\nShow true.", "true");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_boolean_false() {
-    assert_exact_output("## Main\nShow false.", "false");
+    assert_interpreter_output("## Main\nShow false.", "false");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_text_literal() {
-    assert_exact_output("## Main\nShow \"Hello\".", "Hello");
+    assert_interpreter_output("## Main\nShow \"Hello\".", "Hello");
 }
 
 // === NEW TESTS ===
@@ -64,45 +64,45 @@ fn e2e_text_literal() {
 #[test]
 fn e2e_negative_via_subtraction() {
     // Test negative numbers via subtraction from zero
-    assert_exact_output("## Main\nLet x be 0 - 5.\nShow x.", "-5");
+    assert_interpreter_output("## Main\nLet x be 0 - 5.\nShow x.", "-5");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_zero_literal() {
-    assert_exact_output("## Main\nShow 0.", "0");
+    assert_interpreter_output("## Main\nShow 0.", "0");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_large_number() {
-    assert_exact_output("## Main\nShow 999999.", "999999");
+    assert_interpreter_output("## Main\nShow 999999.", "999999");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_operator_precedence() {
     // Multiplication before addition: 2 + 3 * 4 = 2 + 12 = 14
-    assert_exact_output("## Main\nShow 2 + 3 * 4.", "14");
+    assert_interpreter_output("## Main\nShow 2 + 3 * 4.", "14");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_left_associative() {
     // Left-to-right: 10 - 5 - 2 = 5 - 2 = 3
-    assert_exact_output("## Main\nShow 10 - 5 - 2.", "3");
+    assert_interpreter_output("## Main\nShow 10 - 5 - 2.", "3");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_division_truncation() {
     // Integer division should truncate
-    assert_exact_output("## Main\nShow 7 / 2.", "3");
+    assert_interpreter_output("## Main\nShow 7 / 2.", "3");
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn e2e_complex_arithmetic() {
     // (10 + 5) * 2 - 3 = 15 * 2 - 3 = 30 - 3 = 27
-    assert_exact_output("## Main\nShow (10 + 5) * 2 - 3.", "27");
+    assert_interpreter_output("## Main\nShow (10 + 5) * 2 - 3.", "27");
 }

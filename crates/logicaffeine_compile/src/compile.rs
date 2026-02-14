@@ -135,9 +135,7 @@ pub struct CompileOutput {
 /// Returns [`ParseError`] if parsing fails or the interpreter encounters
 /// a runtime error.
 pub fn interpret_program(source: &str) -> Result<String, ParseError> {
-    use futures::executor::block_on;
-
-    let result = block_on(crate::ui_bridge::interpret_for_ui(source));
+    let result = crate::ui_bridge::interpret_for_ui_sync(source);
     if let Some(err) = result.error {
         Err(ParseError {
             kind: crate::error::ParseErrorKind::Custom(err),
@@ -667,25 +665,76 @@ pub fn copy_runtime_crates(output_dir: &Path) -> Result<(), CompileError> {
     let data_src = workspace_root.join(CRATES_DATA_PATH);
     let data_dest = crates_dir.join("logicaffeine_data");
     copy_dir_recursive(&data_src, &data_dest)?;
+    deworkspace_cargo_toml(&data_dest.join("Cargo.toml"))?;
 
     // Copy logicaffeine_system
     let system_src = workspace_root.join(CRATES_SYSTEM_PATH);
     let system_dest = crates_dir.join("logicaffeine_system");
     copy_dir_recursive(&system_src, &system_dest)?;
+    deworkspace_cargo_toml(&system_dest.join("Cargo.toml"))?;
 
     // Also need to copy logicaffeine_base since both crates depend on it
     let base_src = workspace_root.join("crates/logicaffeine_base");
     let base_dest = crates_dir.join("logicaffeine_base");
     copy_dir_recursive(&base_src, &base_dest)?;
+    deworkspace_cargo_toml(&base_dest.join("Cargo.toml"))?;
+
+    Ok(())
+}
+
+/// Resolve workspace-inherited fields in a copied crate's Cargo.toml.
+///
+/// When runtime crates are copied to a standalone project, any fields using
+/// `*.workspace = true` won't resolve because there's no parent workspace.
+/// This rewrites them with concrete values (matching the workspace's settings).
+fn deworkspace_cargo_toml(cargo_toml_path: &Path) -> Result<(), CompileError> {
+    let content = fs::read_to_string(cargo_toml_path)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
+
+    let mut result = String::with_capacity(content.len());
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed == "edition.workspace = true" {
+            result.push_str("edition = \"2021\"");
+        } else if trimmed == "rust-version.workspace = true" {
+            result.push_str("rust-version = \"1.75\"");
+        } else if trimmed == "authors.workspace = true"
+            || trimmed == "repository.workspace = true"
+            || trimmed == "homepage.workspace = true"
+            || trimmed == "documentation.workspace = true"
+            || trimmed == "keywords.workspace = true"
+            || trimmed == "categories.workspace = true"
+            || trimmed == "license.workspace = true"
+        {
+            // Drop these lines — they're metadata not needed for compilation
+            continue;
+        } else if trimmed.contains(".workspace = true") {
+            // Catch-all: drop any other workspace-inherited fields
+            continue;
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+
+    fs::write(cargo_toml_path, result)
+        .map_err(|e| CompileError::Io(e.to_string()))?;
 
     Ok(())
 }
 
 /// Find the workspace root directory.
 fn find_workspace_root() -> Result<std::path::PathBuf, CompileError> {
-    // Try CARGO_MANIFEST_DIR first
+    // 1. Explicit override via LOGOS_WORKSPACE env var
+    if let Ok(workspace) = std::env::var("LOGOS_WORKSPACE") {
+        let path = Path::new(&workspace);
+        if path.join("Cargo.toml").exists() && path.join("crates").exists() {
+            return Ok(path.to_path_buf());
+        }
+    }
+
+    // 2. Try CARGO_MANIFEST_DIR (works during cargo build of largo itself)
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        // Go up from crates/logicaffeine_compile to workspace root
         let path = Path::new(&manifest_dir);
         if let Some(parent) = path.parent().and_then(|p| p.parent()) {
             if parent.join("Cargo.toml").exists() {
@@ -694,7 +743,24 @@ fn find_workspace_root() -> Result<std::path::PathBuf, CompileError> {
         }
     }
 
-    // Fallback to current directory traversal
+    // 3. Infer from the largo binary's own location
+    //    e.g. /workspace/target/release/largo → /workspace
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // Walk up from the binary's directory
+            let mut candidate = dir.to_path_buf();
+            for _ in 0..5 {
+                if candidate.join("Cargo.toml").exists() && candidate.join("crates").exists() {
+                    return Ok(candidate);
+                }
+                if !candidate.pop() {
+                    break;
+                }
+            }
+        }
+    }
+
+    // 4. Fallback to current directory traversal
     let mut current = std::env::current_dir()
         .map_err(|e| CompileError::Io(e.to_string()))?;
 
@@ -703,7 +769,9 @@ fn find_workspace_root() -> Result<std::path::PathBuf, CompileError> {
             return Ok(current);
         }
         if !current.pop() {
-            return Err(CompileError::Io("Could not find workspace root".to_string()));
+            return Err(CompileError::Io(
+                "Could not find workspace root. Set LOGOS_WORKSPACE env var or run from within the workspace.".to_string()
+            ));
         }
     }
 }
