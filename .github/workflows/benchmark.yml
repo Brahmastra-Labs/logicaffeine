@@ -117,6 +117,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout main
           cp benchmarks/results/latest.json benchmarks/results/latest.json.tmp
+          git checkout -- benchmarks/results/latest.json
           git pull --rebase origin main
           mv benchmarks/results/latest.json.tmp benchmarks/results/latest.json
           mkdir -p benchmarks/results/history

@@ -327,7 +327,10 @@ for bench in "${BENCHMARKS[@]}"; do
         [ -f "$BIN_DIR/${bench}_zig" ] && HYPERFINE_ARGS+=(-n "Zig" "$BIN_DIR/${bench}_zig $size")
         [ -f "$BIN_DIR/${bench}_go" ]  && HYPERFINE_ARGS+=(-n "Go" "$BIN_DIR/${bench}_go $size")
         [ -d "$BIN_DIR/java/$bench" ]  && HYPERFINE_ARGS+=(-n "Java" "java -cp $BIN_DIR/java/$bench Main $size")
-        [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && HYPERFINE_ARGS+=(-n "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size")
+        # Skip JS for ackermann at n>10 (Node.js stack overflow crashes hyperfine, losing all results for that size)
+        if [ "$bench" != "ackermann" ] || [ "$size" -le 10 ]; then
+            [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && HYPERFINE_ARGS+=(-n "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size")
+        fi
         [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && HYPERFINE_ARGS+=(-n "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size")
         [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && HYPERFINE_ARGS+=(-n "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size")
         [ -f "$BIN_DIR/${bench}_nim" ] && HYPERFINE_ARGS+=(-n "Nim" "$BIN_DIR/${bench}_nim $size")
@@ -385,7 +388,7 @@ for bench in "${BENCHMARKS[@]}"; do
     [ -f "$PROGRAMS_DIR/$bench/main.cpp" ] && \
         COMPILE_ARGS+=(-n "g++ -O2" "g++ -O2 -std=c++17 -o /dev/null $PROGRAMS_DIR/$bench/main.cpp")
     [ -f "$PROGRAMS_DIR/$bench/main.rs" ] && \
-        COMPILE_ARGS+=(-n "rustc -O" "rustc --edition 2021 -O $PROGRAMS_DIR/$bench/main.rs -o /dev/null")
+        COMPILE_ARGS+=(-n "rustc -O" "rustc --edition 2021 -O -o /tmp/bench_rustc_out $PROGRAMS_DIR/$bench/main.rs && rm -f /tmp/bench_rustc_out")
     [ -f "$PROGRAMS_DIR/$bench/main.go" ] && \
         COMPILE_ARGS+=(-n "go build" "go build -o /dev/null $PROGRAMS_DIR/$bench/main.go")
     [ -f "$PROGRAMS_DIR/$bench/Main.java" ] && \
