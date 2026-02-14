@@ -276,8 +276,8 @@ edition = "2021"
         }
     }
 
-    // Release profile: enable full LTO for cross-crate inlining
-    let _ = writeln!(cargo_toml, "\n[profile.release]\nlto = true");
+    // Release profile: maximize optimization for compiled programs
+    let _ = writeln!(cargo_toml, "\n[profile.release]\nlto = true\nopt-level = 3\ncodegen-units = 1\npanic = \"abort\"\nstrip = true");
 
     // Append user-declared dependencies from ## Requires blocks
     for dep in &output.dependencies {

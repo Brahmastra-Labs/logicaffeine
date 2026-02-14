@@ -239,6 +239,7 @@ pub type Tuple = Vec<Value>;
 impl std::ops::Add for Value {
     type Output = Value;
 
+    #[inline]
     fn add(self, other: Value) -> Value {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
@@ -254,6 +255,7 @@ impl std::ops::Add for Value {
 impl std::ops::Sub for Value {
     type Output = Value;
 
+    #[inline]
     fn sub(self, other: Value) -> Value {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
@@ -268,6 +270,7 @@ impl std::ops::Sub for Value {
 impl std::ops::Mul for Value {
     type Output = Value;
 
+    #[inline]
     fn mul(self, other: Value) -> Value {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
@@ -282,6 +285,7 @@ impl std::ops::Mul for Value {
 impl std::ops::Div for Value {
     type Output = Value;
 
+    #[inline]
     fn div(self, other: Value) -> Value {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => Value::Int(a / b),

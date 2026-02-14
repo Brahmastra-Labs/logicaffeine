@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.11] - 2026-02-14
+
+### Added
+- Peephole optimizer: vec fill pattern (`vec![val; count]` instead of push loop)
+- Peephole optimizer: swap pattern (`arr.swap()` instead of temp variable assignments)
+- Copy-type elision: skip `.clone()` on Vec/HashMap indexing for primitive types
+- HashMap equality optimization: `map.get()` instead of `map[key].clone()` for comparisons
+
+### Changed
+- Release profile: `opt-level = 3`, `codegen-units = 1`, `panic = "abort"`, `strip = true`
+- `#[inline]` on Value arithmetic, LogosDate/LogosMoment accessors, parseInt/parseFloat
+- Variable type tracking threaded through all expression codegen paths
+
 ## [0.8.10] - 2026-02-14
 
 ### Changed

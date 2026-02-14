@@ -12,11 +12,13 @@ pub struct LogosDate(pub i32);
 
 impl LogosDate {
     /// Create a new date from days since Unix epoch.
+    #[inline]
     pub fn new(days: i32) -> Self {
         Self(days)
     }
 
     /// Get the raw days value.
+    #[inline]
     pub fn days(&self) -> i32 {
         self.0
     }
@@ -58,11 +60,13 @@ pub struct LogosMoment(pub i64);
 
 impl LogosMoment {
     /// Create a new moment from nanoseconds since epoch.
+    #[inline]
     pub fn new(nanos: i64) -> Self {
         Self(nanos)
     }
 
     /// Get the raw nanoseconds value.
+    #[inline]
     pub fn nanos(&self) -> i64 {
         self.0
     }

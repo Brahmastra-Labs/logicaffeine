@@ -3257,12 +3257,30 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     // Phase 56: Pre-scan for Mount+Sync combinations
     let main_var_caps = analyze_variable_capabilities(stmts, interner);
-    for stmt in stmts {
-        // Skip function definitions - they're already emitted above
-        if matches!(stmt, Stmt::FunctionDef { .. }) {
-            continue;
+    {
+        let stmt_refs: Vec<&Stmt> = stmts.iter().collect();
+        let mut i = 0;
+        while i < stmt_refs.len() {
+            // Skip function definitions - they're already emitted above
+            if matches!(stmt_refs[i], Stmt::FunctionDef { .. }) {
+                i += 1;
+                continue;
+            }
+            // Peephole: Vec fill pattern optimization
+            if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, i, interner, 1) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: swap pattern optimization
+            if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, i, interner, 1, main_ctx.get_variable_types()) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            output.push_str(&codegen_stmt(stmt_refs[i], interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry));
+            i += 1;
         }
-        output.push_str(&codegen_stmt(stmt, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry));
     }
     writeln!(output, "}}").unwrap();
     output
@@ -3443,8 +3461,23 @@ fn codegen_function_def(
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
         let func_pipe_vars = HashSet::new();
 
-        for stmt in body {
-            output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+        {
+            let stmt_refs: Vec<&Stmt> = body.iter().collect();
+            let mut si = 0;
+            while si < stmt_refs.len() {
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                si += 1;
+            }
         }
 
         if wrap_catch_unwind {
@@ -3585,8 +3618,23 @@ fn codegen_c_export_with_marshaling(
         func_ctx.register_variable_type(*param_name, type_name);
     }
     let func_pipe_vars = HashSet::new();
-    for stmt in body {
-        output.push_str(&codegen_stmt(stmt, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+    {
+        let stmt_refs: Vec<&Stmt> = body.iter().collect();
+        let mut si = 0;
+        while si < stmt_refs.len() {
+            if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1) {
+                output.push_str(&code);
+                si += 1 + skip;
+                continue;
+            }
+            if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+                output.push_str(&code);
+                si += 1 + skip;
+                continue;
+            }
+            output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+            si += 1;
+        }
     }
     writeln!(output, "}}\n").unwrap();
 
@@ -4277,6 +4325,360 @@ fn infer_rust_type_from_expr(expr: &Expr, interner: &Interner) -> String {
     }
 }
 
+/// Peephole optimization: detect `Let vec = new Seq. Let i = 0. While i <= limit: push const to vec, i = i+1`
+/// and emit `let mut vec: Vec<T> = vec![const; (limit + 1) as usize]` instead.
+/// Returns (generated_code, number_of_extra_statements_consumed) or None if pattern doesn't match.
+fn try_emit_vec_fill_pattern<'a>(
+    stmts: &[&Stmt<'a>],
+    idx: usize,
+    interner: &Interner,
+    indent: usize,
+) -> Option<(String, usize)> {
+    if idx + 2 >= stmts.len() {
+        return None;
+    }
+
+    // Statement 1: Let mutable vec_var be a new Seq of T.
+    let (vec_sym, elem_type) = match stmts[idx] {
+        Stmt::Let { var, value, mutable: true, ty, .. } => {
+            // Check for explicit type annotation like `: Seq of Bool`
+            let type_from_annotation = if let Some(TypeExpr::Generic { base, params }) = ty {
+                let base_name = interner.resolve(*base);
+                if matches!(base_name, "Seq" | "List" | "Vec") && !params.is_empty() {
+                    Some(codegen_type_expr(&params[0], interner))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            // Check for `a new Seq of T`
+            let type_from_new = if let Expr::New { type_name, type_args, init_fields } = value {
+                let tn = interner.resolve(*type_name);
+                if matches!(tn, "Seq" | "List" | "Vec") && init_fields.is_empty() {
+                    if !type_args.is_empty() {
+                        Some(codegen_type_expr(&type_args[0], interner))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            match type_from_annotation.or(type_from_new) {
+                Some(t) => (*var, t),
+                None => return None,
+            }
+        }
+        _ => return None,
+    };
+
+    // Statement 2: Let mutable counter = 0 (or 1).
+    let (counter_sym, counter_start) = match stmts[idx + 1] {
+        Stmt::Let { var, value: Expr::Literal(Literal::Number(n)), mutable: true, .. } => {
+            (*var, *n)
+        }
+        _ => return None,
+    };
+
+    // Statement 3: While counter <= limit: Push const_val to vec_var. Set counter to counter + 1.
+    match stmts[idx + 2] {
+        Stmt::While { cond, body, .. } => {
+            // Check condition: counter <= limit
+            let limit_expr = match cond {
+                Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => {
+                    if let Expr::Identifier(sym) = left {
+                        if *sym == counter_sym {
+                            Some(*right)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }?;
+
+            // Body must have exactly 2 statements: Push and Set
+            if body.len() != 2 {
+                return None;
+            }
+
+            // First body stmt: Push const_val to vec_var
+            let push_val = match &body[0] {
+                Stmt::Push { value, collection } => {
+                    if let Expr::Identifier(sym) = collection {
+                        if *sym == vec_sym {
+                            Some(*value)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }?;
+
+            // Push value must be a constant literal
+            let val_str = match push_val {
+                Expr::Literal(Literal::Number(n)) => format!("{}", n),
+                Expr::Literal(Literal::Float(f)) => format!("{:.1}", f),
+                Expr::Literal(Literal::Boolean(b)) => format!("{}", b),
+                Expr::Literal(Literal::Char(c)) => format!("'{}'", c),
+                Expr::Literal(Literal::Text(s)) => format!("{}.to_string()", interner.resolve(*s)),
+                _ => return None,
+            };
+
+            // Second body stmt: Set counter to counter + 1
+            match &body[1] {
+                Stmt::Set { target, value, .. } => {
+                    if *target != counter_sym {
+                        return None;
+                    }
+                    // Value must be counter + 1
+                    match value {
+                        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                            let is_counter_plus_1 = match (left, right) {
+                                (Expr::Identifier(s), Expr::Literal(Literal::Number(1))) if *s == counter_sym => true,
+                                (Expr::Literal(Literal::Number(1)), Expr::Identifier(s)) if *s == counter_sym => true,
+                                _ => false,
+                            };
+                            if !is_counter_plus_1 {
+                                return None;
+                            }
+                        }
+                        _ => return None,
+                    }
+                }
+                _ => return None,
+            }
+
+            // Pattern matched! Emit optimized code.
+            let indent_str = "    ".repeat(indent);
+            let vec_name = interner.resolve(vec_sym);
+            let limit_str = codegen_expr_simple(limit_expr, interner);
+
+            // Calculate count: if counter starts at 0, count = limit + 1; if starts at 1, count = limit
+            let count_expr = if counter_start == 0 {
+                format!("({} + 1) as usize", limit_str)
+            } else if counter_start == 1 {
+                format!("{} as usize", limit_str)
+            } else {
+                format!("({} - {} + 1) as usize", limit_str, counter_start)
+            };
+
+            let mut output = String::new();
+            writeln!(output, "{}let mut {}: Vec<{}> = vec![{}; {}];",
+                indent_str, vec_name, elem_type, val_str, count_expr).unwrap();
+            // Re-emit counter variable declaration (it may be reused after the fill loop)
+            let counter_name = interner.resolve(counter_sym);
+            writeln!(output, "{}let mut {} = {};",
+                indent_str, counter_name, counter_start).unwrap();
+
+            Some((output, 2)) // consumed 2 extra statements (counter init + while loop)
+        }
+        _ => None,
+    }
+}
+
+/// Simple expression codegen for peephole patterns (no async/context needed).
+fn codegen_expr_simple(expr: &Expr, interner: &Interner) -> String {
+    match expr {
+        Expr::Literal(Literal::Number(n)) => format!("{}", n),
+        Expr::Literal(Literal::Float(f)) => format!("{:.1}", f),
+        Expr::Literal(Literal::Boolean(b)) => format!("{}", b),
+        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+        Expr::BinaryOp { op, left, right } => {
+            let l = codegen_expr_simple(left, interner);
+            let r = codegen_expr_simple(right, interner);
+            let op_str = match op {
+                BinaryOpKind::Add => "+",
+                BinaryOpKind::Subtract => "-",
+                BinaryOpKind::Multiply => "*",
+                BinaryOpKind::Divide => "/",
+                BinaryOpKind::Modulo => "%",
+                _ => return format!("({})", l),
+            };
+            format!("({} {} {})", l, op_str, r)
+        }
+        _ => "_".to_string(),
+    }
+}
+
+/// Check if two expressions are structurally equal (for swap pattern detection).
+fn exprs_equal(a: &Expr, b: &Expr) -> bool {
+    match (a, b) {
+        (Expr::Identifier(s1), Expr::Identifier(s2)) => s1 == s2,
+        (Expr::Literal(Literal::Number(n1)), Expr::Literal(Literal::Number(n2))) => n1 == n2,
+        (Expr::BinaryOp { op: op1, left: l1, right: r1 }, Expr::BinaryOp { op: op2, left: l2, right: r2 }) => {
+            op1 == op2 && exprs_equal(l1, l2) && exprs_equal(r1, r2)
+        }
+        _ => false,
+    }
+}
+
+/// Peephole optimization: detect swap pattern:
+///   Let a be item j of arr. Let b be item (j+1) of arr.
+///   If a > b then: Set item j of arr to b. Set item (j+1) of arr to a.
+/// and emit `arr.swap((j-1) as usize, ((j+1)-1) as usize)` instead.
+/// Returns (generated_code, number_of_extra_statements_consumed) or None.
+fn try_emit_swap_pattern<'a>(
+    stmts: &[&Stmt<'a>],
+    idx: usize,
+    interner: &Interner,
+    indent: usize,
+    variable_types: &HashMap<Symbol, String>,
+) -> Option<(String, usize)> {
+    if idx + 2 >= stmts.len() {
+        return None;
+    }
+
+    // Statement 1: Let a be item j of arr (index expression)
+    let (a_sym, arr_sym_1, idx_expr_1) = match stmts[idx] {
+        Stmt::Let { var, value: Expr::Index { collection, index }, mutable: false, .. } => {
+            if let Expr::Identifier(coll_sym) = collection {
+                (*var, *coll_sym, *index)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+
+    // Only optimize for known Vec types (direct indexing)
+    if let Some(t) = variable_types.get(&arr_sym_1) {
+        if !t.starts_with("Vec") {
+            return None;
+        }
+    } else {
+        return None;
+    }
+
+    // Statement 2: Let b be item (j+1) of arr (adjacent index)
+    let (b_sym, arr_sym_2, idx_expr_2) = match stmts[idx + 1] {
+        Stmt::Let { var, value: Expr::Index { collection, index }, mutable: false, .. } => {
+            if let Expr::Identifier(coll_sym) = collection {
+                (*var, *coll_sym, *index)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+
+    // Must be the same array
+    if arr_sym_1 != arr_sym_2 {
+        return None;
+    }
+
+    // idx_expr_2 must be idx_expr_1 + 1
+    let is_adjacent = match idx_expr_2 {
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            (exprs_equal(left, idx_expr_1) && matches!(right, Expr::Literal(Literal::Number(1))))
+            || (matches!(left, Expr::Literal(Literal::Number(1))) && exprs_equal(right, idx_expr_1))
+        }
+        _ => false,
+    };
+    if !is_adjacent {
+        return None;
+    }
+
+    // Statement 3: If a > b (or a < b, etc.) then: SetIndex arr j b, SetIndex arr j+1 a
+    match stmts[idx + 2] {
+        Stmt::If { cond, then_block, else_block } => {
+            // Condition must compare a and b
+            let compares_a_b = match cond {
+                Expr::BinaryOp { op, left, right } => {
+                    matches!(op, BinaryOpKind::Gt | BinaryOpKind::Lt | BinaryOpKind::GtEq | BinaryOpKind::LtEq) &&
+                    ((matches!(left, Expr::Identifier(s) if *s == a_sym) && matches!(right, Expr::Identifier(s) if *s == b_sym)) ||
+                     (matches!(left, Expr::Identifier(s) if *s == b_sym) && matches!(right, Expr::Identifier(s) if *s == a_sym)))
+                }
+                _ => false,
+            };
+            if !compares_a_b {
+                return None;
+            }
+
+            // Must have no else block
+            if else_block.is_some() {
+                return None;
+            }
+
+            // Then block must have exactly 2 SetIndex statements forming a cross-swap
+            if then_block.len() != 2 {
+                return None;
+            }
+
+            // Check: SetIndex arr idx1 b, SetIndex arr idx2 a (cross pattern)
+            let swap_ok = match (&then_block[0], &then_block[1]) {
+                (
+                    Stmt::SetIndex { collection: c1, index: i1, value: v1 },
+                    Stmt::SetIndex { collection: c2, index: i2, value: v2 },
+                ) => {
+                    // c1 and c2 must be the same array
+                    let same_arr = matches!((c1, c2), (Expr::Identifier(s1), Expr::Identifier(s2)) if *s1 == arr_sym_1 && *s2 == arr_sym_1);
+                    // Cross pattern: set idx1 to b, set idx2 to a
+                    let cross = exprs_equal(i1, idx_expr_1) && exprs_equal(i2, idx_expr_2) &&
+                        matches!(v1, Expr::Identifier(s) if *s == b_sym) &&
+                        matches!(v2, Expr::Identifier(s) if *s == a_sym);
+                    // Also check reverse: set idx1 to b via idx2/a pattern
+                    let cross_rev = exprs_equal(i1, idx_expr_2) && exprs_equal(i2, idx_expr_1) &&
+                        matches!(v1, Expr::Identifier(s) if *s == a_sym) &&
+                        matches!(v2, Expr::Identifier(s) if *s == b_sym);
+                    same_arr && (cross || cross_rev)
+                }
+                _ => false,
+            };
+
+            if !swap_ok {
+                return None;
+            }
+
+            // Pattern matched! Emit optimized swap
+            let indent_str = "    ".repeat(indent);
+            let arr_name = interner.resolve(arr_sym_1);
+            let idx1_str = codegen_expr_simple(idx_expr_1, interner);
+            let idx2_str = codegen_expr_simple(idx_expr_2, interner);
+
+            // Emit the condition check + swap
+            let cond_str = format!("({} {} {})",
+                codegen_expr_simple(match cond { Expr::BinaryOp { left, .. } => left, _ => unreachable!() }, interner),
+                match cond { Expr::BinaryOp { op, .. } => match op {
+                    BinaryOpKind::Gt => ">", BinaryOpKind::Lt => "<",
+                    BinaryOpKind::GtEq => ">=", BinaryOpKind::LtEq => "<=",
+                    _ => unreachable!(),
+                }, _ => unreachable!() },
+                codegen_expr_simple(match cond { Expr::BinaryOp { right, .. } => right, _ => unreachable!() }, interner),
+            );
+
+            let mut output = String::new();
+            // Still need to read a and b for the comparison (the swap doesn't need them)
+            // Actually, we can use direct indexing for the comparison too
+            writeln!(output, "{}if {}[({} - 1) as usize] {} {}[({} - 1) as usize] {{",
+                indent_str, arr_name, idx1_str,
+                match cond { Expr::BinaryOp { op, .. } => match op {
+                    BinaryOpKind::Gt => ">", BinaryOpKind::Lt => "<",
+                    BinaryOpKind::GtEq => ">=", BinaryOpKind::LtEq => "<=",
+                    _ => unreachable!(),
+                }, _ => unreachable!() },
+                arr_name, idx2_str,
+            ).unwrap();
+            writeln!(output, "{}    {}.swap(({} - 1) as usize, ({} - 1) as usize);",
+                indent_str, arr_name, idx1_str, idx2_str).unwrap();
+            writeln!(output, "{}}}", indent_str).unwrap();
+
+            Some((output, 2)) // consumed 2 extra statements
+        }
+        _ => None,
+    }
+}
+
 pub fn codegen_stmt<'a>(
     stmt: &Stmt<'a>,
     interner: &Interner,
@@ -4446,14 +4848,14 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Call { function, args } => {
             let func_name = escape_rust_ident(interner.resolve(*function));
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions)).collect();
+            let args_str: Vec<String> = args.iter().map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types())).collect();
             // Add .await if calling an async function
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
             writeln!(output, "{}{}({}){};", indent_str, func_name, args_str.join(", "), await_suffix).unwrap();
         }
 
         Stmt::If { cond, then_block, else_block } => {
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions);
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
@@ -4473,11 +4875,25 @@ pub fn codegen_stmt<'a>(
 
         Stmt::While { cond, body, decreasing: _ } => {
             // decreasing is compile-time only, ignored at runtime
-            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions);
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
-            for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+            // Peephole: process body statements with swap pattern detection
+            let body_refs: Vec<&Stmt> = body.iter().collect();
+            let mut bi = 0;
+            while bi < body_refs.len() {
+                if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                    output.push_str(&code);
+                    bi += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1) {
+                    output.push_str(&code);
+                    bi += 1 + skip;
+                    continue;
+                }
+                output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                bi += 1;
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -4498,7 +4914,7 @@ pub fn codegen_stmt<'a>(
                 }
             };
 
-            let iter_str = codegen_expr_with_async(iterable, interner, synced_vars, async_functions);
+            let iter_str = codegen_expr_with_async(iterable, interner, synced_vars, async_functions, ctx.get_variable_types());
 
             // Check if body contains async operations - if so, use while-let pattern
             // because standard for loops cannot contain .await
@@ -4517,8 +4933,19 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}for {} in {}.clone() {{", indent_str, pattern_str, iter_str).unwrap();
             }
             ctx.push_scope();
-            for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+            // Peephole: process body statements with swap pattern detection
+            {
+                let body_refs: Vec<&Stmt> = body.iter().collect();
+                let mut bi = 0;
+                while bi < body_refs.len() {
+                    if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        bi += 1 + skip;
+                        continue;
+                    }
+                    output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    bi += 1;
+                }
             }
             ctx.pop_scope();
             writeln!(output, "{}}}", indent_str).unwrap();
@@ -4526,7 +4953,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Return { value } => {
             if let Some(v) = value {
-                let value_str = codegen_expr_with_async(v, interner, synced_vars, async_functions);
+                let value_str = codegen_expr_with_async(v, interner, synced_vars, async_functions, ctx.get_variable_types());
                 writeln!(output, "{}return {};", indent_str, value_str).unwrap();
             } else {
                 writeln!(output, "{}return;", indent_str).unwrap();
@@ -4549,7 +4976,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::RuntimeAssert { condition } => {
-            let cond_str = codegen_expr_with_async(condition, interner, synced_vars, async_functions);
+            let cond_str = codegen_expr_with_async(condition, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}debug_assert!({});", indent_str, cond_str).unwrap();
         }
 
@@ -4581,7 +5008,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 51: P2P Networking - Listen on network address
         Stmt::Listen { address } => {
-            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions);
+            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Pass &str instead of String
             writeln!(output, "{}logicaffeine_system::network::listen(&{}).await.expect(\"Failed to listen\");",
                      indent_str, addr_str).unwrap();
@@ -4589,7 +5016,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 51: P2P Networking - Connect to remote peer
         Stmt::ConnectTo { address } => {
-            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions);
+            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Pass &str instead of String
             writeln!(output, "{}logicaffeine_system::network::connect(&{}).await.expect(\"Failed to connect\");",
                      indent_str, addr_str).unwrap();
@@ -4598,7 +5025,7 @@ pub fn codegen_stmt<'a>(
         // Phase 51: P2P Networking - Create PeerAgent remote handle
         Stmt::LetPeerAgent { var, address } => {
             let var_name = interner.resolve(*var);
-            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions);
+            let addr_str = codegen_expr_with_async(address, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Pass &str instead of String
             writeln!(output, "{}let {} = logicaffeine_system::network::PeerAgent::new(&{}).expect(\"Invalid address\");",
                      indent_str, var_name, addr_str).unwrap();
@@ -4606,7 +5033,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 51: Sleep - supports Duration literals or milliseconds
         Stmt::Sleep { milliseconds } => {
-            let expr_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions);
+            let expr_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions, ctx.get_variable_types());
             let inferred_type = infer_rust_type_from_expr(milliseconds, interner);
 
             if inferred_type == "std::time::Duration" {
@@ -4623,7 +5050,7 @@ pub fn codegen_stmt<'a>(
         // Phase 52/56: Sync CRDT variable on topic
         Stmt::Sync { var, topic } => {
             let var_name = interner.resolve(*var);
-            let topic_str = codegen_expr_with_async(topic, interner, synced_vars, async_functions);
+            let topic_str = codegen_expr_with_async(topic, interner, synced_vars, async_functions, ctx.get_variable_types());
 
             // Phase 56: Check if this variable is also mounted
             if let Some(caps) = var_caps.get(var) {
@@ -4648,7 +5075,7 @@ pub fn codegen_stmt<'a>(
         // Phase 53/56: Mount persistent CRDT from journal
         Stmt::Mount { var, path } => {
             let var_name = interner.resolve(*var);
-            let path_str = codegen_expr_with_async(path, interner, synced_vars, async_functions);
+            let path_str = codegen_expr_with_async(path, interner, synced_vars, async_functions, ctx.get_variable_types());
 
             // Phase 56: Check if this variable is also synced
             if let Some(caps) = var_caps.get(var) {
@@ -4690,7 +5117,7 @@ pub fn codegen_stmt<'a>(
                             return format!("{}_tx.clone()", interner.resolve(*sym));
                         }
                     }
-                    codegen_expr_with_async(a, interner, synced_vars, async_functions)
+                    codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types())
                 })
                 .collect();
             // Phase 54: Add .await only if the function is async
@@ -4713,7 +5140,7 @@ pub fn codegen_stmt<'a>(
                             return format!("{}_tx.clone()", interner.resolve(*sym));
                         }
                     }
-                    codegen_expr_with_async(a, interner, synced_vars, async_functions)
+                    codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types())
                 })
                 .collect();
             // Phase 54: Add .await only if the function is async
@@ -4745,8 +5172,8 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::SendPipe { value, pipe } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 54: Check if pipe is a local declaration (has _tx suffix) or parameter (no suffix)
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -4770,7 +5197,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::ReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
-            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 54: Check if pipe is a local declaration (has _rx suffix) or parameter (no suffix)
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -4793,8 +5220,8 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::TrySendPipe { value, pipe, result } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 54: Check if pipe is a local declaration
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -4820,7 +5247,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::TryReceivePipe { var, pipe } => {
             let var_name = interner.resolve(*var);
-            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
+            let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 54: Check if pipe is a local declaration
             let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                 pipe_vars.contains(sym)
@@ -4836,7 +5263,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::StopTask { handle } => {
-            let handle_str = codegen_expr_with_async(handle, interner, synced_vars, async_functions);
+            let handle_str = codegen_expr_with_async(handle, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}.abort();", indent_str, handle_str).unwrap();
         }
 
@@ -4848,7 +5275,7 @@ pub fn codegen_stmt<'a>(
                 match branch {
                     SelectBranch::Receive { var, pipe, body } => {
                         let var_name = interner.resolve(*var);
-                        let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions);
+                        let pipe_str = codegen_expr_with_async(pipe, interner, synced_vars, async_functions, ctx.get_variable_types());
                         // Check if pipe is a local declaration (has _rx suffix) or a parameter (no suffix)
                         let is_local_pipe = if let Expr::Identifier(sym) = pipe {
                             pipe_vars.contains(sym)
@@ -4874,7 +5301,7 @@ pub fn codegen_stmt<'a>(
                         writeln!(output, "{}    }}", indent_str).unwrap();
                     }
                     SelectBranch::Timeout { milliseconds, body } => {
-                        let ms_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions);
+                        let ms_str = codegen_expr_with_async(milliseconds, interner, synced_vars, async_functions, ctx.get_variable_types());
                         // Convert seconds to milliseconds if the value looks like seconds
                         writeln!(
                             output,
@@ -4894,23 +5321,23 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Give { object, recipient } => {
             // Move semantics: pass ownership without borrowing
-            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
-            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}({});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::Show { object, recipient } => {
             // Borrow semantics: pass immutable reference
             // Use string_vars for proper concatenation of string variables
-            let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars());
-            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions);
+            let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
         }
 
         Stmt::SetField { object, field, value } => {
-            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
             let field_name = interner.resolve(*field);
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let value_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
 
             // Phase 49: Check if this field is an LWWRegister or MVRegister
             // LWW needs .set(value, timestamp), MV needs .set(value)
@@ -4936,7 +5363,7 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Inspect { target, arms, .. } => {
-            let target_str = codegen_expr_with_async(target, interner, synced_vars, async_functions);
+            let target_str = codegen_expr_with_async(target, interner, synced_vars, async_functions, ctx.get_variable_types());
 
             // Phase 102: Track which bindings come from boxed fields for inner Inspects
             // Use NAMES (strings) not symbols, because parser may create different symbols
@@ -5063,13 +5490,13 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Push { value, collection } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}.push({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Pop { collection, into } => {
-            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             match into {
                 Some(var) => {
                     let var_name = interner.resolve(*var);
@@ -5083,21 +5510,21 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Add { value, collection } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}.insert({});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::Remove { value, collection } => {
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}{}.remove(&{});", indent_str, coll_str, val_str).unwrap();
         }
 
         Stmt::SetIndex { collection, index, value } => {
-            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
-            let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions);
-            let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let value_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
 
             // Direct indexing for known collection types (avoids trait dispatch)
             let known_type = if let Expr::Identifier(sym) = collection {
@@ -5248,12 +5675,12 @@ pub fn codegen_stmt<'a>(
                         Stmt::Let { value, .. } => {
                             // Return the value expression directly (not "let x = value;")
                             // Phase 54+: Use codegen_expr_with_async to handle all nested async calls
-                            codegen_expr_with_async(value, interner, synced_vars, async_functions)
+                            codegen_expr_with_async(value, interner, synced_vars, async_functions, ctx.get_variable_types())
                         }
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions))
+                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types()))
                                 .collect();
                             // Only add .await for async functions
                             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -5320,7 +5747,7 @@ pub fn codegen_stmt<'a>(
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions))
+                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types()))
                                 .collect();
                             format!("{}({})", func_name, args_str.join(", "))
                         }
@@ -5351,7 +5778,7 @@ pub fn codegen_stmt<'a>(
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
                             let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions))
+                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types()))
                                 .collect();
                             format!("{}({})", func_name, args_str.join(", "))
                         }
@@ -5378,7 +5805,7 @@ pub fn codegen_stmt<'a>(
                     writeln!(output, "{}let {} = logicaffeine_system::io::read_line();", indent_str, var_name).unwrap();
                 }
                 ReadSource::File(path_expr) => {
-                    let path_str = codegen_expr_with_async(path_expr, interner, synced_vars, async_functions);
+                    let path_str = codegen_expr_with_async(path_expr, interner, synced_vars, async_functions, ctx.get_variable_types());
                     // Phase 53: Use VFS with async
                     writeln!(
                         output,
@@ -5392,8 +5819,8 @@ pub fn codegen_stmt<'a>(
         // Phase 10: Write to file
         // Phase 53: File writes now use async VFS
         Stmt::WriteFile { content, path } => {
-            let content_str = codegen_expr_with_async(content, interner, synced_vars, async_functions);
-            let path_str = codegen_expr_with_async(path, interner, synced_vars, async_functions);
+            let content_str = codegen_expr_with_async(content, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let path_str = codegen_expr_with_async(path, interner, synced_vars, async_functions, ctx.get_variable_types());
             // Phase 53: Use VFS with async
             writeln!(
                 output,
@@ -5416,8 +5843,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Send message to agent
         Stmt::SendMessage { message, destination } => {
-            let msg_str = codegen_expr_with_async(message, interner, synced_vars, async_functions);
-            let dest_str = codegen_expr_with_async(destination, interner, synced_vars, async_functions);
+            let msg_str = codegen_expr_with_async(message, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let dest_str = codegen_expr_with_async(destination, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.send({}).await.expect(\"Failed to send message\");",
@@ -5427,7 +5854,7 @@ pub fn codegen_stmt<'a>(
 
         // Phase 46: Await response from agent
         Stmt::AwaitMessage { source, into } => {
-            let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions);
+            let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions, ctx.get_variable_types());
             let var_name = interner.resolve(*into);
             writeln!(
                 output,
@@ -5438,8 +5865,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49: Merge CRDT state
         Stmt::MergeCrdt { source, target } => {
-            let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions);
-            let tgt_str = codegen_expr_with_async(target, interner, synced_vars, async_functions);
+            let src_str = codegen_expr_with_async(source, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let tgt_str = codegen_expr_with_async(target, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.merge(&{});",
@@ -5451,7 +5878,7 @@ pub fn codegen_stmt<'a>(
         // Phase 52: If object is synced, wrap in .mutate() for auto-publish
         Stmt::IncreaseCrdt { object, field, amount } => {
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr_with_async(amount, interner, synced_vars, async_functions);
+            let amount_str = codegen_expr_with_async(amount, interner, synced_vars, async_functions, ctx.get_variable_types());
 
             // Check if the root object is synced
             let root_sym = get_root_identifier(object);
@@ -5469,7 +5896,7 @@ pub fn codegen_stmt<'a>(
             }
 
             // Not synced: direct access
-            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.{}.increment({} as u64);",
@@ -5480,7 +5907,7 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Decrement PNCounter
         Stmt::DecreaseCrdt { object, field, amount } => {
             let field_name = interner.resolve(*field);
-            let amount_str = codegen_expr_with_async(amount, interner, synced_vars, async_functions);
+            let amount_str = codegen_expr_with_async(amount, interner, synced_vars, async_functions, ctx.get_variable_types());
 
             // Check if the root object is synced
             let root_sym = get_root_identifier(object);
@@ -5498,7 +5925,7 @@ pub fn codegen_stmt<'a>(
             }
 
             // Not synced: direct access
-            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.{}.decrement({} as u64);",
@@ -5508,8 +5935,8 @@ pub fn codegen_stmt<'a>(
 
         // Phase 49b: Append to SharedSequence (RGA)
         Stmt::AppendToSequence { sequence, value } => {
-            let seq_str = codegen_expr_with_async(sequence, interner, synced_vars, async_functions);
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
+            let seq_str = codegen_expr_with_async(sequence, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.append({});",
@@ -5520,8 +5947,8 @@ pub fn codegen_stmt<'a>(
         // Phase 49b: Resolve MVRegister conflicts
         Stmt::ResolveConflict { object, field, value } => {
             let field_name = interner.resolve(*field);
-            let val_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions);
+            let val_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+            let obj_str = codegen_expr_with_async(object, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.{}.resolve({});",
@@ -5562,6 +5989,33 @@ fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
     }
 }
 
+/// Check if a type string represents a Copy type (no .clone() needed on indexing).
+fn is_copy_type(ty: &str) -> bool {
+    matches!(ty, "i64" | "u64" | "f64" | "i32" | "u32" | "f32" | "bool" | "char" | "u8" | "i8" | "()")
+}
+
+/// Check if a Vec<T> type has a Copy element type.
+fn has_copy_element_type(vec_type: &str) -> bool {
+    if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        is_copy_type(inner)
+    } else {
+        false
+    }
+}
+
+/// Check if a HashMap<K, V> type has a Copy value type.
+fn has_copy_value_type(map_type: &str) -> bool {
+    let inner = map_type.strip_prefix("std::collections::HashMap<")
+        .or_else(|| map_type.strip_prefix("HashMap<"));
+    if let Some(inner) = inner.and_then(|s| s.strip_suffix('>')) {
+        // Split on ", " to get key and value types
+        if let Some((_key, value)) = inner.split_once(", ") {
+            return is_copy_type(value);
+        }
+    }
+    false
+}
+
 pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
     // Use empty registry, boxed_fields, and async_functions for simple expression codegen
     let empty_registry = TypeRegistry::new();
@@ -5576,9 +6030,11 @@ pub fn codegen_expr_with_async(
     interner: &Interner,
     synced_vars: &HashSet<Symbol>,
     async_functions: &HashSet<Symbol>,
+    variable_types: &HashMap<Symbol, String>,
 ) -> String {
     let empty_registry = TypeRegistry::new();
-    codegen_expr_boxed(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions)
+    let empty_strings = HashSet::new();
+    codegen_expr_boxed_internal(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions, &HashSet::new(), &empty_strings, variable_types)
 }
 
 /// Codegen expression with async support and string variable tracking.
@@ -5588,9 +6044,10 @@ fn codegen_expr_with_async_and_strings(
     synced_vars: &HashSet<Symbol>,
     async_functions: &HashSet<Symbol>,
     string_vars: &HashSet<Symbol>,
+    variable_types: &HashMap<Symbol, String>,
 ) -> String {
     let empty_registry = TypeRegistry::new();
-    codegen_expr_boxed_with_strings(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions, string_vars)
+    codegen_expr_boxed_internal(expr, interner, synced_vars, &HashSet::new(), &empty_registry, async_functions, &HashSet::new(), string_vars, variable_types)
 }
 
 /// Check if an expression is definitely numeric (safe to use + operator).
@@ -5786,6 +6243,47 @@ fn codegen_expr_boxed_internal(
                 return format!("format!(\"{}\", {})", placeholders, values.join(", "));
             }
 
+            // Optimize HashMap .get() for equality comparisons to avoid cloning
+            if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) {
+                let neg = matches!(op, BinaryOpKind::NotEq);
+                // Check if left side is a HashMap index
+                if let Expr::Index { collection, index } = left {
+                    if let Expr::Identifier(sym) = collection {
+                        if let Some(t) = variable_types.get(sym) {
+                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") {
+                                let coll_str = recurse!(collection);
+                                let key_str = recurse!(index);
+                                let val_str = recurse!(right);
+                                let cmp = if neg { "!=" } else { "==" };
+                                if has_copy_value_type(t) {
+                                    return format!("({}.get(&({})).copied() {} Some({}))", coll_str, key_str, cmp, val_str);
+                                } else {
+                                    return format!("({}.get(&({})) {} Some(&({})))", coll_str, key_str, cmp, val_str);
+                                }
+                            }
+                        }
+                    }
+                }
+                // Check if right side is a HashMap index
+                if let Expr::Index { collection, index } = right {
+                    if let Expr::Identifier(sym) = collection {
+                        if let Some(t) = variable_types.get(sym) {
+                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") {
+                                let coll_str = recurse!(collection);
+                                let key_str = recurse!(index);
+                                let val_str = recurse!(left);
+                                let cmp = if neg { "!=" } else { "==" };
+                                if has_copy_value_type(t) {
+                                    return format!("(Some({}) {} {}.get(&({})).copied())", val_str, cmp, coll_str, key_str);
+                                } else {
+                                    return format!("(Some(&({})) {} {}.get(&({})))", val_str, cmp, coll_str, key_str);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             let left_str = recurse!(left);
             let right_str = recurse!(right);
             let op_str = match op {
@@ -5832,10 +6330,12 @@ fn codegen_expr_boxed_internal(
             };
             match known_type {
                 Some(t) if t.starts_with("Vec") => {
-                    format!("{}[({} - 1) as usize].clone()", coll_str, index_str)
+                    let suffix = if has_copy_element_type(t) { "" } else { ".clone()" };
+                    format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
                 }
                 Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
-                    format!("{}[&({})].clone()", coll_str, index_str)
+                    let suffix = if has_copy_value_type(t) { "" } else { ".clone()" };
+                    format!("{}[&({})]{}", coll_str, index_str, suffix)
                 }
                 _ => {
                     // Fallback: polymorphic indexing via trait
