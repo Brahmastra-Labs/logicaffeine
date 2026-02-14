@@ -113,13 +113,13 @@ jobs:
       - name: Commit results to main
         run: |
           VERSION="${{ steps.version.outputs.version }}"
+          cp benchmarks/results/latest.json /tmp/latest.json
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout main
-          cp benchmarks/results/latest.json benchmarks/results/latest.json.tmp
           git checkout -- benchmarks/results/latest.json
+          git checkout main
           git pull --rebase origin main
-          mv benchmarks/results/latest.json.tmp benchmarks/results/latest.json
+          cp /tmp/latest.json benchmarks/results/latest.json
           mkdir -p benchmarks/results/history
           cp benchmarks/results/latest.json "benchmarks/results/history/v${VERSION}.json"
           git add benchmarks/results/latest.json "benchmarks/results/history/v${VERSION}.json"
