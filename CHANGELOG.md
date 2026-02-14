@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.5] - 2026-02-13
+
+### Added
+- Benchmark suite with programs in 10 languages (C, C++, Rust, Go, Zig, Nim, Python, Ruby, JS, Java)
+- Benchmark CI workflow
+- Benchmarks web page with interactive results
+- Interpreter improvements and map key support
+- nextest configuration
+
+### Fixed
+- Removed `.cargo/config.toml` mold linker config (breaks CI)
+
 ## [0.8.3] - 2026-02-12
 
 ### Fixed
