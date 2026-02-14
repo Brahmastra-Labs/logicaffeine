@@ -126,6 +126,12 @@ jobs:
           git commit -m "chore: update benchmark results for v${VERSION}" || echo "No changes to commit"
           git push origin main
 
+      - name: Trigger frontend deploy with fresh benchmarks
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-frontend.yml
+
       - name: Step summary
         run: |
           VERSION="${{ steps.version.outputs.version }}"
