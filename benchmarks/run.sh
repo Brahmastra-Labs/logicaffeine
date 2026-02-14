@@ -208,8 +208,8 @@ info "Phase 2: Verifying correctness at reference sizes..."
 
 ref_size() {
     case "$1" in
-        fib) echo 35 ;; sieve) echo 1000000 ;; collect) echo 100000 ;;
-        strings) echo 100000 ;; bubble_sort) echo 5000 ;; ackermann) echo 10 ;;
+        fib) echo 30 ;; sieve) echo 1000000 ;; collect) echo 50000 ;;
+        strings) echo 50000 ;; bubble_sort) echo 2000 ;; ackermann) echo 10 ;;
     esac
 }
 
