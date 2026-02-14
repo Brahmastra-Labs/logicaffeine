@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.8.8] - 2026-02-14
+## [0.8.9] - 2026-02-14
 
 ### Changed
 - Frontend deploy now triggers after benchmarks commit fresh results
@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - Benchmark CI checkout failure when latest.json is dirty
+- Benchmark CI `actions: write` permission for deploy trigger
+
+## [0.8.8] - 2026-02-14
+
+(skipped — missing actions:write permission)
 
 ## [0.8.7] - 2026-02-14
 
