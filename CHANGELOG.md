@@ -4,11 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.8.7] - 2026-02-14
+## [0.8.8] - 2026-02-14
 
 ### Changed
 - Frontend deploy now triggers after benchmarks commit fresh results
 - Deploy checkout always uses latest main HEAD
+
+### Fixed
+- Benchmark CI checkout failure when latest.json is dirty
+
+## [0.8.7] - 2026-02-14
+
+(skipped — benchmark CI fix landed after tag)
 
 ## [0.8.6] - 2026-02-13
 

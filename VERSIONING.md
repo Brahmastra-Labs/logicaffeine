@@ -206,7 +206,8 @@ These crates still follow lockstep versioning for consistency.
 
 | Version | Date | Notes |
 |---------|------|-------|
-| 0.8.7 | 2026-02-14 | Auto-deploy frontend after benchmarks |
+| 0.8.8 | 2026-02-14 | Auto-deploy frontend after benchmarks, CI fix |
+| 0.8.7 | 2026-02-14 | (skipped — CI fix landed after tag) |
 | 0.8.6 | 2026-02-13 | Benchmarks, interpreter improvements, CI fixes |
 | 0.8.3 | 2026-02-12 | FFI test CI compatibility, platform-aware C linkage |
 | 0.8.2 | 2026-02-12 | Optimizer, interpreter mode, FFI safety |
