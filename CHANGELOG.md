@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.10] - 2026-02-14
+
+### Changed
+- Direct collection indexing codegen for known Vec/HashMap types (avoids trait dispatch)
+- `#[inline(always)]` on all Showable, LogosContains, LogosIndex trait impls
+- `get_unchecked` after validated bounds in Vec indexing (removes redundant bounds check)
+- LTO enabled in release profile for generated projects
+
 ## [0.8.9] - 2026-02-14
 
 ### Changed

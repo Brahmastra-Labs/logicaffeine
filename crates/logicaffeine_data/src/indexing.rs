@@ -71,6 +71,7 @@ pub trait LogosIndexMut<I>: LogosIndex<I> {
 impl<T: Clone> LogosIndex<i64> for Vec<T> {
     type Output = T;
 
+    #[inline(always)]
     fn logos_get(&self, index: i64) -> T {
         if index < 1 {
             panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
@@ -79,11 +80,12 @@ impl<T: Clone> LogosIndex<i64> for Vec<T> {
         if idx >= self.len() {
             panic!("Index {} is out of bounds for seq of length {}", index, self.len());
         }
-        self[idx].clone()
+        unsafe { self.get_unchecked(idx).clone() }
     }
 }
 
 impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
+    #[inline(always)]
     fn logos_set(&mut self, index: i64, value: T) {
         if index < 1 {
             panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
@@ -92,7 +94,7 @@ impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
         if idx >= self.len() {
             panic!("Index {} is out of bounds for seq of length {}", index, self.len());
         }
-        self[idx] = value;
+        unsafe { *self.get_unchecked_mut(idx) = value; }
     }
 }
 
@@ -101,12 +103,14 @@ impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
 impl<K: Eq + Hash, V: Clone> LogosIndex<K> for HashMap<K, V> {
     type Output = V;
 
+    #[inline(always)]
     fn logos_get(&self, key: K) -> V {
         self.get(&key).cloned().expect("Key not found in map")
     }
 }
 
 impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for HashMap<K, V> {
+    #[inline(always)]
     fn logos_set(&mut self, key: K, value: V) {
         self.insert(key, value);
     }
@@ -117,12 +121,14 @@ impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for HashMap<K, V> {
 impl<V: Clone> LogosIndex<&str> for HashMap<String, V> {
     type Output = V;
 
+    #[inline(always)]
     fn logos_get(&self, key: &str) -> V {
         self.get(key).cloned().expect("Key not found in map")
     }
 }
 
 impl<V: Clone> LogosIndexMut<&str> for HashMap<String, V> {
+    #[inline(always)]
     fn logos_set(&mut self, key: &str, value: V) {
         self.insert(key.to_string(), value);
     }

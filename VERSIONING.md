@@ -206,6 +206,7 @@ These crates still follow lockstep versioning for consistency.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.8.10 | 2026-02-14 | Codegen optimizations: direct indexing, inlining, LTO |
 | 0.8.9 | 2026-02-14 | Auto-deploy frontend after benchmarks, CI fixes |
 | 0.8.8 | 2026-02-14 | (skipped — missing actions:write permission) |
 | 0.8.7 | 2026-02-14 | (skipped — CI fix landed after tag) |

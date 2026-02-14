@@ -276,6 +276,9 @@ edition = "2021"
         }
     }
 
+    // Release profile: enable full LTO for cross-crate inlining
+    let _ = writeln!(cargo_toml, "\n[profile.release]\nlto = true");
+
     // Append user-declared dependencies from ## Requires blocks
     for dep in &output.dependencies {
         if dep.name == "wasm-bindgen" && has_wasm_bindgen {

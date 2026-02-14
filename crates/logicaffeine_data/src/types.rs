@@ -85,36 +85,42 @@ pub trait LogosContains<T> {
 }
 
 impl<T: PartialEq> LogosContains<T> for Vec<T> {
+    #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
         self.contains(value)
     }
 }
 
 impl<T: Eq + Hash> LogosContains<T> for std::collections::HashSet<T> {
+    #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
         self.contains(value)
     }
 }
 
 impl<K: Eq + Hash, V> LogosContains<K> for std::collections::HashMap<K, V> {
+    #[inline(always)]
     fn logos_contains(&self, key: &K) -> bool {
         self.contains_key(key)
     }
 }
 
 impl LogosContains<&str> for String {
+    #[inline(always)]
     fn logos_contains(&self, value: &&str) -> bool {
         self.contains(*value)
     }
 }
 
 impl LogosContains<String> for String {
+    #[inline(always)]
     fn logos_contains(&self, value: &String) -> bool {
         self.contains(value.as_str())
     }
 }
 
 impl LogosContains<char> for String {
+    #[inline(always)]
     fn logos_contains(&self, value: &char) -> bool {
         self.contains(*value)
     }
@@ -123,6 +129,7 @@ impl LogosContains<char> for String {
 impl<T: Eq + Hash + Clone, B: crate::crdt::SetBias> LogosContains<T>
     for crate::crdt::ORSet<T, B>
 {
+    #[inline(always)]
     fn logos_contains(&self, value: &T) -> bool {
         self.contains(value)
     }

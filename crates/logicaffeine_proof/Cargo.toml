@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-proof"
-version = "0.8.9"
+version = "0.8.10"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -16,6 +16,6 @@ readme = "README.md"
 default = []
 
 [dependencies]
-logicaffeine-base = { version = "0.8.9", path = "../logicaffeine_base" }
-logicaffeine-kernel = { version = "0.8.9", path = "../logicaffeine_kernel" }
+logicaffeine-base = { version = "0.8.10", path = "../logicaffeine_base" }
+logicaffeine-kernel = { version = "0.8.10", path = "../logicaffeine_kernel" }
 # CRITICAL: NO LANGUAGE DEPENDENCY - Liskov Invariant

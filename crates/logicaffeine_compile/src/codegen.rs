@@ -195,6 +195,11 @@ impl<'a> RefinementContext<'a> {
         self.variable_types.insert(var, type_name);
     }
 
+    /// Get variable type map for expression codegen optimization.
+    fn get_variable_types(&self) -> &HashMap<Symbol, String> {
+        &self.variable_types
+    }
+
     /// Phase 50: Find a variable name by its type (for resolving "the document" to "doc")
     fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
         let type_lower = type_name.to_lowercase();
@@ -4293,10 +4298,59 @@ pub fn codegen_stmt<'a>(
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = interner.resolve(*var);
-            // Phase 54+: Use codegen_expr_boxed with string tracking for proper concatenation
-            let value_str = codegen_expr_boxed_with_strings(
+
+            // Register collection type for direct indexing optimization.
+            // Check explicit type annotation first, then infer from Expr::New.
+            if let Some(TypeExpr::Generic { base, params }) = ty {
+                let base_name = interner.resolve(*base);
+                match base_name {
+                    "Seq" | "List" | "Vec" => {
+                        let rust_type = if !params.is_empty() {
+                            format!("Vec<{}>", codegen_type_expr(&params[0], interner))
+                        } else {
+                            "Vec<()>".to_string()
+                        };
+                        ctx.register_variable_type(*var, rust_type);
+                    }
+                    "Map" | "HashMap" => {
+                        let rust_type = if params.len() >= 2 {
+                            format!("std::collections::HashMap<{}, {}>", codegen_type_expr(&params[0], interner), codegen_type_expr(&params[1], interner))
+                        } else {
+                            "std::collections::HashMap<String, String>".to_string()
+                        };
+                        ctx.register_variable_type(*var, rust_type);
+                    }
+                    _ => {}
+                }
+            } else if let Expr::New { type_name, type_args, .. } = value {
+                let type_str = interner.resolve(*type_name);
+                match type_str {
+                    "Seq" | "List" | "Vec" => {
+                        let rust_type = if !type_args.is_empty() {
+                            format!("Vec<{}>", codegen_type_expr(&type_args[0], interner))
+                        } else {
+                            "Vec<()>".to_string()
+                        };
+                        ctx.register_variable_type(*var, rust_type);
+                    }
+                    "Map" | "HashMap" => {
+                        let rust_type = if type_args.len() >= 2 {
+                            format!("std::collections::HashMap<{}, {}>", codegen_type_expr(&type_args[0], interner), codegen_type_expr(&type_args[1], interner))
+                        } else {
+                            "std::collections::HashMap<String, String>".to_string()
+                        };
+                        ctx.register_variable_type(*var, rust_type);
+                    }
+                    _ => {}
+                }
+            } else if matches!(value, Expr::List(_)) {
+                ctx.register_variable_type(*var, "Vec<_>".to_string());
+            }
+
+            // Phase 54+: Use codegen_expr_boxed with string+type tracking for proper codegen
+            let value_str = codegen_expr_boxed_with_types(
                 value, interner, synced_vars, boxed_fields, registry, async_functions,
-                ctx.get_string_vars()
+                ctx.get_string_vars(), ctx.get_variable_types()
             );
 
             // Phase 103: Get explicit type annotation or infer for multi-param generic enums
@@ -4328,6 +4382,7 @@ pub fn codegen_stmt<'a>(
         Stmt::Set { target, value } => {
             let target_name = interner.resolve(*target);
             let string_vars = ctx.get_string_vars();
+            let var_types = ctx.get_variable_types();
 
             // Optimization: detect self-append pattern (result = result + x + y)
             // and emit write!(result, "{}{}", x, y) instead of result = format!(...).
@@ -4355,9 +4410,9 @@ pub fn codegen_stmt<'a>(
                             if let Expr::Literal(Literal::Text(sym)) = e {
                                 format!("\"{}\"", interner.resolve(*sym))
                             } else {
-                                codegen_expr_boxed_with_strings(
+                                codegen_expr_boxed_with_types(
                                     e, interner, synced_vars, boxed_fields, registry, async_functions,
-                                    string_vars
+                                    string_vars, var_types
                                 )
                             }
                         }).collect();
@@ -4376,9 +4431,9 @@ pub fn codegen_stmt<'a>(
 
             if !used_write {
                 // Fallback: standard assignment with format!
-                let value_str = codegen_expr_boxed_with_strings(
+                let value_str = codegen_expr_boxed_with_types(
                     value, interner, synced_vars, boxed_fields, registry, async_functions,
-                    string_vars
+                    string_vars, var_types
                 );
                 writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
             }
@@ -5043,14 +5098,36 @@ pub fn codegen_stmt<'a>(
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions);
             let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions);
             let value_str = codegen_expr_boxed(value, interner, synced_vars, boxed_fields, registry, async_functions);
-            // Phase 57: Polymorphic indexing via trait
-            // Evaluate value into temp variable first to avoid simultaneous mutable+immutable borrow
-            // when value reads from the same collection (e.g., Set item (j+1) of result to item j of result)
-            if value_str.contains("logos_get") && value_str.contains(&coll_str) {
-                writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
-                writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, __set_tmp);", indent_str, coll_str, index_str).unwrap();
+
+            // Direct indexing for known collection types (avoids trait dispatch)
+            let known_type = if let Expr::Identifier(sym) = collection {
+                ctx.get_variable_types().get(sym).map(|s| s.as_str())
             } else {
-                writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
+                None
+            };
+
+            match known_type {
+                Some(t) if t.starts_with("Vec") => {
+                    // Evaluate value first if it references the same collection (borrow safety)
+                    if value_str.contains(&coll_str) {
+                        writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
+                        writeln!(output, "{}{}[({} - 1) as usize] = __set_tmp;", indent_str, coll_str, index_str).unwrap();
+                    } else {
+                        writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
+                    }
+                }
+                Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
+                    writeln!(output, "{}{}.insert({}, {});", indent_str, coll_str, index_str, value_str).unwrap();
+                }
+                _ => {
+                    // Fallback: polymorphic indexing via trait
+                    if value_str.contains("logos_get") && value_str.contains(&coll_str) {
+                        writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
+                        writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, __set_tmp);", indent_str, coll_str, index_str).unwrap();
+                    } else {
+                        writeln!(output, "{}LogosIndexMut::logos_set(&mut {}, {}, {});", indent_str, coll_str, index_str, value_str).unwrap();
+                    }
+                }
             }
         }
 
@@ -5620,7 +5697,8 @@ fn codegen_expr_boxed(
     // Delegate to codegen_expr_full with empty context for boxed bindings and string vars
     let empty_boxed = HashSet::new();
     let empty_strings = HashSet::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, &empty_strings)
+    let empty_types = HashMap::new();
+    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, &empty_strings, &empty_types)
 }
 
 /// Codegen with string variable tracking for proper string concatenation.
@@ -5634,7 +5712,23 @@ fn codegen_expr_boxed_with_strings(
     string_vars: &HashSet<Symbol>,
 ) -> String {
     let empty_boxed = HashSet::new();
-    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, string_vars)
+    let empty_types = HashMap::new();
+    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, string_vars, &empty_types)
+}
+
+/// Codegen with variable type tracking for direct collection indexing optimization.
+fn codegen_expr_boxed_with_types(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    async_functions: &HashSet<Symbol>,
+    string_vars: &HashSet<Symbol>,
+    variable_types: &HashMap<Symbol, String>,
+) -> String {
+    let empty_boxed = HashSet::new();
+    codegen_expr_boxed_internal(expr, interner, synced_vars, boxed_fields, registry, async_functions, &empty_boxed, string_vars, variable_types)
 }
 
 /// Internal implementation of codegen_expr_boxed that can handle extra context.
@@ -5647,11 +5741,12 @@ fn codegen_expr_boxed_internal(
     async_functions: &HashSet<Symbol>,
     boxed_bindings: &HashSet<Symbol>,
     string_vars: &HashSet<Symbol>,
+    variable_types: &HashMap<Symbol, String>,
 ) -> String {
     // Helper macro for recursive calls with all context
     macro_rules! recurse {
         ($e:expr) => {
-            codegen_expr_boxed_internal($e, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars)
+            codegen_expr_boxed_internal($e, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars, variable_types)
         };
     }
 
@@ -5729,8 +5824,24 @@ fn codegen_expr_boxed_internal(
         Expr::Index { collection, index } => {
             let coll_str = recurse!(collection);
             let index_str = recurse!(index);
-            // Phase 57: Polymorphic indexing via trait
-            format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
+            // Direct indexing for known collection types (avoids trait dispatch)
+            let known_type = if let Expr::Identifier(sym) = collection {
+                variable_types.get(sym).map(|s| s.as_str())
+            } else {
+                None
+            };
+            match known_type {
+                Some(t) if t.starts_with("Vec") => {
+                    format!("{}[({} - 1) as usize].clone()", coll_str, index_str)
+                }
+                Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
+                    format!("{}[&({})].clone()", coll_str, index_str)
+                }
+                _ => {
+                    // Fallback: polymorphic indexing via trait
+                    format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
+                }
+            }
         }
 
         Expr::Slice { collection, start, end } => {

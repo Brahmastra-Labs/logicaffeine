@@ -34,60 +34,70 @@ pub trait Showable {
 
 // Primitives: use Display formatting
 impl Showable for i32 {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for i64 {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for u64 {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for usize {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for f64 {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for bool {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for u8 {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for char {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for String {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
 }
 
 impl Showable for &str {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
@@ -95,6 +105,7 @@ impl Showable for &str {
 
 // Sequences: bracket notation with recursive formatting
 impl<T: Showable> Showable for Vec<T> {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[")?;
         for (i, item) in self.iter().enumerate() {
@@ -109,6 +120,7 @@ impl<T: Showable> Showable for Vec<T> {
 
 // Slices: same as Vec
 impl<T: Showable> Showable for [T] {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "[")?;
         for (i, item) in self.iter().enumerate() {
@@ -123,6 +135,7 @@ impl<T: Showable> Showable for [T] {
 
 // Reference to slice
 impl<T: Showable> Showable for &[T] {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         (*self).format_show(f)
     }
@@ -130,6 +143,7 @@ impl<T: Showable> Showable for &[T] {
 
 // Option type: shows "nothing" or the value
 impl<T: Showable> Showable for Option<T> {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Some(v) => v.format_show(f),
@@ -140,12 +154,14 @@ impl<T: Showable> Showable for Option<T> {
 
 // CRDT types: show the value
 impl Showable for logicaffeine_data::crdt::GCounter {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.value())
     }
 }
 
 impl Showable for logicaffeine_data::crdt::PNCounter {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.value())
     }
@@ -153,6 +169,7 @@ impl Showable for logicaffeine_data::crdt::PNCounter {
 
 // LWWRegister: show the current value
 impl<T: Showable> Showable for logicaffeine_data::crdt::LWWRegister<T> {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.get().format_show(f)
     }
@@ -160,6 +177,7 @@ impl<T: Showable> Showable for logicaffeine_data::crdt::LWWRegister<T> {
 
 // MVRegister: show single value or conflict notation
 impl<T: Showable + Clone + PartialEq> Showable for logicaffeine_data::crdt::MVRegister<T> {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let values = self.values();
         if values.len() == 1 {
@@ -182,6 +200,7 @@ impl<T: Showable + Clone + PartialEq> Showable for logicaffeine_data::crdt::MVRe
 
 // Dynamic Value type for tuples
 impl Showable for logicaffeine_data::Value {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Display::fmt(self, f)
     }
@@ -189,6 +208,7 @@ impl Showable for logicaffeine_data::Value {
 
 // Temporal types: Duration with human-readable formatting
 impl Showable for std::time::Duration {
+    #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let nanos = self.as_nanos();
         if nanos >= 3_600_000_000_000 {
@@ -215,6 +235,7 @@ impl Showable for std::time::Duration {
 
 /// The Show verb - prints value with natural formatting
 /// Takes a reference to avoid moving the value.
+#[inline(always)]
 pub fn show<T: Showable>(value: &T) {
     struct Wrapper<'a, T>(&'a T);
     impl<T: Showable> Display for Wrapper<'_, T> {
@@ -231,14 +252,17 @@ pub fn read_line() -> String {
     buffer.trim().to_string()
 }
 
+#[inline(always)]
 pub fn print<T: Display>(x: T) {
     print!("{}", x);
 }
 
+#[inline(always)]
 pub fn eprintln<T: Display>(x: T) {
     eprintln!("{}", x);
 }
 
+#[inline(always)]
 pub fn println<T: Display>(x: T) {
     println!("{}", x);
 }
