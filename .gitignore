@@ -22,11 +22,15 @@ node_modules/
 *.swp
 *.swo
 
-# Benchmarks
+# Benchmarks (build artifacts and raw data; latest.json is tracked for include_str!)
 benchmarks/.logos-bench-target/
 benchmarks/bin/
 benchmarks/generated/
-benchmarks/results/
+benchmarks/results/raw/
+benchmarks/results/history/
+
+# Local cargo config (mold linker — not available in CI)
+.cargo/
 
 # Environment
 .env
