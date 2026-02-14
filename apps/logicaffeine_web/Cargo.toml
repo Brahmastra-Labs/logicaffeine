@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-web"
-version = "0.8.5"
+version = "0.8.6"
 edition = "2021"
 description = "Web-based IDE for logicaffeine"
 license = "BUSL-1.1"

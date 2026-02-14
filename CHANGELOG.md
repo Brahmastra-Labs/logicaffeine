@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.8.5] - 2026-02-13
+## [0.8.6] - 2026-02-13
 
 ### Added
 - Benchmark suite with programs in 10 languages (C, C++, Rust, Go, Zig, Nim, Python, Ruby, JS, Java)

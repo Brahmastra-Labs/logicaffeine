@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-base"
-version = "0.8.5"
+version = "0.8.6"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
