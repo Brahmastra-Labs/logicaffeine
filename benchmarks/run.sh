@@ -785,7 +785,10 @@ compute_geometric_mean() {
 GEO_MEAN=$(compute_geometric_mean "$BENCHMARKS_JSON")
 info "Geometric means: $GEO_MEAN"
 
-# Final assembly
+# Final assembly — write large JSON to temp file to avoid "Argument list too long"
+BENCHMARKS_JSON_FILE=$(mktemp)
+printf '%s\n' "$BENCHMARKS_JSON" > "$BENCHMARKS_JSON_FILE"
+
 jq -n \
     --arg date "$DATE" \
     --arg commit "$COMMIT" \
@@ -794,7 +797,7 @@ jq -n \
     --arg logos_version "$LOGOS_VER" \
     --argjson versions "$VERSIONS" \
     --argjson languages "$LANGUAGES" \
-    --argjson benchmarks "$BENCHMARKS_JSON" \
+    --slurpfile benchmarks "$BENCHMARKS_JSON_FILE" \
     --argjson geo_mean "$GEO_MEAN" \
     '{
         schema_version: 1,
@@ -807,11 +810,13 @@ jq -n \
             versions: $versions
         },
         languages: $languages,
-        benchmarks: $benchmarks,
+        benchmarks: $benchmarks[0],
         summary: {
             geometric_mean_speedup_vs_c: $geo_mean
         }
     }' > "$RESULTS_DIR/latest.json"
+
+rm -f "$BENCHMARKS_JSON_FILE"
 
 ok "Phase 5 complete: results written to $RESULTS_DIR/latest.json"
 
