@@ -279,7 +279,7 @@ for bench in "${BENCHMARKS[@]}"; do
     [ -d "$BIN_DIR/java/$bench" ]  && verify "$bench" "Java" "java -cp $BIN_DIR/java/$bench Main" "$size" "$expected"
     [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && verify "$bench" "JavaScript" "node $PROGRAMS_DIR/$bench/main.js" "$size" "$expected"
     [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && verify "$bench" "Python" "python3 $PROGRAMS_DIR/$bench/main.py" "$size" "$expected"
-    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && verify "$bench" "Ruby" "ruby $PROGRAMS_DIR/$bench/main.rb" "$size" "$expected"
+    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && verify "$bench" "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_nim" ] && verify "$bench" "Nim" "$BIN_DIR/${bench}_nim" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_logos_release" ] && verify "$bench" "LOGOS (release)" "$BIN_DIR/${bench}_logos_release" "$size" "$expected"
     [ -f "$BIN_DIR/${bench}_logos_debug" ]   && verify "$bench" "LOGOS (debug)" "$BIN_DIR/${bench}_logos_debug" "$size" "$expected"
@@ -329,7 +329,7 @@ for bench in "${BENCHMARKS[@]}"; do
         [ -d "$BIN_DIR/java/$bench" ]  && HYPERFINE_ARGS+=(-n "Java" "java -cp $BIN_DIR/java/$bench Main $size")
         [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && HYPERFINE_ARGS+=(-n "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size")
         [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && HYPERFINE_ARGS+=(-n "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size")
-        [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && HYPERFINE_ARGS+=(-n "Ruby" "ruby $PROGRAMS_DIR/$bench/main.rb $size")
+        [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && HYPERFINE_ARGS+=(-n "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size")
         [ -f "$BIN_DIR/${bench}_nim" ] && HYPERFINE_ARGS+=(-n "Nim" "$BIN_DIR/${bench}_nim $size")
         [ -f "$BIN_DIR/${bench}_logos_release" ] && HYPERFINE_ARGS+=(-n "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size")
         [ -f "$BIN_DIR/${bench}_logos_debug" ]   && HYPERFINE_ARGS+=(-n "LOGOS (debug)" "$BIN_DIR/${bench}_logos_debug $size")

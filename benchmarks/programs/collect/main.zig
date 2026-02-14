@@ -1,9 +1,10 @@
 const std = @import("std");
 
 pub fn main() !void {
+    const stdout = std.io.getStdOut().writer();
     var args = std.process.args();
-    _ = args.next();
-    const arg = args.next() orelse return error.MissingArgument;
+    _ = args.skip();
+    const arg = args.next() orelse return;
     const n = try std.fmt.parseInt(i64, arg, 10);
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -24,7 +25,5 @@ pub fn main() !void {
             if (v == i * 2) found += 1;
         }
     }
-    var buf: [64]u8 = undefined;
-    const s = try std.fmt.bufPrint(&buf, "{}\n", .{found});
-    try std.fs.File.stdout().writeAll(s);
+    try stdout.print("{}\n", .{found});
 }

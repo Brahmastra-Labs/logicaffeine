@@ -1,9 +1,10 @@
 const std = @import("std");
 
 pub fn main() !void {
+    const stdout = std.io.getStdOut().writer();
     var args = std.process.args();
-    _ = args.next();
-    const arg = args.next() orelse return error.MissingArgument;
+    _ = args.skip();
+    const arg = args.next() orelse return;
     const n = try std.fmt.parseInt(i64, arg, 10);
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -23,7 +24,5 @@ pub fn main() !void {
     for (list.items) |c| {
         if (c == ' ') spaces += 1;
     }
-    var buf: [64]u8 = undefined;
-    const out = try std.fmt.bufPrint(&buf, "{}\n", .{spaces});
-    try std.fs.File.stdout().writeAll(out);
+    try stdout.print("{}\n", .{spaces});
 }

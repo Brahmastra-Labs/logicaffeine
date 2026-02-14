@@ -1,9 +1,10 @@
 const std = @import("std");
 
 pub fn main() !void {
+    const stdout = std.io.getStdOut().writer();
     var args = std.process.args();
-    _ = args.next();
-    const arg = args.next() orelse return error.MissingArgument;
+    _ = args.skip();
+    const arg = args.next() orelse return;
     const limit = try std.fmt.parseInt(usize, arg, 10);
 
     const allocator = std.heap.page_allocator;
@@ -21,7 +22,5 @@ pub fn main() !void {
             }
         }
     }
-    var buf: [64]u8 = undefined;
-    const s = try std.fmt.bufPrint(&buf, "{}\n", .{count});
-    try std.fs.File.stdout().writeAll(s);
+    try stdout.print("{}\n", .{count});
 }
