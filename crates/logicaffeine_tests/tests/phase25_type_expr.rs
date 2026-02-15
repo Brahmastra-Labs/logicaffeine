@@ -6,6 +6,8 @@
 //!
 //! Validates that TypeRegistry is working by parsing recursive generic types.
 
+mod common;
+
 use logicaffeine_compile::compile::compile_to_rust;
 
 // =============================================================================
@@ -121,4 +123,80 @@ fn mutable_with_list_annotation() {
     assert!(result.is_ok(), "Should parse mutable generic: {:?}", result);
     let rust = result.unwrap();
     assert!(rust.contains("let mut values: Vec<String>"), "Should emit mut Vec: {}", rust);
+}
+
+// =============================================================================
+// Test 4: Maybe as Dual Syntax for Option
+// =============================================================================
+
+#[test]
+fn maybe_of_int_annotation() {
+    let source = "## Main\nLet x: Maybe of Int be nothing.";
+    let result = compile_to_rust(source);
+    assert!(result.is_ok(), "Should parse Maybe of Int: {:?}", result);
+    let rust = result.unwrap();
+    assert!(rust.contains("Option<i64>"), "Maybe of Int should emit Option<i64>: {}", rust);
+}
+
+#[test]
+fn maybe_int_direct_syntax() {
+    let source = "## Main\nLet x: Maybe Int be nothing.";
+    let result = compile_to_rust(source);
+    assert!(result.is_ok(), "Should parse Maybe Int (no 'of'): {:?}", result);
+    let rust = result.unwrap();
+    assert!(rust.contains("Option<i64>"), "Maybe Int should emit Option<i64>: {}", rust);
+}
+
+#[test]
+fn maybe_text_direct_syntax() {
+    let source = "## Main\nLet x: Maybe Text be nothing.";
+    let result = compile_to_rust(source);
+    assert!(result.is_ok(), "Should parse Maybe Text: {:?}", result);
+    let rust = result.unwrap();
+    assert!(rust.contains("Option<String>"), "Maybe Text should emit Option<String>: {}", rust);
+}
+
+#[test]
+fn maybe_as_return_type() {
+    let source = r#"## To f () -> Maybe Int:
+    Return some 5.
+
+## Main
+Show f().
+"#;
+    let result = compile_to_rust(source);
+    assert!(result.is_ok(), "Should parse Maybe Int return type: {:?}", result);
+    let rust = result.unwrap();
+    assert!(rust.contains("Option<i64>"), "Maybe return type should emit Option<i64>: {}", rust);
+}
+
+#[test]
+fn maybe_nested_generic() {
+    let source = "## Main\nLet x: Maybe List of Int be nothing.";
+    let result = compile_to_rust(source);
+    assert!(result.is_ok(), "Should parse Maybe List of Int: {:?}", result);
+    let rust = result.unwrap();
+    assert!(rust.contains("Option<Vec<i64>>"), "Maybe List of Int should emit Option<Vec<i64>>: {}", rust);
+}
+
+#[test]
+fn e2e_maybe_some_value() {
+    let source = r#"## To f () -> Maybe Int:
+    Return some 42.
+
+## Main
+Show f().
+"#;
+    common::assert_exact_output(source, "42");
+}
+
+#[test]
+fn e2e_maybe_nothing() {
+    let source = r#"## To f () -> Maybe Int:
+    Return none.
+
+## Main
+Show f().
+"#;
+    common::assert_exact_output(source, "nothing");
 }

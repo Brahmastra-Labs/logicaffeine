@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.14] - 2026-02-15
+
+### Added
+- Deep expression recursion in constant folder — all 26 Expr variants now get sub-expressions folded
+- Unreachable-after-return DCE — statements after `Return` truncated from blocks
+- Algebraic simplification — identity/annihilator rules for int and float (`x + 0`, `x * 1`, `x * 0`, etc.)
+- Maybe type support in codegen — `Maybe` handled as alias for `Option` in all 7 codegen paths
+
 ## [0.8.13] - 2026-02-14
 
 ### Added

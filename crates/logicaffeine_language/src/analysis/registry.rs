@@ -161,6 +161,7 @@ impl TypeRegistry {
         reg.register(interner.intern("Map"), TypeDef::Generic { param_count: 2 });  // Phase 43D: Key-value maps
         reg.register(interner.intern("Set"), TypeDef::Generic { param_count: 1 });  // Set collection (HashSet)
         reg.register(interner.intern("Option"), TypeDef::Generic { param_count: 1 });
+        reg.register(interner.intern("Maybe"), TypeDef::Generic { param_count: 1 });
         reg.register(interner.intern("Result"), TypeDef::Generic { param_count: 2 });
 
         reg

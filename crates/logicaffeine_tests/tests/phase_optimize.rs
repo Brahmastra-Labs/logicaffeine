@@ -806,3 +806,339 @@ Otherwise:
 "#;
     common::assert_exact_output(source, "even");
 }
+
+// =============================================================================
+// Unreachable-After-Return DCE (0-B)
+// =============================================================================
+
+#[test]
+fn dce_unreachable_after_return() {
+    let source = r#"## To f () -> Int:
+    Return 42.
+    Show "dead".
+    Return 99.
+
+## Main
+Show f().
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // After the first Return, Show and second Return should be eliminated
+    assert!(!rust.contains("dead"), "Statements after Return should be eliminated.\nGot:\n{}", rust);
+    assert!(!rust.contains("99"), "Second Return should be eliminated.\nGot:\n{}", rust);
+    assert!(rust.contains("42"), "First Return should be preserved.\nGot:\n{}", rust);
+}
+
+#[test]
+fn dce_unreachable_after_return_in_main() {
+    let source = r#"## Main
+Show 42.
+Return.
+Show 99.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("99"), "Show after Return in Main should be eliminated.\nGot:\n{}", rust);
+    assert!(rust.contains("42"), "Show before Return should be preserved.\nGot:\n{}", rust);
+}
+
+#[test]
+fn dce_unreachable_after_folded_if_true_return() {
+    let source = r#"## To f () -> Int:
+    If true:
+        Return 1.
+    Return 2.
+
+## Main
+Show f().
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // After fold+DCE, `if true: Return 1.` inlines to `Return 1.` at block level,
+    // so `Return 2.` should be eliminated as unreachable
+    assert!(rust.contains("1"), "Inlined Return 1 should be preserved.\nGot:\n{}", rust);
+    assert!(!rust.contains("return 2"), "Return 2 after inlined Return 1 should be eliminated.\nGot:\n{}", rust);
+}
+
+#[test]
+fn e2e_dce_unreachable_after_return_correct() {
+    let source = r#"## To f () -> Int:
+    Return 42.
+    Return 99.
+
+## Main
+Show f().
+"#;
+    common::assert_exact_output(source, "42");
+}
+
+#[test]
+fn dce_return_inside_if_does_not_truncate_outer() {
+    let source = r#"## To f (x: Int) -> Int:
+    If x > 0:
+        Return x.
+    Return 0.
+
+## Main
+Show f(5).
+Show f(0).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Return inside If should NOT kill the outer block's Return 0
+    assert!(rust.contains("return 0") || rust.contains("0i64"), "Return inside If should not kill outer Return.\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Deep Expression Recursion (0-A)
+// =============================================================================
+
+#[test]
+fn fold_inside_function_call_args() {
+    let source = r#"## To double (n: Int) -> Int:
+    Return n * 2.
+
+## Main
+Show double(2 + 3).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("double(5)"), "Should fold 2+3 inside call args to 5.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_inside_list_literal() {
+    let source = r#"## Main
+Let items be [1 + 2, 3 * 4].
+Show items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("3") && rust.contains("12"), "Should fold expressions inside list literal.\nGot:\n{}", rust);
+    assert!(!rust.contains("1 + 2") && !rust.contains("3 * 4"), "Should not have unfolded expressions.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_inside_index_expression() {
+    let source = r#"## Main
+Let items be [10, 20, 30].
+Let x be item (1 + 1) of items.
+Show x.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // The index expression 1+1 should be folded to 2
+    assert!(!rust.contains("1 + 1"), "Should fold 1+1 in index expression.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_inside_struct_constructor() {
+    let source = r#"## A Point has x Int and y Int.
+
+## Main
+Let p be a new Point with x (2 + 3) and y (10 - 4).
+Show p's x.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("5"), "Should fold 2+3 in struct constructor field.\nGot:\n{}", rust);
+    assert!(rust.contains("6"), "Should fold 10-4 in struct constructor field.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_inside_option_some() {
+    let source = r#"## To f () -> Option of Int:
+    Return some (2 + 3).
+
+## Main
+Show f().
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("Some(5)"), "Should fold 2+3 inside Option Some.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_inside_contains() {
+    let source = r#"## Main
+Let items be [10, 20, 30].
+If items contains (5 + 5):
+    Show "found".
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // The contains argument 5+5 should be folded to 10
+    assert!(!rust.contains("5 + 5"), "Should fold 5+5 in contains arg.\nGot:\n{}", rust);
+}
+
+#[test]
+fn e2e_fold_call_args_correct() {
+    let source = r#"## To double (n: Int) -> Int:
+    Return n * 2.
+
+## Main
+Show double(2 + 3).
+"#;
+    common::assert_exact_output(source, "10");
+}
+
+#[test]
+fn e2e_fold_list_elements_correct() {
+    let source = r#"## Main
+Let items be [1 + 2, 3 * 4, 10 - 5].
+Repeat for x in items:
+    Show x.
+"#;
+    common::assert_exact_output(source, "3\n12\n5");
+}
+
+// =============================================================================
+// Algebraic Simplification (0-C)
+// =============================================================================
+
+#[test]
+fn fold_algebraic_add_zero_right() {
+    let source = r#"## Main
+Let a be 7.
+Let b be a + 0.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // a + 0 should simplify to just a (no addition in output)
+    assert!(!rust.contains("+ 0"), "x + 0 should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_add_zero_left() {
+    let source = r#"## Main
+Let a be 7.
+Let b be 0 + a.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("0 +") && !rust.contains("0i64 +"), "0 + x should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_multiply_one_right() {
+    let source = r#"## Main
+Let a be 7.
+Let b be a * 1.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("* 1"), "x * 1 should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_multiply_one_left() {
+    let source = r#"## Main
+Let a be 7.
+Let b be 1 * a.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("1 *") && !rust.contains("1i64 *"), "1 * x should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_multiply_zero() {
+    let source = r#"## Main
+Let a be 7.
+Let b be a * 0.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // a * 0 should simplify to 0
+    assert!(rust.contains("let b = 0") || rust.contains("let b: i64 = 0"), "x * 0 should simplify to 0.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_multiply_zero_left() {
+    let source = r#"## Main
+Let a be 7.
+Let b be 0 * a.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("let b = 0") || rust.contains("let b: i64 = 0"), "0 * x should simplify to 0.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_subtract_zero() {
+    let source = r#"## Main
+Let a be 7.
+Let b be a - 0.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("- 0"), "x - 0 should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_divide_by_one() {
+    let source = r#"## Main
+Let a be 7.
+Let b be a / 1.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("/ 1"), "x / 1 should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_float_add_zero() {
+    let source = r#"## Main
+Let a be 7.0.
+Let b be a + 0.0.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("+ 0.0") && !rust.contains("+ 0f64"), "Float x + 0.0 should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_float_multiply_one() {
+    let source = r#"## Main
+Let a be 7.0.
+Let b be a * 1.0.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("* 1.0") && !rust.contains("* 1f64"), "Float x * 1.0 should simplify to x.\nGot:\n{}", rust);
+}
+
+#[test]
+fn fold_algebraic_float_multiply_zero() {
+    let source = r#"## Main
+Let a be 7.0.
+Let b be a * 0.0.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Float x * 0.0 should simplify to 0.0 — no multiplication of a
+    assert!(!rust.contains("a * 0") && !rust.contains("a *"), "Float x * 0.0 should simplify to 0.0.\nGot:\n{}", rust);
+}
+
+#[test]
+fn e2e_algebraic_identity_correct() {
+    let source = r#"## Main
+Let a be 7.
+Show a + 0.
+Show 0 + a.
+Show a * 1.
+Show 1 * a.
+Show a * 0.
+Show 0 * a.
+Show a - 0.
+Show a / 1.
+"#;
+    common::assert_exact_output(source, "7\n7\n7\n7\n0\n0\n7\n7");
+}
+
+// =============================================================================
+// Cascading: Deep Recursion + Algebraic (0-A + 0-C)
+// =============================================================================
+
+#[test]
+fn fold_algebraic_nested_in_call() {
+    let source = r#"## To double (n: Int) -> Int:
+    Return n * 2.
+
+## Main
+Show double(5 + 0).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Deep recursion folds into call args, then algebraic simplifies 5+0 to 5
+    assert!(rust.contains("double(5)"), "Should fold 5+0 to 5 inside call args.\nGot:\n{}", rust);
+}

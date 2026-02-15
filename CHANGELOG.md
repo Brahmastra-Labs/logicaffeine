@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.14] - 2026-02-15
+
+### Added
+- **TIER 0 optimizer bedrock** — deep expression recursion, unreachable-after-return DCE, algebraic simplification
+  - Constant folding now recurses into all 26 Expr variants (function call args, list literals, index expressions, struct constructors, Option/Maybe Some, Contains, Closure bodies)
+  - Statements after `Return` are eliminated as dead code
+  - Algebraic identity/annihilator rules for both int and float: `x + 0 → x`, `x * 1 → x`, `x * 0 → 0`, `x - 0 → x`, `x / 1 → x`
+- **Maybe syntax** — `Maybe Int` and `Maybe of Int` as dual syntax for `Option of Int`
+  - Supports direct Haskell-style `Maybe T` (no "of" required) and consistent `Maybe of T`
+  - Works in all positions: variable annotations, return types, nested generics
+- 33 new optimizer and type expression tests
+
+### Fixed
+- Publish workflow: skip already-published crates instead of failing
+
 ## [0.8.13] - 2026-02-14
 
 ### Added

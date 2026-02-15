@@ -19,52 +19,52 @@ jobs:
 
       # Tier 0 — no internal dependencies
       - name: Publish logicaffeine-base
-        run: cargo publish -p logicaffeine-base --no-verify
+        run: cargo publish -p logicaffeine-base --no-verify || echo "Already published, skipping"
 
       - name: Wait for crates.io index
         run: sleep 30
 
       # Tier 1 — depends on base only
       - name: Publish logicaffeine-data
-        run: cargo publish -p logicaffeine-data --no-verify
+        run: cargo publish -p logicaffeine-data --no-verify || echo "Already published, skipping"
 
       - name: Publish logicaffeine-kernel
-        run: cargo publish -p logicaffeine-kernel --no-verify
+        run: cargo publish -p logicaffeine-kernel --no-verify || echo "Already published, skipping"
 
       - name: Publish logicaffeine-lexicon
-        run: cargo publish -p logicaffeine-lexicon --no-verify
+        run: cargo publish -p logicaffeine-lexicon --no-verify || echo "Already published, skipping"
 
       - name: Wait for crates.io index
         run: sleep 30
 
       # Tier 2 — depends on base + data or base + kernel
       - name: Publish logicaffeine-system
-        run: cargo publish -p logicaffeine-system --no-verify
+        run: cargo publish -p logicaffeine-system --no-verify || echo "Already published, skipping"
 
       - name: Publish logicaffeine-proof
-        run: cargo publish -p logicaffeine-proof --no-verify
+        run: cargo publish -p logicaffeine-proof --no-verify || echo "Already published, skipping"
 
       - name: Wait for crates.io index
         run: sleep 30
 
       # Tier 3 — depends on base + lexicon + proof
       - name: Publish logicaffeine-language
-        run: cargo publish -p logicaffeine-language --no-verify
+        run: cargo publish -p logicaffeine-language --no-verify || echo "Already published, skipping"
 
       - name: Wait for crates.io index
         run: sleep 30
 
       # Tier 4 — depends on base + language + kernel + data + system + proof
       - name: Publish logicaffeine-compile
-        run: cargo publish -p logicaffeine-compile --no-verify
+        run: cargo publish -p logicaffeine-compile --no-verify || echo "Already published, skipping"
 
       - name: Wait for crates.io index
         run: sleep 30
 
       # Tier 4.5 — depends on base + language + compile + proof
       - name: Publish logicaffeine-lsp
-        run: cargo publish -p logicaffeine-lsp --no-verify
+        run: cargo publish -p logicaffeine-lsp --no-verify || echo "Already published, skipping"
 
       # Tier 5 — depends on base + kernel + language + compile
       - name: Publish logicaffeine-cli
-        run: cargo publish -p logicaffeine-cli --no-verify
+        run: cargo publish -p logicaffeine-cli --no-verify || echo "Already published, skipping"

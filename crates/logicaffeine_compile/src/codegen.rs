@@ -446,7 +446,7 @@ fn classify_type_for_c_abi(ty: &TypeExpr, interner: &Interner, registry: &TypeRe
         TypeExpr::Generic { base, .. } => {
             let base_name = interner.resolve(*base);
             match base_name {
-                "Option" => {
+                "Option" | "Maybe" => {
                     // Option of value type → value type (struct { present, value })
                     // Option of reference type → reference type
                     // For simplicity, treat all Options as reference types for now
@@ -526,7 +526,7 @@ fn mangle_type_for_c(ty: &TypeExpr, interner: &Interner) -> String {
                 "Seq" | "List" | "Vec" => format!("seq_{}", param_strs.join("_")),
                 "Map" | "HashMap" => format!("map_{}", param_strs.join("_")),
                 "Set" | "HashSet" => format!("set_{}", param_strs.join("_")),
-                "Option" => format!("option_{}", param_strs.join("_")),
+                "Option" | "Maybe" => format!("option_{}", param_strs.join("_")),
                 "Result" => format!("result_{}", param_strs.join("_")),
                 other => format!("{}_{}", other.to_lowercase(), param_strs.join("_")),
             }
@@ -1278,7 +1278,7 @@ fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: &TypeRegist
                     writeln!(out, "}}\n").unwrap();
                 }
 
-                "Option" if !params.is_empty() => {
+                "Option" | "Maybe" if !params.is_empty() => {
                     let inner_rust_type = codegen_type_expr(&params[0], interner);
                     let is_inner_text = is_text_type(&params[0], interner);
                     let opt_type = format!("Option<{}>", inner_rust_type);
@@ -1943,7 +1943,7 @@ pub fn generate_c_header(
                             writeln!(out, "char* logos_{}_to_json(logos_handle_t handle);", mangled).unwrap();
                             writeln!(out, "void logos_{}_free(logos_handle_t handle);", mangled).unwrap();
                         }
-                        "Option" if !params.is_empty() => {
+                        "Option" | "Maybe" if !params.is_empty() => {
                             let is_inner_text = is_text_type(&params[0], interner);
                             writeln!(out, "bool logos_{}_is_some(logos_handle_t handle);", mangled).unwrap();
                             if is_inner_text {
@@ -2309,7 +2309,7 @@ fn typescript_type(ty: &TypeExpr, interner: &Interner) -> String {
                 "Seq" | "List" | "Vec" if !params.is_empty() => {
                     format!("{}[]", typescript_type(&params[0], interner))
                 }
-                "Option" if !params.is_empty() => {
+                "Option" | "Maybe" if !params.is_empty() => {
                     format!("{} | null", typescript_type(&params[0], interner))
                 }
                 _ => "any".to_string(),
@@ -5111,7 +5111,7 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                         "Result<(), String>".to_string()
                     }
                 }
-                "Option" => {
+                "Option" | "Maybe" => {
                     if !params_str.is_empty() {
                         format!("Option<{}>", params_str[0])
                     } else {
@@ -5442,7 +5442,7 @@ fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String {
                 "List" | "Seq" => "Vec",
                 "Set" => "std::collections::HashSet",
                 "Map" => "std::collections::HashMap",
-                "Option" => "Option",
+                "Option" | "Maybe" => "Option",
                 "Result" => "Result",
                 // Phase 49: CRDT generic type
                 "LastWriteWins" => "logicaffeine_data::crdt::LWWRegister",

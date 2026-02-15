@@ -82,6 +82,10 @@ pub fn eliminate_dead_code<'a>(stmts: Vec<Stmt<'a>>, stmt_arena: &'a Arena<Stmt<
         }
     }
 
+    if let Some(pos) = result.iter().position(|s| matches!(s, Stmt::Return { .. })) {
+        result.truncate(pos + 1);
+    }
+
     result
 }
 

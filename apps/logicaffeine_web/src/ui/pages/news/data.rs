@@ -62,6 +62,265 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-8-14-bedrock",
+        title: "v0.8.14 — Bedrock and Maybe",
+        date: "2026-02-15",
+        summary: "Deep expression folding across all 26 AST variants, unreachable-after-return elimination, algebraic identity simplification for integers and floats, and Maybe as dual syntax for Option.",
+        content: r#"
+## Deep Expression Recursion
+
+The constant folder previously handled top-level binary expressions but left sub-expressions inside function calls, list literals, struct constructors, index expressions, `Option`/`Maybe` `Some` wrappers, `Contains` checks, and closures untouched. A catch-all `_ => expr` arm silently passed through 20+ `Expr` variants without recursing.
+
+v0.8.14 replaces the catch-all with exhaustive matching across all 26 variants. Every sub-expression site — `Call` args, `List` elements, `New` field initializers, `Index` expressions, `OptionSome` values, `Closure` bodies — now gets folded. Given:
+
+```
+## To double (n: Int) -> Int:
+    Return n * 2.
+
+## Main
+Show double(2 + 3).
+```
+
+The `2 + 3` inside the call arguments folds to `5` before codegen, producing `double(5)` instead of `double(2 + 3)`.
+
+## Unreachable-After-Return DCE
+
+Statements following a `Return` in the same block are dead code. The dead code elimination pass now truncates blocks after the first `Return`:
+
+```
+## To f () -> Int:
+    Return 42.
+    Show "unreachable".
+    Return 99.
+```
+
+The `Show` and second `Return` are eliminated. This also catches returns inlined from constant-folded `if true` branches. Returns inside nested `If` blocks do not incorrectly truncate the outer block.
+
+## Algebraic Simplification
+
+A new `try_simplify_algebraic` pass fires when one operand of a binary expression is a known identity or annihilator:
+
+| Pattern | Result |
+|---------|--------|
+| `x + 0`, `0 + x` | `x` |
+| `x * 1`, `1 * x` | `x` |
+| `x * 0`, `0 * x` | `0` |
+| `x - 0` | `x` |
+| `x / 1` | `x` |
+
+These rules apply to both integers and floats. The simplification returns the surviving operand directly — no arena allocation needed. Combined with deep expression recursion, `double(5 + 0)` first recurses into the call argument, then simplifies `5 + 0` to `5`, producing `double(5)`.
+
+## Maybe Syntax
+
+`Maybe` is now a first-class alias for `Option`. Both forms work interchangeably:
+
+```
+Let x: Option of Int be nothing.
+Let y: Maybe of Int be nothing.
+Let z: Maybe Int be nothing.
+```
+
+The direct form — `Maybe Int` without the `of` preposition — follows Haskell convention. It works in all positions: variable annotations, function return types, and nested generics (`Maybe List of Int` → `Option<Vec<i64>>`). All seven codegen paths that handle `Option` now accept `Maybe` identically.
+"#,
+        tags: &["release", "performance", "compiler"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
+        slug: "release-0-8-13-optimizer",
+        title: "v0.8.10–0.8.13 — The Optimizer",
+        date: "2026-02-14",
+        summary: "Accumulator introduction, automatic memoization, mutual tail call optimization, purity analysis, peephole patterns, and copy-type elision — recursive functions now compile to loops, and generated code approaches hand-written Rust.",
+        content: r#"
+## Accumulator Introduction
+
+The centerpiece of this release cluster is **accumulator introduction**. The optimizer detects recursive patterns like `f(n-1) + k` (additive) and `n * f(n-1)` (multiplicative) and rewrites them into zero-overhead loops. Given this LOGOS source:
+
+```
+## To factorial (n: Int) -> Int:
+    If n is at most 1:
+        Return 1.
+    Return n * factorial(n - 1).
+```
+
+The codegen emits:
+
+```rust
+fn factorial(mut n: i64) -> i64 {
+    let mut __acc: i64 = 1;
+    loop {
+        if n <= 1 {
+            return __acc * 1;
+        }
+        {
+            let __acc_expr = n;
+            __acc = __acc * __acc_expr;
+            let __tce_0 = n - 1;
+            n = __tce_0;
+            continue;
+        }
+    }
+}
+```
+
+The identity element (`1` for multiplication, `0` for addition) initializes the accumulator. Each recursive return becomes an accumulator update and a `continue`. Stack frames are eliminated entirely.
+
+## Mutual TCO and Memoization
+
+**Mutual tail call optimization** handles function pairs like `isEven`/`isOdd` that call each other in tail position. The optimizer merges them into a single `__mutual_isEven_isOdd` function with a `__tag: u8` parameter and a `loop { match __tag { 0 => { ... }, 1 => { ... } } }` dispatch. The original functions become `#[inline]` wrappers that call the merged function with the appropriate tag.
+
+**Automatic memoization** targets pure functions with multiple recursive calls. A fixed-point **purity analysis** identifies side-effect-free functions (no `Show`, file I/O, CRDT operations, etc.). Pure multi-branch functions like Fibonacci receive a `thread_local!` `RefCell<HashMap>` cache — the function checks the cache before executing, stores results after, and drops complexity from O(2^n) to O(n) with zero source changes.
+
+## Peephole Patterns and Build Profile
+
+Lower-level optimizations target generated Rust quality:
+
+- **Vec fill**: a push loop with constant value becomes `vec![val; count]`
+- **Swap pattern**: adjacent-index comparisons with temp-variable swaps become `arr.swap(i, j)`
+- **Copy-type elision**: `.clone()` on `Vec`/`HashMap` indexing dropped for `Copy` types (`i64`, `f64`, `bool`)
+- **Direct collection indexing**: known `Vec`/`HashMap` types use direct indexing instead of trait dispatch
+- **HashMap equality**: `map.get()` replaces `map[key].clone()` in comparisons
+
+Release builds use `opt-level = 3`, `codegen-units = 1`, `panic = "abort"`, `strip = true`, and LTO. Hot paths carry `#[inline]`; all `Showable`, `LogosContains`, and `LogosIndex` trait impls use `#[inline(always)]`.
+"#,
+        tags: &["release", "performance", "compiler"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
+        slug: "release-0-8-6-benchmarks",
+        title: "v0.8.6 — Ten-Language Benchmark Suite",
+        date: "2026-02-13",
+        summary: "A benchmark suite comparing LOGOS against C, C++, Rust, Go, Zig, Nim, Python, Ruby, JavaScript, and Java — with CI automation and an interactive results page.",
+        content: r#"
+## Why Benchmark
+
+Performance claims without numbers are marketing. We implemented 6 benchmark programs in 10 languages and LOGOS, measured wall-clock time with `hyperfine` (3 warmup runs, 10 measured runs), and published the results on every release.
+
+## The Programs
+
+Six programs exercise different computational patterns:
+
+- **fib** — naive recursive Fibonacci (function call overhead)
+- **sieve** — Sieve of Eratosthenes (array mutation, tight loops)
+- **collect** — hash map insert/lookup (allocation pressure)
+- **strings** — string concatenation (allocator throughput)
+- **bubble_sort** — O(n²) sort (nested loops, array mutation, swaps)
+- **ackermann** — Ackermann function (extreme recursion depth, stack frame overhead)
+
+Each program is implemented idiomatically in C, C++, Rust, Go, Zig, Nim, Python, Ruby, JavaScript, and Java. No artificial handicaps or advantages.
+
+## CI Integration
+
+A GitHub Actions workflow runs the full benchmark suite on every tagged release. The runner compiles all implementations, verifies correctness against expected output files, benchmarks runtime with `hyperfine`, measures compilation time separately, and assembles the results into `benchmarks/results/latest.json`. Results are committed back to the repository, and the frontend deploy triggers after benchmarks land.
+
+Versioned results are archived in `benchmarks/results/history/`, so performance trends are recoverable across releases.
+
+## The Results Page
+
+The `/benchmarks` page embeds `latest.json` at compile time. Each benchmark tab shows grouped bar charts split by language tier (systems, managed, transpiled, interpreted), with LOGOS highlighted. Collapsible sections show full statistics (mean, median, stddev, min, max, coefficient of variation), source code for all implementations side-by-side, and compilation time comparisons.
+
+A cross-benchmark summary computes geometric mean speedup versus C across all 6 programs, providing a single aggregate performance number.
+
+## What It Measures
+
+The benchmark suite tests the full compilation path: LOGOS source → parser → codegen → Rust output → `rustc` → binary. Interpreter mode runs separately at smaller input sizes. This means the numbers reflect codegen quality — the optimizer's job — and `rustc` optimization of the generated code. When LOGOS gets faster, it's because the generated Rust got better.
+"#,
+        tags: &["release", "performance", "benchmarks"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
+        slug: "release-0-8-2-interpreter-optimizer",
+        title: "v0.8.2 — Interpreter Mode and Optimizer Infrastructure",
+        date: "2026-02-12",
+        summary: "An interpreter for sub-second feedback during development, the first optimizer passes (constant folding, dead code elimination), and map insertion syntax.",
+        content: r#"
+## Interpreter Mode
+
+Before v0.8.2, every code change required a full compilation cycle: LOGOS source → Rust codegen → `cargo build` → run binary. For large projects, that's minutes of waiting per iteration.
+
+`largo run --interpret` bypasses codegen entirely. The interpreter walks the AST directly, evaluating expressions and executing statements without generating Rust. Startup is sub-second.
+
+The interpreter supports the full language surface: variables, functions, control flow, collections, structs, enums, pattern matching, string operations, and arithmetic. It handles 1-based indexing, type coercion, and the standard library. The goal is behavioral equivalence with compiled output — if it works in the interpreter, it works when compiled.
+
+Interpreter mode is for development. It doesn't optimize, doesn't type-check at the Rust level, and runs slower than compiled code by orders of magnitude. But it turns the edit-run cycle from minutes to milliseconds.
+
+## Optimizer Infrastructure
+
+This release lays the foundation for all subsequent optimization work (v0.8.10–0.8.13). Two passes ship in v0.8.2:
+
+**Constant folding** evaluates compile-time-known expressions during codegen. `3 + 4` becomes `7` in the generated Rust, not a runtime addition. This propagates through variable assignments when the optimizer can prove the value is constant.
+
+**Dead code elimination** removes unreachable branches. An `if false { ... }` block (after constant folding resolves the condition) is dropped entirely from the output. This keeps generated code clean and reduces what `rustc` has to process.
+
+Both passes operate on the AST before Rust emission — they improve codegen quality without changing language semantics.
+
+## Map Insertion Syntax
+
+A new syntax form for map mutations:
+
+```
+Set scores at "alice" to 95.
+```
+
+This generates `scores.insert("alice".to_string(), 95)` in Rust. Previously, map insertion required method-call syntax that didn't match the natural-language feel of the rest of the language.
+
+## FFI Safety Hardening
+
+The C export system introduced in v0.8.0 received safety improvements: thread-local error caching (so FFI errors don't cross thread boundaries), panic boundaries at every exported function (so a LOGOS panic doesn't unwind into C), null handle validation, and a dynamic `logos_version()` function for ABI compatibility checking.
+
+`LogosHandle` changed from `*const c_void` to `*mut c_void` to correctly represent mutable state. Text/String types are excluded from the C ABI value types — they require explicit conversion through the string API.
+"#,
+        tags: &["release", "feature", "performance"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
+        slug: "release-0-8-0-lsp-ffi",
+        title: "v0.8.0 — LSP Server and FFI System",
+        date: "2026-02-10",
+        summary: "A Language Server Protocol implementation with full language intelligence, a VSCode extension for 5 platforms, and a C FFI export system for cross-language interop.",
+        content: r#"
+## Language Server
+
+LOGOS ships an LSP server with 14 features across four categories. The server runs as `largo lsp` over stdio, maintaining per-document state with full re-analysis on every keystroke.
+
+**Code intelligence**: diagnostics (real-time parse and analysis errors), hover (type info, verb class, tense, aspect), and semantic tokens (keyword, variable, function, struct, string, number classifications with delta encoding).
+
+**Navigation**: go to definition, find references, document symbols (outline view), and code lens (inline reference counts above definitions).
+
+**Refactoring**: rename (with prepare-rename validation) and code actions (extract to function, dead code elimination).
+
+**Editing**: completions (triggered on `.`, `:`, `'`), signature help (triggered on `with`, `,`), inlay hints (inferred types, parameter names), folding ranges, and formatting.
+
+Token resolution handles the full range of name-bearing token types: `Identifier`, `ProperName`, `Noun`, `Adjective`, and `Verb`. A variable named `x` might be lexed as `Adjective(Symbol)` rather than `Identifier` — the server resolves this uniformly through a centralized `resolve_token_name()` function.
+
+## VSCode Extension
+
+The extension bundles pre-compiled LSP binaries for 5 platform targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, and `x86_64-pc-windows-msvc`. Installation is zero-configuration. TextMate grammars handle syntax highlighting; semantic token overrides from the LSP provide meaning-aware coloring.
+
+## FFI / C Export System
+
+Functions marked `is exported` get C-linkage wrappers for consumption by C, C++, Python (via ctypes/cffi), and any language with a C FFI:
+
+```
+## To add (a: Int) and (b: Int) -> Int is exported:
+    Return a + b.
+```
+
+The codegen emits `#[export_name = "logos_add"] pub extern "C" fn` with `std::panic::catch_unwind` boundaries. Integer and float parameters pass directly; text parameters marshal through `*const c_char` input / `*mut *mut c_char` output with null-pointer validation. A `LogosStatus` enum (`Ok`, `NullPointer`, `ThreadPanic`, etc.) communicates errors. Collections and structs cross the boundary as opaque `LogosHandle` pointers with typed accessor functions (`logos_seq_i64_push`, `logos_person_age`, etc.).
+
+## CI/CD
+
+Three GitHub Actions workflows ship with v0.8.0:
+
+- **Release**: builds platform binaries and the VSCode extension `.vsix` on tag push
+- **Publish**: publishes all workspace crates to crates.io in dependency order
+- **Deploy**: builds the WASM frontend and deploys to production
+
+The publish workflow handles the lockstep versioning scheme — all 11 crates share a single version number and publish atomically.
+"#,
+        tags: &["release", "tools", "feature"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "stablecoins-treasury-future-of-money",
         title: "Stablecoins, Treasury Bills, and the Future of American Money",
         date: "2026-02-02",

@@ -558,7 +558,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 .or_else(|| match base_name {
                     // Built-in generic types for Phase 38 std library
                     "Result" => Some(2),    // Result of T and E
-                    "Option" => Some(1),    // Option of T
+                    "Option" | "Maybe" => Some(1),    // Option of T / Maybe T
                     "Seq" | "List" | "Vec" => Some(1),  // Seq of T
                     "Set" | "HashSet" => Some(1), // Set of T
                     "Map" | "HashMap" => Some(2), // Map of K and V
@@ -574,8 +574,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Check if it's a known generic type with parameters
             if let Some(count) = param_count {
-                if self.check_of_preposition() || self.check_preposition_is("from") {
-                    self.advance(); // consume "of" or "from"
+                let has_preposition = self.check_of_preposition() || self.check_preposition_is("from");
+                // Maybe supports direct syntax without "of": "Maybe Int", "Maybe Text"
+                let maybe_direct = !has_preposition && base_name == "Maybe" && matches!(
+                    self.peek().kind,
+                    TokenType::Noun(_) | TokenType::Adjective(_) | TokenType::ProperName(_) | TokenType::Verb { .. }
+                );
+                if has_preposition || maybe_direct {
+                    if has_preposition {
+                        self.advance(); // consume "of" or "from"
+                    }
 
                     let mut params = Vec::new();
                     for i in 0..count {
