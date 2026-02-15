@@ -287,6 +287,26 @@ impl<'a> EscapeChecker<'a> {
             // Escape expressions are opaque — the Rust compiler handles zone safety for raw code
             Expr::Escape { .. } => {}
 
+            Expr::Closure { body, .. } => {
+                match body {
+                    crate::ast::stmt::ClosureBody::Expression(expr) => {
+                        self.check_no_escape(expr, max_depth)?;
+                    }
+                    crate::ast::stmt::ClosureBody::Block(_) => {
+                        // Block closures don't escape zone values through their definition.
+                        // The closure body is a separate scope; zone safety for the body
+                        // is checked when the closure is called, not when it's defined.
+                    }
+                }
+            }
+
+            Expr::CallExpr { callee, args } => {
+                self.check_no_escape(callee, max_depth)?;
+                for arg in args {
+                    self.check_no_escape(arg, max_depth)?;
+                }
+            }
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }

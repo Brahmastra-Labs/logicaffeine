@@ -1,0 +1,1015 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "date": "2026-02-14T04:29:11Z",
+    "commit": "5f50e65",
+    "logos_version": "0.8.3",
+    "cpu": "Apple M1 Max",
+    "os": "macOS 15.2 arm64",
+    "versions": {
+      "c": "Apple clang version 16.0.0 (clang-1600.0.26.6)",
+      "cpp": "Apple clang version 16.0.0 (clang-1600.0.26.6)",
+      "rust": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+      "zig": "0.15.2",
+      "go": "go version go1.21.4 darwin/arm64",
+      "java": "openjdk 21.0.8 2025-07-15",
+      "node": "v22.8.0",
+      "python": "Python 3.10.12",
+      "ruby": "ruby 2.6.10p210 (2022-04-12 revision 67958) [universal.arm64e-darwin24]",
+      "nim": "Nim Compiler Version 2.2.6 [MacOSX: arm64]"
+    }
+  },
+  "languages": [
+    {
+      "id": "c",
+      "label": "C",
+      "color": "#555555",
+      "tier": "systems"
+    },
+    {
+      "id": "cpp",
+      "label": "C++",
+      "color": "#f34b7d",
+      "tier": "systems"
+    },
+    {
+      "id": "rust",
+      "label": "Rust",
+      "color": "#dea584",
+      "tier": "systems"
+    },
+    {
+      "id": "zig",
+      "label": "Zig",
+      "color": "#f7a41d",
+      "tier": "systems"
+    },
+    {
+      "id": "go",
+      "label": "Go",
+      "color": "#00ADD8",
+      "tier": "managed"
+    },
+    {
+      "id": "java",
+      "label": "Java",
+      "color": "#b07219",
+      "tier": "managed"
+    },
+    {
+      "id": "js",
+      "label": "JavaScript",
+      "color": "#f7df1e",
+      "tier": "managed"
+    },
+    {
+      "id": "python",
+      "label": "Python",
+      "color": "#3776ab",
+      "tier": "interpreted"
+    },
+    {
+      "id": "ruby",
+      "label": "Ruby",
+      "color": "#cc342d",
+      "tier": "interpreted"
+    },
+    {
+      "id": "nim",
+      "label": "Nim",
+      "color": "#ffe953",
+      "tier": "transpiled"
+    },
+    {
+      "id": "logos_release",
+      "label": "LOGOS (release)",
+      "color": "#00d4ff",
+      "tier": "logos"
+    },
+    {
+      "id": "logos_debug",
+      "label": "LOGOS (debug)",
+      "color": "#818cf8",
+      "tier": "logos"
+    },
+    {
+      "id": "logos_interp",
+      "label": "LOGOS (interpreted)",
+      "color": "#c084fc",
+      "tier": "logos"
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "fib",
+      "name": "Recursive Fibonacci",
+      "description": "Naive recursive fibonacci. Measures function call overhead and recursion depth.",
+      "reference_size": "35",
+      "sizes": [
+        "10",
+        "15",
+        "20",
+        "25",
+        "30",
+        "35",
+        "40"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow fib(n).",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn fib(n: i64) -> i64 {\n    if (n < 2) {\n        return n;\n    }\n    return (fib((n - 1)) + fib((n - 2)));\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(LogosIndex::logos_get(&arguments, 2));\n    show(&fib(n));\n}",
+      "scaling": {
+        "35": {
+          "c": {
+            "mean_ms": 38.30131621333333000,
+            "median_ms": 29.615676879999997000,
+            "stddev_ms": 15.12566405897025000,
+            "min_ms": 29.52142788000,
+            "max_ms": 55.76684388000,
+            "cv": 0.39491238302940494969,
+            "runs": 3
+          },
+          "cpp": {
+            "mean_ms": 30.381608213333338000,
+            "median_ms": 30.69021888000,
+            "stddev_ms": 0.7063872332583108000,
+            "min_ms": 29.573427880000003000,
+            "max_ms": 30.88117788000,
+            "cv": 0.02325048852905371144,
+            "runs": 3
+          },
+          "rust": {
+            "mean_ms": 30.953580546666665000,
+            "median_ms": 31.030635879999997000,
+            "stddev_ms": 1.4616910792589995000,
+            "min_ms": 29.454885879999997000,
+            "max_ms": 32.37521988000,
+            "cv": 0.04722203549457887719,
+            "runs": 3
+          },
+          "zig": {
+            "mean_ms": 30.789816213333335000,
+            "median_ms": 30.284551880000003000,
+            "stddev_ms": 1.3746480382535512000,
+            "min_ms": 29.73930288000,
+            "max_ms": 32.34559388000,
+            "cv": 0.04464619173849659320,
+            "runs": 3
+          },
+          "go": {
+            "mean_ms": 34.98283021333334000,
+            "median_ms": 35.01934388000,
+            "stddev_ms": 0.5848350128970863000,
+            "min_ms": 34.38059388000,
+            "max_ms": 35.54855288000,
+            "cv": 0.01671777295692280921,
+            "runs": 3
+          },
+          "java": {
+            "mean_ms": 79.80827454666667000,
+            "median_ms": 78.49921888000,
+            "stddev_ms": 2.868871569071085000,
+            "min_ms": 77.82742688000,
+            "max_ms": 83.09817788000001000,
+            "cv": 0.03594704415509642615,
+            "runs": 3
+          },
+          "js": {
+            "mean_ms": 133.48888588000,
+            "median_ms": 134.35392788000,
+            "stddev_ms": 2.385180996856211000,
+            "min_ms": 130.79188588000001000,
+            "max_ms": 135.32084388000,
+            "cv": 0.01786801186579961738,
+            "runs": 3
+          },
+          "python": {
+            "mean_ms": 2057.77091388000,
+            "median_ms": 2066.80196988000,
+            "stddev_ms": 22.232717209036197000,
+            "min_ms": 2032.44376088000,
+            "max_ms": 2074.06701088000,
+            "cv": 0.01080427226328883258,
+            "runs": 3
+          },
+          "ruby": {
+            "mean_ms": 968.2402885466667000,
+            "median_ms": 950.53171888000,
+            "stddev_ms": 34.099925120182485000,
+            "min_ms": 946.63788588000,
+            "max_ms": 1007.5512608800001000,
+            "cv": 0.03521845302612498758,
+            "runs": 3
+          },
+          "nim": {
+            "mean_ms": 57.32712221333333000,
+            "median_ms": 56.35184488000,
+            "stddev_ms": 2.4318051117584063000,
+            "min_ms": 55.53434388000,
+            "max_ms": 60.095177879999996000,
+            "cv": 0.04241980092265662510,
+            "runs": 3
+          },
+          "logos_release": {
+            "mean_ms": 45.75105221333333000,
+            "median_ms": 33.01996888000,
+            "stddev_ms": 22.467711720510666000,
+            "min_ms": 32.54013588000,
+            "max_ms": 71.69305188000,
+            "cv": 0.49108622935589776983,
+            "runs": 3
+          },
+          "logos_debug": {
+            "mean_ms": 69.22105288000001000,
+            "median_ms": 69.15538588000,
+            "stddev_ms": 0.3515882775193247000,
+            "min_ms": 68.90692788000,
+            "max_ms": 69.60084488000001000,
+            "cv": 0.00507921019532641135,
+            "runs": 3
+          },
+          "logos_interp": {
+            "mean_ms": 24275.39918171333000,
+            "median_ms": 24238.51364038000,
+            "stddev_ms": 71.66970596043379000,
+            "min_ms": 24229.68480638000,
+            "max_ms": 24357.99909838000,
+            "cv": 0.00295235952348098210,
+            "runs": 3
+          }
+        }
+      },
+      "compilation": {
+        "gcc_-o2": {
+          "mean_ms": 132.93502014000,
+          "stddev_ms": 22.076115141608454000
+        },
+        "g++_-o2": {
+          "mean_ms": 126.74808674000002000,
+          "stddev_ms": 94.18719060911847000
+        }
+      }
+    },
+    {
+      "id": "sieve",
+      "name": "Sieve of Eratosthenes",
+      "description": "Classic prime sieve. Measures indexed array mutation, tight loops, and conditional branching.",
+      "reference_size": "1000000",
+      "sizes": [
+        "10000",
+        "50000",
+        "100000",
+        "500000",
+        "1000000",
+        "5000000",
+        "10000000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To sieve (limit: Int) -> Int:\n    Let mutable flags be a new Seq of Bool.\n    Let mutable i be 0.\n    While i is at most limit:\n        Push false to flags.\n        Set i to i + 1.\n    Let mutable count be 0.\n    Set i to 2.\n    While i is at most limit:\n        If item (i + 1) of flags equals false:\n            Set count to count + 1.\n            Let mutable j be i * i.\n            While j is at most limit:\n                Set item (j + 1) of flags to true.\n                Set j to j + i.\n        Set i to i + 1.\n    Return count.\n\n## Main\nLet arguments be args().\nLet limit be parseInt(item 2 of arguments).\nShow sieve(limit).",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn sieve(limit: i64) -> i64 {\n    let mut flags = Seq::<bool>::default();\n    let mut i = 0;\n    while (i <= limit) {\n        flags.push(false);\n        i = (i + 1);\n    }\n    let mut count = 0;\n    i = 2;\n    while (i <= limit) {\n        if (LogosIndex::logos_get(&flags, (i + 1)) == false) {\n            count = (count + 1);\n            let mut j = (i * i);\n            while (j <= limit) {\n                LogosIndexMut::logos_set(&mut flags, (j + 1), true);\n                j = (j + i);\n            }\n        }\n        i = (i + 1);\n    }\n    return count;\n}\n\nfn main() {\n    let arguments = args();\n    let limit = parseInt(LogosIndex::logos_get(&arguments, 2));\n    show(&sieve(limit));\n}",
+      "scaling": {
+        "1000000": {
+          "c": {
+            "mean_ms": 6.222707333333333000,
+            "median_ms": 3.8873600000000003000,
+            "stddev_ms": 4.294600677647379000,
+            "min_ms": 3.6018180000000006000,
+            "max_ms": 11.178944000,
+            "cv": 0.69014987329427875445,
+            "runs": 3
+          },
+          "cpp": {
+            "mean_ms": 3.5501240000000004000,
+            "median_ms": 3.4236930000000002000,
+            "stddev_ms": 0.5800326583400281000,
+            "min_ms": 3.0437350000000005000,
+            "max_ms": 4.182944000,
+            "cv": 0.16338377429634233470,
+            "runs": 3
+          },
+          "rust": {
+            "mean_ms": 4.828568333333334000,
+            "median_ms": 5.12411000,
+            "stddev_ms": 0.7373279843274178000,
+            "min_ms": 3.989318000000001000,
+            "max_ms": 5.372277000000001000,
+            "cv": 0.15270115972831512823,
+            "runs": 3
+          },
+          "zig": {
+            "mean_ms": 4.334929666666668000,
+            "median_ms": 4.315069000,
+            "stddev_ms": 0.11496095619528156000,
+            "min_ms": 4.231193000,
+            "max_ms": 4.458527000000001000,
+            "cv": 0.02651968198683151060,
+            "runs": 3
+          },
+          "go": {
+            "mean_ms": 4.612860000000001000,
+            "median_ms": 4.228735000,
+            "stddev_ms": 0.8814931136288025000,
+            "min_ms": 3.988610000000001000,
+            "max_ms": 5.621235000000001000,
+            "cv": 0.19109470342234585677,
+            "runs": 3
+          },
+          "java": {
+            "mean_ms": 66.99202666666668000,
+            "median_ms": 59.163652000000004000,
+            "stddev_ms": 16.295740304408463000,
+            "min_ms": 56.087693000,
+            "max_ms": 85.72473500000001000,
+            "cv": 0.24324895237893673351,
+            "runs": 3
+          },
+          "js": {
+            "mean_ms": 55.989707000,
+            "median_ms": 55.633110000000006000,
+            "stddev_ms": 1.1266316577422286000,
+            "min_ms": 55.084526000,
+            "max_ms": 57.251485000000005000,
+            "cv": 0.02012212097738301434,
+            "runs": 3
+          },
+          "python": {
+            "mean_ms": 300.23090166666666000,
+            "median_ms": 305.959735000,
+            "stddev_ms": 28.390898412318656000,
+            "min_ms": 269.412443000,
+            "max_ms": 325.320527000,
+            "cv": 0.09456354510715835085,
+            "runs": 3
+          },
+          "ruby": {
+            "mean_ms": 171.23277633333336000,
+            "median_ms": 171.58840100000003000,
+            "stddev_ms": 0.6165741050128011000,
+            "min_ms": 170.52081800000002000,
+            "max_ms": 171.58911000000002000,
+            "cv": 0.00360079488410872952,
+            "runs": 3
+          },
+          "nim": {
+            "mean_ms": 4.926651666666667000,
+            "median_ms": 4.700943000,
+            "stddev_ms": 0.6532828720947259000,
+            "min_ms": 4.4161520000000004000,
+            "max_ms": 5.662860000000001000,
+            "cv": 0.13260179860386432620,
+            "runs": 3
+          },
+          "logos_release": {
+            "mean_ms": 5.927165333333335000,
+            "median_ms": 5.780693000000001000,
+            "stddev_ms": 0.3927566896901099000,
+            "min_ms": 5.6286930000000015000,
+            "max_ms": 6.372110000000001000,
+            "cv": 0.06626383230467950327,
+            "runs": 3
+          },
+          "logos_debug": {
+            "mean_ms": 41.31091533333334000,
+            "median_ms": 41.897235000000005000,
+            "stddev_ms": 1.163912168634875000,
+            "min_ms": 39.970443000,
+            "max_ms": 42.065068000000004000,
+            "cv": 0.02817444637194292811,
+            "runs": 3
+          }
+        },
+        "10000": {
+          "logos_interp": {
+            "mean_ms": 36.935161673333335000,
+            "median_ms": 36.94712034000,
+            "stddev_ms": 0.7366768016554687000,
+            "min_ms": 36.19257834000,
+            "max_ms": 37.66578634000,
+            "cv": 0.01994513542869744482,
+            "runs": 3
+          }
+        }
+      },
+      "compilation": {
+        "gcc_-o2": {
+          "mean_ms": 122.45670908000002000,
+          "stddev_ms": 25.919774882767924000
+        },
+        "g++_-o2": {
+          "mean_ms": 315.53355948000006000,
+          "stddev_ms": 9.878976069889595000
+        }
+      }
+    },
+    {
+      "id": "collect",
+      "name": "Collection Operations",
+      "description": "Hash map insert and lookup. Measures hash computation, allocation pressure, and cache behavior.",
+      "reference_size": "100000",
+      "sizes": [
+        "1000",
+        "5000",
+        "10000",
+        "50000",
+        "100000",
+        "500000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable m be a new Map of Int to Int with capacity n.\nLet mutable i be 1.\nWhile i is less than n + 1:\n    Set item i of m to i * 2.\n    Set i to i + 1.\nLet mutable found be 0.\nSet i to 1.\nWhile i is less than n + 1:\n    If item i of m equals i * 2:\n        Set found to found + 1.\n    Set i to i + 1.\nShow found.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(LogosIndex::logos_get(&arguments, 2));\n    let mut m = { let __m: std::collections::HashMap<i64, i64> = std::collections::HashMap::with_capacity((n) as usize); __m };\n    let mut i = 1;\n    while (i < (n + 1)) {\n        LogosIndexMut::logos_set(&mut m, i, (i * 2));\n        i = (i + 1);\n    }\n    let mut found = 0;\n    i = 1;\n    while (i < (n + 1)) {\n        if (LogosIndex::logos_get(&m, i) == (i * 2)) {\n            found = (found + 1);\n        }\n        i = (i + 1);\n    }\n    show(&found);\n}",
+      "scaling": {
+        "100000": {
+          "c": {
+            "mean_ms": 2.990564320000001000,
+            "median_ms": 2.815300320000001000,
+            "stddev_ms": 0.3218137391613358000,
+            "min_ms": 2.794425320000001000,
+            "max_ms": 3.3619673200000018000,
+            "cv": 0.10760970329550902031,
+            "runs": 3
+          },
+          "cpp": {
+            "mean_ms": 6.094577653333335000,
+            "median_ms": 6.187716320000001000,
+            "stddev_ms": 0.39331764540296633000,
+            "min_ms": 5.663050320000001000,
+            "max_ms": 6.432966320000001000,
+            "cv": 0.06453566888065612326,
+            "runs": 3
+          },
+          "rust": {
+            "mean_ms": 2.3697999866666678000,
+            "median_ms": 2.355133320000001000,
+            "stddev_ms": 0.23971175181524443000,
+            "min_ms": 2.1377583200000013000,
+            "max_ms": 2.6165083200000014000,
+            "cv": 0.10115273574307851236,
+            "runs": 3
+          },
+          "zig": {
+            "mean_ms": 2.9831889866666684000,
+            "median_ms": 2.8920503200000015000,
+            "stddev_ms": 0.2557347354610498000,
+            "min_ms": 2.785508320000002000,
+            "max_ms": 3.272008320000001000,
+            "cv": 0.08572528814099726611,
+            "runs": 3
+          },
+          "go": {
+            "mean_ms": 7.100355320000001000,
+            "median_ms": 6.539300320000001000,
+            "stddev_ms": 1.1832784324667636000,
+            "min_ms": 6.301966320000002000,
+            "max_ms": 8.459799320000003000,
+            "cv": 0.16665059410953020212,
+            "runs": 3
+          },
+          "java": {
+            "mean_ms": 80.61191132000001000,
+            "median_ms": 75.36696732000,
+            "stddev_ms": 10.266906106228693000,
+            "min_ms": 74.02692532000,
+            "max_ms": 92.44184132000001000,
+            "cv": 0.12736214708360907930,
+            "runs": 3
+          },
+          "js": {
+            "mean_ms": 57.70032765333335000,
+            "median_ms": 53.47046632000,
+            "stddev_ms": 7.884650002643458000,
+            "min_ms": 52.83321632000,
+            "max_ms": 66.79730032000002000,
+            "cv": 0.13664827087317174855,
+            "runs": 3
+          },
+          "python": {
+            "mean_ms": 273.57032832000,
+            "median_ms": 235.12296732000001000,
+            "stddev_ms": 67.58086031040679000,
+            "min_ms": 233.98480032000002000,
+            "max_ms": 351.60321732000005000,
+            "cv": 0.24703285888284008329,
+            "runs": 3
+          },
+          "ruby": {
+            "mean_ms": 103.11286965333334000,
+            "median_ms": 95.91492532000001000,
+            "stddev_ms": 27.19806793017284000,
+            "min_ms": 80.23775832000,
+            "max_ms": 133.18592532000,
+            "cv": 0.26376986715250054483,
+            "runs": 3
+          },
+          "nim": {
+            "mean_ms": 8.420077653333335000,
+            "median_ms": 8.478924320000001000,
+            "stddev_ms": 0.7465534896960383000,
+            "min_ms": 7.645842320000001000,
+            "max_ms": 9.13546632000,
+            "cv": 0.08866349224231835653,
+            "runs": 3
+          },
+          "logos_release": {
+            "mean_ms": 4.709661320000002000,
+            "median_ms": 4.646842320000001000,
+            "stddev_ms": 0.17875042165264938000,
+            "min_ms": 4.570800320000001000,
+            "max_ms": 4.911341320000001000,
+            "cv": 0.03795398639251820003,
+            "runs": 3
+          },
+          "logos_debug": {
+            "mean_ms": 51.292674653333335000,
+            "median_ms": 51.550091320000005000,
+            "stddev_ms": 0.4931404676492622000,
+            "min_ms": 50.724091320000005000,
+            "max_ms": 51.60384132000,
+            "cv": 0.00961424747261088075,
+            "runs": 3
+          }
+        },
+        "1000": {
+          "logos_interp": {
+            "mean_ms": 6.088753933333333000,
+            "median_ms": 5.261156599999999000,
+            "stddev_ms": 2.0386221089369000,
+            "min_ms": 4.5940736000,
+            "max_ms": 8.4110316000,
+            "cv": 0.33481762134881370937,
+            "runs": 3
+          }
+        }
+      },
+      "compilation": {
+        "gcc_-o2": {
+          "mean_ms": 69.68911738000,
+          "stddev_ms": 3.638866141589397000
+        },
+        "g++_-o2": {
+          "mean_ms": 319.12287598000,
+          "stddev_ms": 39.92737586387039000
+        }
+      }
+    },
+    {
+      "id": "strings",
+      "name": "String Assembly",
+      "description": "String concatenation and assembly. Measures allocator throughput and GC pressure.",
+      "reference_size": "100000",
+      "sizes": [
+        "1000",
+        "5000",
+        "10000",
+        "50000",
+        "100000",
+        "500000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable result be \"\" with capacity n * 6.\nLet mutable i be 0.\nWhile i is less than n:\n    Set result to result + i + \" \".\n    Set i to i + 1.\nLet count: Int be Escape to Rust:\n    result.chars().filter(|c| *c == ' ').count() as i64\nShow count.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(LogosIndex::logos_get(&arguments, 2));\n    let mut result = String::with_capacity(((n * 6)) as usize);\n    let mut i = 0;\n    while (i < n) {\n        write!(result, \"{}{}\", i, \" \").unwrap();\n        i = (i + 1);\n    }\n    let count: i64 = {\n    result.chars().filter(|c| *c == ' ').count() as i64\n};\n    show(&count);\n}",
+      "scaling": {
+        "100000": {
+          "c": {
+            "mean_ms": 6.215087033333335000,
+            "median_ms": 5.5729067000000005000,
+            "stddev_ms": 1.5889439501745603000,
+            "min_ms": 5.0477397000000005000,
+            "max_ms": 8.024614700000002000,
+            "cv": 0.25565916320279792819,
+            "runs": 3
+          },
+          "cpp": {
+            "mean_ms": 1.6637400333333336000,
+            "median_ms": 1.8070737000,
+            "stddev_ms": 0.2835705233664694000,
+            "min_ms": 1.3371147000000002000,
+            "max_ms": 1.8470317000000005000,
+            "cv": 0.17044160607131071291,
+            "runs": 3
+          },
+          "rust": {
+            "mean_ms": 5.0177537000,
+            "median_ms": 4.7906977000,
+            "stddev_ms": 0.5631532239240054000,
+            "min_ms": 4.6035736999999995000,
+            "max_ms": 5.658989700000001000,
+            "cv": 0.11223213764438166823,
+            "runs": 3
+          },
+          "zig": {
+            "mean_ms": 2.8511013666666675000,
+            "median_ms": 3.179531700000001000,
+            "stddev_ms": 0.9618296486625551000,
+            "min_ms": 1.7680737000,
+            "max_ms": 3.6056987000000007000,
+            "cv": 0.33735371877958419093,
+            "runs": 3
+          },
+          "go": {
+            "mean_ms": 6.8704623666666674000,
+            "median_ms": 4.672906700000001000,
+            "stddev_ms": 4.98719518913651000,
+            "min_ms": 3.359448700000001000,
+            "max_ms": 12.579031700000003000,
+            "cv": 0.72588931035163220058,
+            "runs": 3
+          },
+          "java": {
+            "mean_ms": 82.69525403333333000,
+            "median_ms": 73.4145737000,
+            "stddev_ms": 20.084930054889327000,
+            "min_ms": 68.9289067000,
+            "max_ms": 105.74228170000001000,
+            "cv": 0.24287887242952739942,
+            "runs": 3
+          },
+          "js": {
+            "mean_ms": 65.02447636666668000,
+            "median_ms": 63.58894870000001000,
+            "stddev_ms": 4.651986069819677000,
+            "min_ms": 61.25944870000001000,
+            "max_ms": 70.22503170000001000,
+            "cv": 0.07154207661108382155,
+            "runs": 3
+          },
+          "python": {
+            "mean_ms": 208.07446236666668000,
+            "median_ms": 193.99544870000002000,
+            "stddev_ms": 30.929614308111683000,
+            "min_ms": 186.6890317000,
+            "max_ms": 243.53890670000003000,
+            "cv": 0.14864685438238852402,
+            "runs": 3
+          },
+          "ruby": {
+            "mean_ms": 84.75233736666667000,
+            "median_ms": 85.9336987000,
+            "stddev_ms": 8.714348140900174000,
+            "min_ms": 75.50757370000001000,
+            "max_ms": 92.81573970000001000,
+            "cv": 0.10282133108847510511,
+            "runs": 3
+          },
+          "nim": {
+            "mean_ms": 6.0231847000,
+            "median_ms": 6.7012817000,
+            "stddev_ms": 1.3007169028950915000,
+            "min_ms": 4.523531700000001000,
+            "max_ms": 6.8447407000,
+            "cv": 0.21595168796585160338,
+            "runs": 3
+          },
+          "logos_release": {
+            "mean_ms": 6.969795700000001000,
+            "median_ms": 7.047906700000001000,
+            "stddev_ms": 0.701933668136099000,
+            "min_ms": 6.232073700000001000,
+            "max_ms": 7.6294067000,
+            "cv": 0.10071079531586541328,
+            "runs": 3
+          },
+          "logos_debug": {
+            "mean_ms": 16.196365033333337000,
+            "median_ms": 16.622739700000003000,
+            "stddev_ms": 1.1948817456540763000,
+            "min_ms": 14.846781700000002000,
+            "max_ms": 17.1195737000,
+            "cv": 0.07377468606041663221,
+            "runs": 3
+          }
+        },
+        "1000": {
+          "logos_interp": {
+            "mean_ms": 13.19071736000,
+            "median_ms": 12.847328360000002000,
+            "stddev_ms": 3.727298857411757000,
+            "min_ms": 9.64699536000,
+            "max_ms": 17.07782836000,
+            "cv": 0.28256983723376186418,
+            "runs": 3
+          }
+        }
+      },
+      "compilation": {
+        "gcc_-o2": {
+          "mean_ms": 73.98566178000002000,
+          "stddev_ms": 4.52098477550448000
+        },
+        "g++_-o2": {
+          "mean_ms": 259.62823657999995000,
+          "stddev_ms": 11.325739768493284000
+        }
+      }
+    },
+    {
+      "id": "bubble_sort",
+      "name": "Bubble Sort",
+      "description": "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns.",
+      "reference_size": "5000",
+      "sizes": [
+        "100",
+        "500",
+        "1000",
+        "2000",
+        "5000",
+        "10000"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 4294967296.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n - 1:\n    Let mutable j be 1.\n    While j is at most n - 1 - i:\n        Let a be item j of arr.\n        Let b be item (j + 1) of arr.\n        If a is greater than b:\n            Set item j of arr to b.\n            Set item (j + 1) of arr to a.\n        Set j to j + 1.\n    Set i to i + 1.\nShow item 1 of arr.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(LogosIndex::logos_get(&arguments, 2));\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    let mut i = 0;\n    while (i < n) {\n        seed = (((seed * 1103515245) + 12345) % 4294967296);\n        arr.push(((seed / 65536) % 32768));\n        i = (i + 1);\n    }\n    i = 0;\n    while (i < (n - 1)) {\n        let mut j = 1;\n        while (j <= ((n - 1) - i)) {\n            let a = LogosIndex::logos_get(&arr, j);\n            let b = LogosIndex::logos_get(&arr, (j + 1));\n            if (a > b) {\n                LogosIndexMut::logos_set(&mut arr, j, b);\n                LogosIndexMut::logos_set(&mut arr, (j + 1), a);\n            }\n            j = (j + 1);\n        }\n        i = (i + 1);\n    }\n    show(&LogosIndex::logos_get(&arr, 1));\n}",
+      "scaling": {
+        "5000": {
+          "c": {
+            "mean_ms": 8.172463113333332000,
+            "median_ms": 7.921032779999998000,
+            "stddev_ms": 0.4511683450335736000,
+            "min_ms": 7.90303278000,
+            "max_ms": 8.69332378000,
+            "cv": 0.05520592002397597120,
+            "runs": 3
+          },
+          "cpp": {
+            "mean_ms": 8.005921446666666000,
+            "median_ms": 8.053865779999999000,
+            "stddev_ms": 0.40936065953427084000,
+            "min_ms": 7.574699779999999000,
+            "max_ms": 8.389198779999999000,
+            "cv": 0.05113223534121879981,
+            "runs": 3
+          },
+          "rust": {
+            "mean_ms": 17.175407113333332000,
+            "median_ms": 18.06215678000,
+            "stddev_ms": 1.881711976366292000,
+            "min_ms": 15.01415678000,
+            "max_ms": 18.44990778000,
+            "cv": 0.10955850792645910794,
+            "runs": 3
+          },
+          "zig": {
+            "mean_ms": 7.825865446666665000,
+            "median_ms": 7.86186578000,
+            "stddev_ms": 0.36417051874408103000,
+            "min_ms": 7.44503178000,
+            "max_ms": 8.17069878000,
+            "cv": 0.04653421672349288388,
+            "runs": 3
+          },
+          "go": {
+            "mean_ms": 14.24661578000,
+            "median_ms": 13.99207378000,
+            "stddev_ms": 1.1653110502196403000,
+            "min_ms": 13.229615779999999000,
+            "max_ms": 15.51815778000,
+            "cv": 0.08179563962520510256,
+            "runs": 3
+          },
+          "java": {
+            "mean_ms": 85.25215711333334000,
+            "median_ms": 72.69590678000,
+            "stddev_ms": 28.172811922245578000,
+            "min_ms": 65.54061578000,
+            "max_ms": 117.51994878000001000,
+            "cv": 0.33046450525343226058,
+            "runs": 3
+          },
+          "js": {
+            "mean_ms": 66.04215744666668000,
+            "median_ms": 66.40128278000,
+            "stddev_ms": 2.497296277796711000,
+            "min_ms": 63.38474078000,
+            "max_ms": 68.34044878000,
+            "cv": 0.03781366894038008231,
+            "runs": 3
+          },
+          "python": {
+            "mean_ms": 1927.1102684466666000,
+            "median_ms": 1894.03944878000,
+            "stddev_ms": 77.23856484449532000,
+            "min_ms": 1871.91328278000,
+            "max_ms": 2015.37807378000,
+            "cv": 0.04007999236429418790,
+            "runs": 3
+          },
+          "ruby": {
+            "mean_ms": 1220.4719491133333000,
+            "median_ms": 1222.48478278000,
+            "stddev_ms": 16.303250136114666000,
+            "min_ms": 1203.25574078000,
+            "max_ms": 1235.67532378000,
+            "cv": 0.01335815226884886194,
+            "runs": 3
+          },
+          "nim": {
+            "mean_ms": 14.630532446666665000,
+            "median_ms": 14.548906779999999000,
+            "stddev_ms": 0.2720326905912833000,
+            "min_ms": 14.40865778000,
+            "max_ms": 14.934032779999998000,
+            "cv": 0.01859349217692085008,
+            "runs": 3
+          },
+          "logos_release": {
+            "mean_ms": 17.159643779999997000,
+            "median_ms": 17.39211578000,
+            "stddev_ms": 0.44613444017807037000,
+            "min_ms": 16.64528278000,
+            "max_ms": 17.44153278000,
+            "cv": 0.02599905020744378459,
+            "runs": 3
+          },
+          "logos_debug": {
+            "mean_ms": 403.9093654466667000,
+            "median_ms": 404.38507378000005000,
+            "stddev_ms": 11.608417180379159000,
+            "min_ms": 392.07040678000005000,
+            "max_ms": 415.27261578000,
+            "cv": 0.02874015354296598064,
+            "runs": 3
+          }
+        },
+        "1000": {
+          "logos_interp": {
+            "mean_ms": 1099.5948223866667000,
+            "median_ms": 1098.58061372000,
+            "stddev_ms": 15.432868472839789000,
+            "min_ms": 1084.69407272000,
+            "max_ms": 1115.50978072000,
+            "cv": 0.01403505014632826497,
+            "runs": 3
+          }
+        }
+      },
+      "compilation": {
+        "gcc_-o2": {
+          "mean_ms": 93.01615490000001000,
+          "stddev_ms": 40.568177685027636000
+        },
+        "g++_-o2": {
+          "mean_ms": 335.16654690000003000,
+          "stddev_ms": 38.62537018468633000
+        }
+      }
+    },
+    {
+      "id": "ackermann",
+      "name": "Ackermann Function",
+      "description": "Ackermann(3, m). Measures extreme recursion depth and stack frame overhead.",
+      "reference_size": "10",
+      "sizes": [
+        "4",
+        "6",
+        "8",
+        "10",
+        "11",
+        "12"
+      ],
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To ackermann (m: Int) and (n: Int) -> Int:\n    If m equals 0:\n        Return n + 1.\n    If n equals 0:\n        Return ackermann(m - 1, 1).\n    Return ackermann(m - 1, ackermann(m, n - 1)).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow ackermann(3, n).",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn ackermann(m: i64, n: i64) -> i64 {\n    if (m == 0) {\n        return (n + 1);\n    }\n    if (n == 0) {\n        return ackermann((m - 1), 1);\n    }\n    return ackermann((m - 1), ackermann(m, (n - 1)));\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(LogosIndex::logos_get(&arguments, 2));\n    show(&ackermann(3, n));\n}",
+      "scaling": {
+        "10": {
+          "c": {
+            "mean_ms": 147.79897029333333000,
+            "median_ms": 140.84913696000,
+            "stddev_ms": 13.721206116887012000,
+            "min_ms": 138.94317896000,
+            "max_ms": 163.60459496000002000,
+            "cv": 0.09283695339456587088,
+            "runs": 3
+          },
+          "cpp": {
+            "mean_ms": 140.46915062666668000,
+            "median_ms": 138.09092796000,
+            "stddev_ms": 4.396074538913697000,
+            "min_ms": 137.77451196000,
+            "max_ms": 145.54201196000,
+            "cv": 0.03129565829437816572,
+            "runs": 3
+          },
+          "rust": {
+            "mean_ms": 197.95469229333332000,
+            "median_ms": 219.65613696000,
+            "stddev_ms": 40.2960499209404000,
+            "min_ms": 151.45909496000,
+            "max_ms": 222.74884496000,
+            "cv": 0.20356198407880570663,
+            "runs": 3
+          },
+          "zig": {
+            "mean_ms": 234.24716429333337000,
+            "median_ms": 225.54217796000,
+            "stddev_ms": 20.57512385292864000,
+            "min_ms": 219.45538596000,
+            "max_ms": 257.74392896000003000,
+            "cv": 0.08783510321244987696,
+            "runs": 3
+          },
+          "go": {
+            "mean_ms": 250.3786782933333000,
+            "median_ms": 237.37567896000,
+            "stddev_ms": 23.873543175257608000,
+            "min_ms": 235.82934496000002000,
+            "max_ms": 277.93101096000,
+            "cv": 0.09534974518592335003,
+            "runs": 3
+          },
+          "java": {
+            "mean_ms": 217.88166429333336000,
+            "median_ms": 217.20584496000,
+            "stddev_ms": 10.4298714748289000,
+            "min_ms": 207.80613696000,
+            "max_ms": 228.63301096000002000,
+            "cv": 0.04786943182509932878,
+            "runs": 3
+          },
+          "js": {
+            "mean_ms": 1099.28198396000,
+            "median_ms": 1081.2428869600001000,
+            "stddev_ms": 475.90429531731143000,
+            "min_ms": 632.6537199600001000,
+            "max_ms": 1583.9493449600002000,
+            "cv": 0.43292285533775139556,
+            "runs": 3
+          },
+          "python": {
+            "mean_ms": 8056.522983959999000,
+            "median_ms": 7170.663761959999000,
+            "stddev_ms": 1675.571123583944000,
+            "min_ms": 7009.828927959999000,
+            "max_ms": 9989.07626196000,
+            "cv": 0.20797695568173696979,
+            "runs": 3
+          },
+          "ruby": {
+            "mean_ms": 4445.43580296000,
+            "median_ms": 4646.0290529599995000,
+            "stddev_ms": 2183.87184953132000,
+            "min_ms": 2168.1876359600003000,
+            "max_ms": 6522.09071996000,
+            "cv": 0.49126158746397500580,
+            "runs": 3
+          },
+          "nim": {
+            "mean_ms": 231.65678929333333000,
+            "median_ms": 218.71571996000,
+            "stddev_ms": 34.45793074496166000,
+            "min_ms": 205.54288696000,
+            "max_ms": 270.71176096000,
+            "cv": 0.14874561134199962731,
+            "runs": 3
+          },
+          "logos_release": {
+            "mean_ms": 234.36390062666668000,
+            "median_ms": 220.93471996000,
+            "stddev_ms": 27.57002229161091000,
+            "min_ms": 216.08151196000,
+            "max_ms": 266.07546996000003000,
+            "cv": 0.11763766611620349521,
+            "runs": 3
+          },
+          "logos_debug": {
+            "mean_ms": 322.34560896000003000,
+            "median_ms": 318.83034496000,
+            "stddev_ms": 32.73638052628473000,
+            "min_ms": 291.50871996000,
+            "max_ms": 356.69776196000,
+            "cv": 0.10155677513927915164,
+            "runs": 3
+          }
+        },
+        "3": {
+          "logos_interp": {
+            "mean_ms": 12.836823880000002000,
+            "median_ms": 10.001735820000003000,
+            "stddev_ms": 14.46427660633617000,
+            "min_ms": 0,
+            "max_ms": 28.508735820000006000,
+            "cv": 1.12678001517741222967,
+            "runs": 3
+          }
+        }
+      },
+      "compilation": {
+        "gcc_-o2": {
+          "mean_ms": 78.71018674000,
+          "stddev_ms": 15.311474763239344000
+        },
+        "g++_-o2": {
+          "mean_ms": 65.76185334000001000,
+          "stddev_ms": 2.5332247365485545000
+        }
+      }
+    }
+  ],
+  "summary": {
+    "geometric_mean_speedup_vs_c": {
+      "c": 1.000,
+      "cpp": 1.278,
+      "go": 0.759,
+      "java": 0.142,
+      "js": 0.117,
+      "logos_debug": 0.161,
+      "logos_interp": 0.002,
+      "logos_release": 0.728,
+      "nim": 0.692,
+      "python": 0.015,
+      "ruby": 0.030,
+      "rust": 0.980,
+      "zig": 1.170
+    }
+  }
+}

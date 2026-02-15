@@ -39,7 +39,7 @@ use std::cell::RefCell;
 
 use async_recursion::async_recursion;
 
-use crate::ast::stmt::{BinaryOpKind, Block, Expr, Literal, MatchArm, ReadSource, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, Block, ClosureBody, Expr, Literal, MatchArm, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 use crate::analysis::{PolicyRegistry, PolicyCondition};
 
@@ -70,6 +70,14 @@ pub struct InductiveValue {
     pub args: Vec<RuntimeValue>,
 }
 
+/// First-class closure value (boxed to reduce enum size).
+#[derive(Debug, Clone)]
+pub struct ClosureValue {
+    pub body_index: usize,
+    pub captured_env: HashMap<Symbol, RuntimeValue>,
+    pub param_names: Vec<Symbol>,
+}
+
 #[derive(Debug, Clone)]
 pub enum RuntimeValue {
     Int(i64),
@@ -83,6 +91,7 @@ pub enum RuntimeValue {
     Map(Rc<RefCell<HashMap<RuntimeValue, RuntimeValue>>>),
     Struct(Box<StructValue>),
     Inductive(Box<InductiveValue>),
+    Function(Box<ClosureValue>),
     Nothing,
     Duration(i64),
     Date(i32),
@@ -107,6 +116,7 @@ impl PartialEq for RuntimeValue {
                 m1 == m2 && d1 == d2
             }
             (RuntimeValue::Time(a), RuntimeValue::Time(b)) => a == b,
+            (RuntimeValue::Function(a), RuntimeValue::Function(b)) => a.body_index == b.body_index,
             _ => false,
         }
     }
@@ -136,6 +146,7 @@ impl std::hash::Hash for RuntimeValue {
             RuntimeValue::Map(m) => m.borrow().len().hash(state),
             RuntimeValue::Struct(s) => s.type_name.hash(state),
             RuntimeValue::Inductive(i) => { i.inductive_type.hash(state); i.constructor.hash(state); }
+            RuntimeValue::Function(f) => f.body_index.hash(state),
         }
     }
 }
@@ -157,6 +168,7 @@ impl RuntimeValue {
             RuntimeValue::Map(_) => "Map",
             RuntimeValue::Struct(s) => &s.type_name,
             RuntimeValue::Inductive(ind) => ind.inductive_type.as_str(),
+            RuntimeValue::Function(_) => "Function",
             RuntimeValue::Nothing => "Nothing",
             RuntimeValue::Duration(_) => "Duration",
             RuntimeValue::Date(_) => "Date",
@@ -203,6 +215,16 @@ impl RuntimeValue {
                     inductive_type: ind.inductive_type.clone(),
                     constructor: ind.constructor.clone(),
                     args: cloned_args,
+                }))
+            }
+            RuntimeValue::Function(f) => {
+                let cloned_env = f.captured_env.iter()
+                    .map(|(k, v)| (k.clone(), v.deep_clone()))
+                    .collect();
+                RuntimeValue::Function(Box::new(ClosureValue {
+                    body_index: f.body_index,
+                    captured_env: cloned_env,
+                    param_names: f.param_names.clone(),
                 }))
             }
             other => other.clone(),
@@ -273,6 +295,7 @@ impl RuntimeValue {
                     format!("{}({})", ind.constructor, arg_strs.join(", "))
                 }
             }
+            RuntimeValue::Function(_) => "<closure>".to_string(),
             RuntimeValue::Nothing => "nothing".to_string(),
             RuntimeValue::Duration(nanos) => {
                 // Format durations nicely based on magnitude
@@ -460,6 +483,14 @@ impl Environment {
     }
 }
 
+/// Side-table entry storing a closure body AST reference.
+/// The index into the `closure_bodies` Vec on the interpreter is stored
+/// in `ClosureValue::body_index`.
+pub enum ClosureBodyRef<'a> {
+    Expression(&'a Expr<'a>),
+    Block(Block<'a>),
+}
+
 pub struct Interpreter<'a> {
     interner: &'a Interner,
     env: Environment,
@@ -470,6 +501,9 @@ pub struct Interpreter<'a> {
     kernel_ctx: Option<Arc<crate::kernel::Context>>,
     policy_registry: Option<PolicyRegistry>,
     output_callback: Option<OutputCallback>,
+    /// Side-table for closure body AST references.
+    /// Indexed by `ClosureValue::body_index`.
+    closure_bodies: Vec<ClosureBodyRef<'a>>,
     // Pre-interned builtin function symbols for O(1) dispatch
     sym_show: Option<Symbol>,
     sym_length: Option<Symbol>,
@@ -494,6 +528,7 @@ impl<'a> Interpreter<'a> {
             kernel_ctx: None,
             policy_registry: None,
             output_callback: None,
+            closure_bodies: Vec::new(),
             sym_show: interner.lookup("show"),
             sym_length: interner.lookup("length"),
             sym_format: interner.lookup("format"),
@@ -1634,6 +1669,47 @@ impl<'a> Interpreter<'a> {
                 Err("Escape expressions contain raw Rust code and cannot be interpreted. \
                      Use `largo build` or `largo run` to compile and run this program.".to_string())
             }
+
+            Expr::Closure { params, body, .. } => {
+                let free_vars = self.collect_free_vars_in_closure(params, body);
+                let mut captured_env = HashMap::new();
+                for sym in &free_vars {
+                    if let Some(val) = self.env.lookup(*sym) {
+                        captured_env.insert(*sym, val.deep_clone());
+                    }
+                }
+
+                let body_index = self.closure_bodies.len();
+                match body {
+                    ClosureBody::Expression(expr) => {
+                        self.closure_bodies.push(ClosureBodyRef::Expression(expr));
+                    }
+                    ClosureBody::Block(block) => {
+                        self.closure_bodies.push(ClosureBodyRef::Block(block));
+                    }
+                }
+
+                let param_names: Vec<Symbol> = params.iter().map(|(name, _)| *name).collect();
+
+                Ok(RuntimeValue::Function(Box::new(ClosureValue {
+                    body_index,
+                    captured_env,
+                    param_names,
+                })))
+            }
+
+            Expr::CallExpr { callee, args } => {
+                let callee_val = self.evaluate_expr(callee).await?;
+                if let RuntimeValue::Function(closure) = callee_val {
+                    let mut arg_values = Vec::with_capacity(args.len());
+                    for arg in args.iter() {
+                        arg_values.push(self.evaluate_expr(arg).await?);
+                    }
+                    self.call_closure_value(&closure, arg_values).await
+                } else {
+                    Err(format!("Cannot call value of type {}", callee_val.type_name()))
+                }
+            }
         }
     }
 
@@ -1970,49 +2046,62 @@ impl<'a> Interpreter<'a> {
         }
 
         // User-defined function lookup — extract metadata without cloning params
-        let (param_count, body) = {
-            let func = self.functions.get(&function)
-                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
-            (func.params.len(), func.body)
-        };
+        if let Some(func) = self.functions.get(&function) {
+            let param_count = func.params.len();
+            let body = func.body;
 
-        if args.len() != param_count {
-            return Err(format!(
-                "Function {} expects {} arguments, got {}",
-                self.interner.resolve(function),
-                param_count,
-                args.len()
-            ));
-        }
+            if args.len() != param_count {
+                return Err(format!(
+                    "Function {} expects {} arguments, got {}",
+                    self.interner.resolve(function),
+                    param_count,
+                    args.len()
+                ));
+            }
 
-        // Evaluate arguments before pushing scope
-        let mut arg_values = Vec::with_capacity(param_count);
-        for arg in args {
-            arg_values.push(self.evaluate_expr(arg).await?);
-        }
+            // Evaluate arguments before pushing scope
+            let mut arg_values = Vec::with_capacity(param_count);
+            for arg in args {
+                arg_values.push(self.evaluate_expr(arg).await?);
+            }
 
-        // Bind parameters — re-borrow self.functions for param names (no clone needed)
-        self.push_scope();
-        for i in 0..param_count {
-            let param_name = self.functions[&function].params[i].0;
-            self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
-        }
+            // Bind parameters — re-borrow self.functions for param names (no clone needed)
+            self.push_scope();
+            for i in 0..param_count {
+                let param_name = self.functions[&function].params[i].0;
+                self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+            }
 
-        // Execute function body
-        let mut return_value = RuntimeValue::Nothing;
-        for stmt in body.iter() {
-            match self.execute_stmt(stmt).await? {
-                ControlFlow::Return(val) => {
-                    return_value = val;
-                    break;
+            // Execute function body
+            let mut return_value = RuntimeValue::Nothing;
+            for stmt in body.iter() {
+                match self.execute_stmt(stmt).await? {
+                    ControlFlow::Return(val) => {
+                        return_value = val;
+                        break;
+                    }
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => {}
                 }
-                ControlFlow::Break => break,
-                ControlFlow::Continue => {}
+            }
+
+            self.pop_scope();
+            Ok(return_value)
+        } else {
+            // Fallback: check if the function name is a variable holding a closure
+            let maybe_closure = self.env.lookup(function)
+                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+
+            if let Some(closure) = maybe_closure {
+                let mut arg_values = Vec::with_capacity(args.len());
+                for arg in args {
+                    arg_values.push(self.evaluate_expr(arg).await?);
+                }
+                self.call_closure_value(&closure, arg_values).await
+            } else {
+                Err(format!("Unknown function: {}", self.interner.resolve(function)))
             }
         }
-
-        self.pop_scope();
-        Ok(return_value)
     }
 
     /// Call a function with pre-evaluated RuntimeValue arguments.
@@ -2027,42 +2116,47 @@ impl<'a> Interpreter<'a> {
             return Ok(RuntimeValue::Nothing);
         }
 
-        // User-defined function lookup — extract metadata without cloning params
-        let (param_count, body) = {
-            let func = self.functions.get(&function)
-                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
-            (func.params.len(), func.body)
-        };
+        if let Some(func) = self.functions.get(&function) {
+            let param_count = func.params.len();
+            let body = func.body;
 
-        if args.len() != param_count {
-            return Err(format!(
-                "Function {} expects {} arguments, got {}",
-                self.interner.resolve(function), param_count, args.len()
-            ));
-        }
+            if args.len() != param_count {
+                return Err(format!(
+                    "Function {} expects {} arguments, got {}",
+                    self.interner.resolve(function), param_count, args.len()
+                ));
+            }
 
-        // Bind parameters — re-borrow self.functions for param names (no clone needed)
-        self.push_scope();
-        for i in 0..param_count {
-            let param_name = self.functions[&function].params[i].0;
-            self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
-        }
+            self.push_scope();
+            for i in 0..param_count {
+                let param_name = self.functions[&function].params[i].0;
+                self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
+            }
 
-        // Execute function body
-        let mut return_value = RuntimeValue::Nothing;
-        for stmt in body.iter() {
-            match self.execute_stmt(stmt).await? {
-                ControlFlow::Return(val) => {
-                    return_value = val;
-                    break;
+            let mut return_value = RuntimeValue::Nothing;
+            for stmt in body.iter() {
+                match self.execute_stmt(stmt).await? {
+                    ControlFlow::Return(val) => {
+                        return_value = val;
+                        break;
+                    }
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => {}
                 }
-                ControlFlow::Break => break,
-                ControlFlow::Continue => {}
+            }
+
+            self.pop_scope();
+            Ok(return_value)
+        } else {
+            let maybe_closure = self.env.lookup(function)
+                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+
+            if let Some(closure) = maybe_closure {
+                self.call_closure_value(&closure, args).await
+            } else {
+                Err(format!("Unknown function: {}", self.interner.resolve(function)))
             }
         }
-
-        self.pop_scope();
-        Ok(return_value)
     }
 
     // Scope management
@@ -3149,6 +3243,47 @@ impl<'a> Interpreter<'a> {
                 Err("Escape expressions contain raw Rust code and cannot be interpreted. \
                      Use `largo build` or `largo run` to compile and run this program.".to_string())
             }
+
+            Expr::Closure { params, body, .. } => {
+                let free_vars = self.collect_free_vars_in_closure(params, body);
+                let mut captured_env = HashMap::new();
+                for sym in &free_vars {
+                    if let Some(val) = self.env.lookup(*sym) {
+                        captured_env.insert(*sym, val.deep_clone());
+                    }
+                }
+
+                let body_index = self.closure_bodies.len();
+                match body {
+                    ClosureBody::Expression(expr) => {
+                        self.closure_bodies.push(ClosureBodyRef::Expression(expr));
+                    }
+                    ClosureBody::Block(block) => {
+                        self.closure_bodies.push(ClosureBodyRef::Block(block));
+                    }
+                }
+
+                let param_names: Vec<Symbol> = params.iter().map(|(name, _)| *name).collect();
+
+                Ok(RuntimeValue::Function(Box::new(ClosureValue {
+                    body_index,
+                    captured_env,
+                    param_names,
+                })))
+            }
+
+            Expr::CallExpr { callee, args } => {
+                let callee_val = self.evaluate_expr_sync(callee)?;
+                if let RuntimeValue::Function(closure) = callee_val {
+                    let mut arg_values = Vec::with_capacity(args.len());
+                    for arg in args.iter() {
+                        arg_values.push(self.evaluate_expr_sync(arg)?);
+                    }
+                    self.call_closure_value_sync(&closure, arg_values)
+                } else {
+                    Err(format!("Cannot call value of type {}", callee_val.type_name()))
+                }
+            }
         }
     }
 
@@ -3237,49 +3372,59 @@ impl<'a> Interpreter<'a> {
         }
 
         // User-defined function lookup — extract metadata without cloning params
-        let (param_count, body) = {
-            let func = self.functions.get(&function)
-                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
-            (func.params.len(), func.body)
-        };
+        if let Some(func) = self.functions.get(&function) {
+            let param_count = func.params.len();
+            let body = func.body;
 
-        if args.len() != param_count {
-            return Err(format!(
-                "Function {} expects {} arguments, got {}",
-                self.interner.resolve(function),
-                param_count,
-                args.len()
-            ));
-        }
+            if args.len() != param_count {
+                return Err(format!(
+                    "Function {} expects {} arguments, got {}",
+                    self.interner.resolve(function),
+                    param_count,
+                    args.len()
+                ));
+            }
 
-        // Evaluate arguments before pushing scope
-        let mut arg_values = Vec::with_capacity(param_count);
-        for arg in args {
-            arg_values.push(self.evaluate_expr_sync(arg)?);
-        }
+            let mut arg_values = Vec::with_capacity(param_count);
+            for arg in args {
+                arg_values.push(self.evaluate_expr_sync(arg)?);
+            }
 
-        // Bind parameters
-        self.push_scope();
-        for i in 0..param_count {
-            let param_name = self.functions[&function].params[i].0;
-            self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
-        }
+            self.push_scope();
+            for i in 0..param_count {
+                let param_name = self.functions[&function].params[i].0;
+                self.env.define(param_name, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+            }
 
-        // Execute function body
-        let mut return_value = RuntimeValue::Nothing;
-        for stmt in body.iter() {
-            match self.execute_stmt_sync(stmt)? {
-                ControlFlow::Return(val) => {
-                    return_value = val;
-                    break;
+            let mut return_value = RuntimeValue::Nothing;
+            for stmt in body.iter() {
+                match self.execute_stmt_sync(stmt)? {
+                    ControlFlow::Return(val) => {
+                        return_value = val;
+                        break;
+                    }
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => {}
                 }
-                ControlFlow::Break => break,
-                ControlFlow::Continue => {}
+            }
+
+            self.pop_scope();
+            Ok(return_value)
+        } else {
+            // Fallback: check if the function name is a variable holding a closure
+            let maybe_closure = self.env.lookup(function)
+                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+
+            if let Some(closure) = maybe_closure {
+                let mut arg_values = Vec::with_capacity(args.len());
+                for arg in args {
+                    arg_values.push(self.evaluate_expr_sync(arg)?);
+                }
+                self.call_closure_value_sync(&closure, arg_values)
+            } else {
+                Err(format!("Unknown function: {}", self.interner.resolve(function)))
             }
         }
-
-        self.pop_scope();
-        Ok(return_value)
     }
 
     fn call_function_with_values_sync(&mut self, function: Symbol, mut args: Vec<RuntimeValue>) -> Result<RuntimeValue, String> {
@@ -3291,42 +3436,362 @@ impl<'a> Interpreter<'a> {
             return Ok(RuntimeValue::Nothing);
         }
 
-        // User-defined function lookup — extract metadata without cloning params
-        let (param_count, body) = {
-            let func = self.functions.get(&function)
-                .ok_or_else(|| format!("Unknown function: {}", self.interner.resolve(function)))?;
-            (func.params.len(), func.body)
-        };
+        if let Some(func) = self.functions.get(&function) {
+            let param_count = func.params.len();
+            let body = func.body;
 
-        if args.len() != param_count {
-            return Err(format!(
-                "Function {} expects {} arguments, got {}",
-                self.interner.resolve(function), param_count, args.len()
-            ));
-        }
+            if args.len() != param_count {
+                return Err(format!(
+                    "Function {} expects {} arguments, got {}",
+                    self.interner.resolve(function), param_count, args.len()
+                ));
+            }
 
-        // Bind parameters
-        self.push_scope();
-        for i in 0..param_count {
-            let param_name = self.functions[&function].params[i].0;
-            self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
-        }
+            self.push_scope();
+            for i in 0..param_count {
+                let param_name = self.functions[&function].params[i].0;
+                self.env.define(param_name, std::mem::replace(&mut args[i], RuntimeValue::Nothing));
+            }
 
-        // Execute function body
-        let mut return_value = RuntimeValue::Nothing;
-        for stmt in body.iter() {
-            match self.execute_stmt_sync(stmt)? {
-                ControlFlow::Return(val) => {
-                    return_value = val;
-                    break;
+            let mut return_value = RuntimeValue::Nothing;
+            for stmt in body.iter() {
+                match self.execute_stmt_sync(stmt)? {
+                    ControlFlow::Return(val) => {
+                        return_value = val;
+                        break;
+                    }
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => {}
                 }
-                ControlFlow::Break => break,
-                ControlFlow::Continue => {}
+            }
+
+            self.pop_scope();
+            Ok(return_value)
+        } else {
+            let maybe_closure = self.env.lookup(function)
+                .and_then(|v| if let RuntimeValue::Function(c) = v { Some((**c).clone()) } else { None });
+
+            if let Some(closure) = maybe_closure {
+                self.call_closure_value_sync(&closure, args)
+            } else {
+                Err(format!("Unknown function: {}", self.interner.resolve(function)))
+            }
+        }
+    }
+
+    // =========================================================================
+    // Closure support: free variable collection and closure invocation
+    // =========================================================================
+
+    /// Collect free variable symbols from a closure body.
+    /// Returns all Identifier symbols referenced in the body that are not parameter names.
+    fn collect_free_vars_in_closure(
+        &self,
+        params: &[(Symbol, &TypeExpr<'a>)],
+        body: &ClosureBody<'a>,
+    ) -> Vec<Symbol> {
+        let param_set: std::collections::HashSet<Symbol> = params.iter().map(|(s, _)| *s).collect();
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        match body {
+            ClosureBody::Expression(expr) => {
+                Self::collect_symbols_from_expr(expr, &param_set, &mut out, &mut seen);
+            }
+            ClosureBody::Block(block) => {
+                Self::collect_symbols_from_block(block, &param_set, &mut out, &mut seen);
             }
         }
 
+        out
+    }
+
+    fn collect_symbols_from_expr(
+        expr: &Expr<'a>,
+        exclude: &std::collections::HashSet<Symbol>,
+        out: &mut Vec<Symbol>,
+        seen: &mut std::collections::HashSet<Symbol>,
+    ) {
+        match expr {
+            Expr::Identifier(sym) => {
+                if !exclude.contains(sym) && seen.insert(*sym) {
+                    out.push(*sym);
+                }
+            }
+            Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => {}
+            Expr::BinaryOp { left, right, .. } => {
+                Self::collect_symbols_from_expr(left, exclude, out, seen);
+                Self::collect_symbols_from_expr(right, exclude, out, seen);
+            }
+            Expr::Call { function, args } => {
+                if !exclude.contains(function) && seen.insert(*function) {
+                    out.push(*function);
+                }
+                for arg in args {
+                    Self::collect_symbols_from_expr(arg, exclude, out, seen);
+                }
+            }
+            Expr::FieldAccess { object, .. } => {
+                Self::collect_symbols_from_expr(object, exclude, out, seen);
+            }
+            Expr::Index { collection, index } => {
+                Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                Self::collect_symbols_from_expr(index, exclude, out, seen);
+            }
+            Expr::Slice { collection, start, end } => {
+                Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                Self::collect_symbols_from_expr(start, exclude, out, seen);
+                Self::collect_symbols_from_expr(end, exclude, out, seen);
+            }
+            Expr::Copy { expr: e } | Expr::Give { value: e } | Expr::Length { collection: e } => {
+                Self::collect_symbols_from_expr(e, exclude, out, seen);
+            }
+            Expr::List(items) | Expr::Tuple(items) => {
+                for item in items {
+                    Self::collect_symbols_from_expr(item, exclude, out, seen);
+                }
+            }
+            Expr::Range { start, end } => {
+                Self::collect_symbols_from_expr(start, exclude, out, seen);
+                Self::collect_symbols_from_expr(end, exclude, out, seen);
+            }
+            Expr::New { init_fields, .. } => {
+                for (_, e) in init_fields {
+                    Self::collect_symbols_from_expr(e, exclude, out, seen);
+                }
+            }
+            Expr::NewVariant { fields, .. } => {
+                for (_, e) in fields {
+                    Self::collect_symbols_from_expr(e, exclude, out, seen);
+                }
+            }
+            Expr::Contains { collection, value } | Expr::Union { left: collection, right: value }
+            | Expr::Intersection { left: collection, right: value } => {
+                Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                Self::collect_symbols_from_expr(value, exclude, out, seen);
+            }
+            Expr::ManifestOf { zone } | Expr::OptionSome { value: zone } => {
+                Self::collect_symbols_from_expr(zone, exclude, out, seen);
+            }
+            Expr::ChunkAt { index, zone } | Expr::WithCapacity { value: index, capacity: zone } => {
+                Self::collect_symbols_from_expr(index, exclude, out, seen);
+                Self::collect_symbols_from_expr(zone, exclude, out, seen);
+            }
+            Expr::Closure { params: inner_params, body: inner_body, .. } => {
+                // Nested closure: exclude inner params too
+                let mut inner_exclude = exclude.clone();
+                for (s, _) in inner_params {
+                    inner_exclude.insert(*s);
+                }
+                match inner_body {
+                    ClosureBody::Expression(e) => {
+                        Self::collect_symbols_from_expr(e, &inner_exclude, out, seen);
+                    }
+                    ClosureBody::Block(b) => {
+                        Self::collect_symbols_from_block(b, &inner_exclude, out, seen);
+                    }
+                }
+            }
+            Expr::CallExpr { callee, args } => {
+                Self::collect_symbols_from_expr(callee, exclude, out, seen);
+                for arg in args {
+                    Self::collect_symbols_from_expr(arg, exclude, out, seen);
+                }
+            }
+        }
+    }
+
+    fn collect_symbols_from_block(
+        stmts: &[Stmt<'a>],
+        exclude: &std::collections::HashSet<Symbol>,
+        out: &mut Vec<Symbol>,
+        seen: &mut std::collections::HashSet<Symbol>,
+    ) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Let { value, .. } => {
+                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                }
+                Stmt::Set { value, .. } => {
+                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                }
+                Stmt::Call { function, args } => {
+                    if !exclude.contains(function) && seen.insert(*function) {
+                        out.push(*function);
+                    }
+                    for arg in args {
+                        Self::collect_symbols_from_expr(arg, exclude, out, seen);
+                    }
+                }
+                Stmt::Return { value: Some(e) } => {
+                    Self::collect_symbols_from_expr(e, exclude, out, seen);
+                }
+                Stmt::If { cond, then_block, else_block } => {
+                    Self::collect_symbols_from_expr(cond, exclude, out, seen);
+                    Self::collect_symbols_from_block(then_block, exclude, out, seen);
+                    if let Some(eb) = else_block {
+                        Self::collect_symbols_from_block(eb, exclude, out, seen);
+                    }
+                }
+                Stmt::While { cond, body, .. } => {
+                    Self::collect_symbols_from_expr(cond, exclude, out, seen);
+                    Self::collect_symbols_from_block(body, exclude, out, seen);
+                }
+                Stmt::Repeat { iterable, body, .. } => {
+                    Self::collect_symbols_from_expr(iterable, exclude, out, seen);
+                    Self::collect_symbols_from_block(body, exclude, out, seen);
+                }
+                Stmt::Show { object, .. } | Stmt::Give { object, .. } => {
+                    Self::collect_symbols_from_expr(object, exclude, out, seen);
+                }
+                Stmt::Push { value, collection } | Stmt::Add { value, collection }
+                | Stmt::Remove { value, collection } => {
+                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                    Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                }
+                Stmt::SetIndex { collection, index, value } => {
+                    Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                    Self::collect_symbols_from_expr(index, exclude, out, seen);
+                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                }
+                Stmt::SetField { object, value, .. } => {
+                    Self::collect_symbols_from_expr(object, exclude, out, seen);
+                    Self::collect_symbols_from_expr(value, exclude, out, seen);
+                }
+                Stmt::RuntimeAssert { condition } => {
+                    Self::collect_symbols_from_expr(condition, exclude, out, seen);
+                }
+                Stmt::Zone { body, .. } => {
+                    Self::collect_symbols_from_block(body, exclude, out, seen);
+                }
+                Stmt::Inspect { target, arms, .. } => {
+                    Self::collect_symbols_from_expr(target, exclude, out, seen);
+                    for arm in arms {
+                        Self::collect_symbols_from_block(arm.body, exclude, out, seen);
+                    }
+                }
+                Stmt::Pop { collection, .. } => {
+                    Self::collect_symbols_from_expr(collection, exclude, out, seen);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Execute a closure with pre-evaluated argument values (async).
+    #[async_recursion(?Send)]
+    async fn call_closure_value(
+        &mut self,
+        closure: &ClosureValue,
+        mut arg_values: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, String> {
+        if arg_values.len() != closure.param_names.len() {
+            return Err(format!(
+                "Closure expects {} arguments, got {}",
+                closure.param_names.len(),
+                arg_values.len()
+            ));
+        }
+
+        // Extract body reference from side-table (breaks borrow on self)
+        let body_index = closure.body_index;
+        let is_block = matches!(self.closure_bodies.get(body_index), Some(ClosureBodyRef::Block(_)));
+
+        self.push_scope();
+
+        // Bind captured environment
+        for (sym, val) in &closure.captured_env {
+            self.env.define(*sym, val.deep_clone());
+        }
+
+        // Bind parameters
+        for (i, param_sym) in closure.param_names.iter().enumerate() {
+            self.env.define(*param_sym, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+        }
+
+        let result = if is_block {
+            let block = match &self.closure_bodies[body_index] {
+                ClosureBodyRef::Block(b) => *b,
+                _ => unreachable!(),
+            };
+            let mut return_value = RuntimeValue::Nothing;
+            for stmt in block.iter() {
+                match self.execute_stmt(stmt).await? {
+                    ControlFlow::Return(val) => {
+                        return_value = val;
+                        break;
+                    }
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => {}
+                }
+            }
+            Ok(return_value)
+        } else {
+            let expr = match &self.closure_bodies[body_index] {
+                ClosureBodyRef::Expression(e) => *e,
+                _ => unreachable!(),
+            };
+            self.evaluate_expr(expr).await
+        };
+
         self.pop_scope();
-        Ok(return_value)
+        result
+    }
+
+    /// Execute a closure with pre-evaluated argument values (sync).
+    fn call_closure_value_sync(
+        &mut self,
+        closure: &ClosureValue,
+        mut arg_values: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, String> {
+        if arg_values.len() != closure.param_names.len() {
+            return Err(format!(
+                "Closure expects {} arguments, got {}",
+                closure.param_names.len(),
+                arg_values.len()
+            ));
+        }
+
+        let body_index = closure.body_index;
+        let is_block = matches!(self.closure_bodies.get(body_index), Some(ClosureBodyRef::Block(_)));
+
+        self.push_scope();
+
+        for (sym, val) in &closure.captured_env {
+            self.env.define(*sym, val.deep_clone());
+        }
+
+        for (i, param_sym) in closure.param_names.iter().enumerate() {
+            self.env.define(*param_sym, std::mem::replace(&mut arg_values[i], RuntimeValue::Nothing));
+        }
+
+        let result = if is_block {
+            let block = match &self.closure_bodies[body_index] {
+                ClosureBodyRef::Block(b) => *b,
+                _ => unreachable!(),
+            };
+            let mut return_value = RuntimeValue::Nothing;
+            for stmt in block.iter() {
+                match self.execute_stmt_sync(stmt)? {
+                    ControlFlow::Return(val) => {
+                        return_value = val;
+                        break;
+                    }
+                    ControlFlow::Break => break,
+                    ControlFlow::Continue => {}
+                }
+            }
+            Ok(return_value)
+        } else {
+            let expr = match &self.closure_bodies[body_index] {
+                ClosureBodyRef::Expression(e) => *e,
+                _ => unreachable!(),
+            };
+            self.evaluate_expr_sync(expr)
+        };
+
+        self.pop_scope();
+        result
     }
 }
 
