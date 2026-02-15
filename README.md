@@ -3,7 +3,7 @@
 **Our Mission: Compile the universes information. No, not collect, compile, like code.**
 
 [![CI](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml/badge.svg)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
-[![Version](https://img.shields.io/badge/version-0.5.5-blue)]()
+[![Version](https://img.shields.io/badge/version-0.8.12-blue)]()
 [![Tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Brahmastra-Labs/logicaffeine/badges/logicaffeine_test_count.json)](https://github.com/Brahmastra-Labs/logicaffeine/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-BSL%201.1-blue)](LICENSE.md)
 
@@ -3850,7 +3850,7 @@ The test suite includes classic examples from the formal semantics literature: d
 - **[LOGOS_DOCUMENTATION.md](LOGOS_DOCUMENTATION.md)** — Full technical documentation
 
 **Project**
-- **[CHANGELOG.md](CHANGELOG.md)** — Version history (v0.5.5: First public release)
+- **[CHANGELOG.md](CHANGELOG.md)** — Version history (v0.8.12: Latest release)
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — How to contribute (TDD workflow)
 - **[SECURITY.md](SECURITY.md)** — Report security vulnerabilities
 - **[ROADMAP.md](ROADMAP.md)** — Development direction
