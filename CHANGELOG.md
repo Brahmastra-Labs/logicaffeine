@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.13] - 2026-02-14
+
+### Added
+- Accumulator introduction: converts `f(n-1) + k` and `n * f(n-1)` into zero-overhead loops
+- Automatic memoization: pure multi-branch recursive functions get thread-local HashMap cache
+- Mutual tail call optimization: pairs like `isEven`/`isOdd` merged into single loop with tag dispatch
+- Purity analysis: fixed-point dataflow to identify side-effect-free functions
+- 14 new optimizer tests (accumulator, memoization, mutual TCO — codegen + E2E correctness)
+
 ## [0.8.12] - 2026-02-14
 
 ### Changed

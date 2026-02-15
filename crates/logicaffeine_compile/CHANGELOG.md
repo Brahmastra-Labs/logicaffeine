@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.13] - 2026-02-14
+
+### Added
+- Accumulator introduction optimization for single non-tail recursive calls with `+` or `*`
+- Automatic memoization for pure multi-branch recursive functions with hashable parameters
+- Mutual tail call optimization merging paired mutually-recursive functions into a single loop
+- Purity analysis pass (`collect_pure_functions`) using two-pass fixed-point propagation
+- Helper functions: `count_self_calls`, `is_hashable_type`, `detect_mutual_tce_pairs`, `find_tail_call_targets`
+
 ## [0.8.12] - 2026-02-14
 
 Synced to workspace version 0.8.12. See root CHANGELOG for full history.

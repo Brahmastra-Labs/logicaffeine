@@ -2907,6 +2907,1069 @@ fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> boo
     }
 }
 
+// =============================================================================
+// Purity Analysis
+// =============================================================================
+
+fn collect_pure_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
+    let mut func_bodies: HashMap<Symbol, &[Stmt]> = HashMap::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, body, .. } = stmt {
+            func_bodies.insert(*name, *body);
+        }
+    }
+
+    // Pass 1: Mark functions as impure if they directly contain impure statements
+    let mut impure_fns = HashSet::new();
+    for (func_name, body) in &func_bodies {
+        if body.iter().any(|s| is_directly_impure_stmt(s)) {
+            impure_fns.insert(*func_name);
+        }
+    }
+
+    // Pass 2: Propagate impurity through call graph until fixed point
+    loop {
+        let mut changed = false;
+        for (func_name, body) in &func_bodies {
+            if impure_fns.contains(func_name) {
+                continue;
+            }
+            if body.iter().any(|s| calls_impure_function(s, &impure_fns)) {
+                impure_fns.insert(*func_name);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Pure = all functions NOT in impure set
+    let mut pure_fns = HashSet::new();
+    for func_name in func_bodies.keys() {
+        if !impure_fns.contains(func_name) {
+            pure_fns.insert(*func_name);
+        }
+    }
+    pure_fns
+}
+
+fn is_directly_impure_stmt(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Show { .. }
+        | Stmt::Give { .. }
+        | Stmt::WriteFile { .. }
+        | Stmt::ReadFrom { .. }
+        | Stmt::Listen { .. }
+        | Stmt::ConnectTo { .. }
+        | Stmt::SendMessage { .. }
+        | Stmt::AwaitMessage { .. }
+        | Stmt::Sleep { .. }
+        | Stmt::Sync { .. }
+        | Stmt::Mount { .. }
+        | Stmt::MergeCrdt { .. }
+        | Stmt::IncreaseCrdt { .. }
+        | Stmt::DecreaseCrdt { .. }
+        | Stmt::AppendToSequence { .. }
+        | Stmt::ResolveConflict { .. }
+        | Stmt::CreatePipe { .. }
+        | Stmt::SendPipe { .. }
+        | Stmt::ReceivePipe { .. }
+        | Stmt::TrySendPipe { .. }
+        | Stmt::TryReceivePipe { .. }
+        | Stmt::LaunchTask { .. }
+        | Stmt::LaunchTaskWithHandle { .. }
+        | Stmt::StopTask { .. }
+        | Stmt::Concurrent { .. }
+        | Stmt::Parallel { .. } => true,
+        Stmt::If { then_block, else_block, .. } => {
+            then_block.iter().any(|s| is_directly_impure_stmt(s))
+                || else_block.map_or(false, |b| b.iter().any(|s| is_directly_impure_stmt(s)))
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+            body.iter().any(|s| is_directly_impure_stmt(s))
+        }
+        Stmt::Zone { body, .. } => {
+            body.iter().any(|s| is_directly_impure_stmt(s))
+        }
+        Stmt::Inspect { arms, .. } => {
+            arms.iter().any(|arm| arm.body.iter().any(|s| is_directly_impure_stmt(s)))
+        }
+        _ => false,
+    }
+}
+
+fn calls_impure_function(stmt: &Stmt, impure_fns: &HashSet<Symbol>) -> bool {
+    match stmt {
+        Stmt::Call { function, args } => {
+            impure_fns.contains(function)
+                || args.iter().any(|a| expr_calls_impure(a, impure_fns))
+        }
+        Stmt::Let { value, .. } => expr_calls_impure(value, impure_fns),
+        Stmt::Set { value, .. } => expr_calls_impure(value, impure_fns),
+        Stmt::Return { value } => value.as_ref().map_or(false, |v| expr_calls_impure(v, impure_fns)),
+        Stmt::If { cond, then_block, else_block } => {
+            expr_calls_impure(cond, impure_fns)
+                || then_block.iter().any(|s| calls_impure_function(s, impure_fns))
+                || else_block.map_or(false, |b| b.iter().any(|s| calls_impure_function(s, impure_fns)))
+        }
+        Stmt::While { cond, body, .. } => {
+            expr_calls_impure(cond, impure_fns)
+                || body.iter().any(|s| calls_impure_function(s, impure_fns))
+        }
+        Stmt::Repeat { body, .. } => body.iter().any(|s| calls_impure_function(s, impure_fns)),
+        Stmt::Zone { body, .. } => body.iter().any(|s| calls_impure_function(s, impure_fns)),
+        Stmt::Inspect { arms, .. } => {
+            arms.iter().any(|arm| arm.body.iter().any(|s| calls_impure_function(s, impure_fns)))
+        }
+        Stmt::Show { object, .. } => expr_calls_impure(object, impure_fns),
+        Stmt::Push { value, collection } | Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
+            expr_calls_impure(value, impure_fns) || expr_calls_impure(collection, impure_fns)
+        }
+        _ => false,
+    }
+}
+
+fn expr_calls_impure(expr: &Expr, impure_fns: &HashSet<Symbol>) -> bool {
+    match expr {
+        Expr::Call { function, args } => {
+            impure_fns.contains(function)
+                || args.iter().any(|a| expr_calls_impure(a, impure_fns))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            expr_calls_impure(left, impure_fns) || expr_calls_impure(right, impure_fns)
+        }
+        Expr::Index { collection, index } => {
+            expr_calls_impure(collection, impure_fns) || expr_calls_impure(index, impure_fns)
+        }
+        Expr::FieldAccess { object, .. } => expr_calls_impure(object, impure_fns),
+        Expr::List(items) | Expr::Tuple(items) => items.iter().any(|i| expr_calls_impure(i, impure_fns)),
+        Expr::CallExpr { callee, args } => {
+            expr_calls_impure(callee, impure_fns)
+                || args.iter().any(|a| expr_calls_impure(a, impure_fns))
+        }
+        _ => false,
+    }
+}
+
+// =============================================================================
+// Memoization Detection
+// =============================================================================
+
+fn count_self_calls(func_name: Symbol, body: &[Stmt]) -> usize {
+    let mut count = 0;
+    for stmt in body {
+        count += count_self_calls_in_stmt(func_name, stmt);
+    }
+    count
+}
+
+fn count_self_calls_in_stmt(func_name: Symbol, stmt: &Stmt) -> usize {
+    match stmt {
+        Stmt::Return { value: Some(expr) } => count_self_calls_in_expr(func_name, expr),
+        Stmt::Let { value, .. } => count_self_calls_in_expr(func_name, value),
+        Stmt::Set { value, .. } => count_self_calls_in_expr(func_name, value),
+        Stmt::Call { function, args } => {
+            let mut c = if *function == func_name { 1 } else { 0 };
+            c += args.iter().map(|a| count_self_calls_in_expr(func_name, a)).sum::<usize>();
+            c
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            let mut c = count_self_calls_in_expr(func_name, cond);
+            c += count_self_calls(func_name, then_block);
+            if let Some(else_stmts) = else_block {
+                c += count_self_calls(func_name, else_stmts);
+            }
+            c
+        }
+        Stmt::While { cond, body, .. } => {
+            count_self_calls_in_expr(func_name, cond) + count_self_calls(func_name, body)
+        }
+        Stmt::Repeat { body, .. } => count_self_calls(func_name, body),
+        Stmt::Show { object, .. } => count_self_calls_in_expr(func_name, object),
+        _ => 0,
+    }
+}
+
+fn count_self_calls_in_expr(func_name: Symbol, expr: &Expr) -> usize {
+    match expr {
+        Expr::Call { function, args } => {
+            let mut c = if *function == func_name { 1 } else { 0 };
+            c += args.iter().map(|a| count_self_calls_in_expr(func_name, a)).sum::<usize>();
+            c
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            count_self_calls_in_expr(func_name, left) + count_self_calls_in_expr(func_name, right)
+        }
+        Expr::Index { collection, index } => {
+            count_self_calls_in_expr(func_name, collection) + count_self_calls_in_expr(func_name, index)
+        }
+        Expr::FieldAccess { object, .. } => count_self_calls_in_expr(func_name, object),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().map(|i| count_self_calls_in_expr(func_name, i)).sum()
+        }
+        _ => 0,
+    }
+}
+
+fn is_hashable_type(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "Int" | "Nat" | "Bool" | "Char" | "Byte" | "Text"
+                | "i64" | "u64" | "bool" | "char" | "u8" | "String")
+        }
+        TypeExpr::Refinement { base, .. } => is_hashable_type(base, interner),
+        _ => false,
+    }
+}
+
+fn is_copy_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
+            let name = interner.resolve(*sym);
+            matches!(name, "Int" | "Nat" | "Bool" | "Char" | "Byte"
+                | "i64" | "u64" | "bool" | "char" | "u8")
+        }
+        TypeExpr::Refinement { base, .. } => is_copy_type_expr(base, interner),
+        _ => false,
+    }
+}
+
+fn should_memoize(
+    name: Symbol,
+    body: &[Stmt],
+    params: &[(Symbol, &TypeExpr)],
+    return_type: Option<&TypeExpr>,
+    is_pure: bool,
+    interner: &Interner,
+) -> bool {
+    if !is_pure {
+        return false;
+    }
+    if !body_contains_self_call(name, body) {
+        return false;
+    }
+    if count_self_calls(name, body) < 2 {
+        return false;
+    }
+    if params.is_empty() {
+        return false;
+    }
+    if !params.iter().all(|(_, ty)| is_hashable_type(ty, interner)) {
+        return false;
+    }
+    if return_type.is_none() {
+        return false;
+    }
+    true
+}
+
+// =============================================================================
+// Tail Call Elimination (TCE) Detection
+// =============================================================================
+
+fn expr_is_self_call(func_name: Symbol, expr: &Expr) -> bool {
+    matches!(expr, Expr::Call { function, .. } if *function == func_name)
+}
+
+fn has_tail_call_in_stmt(func_name: Symbol, stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { value: Some(expr) } => {
+            if expr_is_self_call(func_name, expr) {
+                return true;
+            }
+            // Check for nested self-call pattern: f(a, f(b, c))
+            // The outer call is in tail position even if an arg is also a self-call
+            if let Expr::Call { function, args } = expr {
+                if *function == func_name {
+                    return true;
+                }
+                // The outer is a self-call with a nested self-call arg — still tail position
+                let _ = args;
+            }
+            false
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            let then_tail = then_block.last()
+                .map_or(false, |s| has_tail_call_in_stmt(func_name, s));
+            let else_tail = else_block
+                .and_then(|block| block.last())
+                .map_or(false, |s| has_tail_call_in_stmt(func_name, s));
+            then_tail || else_tail
+        }
+        _ => false,
+    }
+}
+
+fn is_tail_recursive(func_name: Symbol, body: &[Stmt]) -> bool {
+    body.iter().any(|s| has_tail_call_in_stmt(func_name, s))
+}
+
+fn body_contains_self_call(func_name: Symbol, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_contains_self_call(func_name, s))
+}
+
+fn stmt_contains_self_call(func_name: Symbol, stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Return { value: Some(expr) } => expr_contains_self_call(func_name, expr),
+        Stmt::Return { value: None } => false,
+        Stmt::Let { value, .. } => expr_contains_self_call(func_name, value),
+        Stmt::Set { value, .. } => expr_contains_self_call(func_name, value),
+        Stmt::Call { function, args } => {
+            *function == func_name || args.iter().any(|a| expr_contains_self_call(func_name, a))
+        }
+        Stmt::If { cond, then_block, else_block } => {
+            expr_contains_self_call(func_name, cond)
+                || then_block.iter().any(|s| stmt_contains_self_call(func_name, s))
+                || else_block.map_or(false, |b| b.iter().any(|s| stmt_contains_self_call(func_name, s)))
+        }
+        Stmt::While { cond, body, .. } => {
+            expr_contains_self_call(func_name, cond)
+                || body.iter().any(|s| stmt_contains_self_call(func_name, s))
+        }
+        Stmt::Repeat { body, .. } => {
+            body.iter().any(|s| stmt_contains_self_call(func_name, s))
+        }
+        Stmt::Show { object, .. } => expr_contains_self_call(func_name, object),
+        _ => false,
+    }
+}
+
+fn expr_contains_self_call(func_name: Symbol, expr: &Expr) -> bool {
+    match expr {
+        Expr::Call { function, args } => {
+            *function == func_name || args.iter().any(|a| expr_contains_self_call(func_name, a))
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            expr_contains_self_call(func_name, left) || expr_contains_self_call(func_name, right)
+        }
+        Expr::Index { collection, index } => {
+            expr_contains_self_call(func_name, collection) || expr_contains_self_call(func_name, index)
+        }
+        Expr::FieldAccess { object, .. } => expr_contains_self_call(func_name, object),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| expr_contains_self_call(func_name, i))
+        }
+        _ => false,
+    }
+}
+
+// =============================================================================
+// Inline Annotation Detection
+// =============================================================================
+
+fn should_inline(name: Symbol, body: &[Stmt], is_native: bool, is_exported: bool, is_async: bool) -> bool {
+    !is_native && !is_exported && !is_async
+        && body.len() <= 5
+        && !body_contains_self_call(name, body)
+}
+
+// =============================================================================
+// Accumulator Introduction — Detection
+// =============================================================================
+
+#[derive(Debug)]
+enum NonRecSide { Left, Right }
+
+#[derive(Debug)]
+struct AccumulatorInfo {
+    op: BinaryOpKind,
+    identity: &'static str,
+    non_recursive_side: NonRecSide,
+}
+
+fn detect_accumulator_pattern(func_name: Symbol, body: &[Stmt]) -> Option<AccumulatorInfo> {
+    if has_non_return_self_calls(func_name, body) {
+        return None;
+    }
+    let (base_count, recursive_count) = count_recursive_returns(func_name, body);
+    if recursive_count != 1 {
+        return None;
+    }
+    if base_count == 0 {
+        return None;
+    }
+    find_accumulator_return(func_name, body)
+}
+
+fn count_recursive_returns(func_name: Symbol, body: &[Stmt]) -> (usize, usize) {
+    let mut base = 0;
+    let mut recursive = 0;
+    for stmt in body {
+        match stmt {
+            Stmt::Return { value: Some(expr) } => {
+                if expr_contains_self_call(func_name, expr) {
+                    recursive += 1;
+                } else {
+                    base += 1;
+                }
+            }
+            Stmt::Return { value: None } => {
+                base += 1;
+            }
+            Stmt::If { then_block, else_block, .. } => {
+                let (tb, tr) = count_recursive_returns(func_name, then_block);
+                base += tb;
+                recursive += tr;
+                if let Some(else_stmts) = else_block {
+                    let (eb, er) = count_recursive_returns(func_name, else_stmts);
+                    base += eb;
+                    recursive += er;
+                }
+            }
+            _ => {}
+        }
+    }
+    (base, recursive)
+}
+
+fn has_non_return_self_calls(func_name: Symbol, body: &[Stmt]) -> bool {
+    for stmt in body {
+        match stmt {
+            Stmt::Return { .. } => {}
+            Stmt::If { cond, then_block, else_block } => {
+                if expr_contains_self_call(func_name, cond) {
+                    return true;
+                }
+                if has_non_return_self_calls(func_name, then_block) {
+                    return true;
+                }
+                if let Some(else_stmts) = else_block {
+                    if has_non_return_self_calls(func_name, else_stmts) {
+                        return true;
+                    }
+                }
+            }
+            Stmt::Let { value, .. } => {
+                if expr_contains_self_call(func_name, value) {
+                    return true;
+                }
+            }
+            Stmt::Set { value, .. } => {
+                if expr_contains_self_call(func_name, value) {
+                    return true;
+                }
+            }
+            Stmt::Show { object, .. } => {
+                if expr_contains_self_call(func_name, object) {
+                    return true;
+                }
+            }
+            Stmt::While { cond, body, .. } => {
+                if expr_contains_self_call(func_name, cond) {
+                    return true;
+                }
+                if has_non_return_self_calls(func_name, body) {
+                    return true;
+                }
+            }
+            Stmt::Repeat { body, .. } => {
+                if has_non_return_self_calls(func_name, body) {
+                    return true;
+                }
+            }
+            Stmt::Call { function, args } => {
+                if *function == func_name || args.iter().any(|a| expr_contains_self_call(func_name, a)) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+fn find_accumulator_return(func_name: Symbol, body: &[Stmt]) -> Option<AccumulatorInfo> {
+    for stmt in body {
+        match stmt {
+            Stmt::Return { value: Some(expr) } => {
+                if let Expr::BinaryOp { op, left, right } = expr {
+                    match op {
+                        BinaryOpKind::Add | BinaryOpKind::Multiply => {
+                            let left_has_call = expr_is_self_call(func_name, left);
+                            let right_has_call = expr_is_self_call(func_name, right);
+                            let left_contains_call = expr_contains_self_call(func_name, left);
+                            let right_contains_call = expr_contains_self_call(func_name, right);
+                            let identity = match op {
+                                BinaryOpKind::Add => "0",
+                                BinaryOpKind::Multiply => "1",
+                                _ => unreachable!(),
+                            };
+                            if left_has_call && !right_contains_call {
+                                return Some(AccumulatorInfo {
+                                    op: *op,
+                                    identity,
+                                    non_recursive_side: NonRecSide::Right,
+                                });
+                            }
+                            if right_has_call && !left_contains_call {
+                                return Some(AccumulatorInfo {
+                                    op: *op,
+                                    identity,
+                                    non_recursive_side: NonRecSide::Left,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Stmt::If { then_block, else_block, .. } => {
+                if let Some(info) = find_accumulator_return(func_name, then_block) {
+                    return Some(info);
+                }
+                if let Some(else_stmts) = else_block {
+                    if let Some(info) = find_accumulator_return(func_name, else_stmts) {
+                        return Some(info);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+// =============================================================================
+// Accumulator Introduction — Statement Emitter
+// =============================================================================
+
+fn codegen_stmt_acc<'a>(
+    stmt: &Stmt<'a>,
+    func_name: Symbol,
+    param_names: &[Symbol],
+    acc_info: &AccumulatorInfo,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+) -> String {
+    let indent_str = "    ".repeat(indent);
+    let op_str = match acc_info.op {
+        BinaryOpKind::Add => "+",
+        BinaryOpKind::Multiply => "*",
+        _ => unreachable!(),
+    };
+
+    match stmt {
+        // Recursive return: BinaryOp(op, self_call, non_rec) or swapped
+        Stmt::Return { value: Some(expr) } if expr_contains_self_call(func_name, expr) => {
+            if let Expr::BinaryOp { left, right, .. } = expr {
+                let (call_expr, non_rec_expr) = match acc_info.non_recursive_side {
+                    NonRecSide::Left => (right, left),
+                    NonRecSide::Right => (left, right),
+                };
+                // Extract args from the self-call
+                if let Expr::Call { args, .. } = call_expr {
+                    let mut output = String::new();
+                    writeln!(output, "{}{{", indent_str).unwrap();
+                    let non_rec_str = codegen_expr_with_async(non_rec_expr, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    writeln!(output, "{}    let __acc_expr = {};", indent_str, non_rec_str).unwrap();
+                    writeln!(output, "{}    __acc = __acc {} __acc_expr;", indent_str, op_str).unwrap();
+                    // Evaluate args into temporaries
+                    for (i, arg) in args.iter().enumerate() {
+                        let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                        writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                    }
+                    // Assign temporaries to params
+                    for (i, param_sym) in param_names.iter().enumerate() {
+                        let param_name = interner.resolve(*param_sym);
+                        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                    }
+                    writeln!(output, "{}    continue;", indent_str).unwrap();
+                    writeln!(output, "{}}}", indent_str).unwrap();
+                    return output;
+                }
+            }
+            // Fallback
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+        }
+
+        // Base return: no self-call
+        Stmt::Return { value: Some(expr) } => {
+            let val_str = codegen_expr_with_async(expr, interner, synced_vars, async_functions, ctx.get_variable_types());
+            format!("{}return __acc {} {};\n", indent_str, op_str, val_str)
+        }
+
+        Stmt::Return { value: None } => {
+            format!("{}return __acc;\n", indent_str)
+        }
+
+        // If: recurse into branches
+        Stmt::If { cond, then_block, else_block } => {
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let mut output = String::new();
+            writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
+            for s in *then_block {
+                output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+            }
+            ctx.pop_scope();
+            if let Some(else_stmts) = else_block {
+                writeln!(output, "{}}} else {{", indent_str).unwrap();
+                ctx.push_scope();
+                for s in *else_stmts {
+                    output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                }
+                ctx.pop_scope();
+            }
+            writeln!(output, "{}}}", indent_str).unwrap();
+            output
+        }
+
+        // Everything else: delegate
+        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry),
+    }
+}
+
+// =============================================================================
+// Mutual Tail Call Optimization — Detection
+// =============================================================================
+
+fn find_tail_call_targets(func_name: Symbol, body: &[Stmt]) -> HashSet<Symbol> {
+    let mut targets = HashSet::new();
+    for stmt in body {
+        collect_tail_targets(func_name, stmt, &mut targets);
+    }
+    targets
+}
+
+fn collect_tail_targets(func_name: Symbol, stmt: &Stmt, targets: &mut HashSet<Symbol>) {
+    match stmt {
+        Stmt::Return { value: Some(Expr::Call { function, .. }) } => {
+            if *function != func_name {
+                targets.insert(*function);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            if let Some(last) = then_block.last() {
+                collect_tail_targets(func_name, last, targets);
+            }
+            if let Some(else_stmts) = else_block {
+                if let Some(last) = else_stmts.last() {
+                    collect_tail_targets(func_name, last, targets);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn detect_mutual_tce_pairs<'a>(stmts: &'a [Stmt<'a>], interner: &Interner) -> Vec<(Symbol, Symbol)> {
+    // Collect function definitions
+    let mut func_defs: HashMap<Symbol, (&[(Symbol, &TypeExpr)], &[Stmt], Option<&TypeExpr>, bool, bool, bool)> = HashMap::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, params, body, return_type, is_native, is_exported, .. } = stmt {
+            let is_async_fn = false; // Will be checked properly later
+            func_defs.insert(*name, (params, body, return_type.as_ref().copied(), *is_native, *is_exported, is_async_fn));
+        }
+    }
+
+    // Build tail-call graph
+    let mut tail_targets: HashMap<Symbol, HashSet<Symbol>> = HashMap::new();
+    for (name, (_, body, _, _, _, _)) in &func_defs {
+        tail_targets.insert(*name, find_tail_call_targets(*name, body));
+    }
+
+    // Find mutually tail-calling pairs
+    let mut pairs = Vec::new();
+    let mut used = HashSet::new();
+    let names: Vec<Symbol> = func_defs.keys().copied().collect();
+
+    for i in 0..names.len() {
+        for j in (i + 1)..names.len() {
+            let a = names[i];
+            let b = names[j];
+            if used.contains(&a) || used.contains(&b) {
+                continue;
+            }
+
+            let a_targets = tail_targets.get(&a).cloned().unwrap_or_default();
+            let b_targets = tail_targets.get(&b).cloned().unwrap_or_default();
+
+            // Both must tail-call each other
+            if !a_targets.contains(&b) || !b_targets.contains(&a) {
+                continue;
+            }
+
+            let (a_params, _, a_ret, a_native, a_exported, _) = func_defs[&a];
+            let (b_params, _, b_ret, b_native, b_exported, _) = func_defs[&b];
+
+            // Neither can be native or exported
+            if a_native || b_native || a_exported || b_exported {
+                continue;
+            }
+
+            // Same number of params
+            if a_params.len() != b_params.len() {
+                continue;
+            }
+
+            // Same param types
+            let same_params = a_params.iter().zip(b_params.iter()).all(|((_, t1), (_, t2))| {
+                codegen_type_expr(t1, interner) == codegen_type_expr(t2, interner)
+            });
+            if !same_params {
+                continue;
+            }
+
+            // Same return type
+            let a_ret_str = a_ret.map(|t| codegen_type_expr(t, interner));
+            let b_ret_str = b_ret.map(|t| codegen_type_expr(t, interner));
+            if a_ret_str != b_ret_str {
+                continue;
+            }
+
+            // Verify that the mutual calls are actually in tail position
+            // (the targets above only collect Return { Call } patterns, so they are)
+            pairs.push((a, b));
+            used.insert(a);
+            used.insert(b);
+        }
+    }
+
+    pairs
+}
+
+// =============================================================================
+// Mutual Tail Call Optimization — Code Generation
+// =============================================================================
+
+fn codegen_mutual_tce_pair<'a>(
+    func_a: Symbol,
+    func_b: Symbol,
+    stmts: &'a [Stmt<'a>],
+    interner: &Interner,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    async_functions: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+) -> String {
+    // Extract function defs
+    let mut a_def = None;
+    let mut b_def = None;
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, params, body, return_type, .. } = stmt {
+            if *name == func_a {
+                a_def = Some((params.as_slice(), *body, return_type.as_ref().copied()));
+            } else if *name == func_b {
+                b_def = Some((params.as_slice(), *body, return_type.as_ref().copied()));
+            }
+        }
+    }
+    let (a_params, a_body, a_ret) = a_def.expect("mutual TCE: func_a not found");
+    let (b_params, b_body, _b_ret) = b_def.expect("mutual TCE: func_b not found");
+
+    let a_name = escape_rust_ident(interner.resolve(func_a));
+    let b_name = escape_rust_ident(interner.resolve(func_b));
+    let merged_name = format!("__mutual_{}_{}", a_name, b_name);
+
+    // Build param list (using func_a's param names, since types match)
+    let params_str: Vec<String> = a_params.iter()
+        .map(|(p, t)| format!("mut {}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+        .collect();
+
+    let ret_str = a_ret.map(|t| codegen_type_expr(t, interner));
+
+    let mut output = String::new();
+
+    // Merged function
+    let sig = if let Some(ref r) = ret_str {
+        if r != "()" {
+            format!("fn {}(mut __tag: u8, {}) -> {}", merged_name, params_str.join(", "), r)
+        } else {
+            format!("fn {}(mut __tag: u8, {})", merged_name, params_str.join(", "))
+        }
+    } else {
+        format!("fn {}(mut __tag: u8, {})", merged_name, params_str.join(", "))
+    };
+
+    writeln!(output, "{} {{", sig).unwrap();
+    writeln!(output, "    loop {{").unwrap();
+    writeln!(output, "        match __tag {{").unwrap();
+
+    // Tag 0: func_a body
+    writeln!(output, "            0 => {{").unwrap();
+    let a_mutable = collect_mutable_vars(a_body);
+    let mut a_ctx = RefinementContext::new();
+    let mut a_synced = HashSet::new();
+    let a_caps = HashMap::new();
+    let a_pipes = HashSet::new();
+    let a_param_syms: Vec<Symbol> = a_params.iter().map(|(s, _)| *s).collect();
+    for s in a_body {
+        output.push_str(&codegen_stmt_mutual_tce(s, func_a, func_b, &a_param_syms, 0, 1, interner, 4, &a_mutable, &mut a_ctx, lww_fields, mv_fields, &mut a_synced, &a_caps, async_functions, &a_pipes, boxed_fields, registry));
+    }
+    writeln!(output, "            }}").unwrap();
+
+    // Tag 1: func_b body
+    writeln!(output, "            1 => {{").unwrap();
+    let b_mutable = collect_mutable_vars(b_body);
+    let mut b_ctx = RefinementContext::new();
+    let mut b_synced = HashSet::new();
+    let b_caps = HashMap::new();
+    let b_pipes = HashSet::new();
+    let b_param_syms: Vec<Symbol> = b_params.iter().map(|(s, _)| *s).collect();
+    // Map b's param names to a's param names for assignment
+    for s in b_body {
+        output.push_str(&codegen_stmt_mutual_tce(s, func_b, func_a, &b_param_syms, 1, 0, interner, 4, &b_mutable, &mut b_ctx, lww_fields, mv_fields, &mut b_synced, &b_caps, async_functions, &b_pipes, boxed_fields, registry));
+    }
+    writeln!(output, "            }}").unwrap();
+
+    writeln!(output, "            _ => unreachable!()").unwrap();
+    writeln!(output, "        }}").unwrap();
+    writeln!(output, "    }}").unwrap();
+    writeln!(output, "}}\n").unwrap();
+
+    // Wrapper for func_a
+    let wrapper_params_a: Vec<String> = a_params.iter()
+        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+        .collect();
+    let wrapper_args_a: Vec<String> = a_params.iter()
+        .map(|(p, _)| interner.resolve(*p).to_string())
+        .collect();
+    writeln!(output, "#[inline]").unwrap();
+    if let Some(ref r) = ret_str {
+        if r != "()" {
+            writeln!(output, "fn {}({}) -> {} {{ {}(0, {}) }}\n", a_name, wrapper_params_a.join(", "), r, merged_name, wrapper_args_a.join(", ")).unwrap();
+        } else {
+            writeln!(output, "fn {}({}) {{ {}(0, {}) }}\n", a_name, wrapper_params_a.join(", "), merged_name, wrapper_args_a.join(", ")).unwrap();
+        }
+    } else {
+        writeln!(output, "fn {}({}) {{ {}(0, {}) }}\n", a_name, wrapper_params_a.join(", "), merged_name, wrapper_args_a.join(", ")).unwrap();
+    }
+
+    // Wrapper for func_b
+    let wrapper_params_b: Vec<String> = b_params.iter()
+        .map(|(p, t)| format!("{}: {}", interner.resolve(*p), codegen_type_expr(t, interner)))
+        .collect();
+    let wrapper_args_b: Vec<String> = b_params.iter()
+        .map(|(p, _)| interner.resolve(*p).to_string())
+        .collect();
+    writeln!(output, "#[inline]").unwrap();
+    if let Some(ref r) = ret_str {
+        if r != "()" {
+            writeln!(output, "fn {}({}) -> {} {{ {}(1, {}) }}\n", b_name, wrapper_params_b.join(", "), r, merged_name, wrapper_args_b.join(", ")).unwrap();
+        } else {
+            writeln!(output, "fn {}({}) {{ {}(1, {}) }}\n", b_name, wrapper_params_b.join(", "), merged_name, wrapper_args_b.join(", ")).unwrap();
+        }
+    } else {
+        writeln!(output, "fn {}({}) {{ {}(1, {}) }}\n", b_name, wrapper_params_b.join(", "), merged_name, wrapper_args_b.join(", ")).unwrap();
+    }
+
+    output
+}
+
+fn codegen_stmt_mutual_tce<'a>(
+    stmt: &Stmt<'a>,
+    self_name: Symbol,
+    partner_name: Symbol,
+    param_names: &[Symbol],
+    self_tag: u8,
+    partner_tag: u8,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+) -> String {
+    let indent_str = "    ".repeat(indent);
+
+    match stmt {
+        // Return with a call to partner → switch tag + continue
+        Stmt::Return { value: Some(expr) } if expr_is_call_to(partner_name, expr) => {
+            if let Expr::Call { args, .. } = expr {
+                let mut output = String::new();
+                writeln!(output, "{}{{", indent_str).unwrap();
+                for (i, arg) in args.iter().enumerate() {
+                    let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                }
+                for (i, param_sym) in param_names.iter().enumerate() {
+                    let param_name = interner.resolve(*param_sym);
+                    writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                }
+                writeln!(output, "{}    __tag = {};", indent_str, partner_tag).unwrap();
+                writeln!(output, "{}    continue;", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+                return output;
+            }
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+        }
+
+        // Return with a call to self → standard self-TCE
+        Stmt::Return { value: Some(expr) } if expr_is_call_to(self_name, expr) => {
+            if let Expr::Call { args, .. } = expr {
+                let mut output = String::new();
+                writeln!(output, "{}{{", indent_str).unwrap();
+                for (i, arg) in args.iter().enumerate() {
+                    let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                }
+                for (i, param_sym) in param_names.iter().enumerate() {
+                    let param_name = interner.resolve(*param_sym);
+                    writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                }
+                writeln!(output, "{}    continue;", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+                return output;
+            }
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+        }
+
+        // If: recurse into branches
+        Stmt::If { cond, then_block, else_block } => {
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let mut output = String::new();
+            writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
+            for s in *then_block {
+                output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+            }
+            ctx.pop_scope();
+            if let Some(else_stmts) = else_block {
+                writeln!(output, "{}}} else {{", indent_str).unwrap();
+                ctx.push_scope();
+                for s in *else_stmts {
+                    output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                }
+                ctx.pop_scope();
+            }
+            writeln!(output, "{}}}", indent_str).unwrap();
+            output
+        }
+
+        // Everything else: delegate
+        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry),
+    }
+}
+
+fn expr_is_call_to(target: Symbol, expr: &Expr) -> bool {
+    matches!(expr, Expr::Call { function, .. } if *function == target)
+}
+
+// =============================================================================
+// Tail Call Elimination (TCE) Statement Emitter
+// =============================================================================
+
+fn codegen_stmt_tce<'a>(
+    stmt: &Stmt<'a>,
+    func_name: Symbol,
+    param_names: &[Symbol],
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+) -> String {
+    let indent_str = "    ".repeat(indent);
+
+    match stmt {
+        // Case 1 & 2: Return with a self-call in tail position
+        Stmt::Return { value: Some(expr) } if expr_is_self_call(func_name, expr) => {
+            if let Expr::Call { args, .. } = expr {
+                let mut output = String::new();
+                writeln!(output, "{}{{", indent_str).unwrap();
+                // Evaluate all args into temporaries first (prevents ordering bugs)
+                for (i, arg) in args.iter().enumerate() {
+                    let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                }
+                // Assign temporaries to params
+                for (i, param_sym) in param_names.iter().enumerate() {
+                    let param_name = interner.resolve(*param_sym);
+                    writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                }
+                writeln!(output, "{}    continue;", indent_str).unwrap();
+                writeln!(output, "{}}}", indent_str).unwrap();
+                return output;
+            }
+            // Shouldn't reach here, but fall through to default
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+        }
+
+        // Case 2: Return with outer self-call that has a nested self-call arg (Ackermann pattern)
+        Stmt::Return { value: Some(expr) } => {
+            if let Expr::Call { function, args } = expr {
+                if *function == func_name {
+                    let mut output = String::new();
+                    writeln!(output, "{}{{", indent_str).unwrap();
+                    // Evaluate args — nested self-calls remain as normal recursion,
+                    // but the outer call becomes a loop iteration
+                    for (i, arg) in args.iter().enumerate() {
+                        if expr_is_self_call(func_name, arg) {
+                            // Inner self-call: evaluate as normal recursive call
+                            let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                        } else {
+                            let arg_str = codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
+                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                        }
+                    }
+                    // Assign temporaries to params
+                    for (i, param_sym) in param_names.iter().enumerate() {
+                        let param_name = interner.resolve(*param_sym);
+                        writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
+                    }
+                    writeln!(output, "{}    continue;", indent_str).unwrap();
+                    writeln!(output, "{}}}", indent_str).unwrap();
+                    return output;
+                }
+            }
+            // Not a self-call — delegate to normal codegen
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+        }
+
+        // Case 3: If statement — recurse into branches
+        Stmt::If { cond, then_block, else_block } => {
+            let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
+            let mut output = String::new();
+            writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            ctx.push_scope();
+            for s in *then_block {
+                output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+            }
+            ctx.pop_scope();
+            if let Some(else_stmts) = else_block {
+                writeln!(output, "{}}} else {{", indent_str).unwrap();
+                ctx.push_scope();
+                for s in *else_stmts {
+                    output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                }
+                ctx.pop_scope();
+            }
+            writeln!(output, "{}}}", indent_str).unwrap();
+            output
+        }
+
+        // Case 4: Everything else — delegate
+        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry),
+    }
+}
+
 /// Phase 54: Collect parameters that are used as pipe senders in function body.
 /// If a param appears in `SendPipe { pipe: Expr::Identifier(param) }`, it's a sender.
 pub fn collect_pipe_sender_params(body: &[Stmt]) -> HashSet<Symbol> {
@@ -3169,6 +4232,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 54: Collect async functions for Launch codegen
     let async_functions = collect_async_functions(stmts);
 
+    // Purity analysis for memoization
+    let pure_functions = collect_pure_functions(stmts);
+
     // Phase 54: Collect pipe declarations (variables with _tx/_rx suffixes)
     let main_pipe_vars = collect_pipe_vars(stmts);
 
@@ -3239,10 +4305,32 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     // Phase 50: Generate policy impl blocks with predicate and capability methods
     output.push_str(&codegen_policy_impls(policies, interner));
 
+    // Mutual TCO: Detect pairs of mutually tail-calling functions
+    let mutual_tce_pairs = detect_mutual_tce_pairs(stmts, interner);
+    let mut mutual_tce_members: HashSet<Symbol> = HashSet::new();
+    for (a, b) in &mutual_tce_pairs {
+        mutual_tce_members.insert(*a);
+        mutual_tce_members.insert(*b);
+    }
+    let mut mutual_tce_emitted: HashSet<Symbol> = HashSet::new();
+
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
         if let Stmt::FunctionDef { name, params, body, return_type, is_native, native_path, is_exported, export_target } = stmt {
-            output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry));
+            if mutual_tce_members.contains(name) {
+                // Part of a mutual pair — emit merged function when we see the first member
+                if !mutual_tce_emitted.contains(name) {
+                    // Find the pair this function belongs to
+                    if let Some((a, b)) = mutual_tce_pairs.iter().find(|(a, b)| *a == *name || *b == *name) {
+                        output.push_str(&codegen_mutual_tce_pair(*a, *b, stmts, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry));
+                        mutual_tce_emitted.insert(*a);
+                        mutual_tce_emitted.insert(*b);
+                    }
+                }
+                // Skip individual emission — already emitted as part of merged pair
+            } else {
+                output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions));
+            }
         }
     }
 
@@ -3327,6 +4415,7 @@ fn codegen_function_def(
     async_functions: &HashSet<Symbol>,  // Phase 54
     boxed_fields: &HashSet<(String, String, String)>,  // Phase 102
     registry: &TypeRegistry,  // Phase 103
+    pure_functions: &HashSet<Symbol>,
 ) -> String {
     let mut output = String::new();
     let raw_name = interner.resolve(name);
@@ -3336,16 +4425,39 @@ fn codegen_function_def(
     // Phase 54: Detect which parameters are used as pipe senders
     let pipe_sender_params = collect_pipe_sender_params(body);
 
+    // FFI: Exported functions need special signatures
+    let is_c_export_early = is_exported && matches!(export_target_lower.as_deref(), None | Some("c"));
+
+    // TCE: Detect tail recursion eligibility
+    let is_tce = !is_native && !is_c_export_early && is_tail_recursive(name, body);
+    let param_syms: Vec<Symbol> = params.iter().map(|(s, _)| *s).collect();
+
+    // Accumulator Introduction: Detect non-tail single-call + / * patterns
+    let acc_info = if !is_tce && !is_native && !is_c_export_early {
+        detect_accumulator_pattern(name, body)
+    } else {
+        None
+    };
+    let is_acc = acc_info.is_some();
+
+    // Memoization: Detect pure multi-call recursive functions with hashable params
+    let is_memo = !is_tce && !is_acc && !is_native && !is_c_export_early
+        && should_memoize(name, body, params, return_type, pure_functions.contains(&name), interner);
+
+    let needs_mut_params = is_tce || is_acc;
+
     // Build parameter list using TypeExpr
     let params_str: Vec<String> = params.iter()
         .map(|(param_name, param_type)| {
-            let name = interner.resolve(*param_name);
+            let pname = interner.resolve(*param_name);
             let ty = codegen_type_expr(param_type, interner);
             // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
             if pipe_sender_params.contains(param_name) {
-                format!("{}: tokio::sync::mpsc::Sender<{}>", name, ty)
+                format!("{}: tokio::sync::mpsc::Sender<{}>", pname, ty)
+            } else if needs_mut_params {
+                format!("mut {}: {}", pname, ty)
             } else {
-                format!("{}: {}", name, ty)
+                format!("{}: {}", pname, ty)
             }
         })
         .collect();
@@ -3360,7 +4472,7 @@ fn codegen_function_def(
     let fn_keyword = if is_async { "async fn" } else { "fn" };
 
     // FFI: Exported functions need special signatures
-    let is_c_export = is_exported && matches!(export_target_lower.as_deref(), None | Some("c"));
+    let is_c_export = is_c_export_early;
 
     // FFI: Check if C export needs type marshaling
     // Triggers for: Text params/return, reference types, Result return, refinement params
@@ -3409,6 +4521,11 @@ fn codegen_function_def(
     } else {
         format!("{}{}{} {}({})", vis_prefix, abi_prefix, fn_keyword, func_name, params_str.join(", "))
     };
+
+    // Emit #[inline] for small non-recursive, non-exported functions
+    if !is_tce && !is_acc && should_inline(name, body, is_native, is_exported, is_async) {
+        writeln!(output, "#[inline]").unwrap();
+    }
 
     // FFI: Emit export attributes before the function
     if is_exported {
@@ -3483,7 +4600,94 @@ fn codegen_function_def(
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
         let func_pipe_vars = HashSet::new();
 
-        {
+        if is_tce {
+            // TCE: Wrap body in loop, use TCE-aware statement emitter
+            writeln!(output, "    loop {{").unwrap();
+            let stmt_refs: Vec<&Stmt> = body.iter().collect();
+            let mut si = 0;
+            while si < stmt_refs.len() {
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                output.push_str(&codegen_stmt_tce(stmt_refs[si], name, &param_syms, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                si += 1;
+            }
+            writeln!(output, "    }}").unwrap();
+        } else if let Some(ref acc) = acc_info {
+            // Accumulator Introduction: Wrap body in loop with accumulator variable
+            writeln!(output, "    let mut __acc: i64 = {};", acc.identity).unwrap();
+            writeln!(output, "    loop {{").unwrap();
+            let stmt_refs: Vec<&Stmt> = body.iter().collect();
+            let mut si = 0;
+            while si < stmt_refs.len() {
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                output.push_str(&codegen_stmt_acc(stmt_refs[si], name, &param_syms, acc, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                si += 1;
+            }
+            writeln!(output, "    }}").unwrap();
+        } else if is_memo {
+            // Memoization: Wrap body in closure with thread-local cache
+            let ret_ty = return_type_str.as_deref().unwrap_or("i64");
+            let memo_name = format!("__MEMO_{}", func_name.to_uppercase());
+
+            // Build key type and key expression
+            let (key_type, key_expr, copy_method) = if params.len() == 1 {
+                let ty = codegen_type_expr(params[0].1, interner);
+                let pname = interner.resolve(params[0].0).to_string();
+                let copy = if is_copy_type_expr(params[0].1, interner) { "copied" } else { "cloned" };
+                (ty, pname, copy)
+            } else {
+                let types: Vec<String> = params.iter().map(|(_, t)| codegen_type_expr(t, interner)).collect();
+                let names: Vec<String> = params.iter().map(|(n, _)| interner.resolve(*n).to_string()).collect();
+                let copy = if params.iter().all(|(_, t)| is_copy_type_expr(t, interner)) { "copied" } else { "cloned" };
+                (format!("({})", types.join(", ")), format!("({})", names.join(", ")), copy)
+            };
+
+            writeln!(output, "    use std::cell::RefCell;").unwrap();
+            writeln!(output, "    use std::collections::HashMap;").unwrap();
+            writeln!(output, "    thread_local! {{").unwrap();
+            writeln!(output, "        static {}: RefCell<HashMap<{}, {}>> = RefCell::new(HashMap::new());", memo_name, key_type, ret_ty).unwrap();
+            writeln!(output, "    }}").unwrap();
+            writeln!(output, "    if let Some(__v) = {}.with(|c| c.borrow().get(&{}).{}()) {{", memo_name, key_expr, copy_method).unwrap();
+            writeln!(output, "        return __v;").unwrap();
+            writeln!(output, "    }}").unwrap();
+            writeln!(output, "    let __memo_result = (|| -> {} {{", ret_ty).unwrap();
+            let stmt_refs: Vec<&Stmt> = body.iter().collect();
+            let mut si = 0;
+            while si < stmt_refs.len() {
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                output.push_str(&codegen_stmt(stmt_refs[si], interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                si += 1;
+            }
+            writeln!(output, "    }})();").unwrap();
+            writeln!(output, "    {}.with(|c| c.borrow_mut().insert({}, __memo_result));", memo_name, key_expr).unwrap();
+            writeln!(output, "    __memo_result").unwrap();
+        } else {
             let stmt_refs: Vec<&Stmt> = body.iter().collect();
             let mut si = 0;
             while si < stmt_refs.len() {

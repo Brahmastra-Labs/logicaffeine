@@ -642,6 +642,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
         }
     }
 
+    cargo_toml.push_str("\n[profile.release]\nlto = true\nopt-level = 3\ncodegen-units = 1\npanic = \"abort\"\nstrip = true\n");
+
     let cargo_path = output_dir.join("Cargo.toml");
     let mut file = fs::File::create(&cargo_path).map_err(|e| CompileError::Io(e.to_string()))?;
     file.write_all(cargo_toml.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;

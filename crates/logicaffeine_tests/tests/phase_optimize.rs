@@ -372,3 +372,437 @@ Show result.
     // The if false branch should be eliminated even inside a function body
     assert!(!rust.contains("let x = 1"), "DCE should eliminate dead code inside function body.\nGot:\n{}", rust);
 }
+
+// =============================================================================
+// Tail Call Elimination — Codegen Tests
+// =============================================================================
+
+#[test]
+fn tce_simple_tail_recursion() {
+    let source = r#"## To countdown (n: Int) -> Int:
+    If n equals 0:
+        Return 0.
+    Show n.
+    Return countdown(n - 1).
+
+## Main
+countdown(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("loop {"), "TCE should wrap tail-recursive function in loop.\nGot:\n{}", rust);
+    assert!(rust.contains("continue;"), "TCE should emit continue for tail call.\nGot:\n{}", rust);
+    assert!(rust.contains("mut n"), "TCE should make params mutable.\nGot:\n{}", rust);
+}
+
+#[test]
+fn tce_ackermann() {
+    let source = r#"## To ackermann (m: Int) and (n: Int) -> Int:
+    If m equals 0:
+        Return n + 1.
+    If n equals 0:
+        Return ackermann(m - 1, 1).
+    Return ackermann(m - 1, ackermann(m, n - 1)).
+
+## Main
+Show ackermann(3, 4).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("loop {"), "TCE should wrap Ackermann in loop.\nGot:\n{}", rust);
+    assert!(rust.contains("continue;"), "TCE should emit continue for tail calls.\nGot:\n{}", rust);
+    assert!(rust.contains("mut m"), "TCE should make m mutable.\nGot:\n{}", rust);
+    assert!(rust.contains("mut n"), "TCE should make n mutable.\nGot:\n{}", rust);
+    // The inner ackermann(m, n - 1) should remain as a normal recursive call
+    assert!(rust.contains("ackermann(m,"), "Inner non-tail call should remain as recursion.\nGot:\n{}", rust);
+}
+
+#[test]
+fn tce_no_false_positive() {
+    let source = r#"## To notTail (n: Int) -> Int:
+    If n equals 0:
+        Return 1.
+    Return notTail(n - 1) + 1.
+
+## Main
+Show notTail(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // The + 1 means the call is NOT in tail position — TCE should NOT fire.
+    // However, accumulator introduction correctly optimizes this pattern
+    // (f(n-1) + k → zero overhead loop with accumulator).
+    // Verify: accumulator fires (loop + __acc), but NOT raw TCE (__tce_ without __acc)
+    assert!(rust.contains("__acc"), "Accumulator should optimize f(n-1)+1 pattern.\nGot:\n{}", rust);
+    assert!(rust.contains("loop {"), "Accumulator should use loop.\nGot:\n{}", rust);
+    assert!(rust.contains("continue;"), "Accumulator should use continue.\nGot:\n{}", rust);
+}
+
+#[test]
+fn tce_non_recursive_unchanged() {
+    let source = r#"## To double (n: Int) -> Int:
+    Return n * 2.
+
+## Main
+Show double(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("loop {"), "Non-recursive function should NOT get loop.\nGot:\n{}", rust);
+}
+
+#[test]
+fn tce_argument_ordering() {
+    let source = r#"## To swapRecurse (a: Int) and (b: Int) -> Int:
+    If a equals 0:
+        Return b.
+    Return swapRecurse(b, a - 1).
+
+## Main
+Show swapRecurse(3, 100).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("__tce_"), "TCE should use temporaries for argument ordering.\nGot:\n{}", rust);
+    assert!(rust.contains("loop {"), "TCE should wrap in loop.\nGot:\n{}", rust);
+    assert!(rust.contains("continue;"), "TCE should emit continue.\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Tail Call Elimination — E2E Correctness Tests
+// =============================================================================
+
+#[test]
+fn e2e_tce_ackermann_correct() {
+    let source = r#"## To ackermann (m: Int) and (n: Int) -> Int:
+    If m equals 0:
+        Return n + 1.
+    If n equals 0:
+        Return ackermann(m - 1, 1).
+    Return ackermann(m - 1, ackermann(m, n - 1)).
+
+## Main
+Show ackermann(3, 4).
+"#;
+    common::assert_exact_output(source, "125");
+}
+
+#[test]
+fn e2e_tce_factorial_correct() {
+    let source = r#"## To factorial (n: Int) and (acc: Int) -> Int:
+    If n equals 0:
+        Return acc.
+    Return factorial(n - 1, acc * n).
+
+## Main
+Show factorial(10, 1).
+"#;
+    common::assert_exact_output(source, "3628800");
+}
+
+#[test]
+fn e2e_tce_countdown_correct() {
+    let source = r#"## To countdown (n: Int) -> Int:
+    If n equals 0:
+        Return 0.
+    Show n.
+    Return countdown(n - 1).
+
+## Main
+countdown(5).
+"#;
+    common::assert_exact_output(source, "5\n4\n3\n2\n1");
+}
+
+// =============================================================================
+// Inline Annotations
+// =============================================================================
+
+#[test]
+fn inline_small_function() {
+    let source = r#"## To double (n: Int) -> Int:
+    Return n * 2.
+
+## Main
+Show double(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("#[inline]"), "Small non-recursive function should get #[inline].\nGot:\n{}", rust);
+}
+
+#[test]
+fn inline_recursive_skipped() {
+    let source = r#"## To countdown (n: Int) -> Int:
+    If n equals 0:
+        Return 0.
+    Show n.
+    Return countdown(n - 1).
+
+## Main
+countdown(3).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("#[inline]"), "Recursive function should NOT get #[inline].\nGot:\n{}", rust);
+}
+
+#[test]
+fn inline_exported_skipped() {
+    let source = r#"## To compute (x: Int) -> Int is exported:
+    Return x + 1.
+
+## Main
+Show compute(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // #[inline] should NOT appear before exported functions
+    // (exported functions have #[export_name = ...] instead)
+    let lines: Vec<&str> = rust.lines().collect();
+    let has_inline_before_export = lines.windows(2).any(|w| {
+        w[0].trim() == "#[inline]" && w[1].contains("export_name")
+    });
+    assert!(!has_inline_before_export, "Exported function should NOT get #[inline].\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Accumulator Introduction — Codegen Tests
+// =============================================================================
+
+#[test]
+fn acc_factorial_codegen() {
+    let source = r#"## To factorial (n: Int) -> Int:
+    If n is at most 1:
+        Return 1.
+    Return n * factorial(n - 1).
+
+## Main
+Show factorial(10).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("loop {"), "Accumulator should wrap function in loop.\nGot:\n{}", rust);
+    assert!(rust.contains("__acc"), "Accumulator should use __acc variable.\nGot:\n{}", rust);
+    assert!(rust.contains("continue;"), "Accumulator should emit continue for recursive call.\nGot:\n{}", rust);
+    assert!(rust.contains("mut n"), "Accumulator should make params mutable.\nGot:\n{}", rust);
+    // The recursive call should be eliminated — no factorial( call inside the body
+    // (skip the function signature line which naturally contains factorial()
+    let body_start = rust.find("fn factorial").unwrap();
+    let brace = rust[body_start..].find('{').unwrap();
+    let func_inner = &rust[body_start + brace..];
+    let next_fn = func_inner.find("\nfn ").unwrap_or(func_inner.len());
+    let func_inner = &func_inner[..next_fn];
+    assert!(!func_inner.contains("factorial("), "Accumulator should eliminate recursive call.\nGot:\n{}", func_inner);
+}
+
+#[test]
+fn acc_sum_codegen() {
+    let source = r#"## To sumTo (n: Int) -> Int:
+    If n equals 0:
+        Return 0.
+    Return sumTo(n - 1) + n.
+
+## Main
+Show sumTo(100).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("__acc"), "Addition accumulator should use __acc variable.\nGot:\n{}", rust);
+    assert!(rust.contains("loop {"), "Addition accumulator should wrap in loop.\nGot:\n{}", rust);
+    // Identity for addition is 0
+    assert!(rust.contains("let mut __acc") && rust.contains("= 0"), "Addition accumulator should start at identity 0.\nGot:\n{}", rust);
+}
+
+#[test]
+fn acc_no_false_positive_multi_call() {
+    let source = r#"## To fib (n: Int) -> Int:
+    If n is at most 1:
+        Return n.
+    Return fib(n - 1) + fib(n - 2).
+
+## Main
+Show fib(10).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Two recursive calls — should NOT trigger accumulator
+    assert!(!rust.contains("__acc"), "Multi-call recursion should NOT get accumulator.\nGot:\n{}", rust);
+}
+
+#[test]
+fn acc_no_false_positive_subtract() {
+    let source = r#"## To f (n: Int) -> Int:
+    If n equals 0:
+        Return 0.
+    Return f(n - 1) - 1.
+
+## Main
+Show f(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Subtraction is not commutative/associative — should NOT trigger accumulator
+    assert!(!rust.contains("__acc"), "Subtraction should NOT trigger accumulator.\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Accumulator Introduction — E2E Correctness Tests
+// =============================================================================
+
+#[test]
+fn e2e_acc_factorial_correct() {
+    let source = r#"## To factorial (n: Int) -> Int:
+    If n is at most 1:
+        Return 1.
+    Return n * factorial(n - 1).
+
+## Main
+Show factorial(10).
+"#;
+    common::assert_exact_output(source, "3628800");
+}
+
+#[test]
+fn e2e_acc_sum_correct() {
+    let source = r#"## To sumTo (n: Int) -> Int:
+    If n equals 0:
+        Return 0.
+    Return sumTo(n - 1) + n.
+
+## Main
+Show sumTo(100).
+"#;
+    common::assert_exact_output(source, "5050");
+}
+
+// =============================================================================
+// Memoization — Codegen Tests
+// =============================================================================
+
+#[test]
+fn memo_fibonacci_codegen() {
+    let source = r#"## To fib (n: Int) -> Int:
+    If n is at most 1:
+        Return n.
+    Return fib(n - 1) + fib(n - 2).
+
+## Main
+Show fib(10).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("thread_local!"), "Memoization should use thread_local!.\nGot:\n{}", rust);
+    assert!(rust.contains("__MEMO"), "Memoization should use __MEMO cache.\nGot:\n{}", rust);
+    assert!(rust.contains("RefCell"), "Memoization should use RefCell.\nGot:\n{}", rust);
+    assert!(rust.contains("HashMap"), "Memoization should use HashMap.\nGot:\n{}", rust);
+    assert!(rust.contains("__memo_result"), "Memoization should use __memo_result.\nGot:\n{}", rust);
+}
+
+#[test]
+fn memo_no_impure_function() {
+    let source = r#"## To f (n: Int) -> Int:
+    Show n.
+    If n is at most 1:
+        Return n.
+    Return f(n - 1) + f(n - 2).
+
+## Main
+Show f(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Function has Show (I/O) — should NOT memoize
+    assert!(!rust.contains("__MEMO"), "Impure function should NOT get memoization.\nGot:\n{}", rust);
+    assert!(!rust.contains("thread_local"), "Impure function should NOT get thread_local.\nGot:\n{}", rust);
+}
+
+#[test]
+fn memo_no_single_call() {
+    let source = r#"## To f (n: Int) -> Int:
+    If n equals 0:
+        Return 1.
+    Return f(n - 1) * n.
+
+## Main
+Show f(10).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Single recursive call — should get accumulator, NOT memoization
+    assert!(!rust.contains("__MEMO"), "Single-call recursion should NOT get memoization (accumulator is better).\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Memoization — E2E Correctness Tests
+// =============================================================================
+
+#[test]
+fn e2e_memo_fibonacci_correct() {
+    let source = r#"## To fib (n: Int) -> Int:
+    If n is at most 1:
+        Return n.
+    Return fib(n - 1) + fib(n - 2).
+
+## Main
+Show fib(30).
+"#;
+    common::assert_exact_output(source, "832040");
+}
+
+// =============================================================================
+// Mutual TCO — Codegen Tests
+// =============================================================================
+
+#[test]
+fn mutual_tce_codegen() {
+    let source = r#"## To isEven (n: Int) -> Bool:
+    If n equals 0:
+        Return true.
+    Return isOdd(n - 1).
+
+## To isOdd (n: Int) -> Bool:
+    If n equals 0:
+        Return false.
+    Return isEven(n - 1).
+
+## Main
+Show isEven(10).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("__mutual_"), "Mutual TCO should emit merged __mutual_ function.\nGot:\n{}", rust);
+    assert!(rust.contains("__tag"), "Mutual TCO should use __tag dispatch.\nGot:\n{}", rust);
+    assert!(rust.contains("match __tag"), "Mutual TCO should have match __tag.\nGot:\n{}", rust);
+    assert!(rust.contains("continue;"), "Mutual TCO should emit continue.\nGot:\n{}", rust);
+}
+
+#[test]
+fn mutual_tce_no_false_positive() {
+    let source = r#"## To f (n: Int) -> Int:
+    If n equals 0:
+        Return 1.
+    Return g(n - 1) + 1.
+
+## To g (n: Int) -> Int:
+    If n equals 0:
+        Return 2.
+    Return f(n - 1) + 2.
+
+## Main
+Show f(3).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // The + 1 / + 2 means calls are NOT in tail position
+    assert!(!rust.contains("__mutual_"), "Non-tail mutual calls should NOT get mutual TCO.\nGot:\n{}", rust);
+    assert!(!rust.contains("__tag"), "Non-tail mutual calls should NOT use __tag.\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Mutual TCO — E2E Correctness Tests
+// =============================================================================
+
+#[test]
+fn e2e_mutual_tce_correct() {
+    let source = r#"## To isEven (n: Int) -> Bool:
+    If n equals 0:
+        Return true.
+    Return isOdd(n - 1).
+
+## To isOdd (n: Int) -> Bool:
+    If n equals 0:
+        Return false.
+    Return isEven(n - 1).
+
+## Main
+If isEven(100):
+    Show "even".
+Otherwise:
+    Show "odd".
+"#;
+    common::assert_exact_output(source, "even");
+}
