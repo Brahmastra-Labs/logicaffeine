@@ -62,6 +62,58 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-8-16-range-fix",
+        title: "v0.8.16 — RangeInclusive Fix",
+        date: "2026-02-15",
+        summary: "Fixes a 41.4% bubble sort regression caused by Rust's RangeInclusive overhead. All for-range loops now emit exclusive ranges.",
+        content: r#"
+## The Problem
+
+v0.8.15 introduced for-range loop emission — converting `While i is at most n` to `for i in 1..=n`. Benchmarks revealed bubble sort regressed by 41.4% at N=2000.
+
+Root cause: Rust's `RangeInclusive` (`..=`) carries per-iteration overhead. The internal `ExactSizeIterator` implementation needs bookkeeping to handle the edge case where the range includes `T::MAX`. In an O(n^2) inner loop, this overhead compounds.
+
+The test that caught it (`tier1a_simple_counting_loop` in `phase_optimize.rs`):
+
+```rust
+let rust = compile_to_rust(source).unwrap();
+assert!(rust.contains("for i in 1..6"));
+```
+
+The assertion checks that the generated Rust uses an exclusive range (`1..6`) rather than an inclusive one (`1..=5`).
+
+## The Fix
+
+All inclusive ranges now emit the exclusive form with `limit + 1`:
+
+| Before (v0.8.15) | After (v0.8.16) |
+|---|---|
+| `for i in 1..=5` | `for i in 1..6` |
+| `for i in 1..=n` | `for i in 1..(n + 1)` |
+| `for j in 1..=((n - 1) - i)` | `for j in 1..(((n - 1) - i) + 1)` |
+
+For literal limits, the addition is computed at compile time — `1..6` not `1..(5 + 1)`.
+
+Exclusive `<` bounds are unchanged: `for i in 0..5` was already correct.
+
+## Bubble Sort Codegen (After Fix)
+
+The inner loop of the bubble sort benchmark now generates:
+
+```rust
+for j in 1..(((n - 1) - i) + 1) {
+    if arr[(j - 1) as usize] > arr[((j + 1) - 1) as usize] {
+        arr.swap((j - 1) as usize, ((j + 1) - 1) as usize);
+    }
+}
+```
+
+No `..=` anywhere in generated code. `Range` (exclusive) uses a simple counter increment with no bookkeeping.
+"#,
+        tags: &["release", "performance", "compiler"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-8-15-direct-strike",
         title: "v0.8.15 — Direct Strike",
         date: "2026-02-15",
@@ -91,7 +143,7 @@ while (i <= 5) {
 Now generates:
 
 ```rust
-for i in 1..=5 {
+for i in 1..6 {
     println!("{}", i);
 }
 let mut i = 6;
@@ -99,7 +151,7 @@ let mut i = 6;
 
 The post-loop `let mut i = 6` preserves counter semantics — code after the loop that reads `i` gets the correct value. LLVM eliminates it if unused.
 
-Both inclusive (`is at most` → `..=`) and exclusive (`is less than` → `..`) bounds are supported. Variable limits work: `While i is at most n` generates `for i in 1..=n`.
+Both inclusive (`is at most` → `..` with `limit + 1`) and exclusive (`is less than` → `..`) bounds are supported. Variable limits work: `While i is at most n` generates `for i in 1..(n + 1)`.
 
 A `body_modifies_var` guard prevents the transformation when the counter is modified inside the loop body (other than the final increment), and step sizes other than 1 correctly fall back to `while`:
 

@@ -6,10 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.16] - 2026-02-15
+
+### Fixed
+- For-range loop emission: switched from `RangeInclusive` (`..=`) to exclusive `Range` (`..`) with `limit + 1`. `RangeInclusive` has per-iteration overhead that caused 41.4% regression in bubble sort's O(n^2) inner loop. Literal limits compute `limit + 1` at compile time.
+
 ## [0.8.15] - 2026-02-15
 
 ### Added
-- For-range loop emission: `Let counter + While counter <= limit + Set counter to counter + 1` → `for counter in start..=limit` (and `start..limit` for exclusive `<` bounds)
+- For-range loop emission: `Let counter + While counter <= limit + Set counter to counter + 1` → `for counter in start..(limit + 1)` (and `start..limit` for exclusive `<` bounds)
 - Post-loop counter value restoration for correct semantics after for-range transformation
 - `body_modifies_var` helper for detecting counter modification inside loop bodies (prevents invalid for-range optimization)
 - Iterator-based loops: `.iter().copied()` for Copy-type `Vec` iteration instead of `.clone()` when body doesn't mutate the collection

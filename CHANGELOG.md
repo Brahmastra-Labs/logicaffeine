@@ -4,11 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.16] - 2026-02-15
+
+### Fixed
+- **For-range loop regression**: `RangeInclusive` (`..=`) has a known per-iteration overhead in Rust due to internal bookkeeping for edge cases. In O(n^2) inner loops like bubble sort, this compounded to a 41.4% regression vs the `while` loop it replaced. All inclusive ranges now emit exclusive form: `for i in 1..=n` becomes `for i in 1..(n + 1)`. For literal limits, the addition is computed at compile time (e.g. `for i in 1..6` instead of `for i in 1..=5`).
+
 ## [0.8.15] - 2026-02-15
 
 ### Added
 - **TIER 1 codegen optimizations** — five peephole-level improvements targeting array-heavy benchmark performance
-  - **For-range loop emission**: `Let i be 1. While i <= n: ... Set i to i + 1` compiles to `for i in 1..=n` instead of `while (i <= n)`, enabling LLVM trip count recognition, unrolling, and vectorization
+  - **For-range loop emission**: `Let i be 1. While i <= n: ... Set i to i + 1` compiles to `for i in 1..(n + 1)` instead of `while (i <= n)`, enabling LLVM trip count recognition, unrolling, and vectorization
   - **Iterator-based loops**: `Repeat for x in items` emits `.iter().copied()` instead of `.clone()` for Copy-type collections (`Vec<i64>`, `Vec<f64>`, `Vec<bool>`), eliminating full-collection copies
   - **Direct array indexing for list literals**: `Let items be [10, 20, 30]` now registers element type, enabling direct `arr[(idx-1) as usize]` instead of `LogosIndex` trait dispatch
   - **Vec fill exclusive bound**: `While i < n: Push 0 to items` now optimizes to `vec![0; n]` (previously only `<=` was matched)

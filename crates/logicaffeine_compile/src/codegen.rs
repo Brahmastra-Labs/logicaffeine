@@ -5689,10 +5689,19 @@ fn try_emit_for_range_pattern<'a>(
     let counter_name = interner.resolve(counter_sym);
     let limit_str = codegen_expr_simple(limit_expr, interner);
 
+    // Always use exclusive ranges (Range) instead of inclusive (RangeInclusive).
+    // RangeInclusive has a known performance overhead in Rust due to internal
+    // bookkeeping for edge cases, which compounds in hot inner loops.
+    // Convert `i <= limit` to `i < (limit + 1)`.
     let range_str = if is_exclusive {
         format!("{}..{}", counter_start, limit_str)
     } else {
-        format!("{}..={}", counter_start, limit_str)
+        // For literal limits, compute limit+1 at compile time
+        if let Expr::Literal(Literal::Number(n)) = limit_expr {
+            format!("{}..{}", counter_start, n + 1)
+        } else {
+            format!("{}..({} + 1)", counter_start, limit_str)
+        }
     };
 
     let mut output = String::new();

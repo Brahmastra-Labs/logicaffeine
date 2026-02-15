@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-verify"
-version = "0.8.15"
+version = "0.8.16"
 edition = "2021"
 description = "Z3-based static verification for Logicaffeine (requires Pro+ license)"
 license = "BUSL-1.1"

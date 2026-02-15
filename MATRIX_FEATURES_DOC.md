@@ -1167,7 +1167,7 @@ Prerequisites that unlock everything else. Without these, higher-tier optimizati
 | **0-B** | Unreachable-after-return DCE | DCE (Y→Y+) | ✅ Post-pass truncation after `Stmt::Return` in `eliminate_dead_code`. 3 lines. |
 | **0-C** | Algebraic simplification | Algebraic simp (P→Y) | ✅ `try_simplify_algebraic` in `fold.rs` — int and float identity/annihilator rules. |
 
-#### Tier 1 — Direct Strike (5 items) ✅ COMPLETE (v0.8.15)
+#### Tier 1 — Direct Strike (5 items) ✅ COMPLETE (v0.8.15, fixed v0.8.16)
 
 Codegen-level changes that produce the biggest immediate speedups. These directly close the gap on array-heavy benchmarks.
 
@@ -1310,7 +1310,7 @@ while (i < n) {
 
 LLVM's loop analysis has pattern matchers tuned for `for` range loops in Rust's MIR. A `while` loop with a manually incremented counter requires LLVM to reconstruct trip count through induction variable analysis, which doesn't always succeed — blocking unrolling, vectorization, and strength reduction.
 
-**What "done" looks like:** The codegen detects `While { cond: Var < Bound, body: [..., Set { target: Var, value: Add(Var, 1) }] }` and emits `for var in start..bound` (or `start..=bound` for `<=`). The counter increment statement is excluded from the emitted body. Edge cases handled: step ≠ 1 → `(start..end).step_by(step)`, mutable upper bound → fall back to `while`.
+**What "done" looks like:** The codegen detects `While { cond: Var < Bound, body: [..., Set { target: Var, value: Add(Var, 1) }] }` and emits `for var in start..bound` (for `<`) or `for var in start..(bound + 1)` (for `<=`). Always uses exclusive `Range` — `RangeInclusive` (`..=`) has per-iteration overhead that regressed bubble sort by 41.4% (fixed in v0.8.16). The counter increment statement is excluded from the emitted body. Edge cases: step ≠ 1 → fall back to `while`, mutable upper bound → fall back to `while`.
 
 **Key files:**
 - `crates/logicaffeine_compile/src/codegen.rs` — lines 6102–6126, add pattern detection before `while` emission (~100 lines)
@@ -1805,11 +1805,11 @@ Six loop-related cells in the matrix. Here's what each one means for Logos, what
 
 **What to emit:**
 ```rust
-for i in start..n {    // Lt → exclusive range
+for i in start..n {        // Lt → exclusive range
     // body without counter increment
 }
 // or
-for i in start..=n {   // LtEq → inclusive range
+for i in start..(n + 1) { // LtEq → exclusive range with +1 (NOT ..= due to RangeInclusive overhead)
     // body without counter increment
 }
 ```
@@ -1919,7 +1919,7 @@ Both optimizations target 2D array access patterns:
 
 **After 1-A + 1-C, the sieve inner loop becomes:**
 ```rust
-for j in (i*i..=limit).step_by(i) {
+for j in (i*i..(limit + 1)).step_by(i) {
     flags[j] = true;
 }
 ```
@@ -2115,7 +2115,7 @@ All 3 items implemented and verified with 33 tests, 0 regressions.
 
 **Unlocked:** All downstream optimization passes can now rely on complete folding and clean DCE.
 
-#### Phase 2 — Direct Strike ✅ COMPLETE (v0.8.15)
+#### Phase 2 — Direct Strike ✅ COMPLETE (v0.8.15, fixed v0.8.16)
 
 All 5 items implemented with 24 new tests, 0 regressions.
 

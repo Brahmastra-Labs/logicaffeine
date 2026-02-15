@@ -45,8 +45,8 @@ Return i."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse 'is at most': {:?}", result);
     let rust = result.unwrap();
-    // For-range optimization: `Let i = 1. While i <= 5: Set i to i+1` → `for i in 1..=5`
-    assert!(rust.contains("1..=5") || rust.contains("(i <= 5)"), "Should generate <=  or for-range comparison: {}", rust);
+    // For-range optimization: `Let i = 1. While i <= 5: Set i to i+1` → `for i in 1..6`
+    assert!(rust.contains("1..6") || rust.contains("(i <= 5)"), "Should generate <=  or for-range comparison: {}", rust);
 }
 
 #[test]
@@ -85,8 +85,8 @@ Return x."#;
     let result = compile_to_rust(source);
     assert!(result.is_ok(), "Should parse '<=' symbol: {:?}", result);
     let rust = result.unwrap();
-    // For-range optimization: `Let x = 5. While x <= 10: Set x to x+1` → `for x in 5..=10`
-    assert!(rust.contains("5..=10") || rust.contains("(x <= 10)"), "Should generate <= or for-range comparison: {}", rust);
+    // For-range optimization: `Let x = 5. While x <= 10: Set x to x+1` → `for x in 5..11`
+    assert!(rust.contains("5..11") || rust.contains("(x <= 10)"), "Should generate <= or for-range comparison: {}", rust);
 }
 
 // =============================================================================

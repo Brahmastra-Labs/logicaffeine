@@ -1232,7 +1232,7 @@ While i is at most 5:
     Set i to i + 1.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 1..=5"), "Should emit for-range, got:\n{}", rust);
+    assert!(rust.contains("for i in 1..6"), "Should emit for-range, got:\n{}", rust);
     assert!(!rust.contains("while"), "Should not have while loop, got:\n{}", rust);
 }
 
@@ -1258,7 +1258,7 @@ While i is at most n:
     Set i to i + 1.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 1..=n"), "Should handle variable limits, got:\n{}", rust);
+    assert!(rust.contains("for i in 1..(n + 1)"), "Should handle variable limits, got:\n{}", rust);
 }
 
 #[test]
@@ -1271,7 +1271,7 @@ While i is at most 3:
     Set i to i + 1.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 1..=3"), "Should emit for-range with indexing, got:\n{}", rust);
+    assert!(rust.contains("for i in 1..4"), "Should emit for-range with indexing, got:\n{}", rust);
 }
 
 #[test]
