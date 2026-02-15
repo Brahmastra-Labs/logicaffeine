@@ -4376,8 +4376,14 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 i += 1;
                 continue;
             }
-            // Peephole: Vec fill pattern optimization
+            // Peephole: Vec fill pattern optimization (most specific — check first)
             if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, i, interner, 1) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: For-range loop optimization
+            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry) {
                 output.push_str(&code);
                 i += 1 + skip;
                 continue;
@@ -4611,6 +4617,11 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
                 if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
                     output.push_str(&code);
                     si += 1 + skip;
@@ -4628,6 +4639,11 @@ fn codegen_function_def(
             let mut si = 0;
             while si < stmt_refs.len() {
                 if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
                     output.push_str(&code);
                     si += 1 + skip;
                     continue;
@@ -4676,6 +4692,11 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
                 if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
                     output.push_str(&code);
                     si += 1 + skip;
@@ -4692,6 +4713,11 @@ fn codegen_function_def(
             let mut si = 0;
             while si < stmt_refs.len() {
                 if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1) {
+                    output.push_str(&code);
+                    si += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
                     output.push_str(&code);
                     si += 1 + skip;
                     continue;
@@ -4849,6 +4875,11 @@ fn codegen_c_export_with_marshaling(
         let mut si = 0;
         while si < stmt_refs.len() {
             if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1) {
+                output.push_str(&code);
+                si += 1 + skip;
+                continue;
+            }
+            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
@@ -5551,6 +5582,236 @@ fn infer_rust_type_from_expr(expr: &Expr, interner: &Interner) -> String {
     }
 }
 
+/// Peephole optimization: detect `Let counter = start. While counter <= limit: body; Set counter to counter + 1`
+/// and emit `for counter in start..=limit { body } let mut counter = limit + 1;` instead.
+/// The for-range form enables LLVM trip count analysis, unrolling, and vectorization.
+/// Returns (generated_code, number_of_extra_statements_consumed) or None if pattern doesn't match.
+fn try_emit_for_range_pattern<'a>(
+    stmts: &[&Stmt<'a>],
+    idx: usize,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+) -> Option<(String, usize)> {
+    if idx + 1 >= stmts.len() {
+        return None;
+    }
+
+    // Statement 1: Let counter = start_literal (integer)
+    // Note: mutable flag may be false in AST even when counter is mutated via Set.
+    // The counter's mutability is proven by the while body's increment statement.
+    let (counter_sym, counter_start) = match stmts[idx] {
+        Stmt::Let { var, value: Expr::Literal(Literal::Number(n)), .. } => {
+            (*var, *n)
+        }
+        _ => return None,
+    };
+
+    // Statement 2: While (counter <= limit) or (counter < limit)
+    let (body, limit_expr, is_exclusive) = match stmts[idx + 1] {
+        Stmt::While { cond, body, .. } => {
+            match cond {
+                Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => {
+                    if let Expr::Identifier(sym) = left {
+                        if *sym == counter_sym {
+                            (body, *right, false)
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
+                    if let Expr::Identifier(sym) = left {
+                        if *sym == counter_sym {
+                            (body, *right, true)
+                        } else {
+                            return None;
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+
+    // Body must have at least 1 statement (the counter increment)
+    if body.is_empty() {
+        return None;
+    }
+
+    // Last body statement must be: Set counter to counter + 1
+    let last = &body[body.len() - 1];
+    match last {
+        Stmt::Set { target, value, .. } => {
+            if *target != counter_sym {
+                return None;
+            }
+            match value {
+                Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                    let is_counter_plus_1 = match (left, right) {
+                        (Expr::Identifier(s), Expr::Literal(Literal::Number(1))) if *s == counter_sym => true,
+                        (Expr::Literal(Literal::Number(1)), Expr::Identifier(s)) if *s == counter_sym => true,
+                        _ => false,
+                    };
+                    if !is_counter_plus_1 {
+                        return None;
+                    }
+                }
+                _ => return None,
+            }
+        }
+        _ => return None,
+    }
+
+    // Validity: counter must NOT be modified anywhere in the body EXCEPT the last statement.
+    // Walk all body statements (excluding the last) and check for Set { target: counter_sym }.
+    let body_without_increment = &body[..body.len() - 1];
+    if body_modifies_var(body_without_increment, counter_sym) {
+        return None;
+    }
+
+    // Pattern matched! Emit for-range loop.
+    let indent_str = "    ".repeat(indent);
+    let counter_name = interner.resolve(counter_sym);
+    let limit_str = codegen_expr_simple(limit_expr, interner);
+
+    let range_str = if is_exclusive {
+        format!("{}..{}", counter_start, limit_str)
+    } else {
+        format!("{}..={}", counter_start, limit_str)
+    };
+
+    let mut output = String::new();
+    writeln!(output, "{}for {} in {} {{", indent_str, counter_name, range_str).unwrap();
+
+    // Emit body statements (excluding the final counter increment)
+    ctx.push_scope();
+    let body_refs: Vec<&Stmt> = body_without_increment.iter().collect();
+    let mut bi = 0;
+    while bi < body_refs.len() {
+        if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+            output.push_str(&code);
+            bi += 1 + skip;
+            continue;
+        }
+        output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+        bi += 1;
+    }
+    ctx.pop_scope();
+    writeln!(output, "{}}}", indent_str).unwrap();
+
+    // Emit post-loop counter value so subsequent code sees the correct value.
+    // After `while (i <= limit) { ...; i++ }`, i == limit + 1.
+    // After `while (i < limit) { ...; i++ }`, i == limit.
+    let post_value = if is_exclusive {
+        limit_str
+    } else {
+        format!("({} + 1)", limit_str)
+    };
+    writeln!(output, "{}let mut {} = {};", indent_str, counter_name, post_value).unwrap();
+
+    Some((output, 1)) // consumed 1 extra statement (the While)
+}
+
+/// Check if a slice of statements modifies a specific variable (used for for-range validity).
+/// Recursively walks into nested If/While/Repeat blocks.
+fn body_modifies_var(stmts: &[Stmt], sym: Symbol) -> bool {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Set { target, .. } if *target == sym => return true,
+            Stmt::If { then_block, else_block, .. } => {
+                if body_modifies_var(then_block, sym) {
+                    return true;
+                }
+                if let Some(else_stmts) = else_block {
+                    if body_modifies_var(else_stmts, sym) {
+                        return true;
+                    }
+                }
+            }
+            Stmt::While { body, .. } => {
+                if body_modifies_var(body, sym) {
+                    return true;
+                }
+            }
+            Stmt::Repeat { body, .. } => {
+                if body_modifies_var(body, sym) {
+                    return true;
+                }
+            }
+            Stmt::Zone { body, .. } => {
+                if body_modifies_var(body, sym) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Check if a loop body mutates a specific collection (used for iterator optimization).
+/// Scans for Push, Pop, SetIndex, Remove, Set, and Add targeting the collection.
+/// Recursively walks into nested If/While/Repeat/Zone blocks.
+fn body_mutates_collection(stmts: &[Stmt], coll_sym: Symbol) -> bool {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Push { collection, .. } | Stmt::Pop { collection, .. }
+            | Stmt::Add { collection, .. } | Stmt::Remove { collection, .. } => {
+                if let Expr::Identifier(sym) = collection {
+                    if *sym == coll_sym {
+                        return true;
+                    }
+                }
+            }
+            Stmt::SetIndex { collection, .. } => {
+                if let Expr::Identifier(sym) = collection {
+                    if *sym == coll_sym {
+                        return true;
+                    }
+                }
+            }
+            Stmt::Set { target, .. } if *target == coll_sym => return true,
+            Stmt::If { then_block, else_block, .. } => {
+                if body_mutates_collection(then_block, coll_sym) {
+                    return true;
+                }
+                if let Some(else_stmts) = else_block {
+                    if body_mutates_collection(else_stmts, coll_sym) {
+                        return true;
+                    }
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } => {
+                if body_mutates_collection(body, coll_sym) {
+                    return true;
+                }
+            }
+            Stmt::Zone { body, .. } => {
+                if body_mutates_collection(body, coll_sym) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Peephole optimization: detect `Let vec = new Seq. Let i = 0. While i <= limit: push const to vec, i = i+1`
 /// and emit `let mut vec: Vec<T> = vec![const; (limit + 1) as usize]` instead.
 /// Returns (generated_code, number_of_extra_statements_consumed) or None if pattern doesn't match.
@@ -5611,24 +5872,36 @@ fn try_emit_vec_fill_pattern<'a>(
         _ => return None,
     };
 
-    // Statement 3: While counter <= limit: Push const_val to vec_var. Set counter to counter + 1.
+    // Statement 3: While counter <= limit (or counter < limit): Push const_val to vec_var. Set counter to counter + 1.
     match stmts[idx + 2] {
         Stmt::While { cond, body, .. } => {
-            // Check condition: counter <= limit
-            let limit_expr = match cond {
+            // Check condition: counter <= limit OR counter < limit
+            let (limit_expr, is_exclusive) = match cond {
                 Expr::BinaryOp { op: BinaryOpKind::LtEq, left, right } => {
                     if let Expr::Identifier(sym) = left {
                         if *sym == counter_sym {
-                            Some(*right)
+                            (Some(*right), false)
                         } else {
-                            None
+                            (None, false)
                         }
                     } else {
-                        None
+                        (None, false)
                     }
                 }
-                _ => None,
-            }?;
+                Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
+                    if let Expr::Identifier(sym) = left {
+                        if *sym == counter_sym {
+                            (Some(*right), true)
+                        } else {
+                            (None, false)
+                        }
+                    } else {
+                        (None, false)
+                    }
+                }
+                _ => (None, false),
+            };
+            let limit_expr = limit_expr?;
 
             // Body must have exactly 2 statements: Push and Set
             if body.len() != 2 {
@@ -5690,13 +5963,25 @@ fn try_emit_vec_fill_pattern<'a>(
             let vec_name = interner.resolve(vec_sym);
             let limit_str = codegen_expr_simple(limit_expr, interner);
 
-            // Calculate count: if counter starts at 0, count = limit + 1; if starts at 1, count = limit
-            let count_expr = if counter_start == 0 {
-                format!("({} + 1) as usize", limit_str)
-            } else if counter_start == 1 {
-                format!("{} as usize", limit_str)
+            // Calculate count based on bound type (exclusive vs inclusive) and start value
+            // Inclusive (<=): count = limit - start + 1
+            // Exclusive (<): count = limit - start
+            let count_expr = if is_exclusive {
+                // Exclusive bound: counter < limit
+                if counter_start == 0 {
+                    format!("{} as usize", limit_str)
+                } else {
+                    format!("({} - {}) as usize", limit_str, counter_start)
+                }
             } else {
-                format!("({} - {} + 1) as usize", limit_str, counter_start)
+                // Inclusive bound: counter <= limit
+                if counter_start == 0 {
+                    format!("({} + 1) as usize", limit_str)
+                } else if counter_start == 1 {
+                    format!("{} as usize", limit_str)
+                } else {
+                    format!("({} - {} + 1) as usize", limit_str, counter_start)
+                }
             };
 
             let mut output = String::new();
@@ -5821,7 +6106,7 @@ fn try_emit_swap_pattern<'a>(
             // Condition must compare a and b
             let compares_a_b = match cond {
                 Expr::BinaryOp { op, left, right } => {
-                    matches!(op, BinaryOpKind::Gt | BinaryOpKind::Lt | BinaryOpKind::GtEq | BinaryOpKind::LtEq) &&
+                    matches!(op, BinaryOpKind::Gt | BinaryOpKind::Lt | BinaryOpKind::GtEq | BinaryOpKind::LtEq | BinaryOpKind::Eq | BinaryOpKind::NotEq) &&
                     ((matches!(left, Expr::Identifier(s) if *s == a_sym) && matches!(right, Expr::Identifier(s) if *s == b_sym)) ||
                      (matches!(left, Expr::Identifier(s) if *s == b_sym) && matches!(right, Expr::Identifier(s) if *s == a_sym)))
                 }
@@ -5872,28 +6157,19 @@ fn try_emit_swap_pattern<'a>(
             let idx1_str = codegen_expr_simple(idx_expr_1, interner);
             let idx2_str = codegen_expr_simple(idx_expr_2, interner);
 
-            // Emit the condition check + swap
-            let cond_str = format!("({} {} {})",
-                codegen_expr_simple(match cond { Expr::BinaryOp { left, .. } => left, _ => unreachable!() }, interner),
-                match cond { Expr::BinaryOp { op, .. } => match op {
+            let op_str = match cond {
+                Expr::BinaryOp { op, .. } => match op {
                     BinaryOpKind::Gt => ">", BinaryOpKind::Lt => "<",
                     BinaryOpKind::GtEq => ">=", BinaryOpKind::LtEq => "<=",
+                    BinaryOpKind::Eq => "==", BinaryOpKind::NotEq => "!=",
                     _ => unreachable!(),
-                }, _ => unreachable!() },
-                codegen_expr_simple(match cond { Expr::BinaryOp { right, .. } => right, _ => unreachable!() }, interner),
-            );
+                },
+                _ => unreachable!(),
+            };
 
             let mut output = String::new();
-            // Still need to read a and b for the comparison (the swap doesn't need them)
-            // Actually, we can use direct indexing for the comparison too
             writeln!(output, "{}if {}[({} - 1) as usize] {} {}[({} - 1) as usize] {{",
-                indent_str, arr_name, idx1_str,
-                match cond { Expr::BinaryOp { op, .. } => match op {
-                    BinaryOpKind::Gt => ">", BinaryOpKind::Lt => "<",
-                    BinaryOpKind::GtEq => ">=", BinaryOpKind::LtEq => "<=",
-                    _ => unreachable!(),
-                }, _ => unreachable!() },
-                arr_name, idx2_str,
+                indent_str, arr_name, idx1_str, op_str, arr_name, idx2_str,
             ).unwrap();
             writeln!(output, "{}    {}.swap(({} - 1) as usize, ({} - 1) as usize);",
                 indent_str, arr_name, idx1_str, idx2_str).unwrap();
@@ -5971,8 +6247,12 @@ pub fn codegen_stmt<'a>(
                     }
                     _ => {}
                 }
-            } else if matches!(value, Expr::List(_)) {
-                ctx.register_variable_type(*var, "Vec<_>".to_string());
+            } else if let Expr::List(items) = value {
+                // Infer element type from first literal in the list for Copy elimination
+                let elem_type = items.first()
+                    .map(|e| infer_rust_type_from_expr(e, interner))
+                    .unwrap_or_else(|| "_".to_string());
+                ctx.register_variable_type(*var, format!("Vec<{}>", elem_type));
             }
 
             // Phase 54+: Use codegen_expr_boxed with string+type tracking for proper codegen
@@ -6104,16 +6384,21 @@ pub fn codegen_stmt<'a>(
             let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
-            // Peephole: process body statements with swap pattern detection
+            // Peephole: process body statements with peephole optimizations
             let body_refs: Vec<&Stmt> = body.iter().collect();
             let mut bi = 0;
             while bi < body_refs.len() {
-                if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1) {
                     output.push_str(&code);
                     bi += 1 + skip;
                     continue;
                 }
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1) {
+                if let Some((code, skip)) = try_emit_for_range_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry) {
+                    output.push_str(&code);
+                    bi += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
                     output.push_str(&code);
                     bi += 1 + skip;
                     continue;
@@ -6153,10 +6438,26 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
                 writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, pattern_str).unwrap();
             } else {
-                // Clone the collection before iterating to avoid moving it.
-                // This allows the collection to be reused after the loop.
-                // Works for Vec, HashMap, HashSet, and any Clone collection.
-                writeln!(output, "{}for {} in {}.clone() {{", indent_str, pattern_str, iter_str).unwrap();
+                // Optimization: for known Vec<T> with Copy element type and non-mutating body,
+                // use .iter().copied() instead of .clone() to avoid copying the entire collection.
+                let use_iter_copied = if let Expr::Identifier(coll_sym) = iterable {
+                    if let Some(coll_type) = ctx.get_variable_types().get(coll_sym) {
+                        coll_type.starts_with("Vec") && has_copy_element_type(coll_type)
+                            && !body_mutates_collection(body, *coll_sym)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                if use_iter_copied {
+                    writeln!(output, "{}for {} in {}.iter().copied() {{", indent_str, pattern_str, iter_str).unwrap();
+                } else {
+                    // Clone the collection before iterating to avoid moving it.
+                    // This allows the collection to be reused after the loop.
+                    writeln!(output, "{}for {} in {}.clone() {{", indent_str, pattern_str, iter_str).unwrap();
+                }
             }
             ctx.push_scope();
             // Peephole: process body statements with swap pattern detection

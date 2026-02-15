@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.15] - 2026-02-15
+
+### Added
+- **TIER 1 codegen optimizations** — five peephole-level improvements targeting array-heavy benchmark performance
+  - **For-range loop emission**: `Let i be 1. While i <= n: ... Set i to i + 1` compiles to `for i in 1..=n` instead of `while (i <= n)`, enabling LLVM trip count recognition, unrolling, and vectorization
+  - **Iterator-based loops**: `Repeat for x in items` emits `.iter().copied()` instead of `.clone()` for Copy-type collections (`Vec<i64>`, `Vec<f64>`, `Vec<bool>`), eliminating full-collection copies
+  - **Direct array indexing for list literals**: `Let items be [10, 20, 30]` now registers element type, enabling direct `arr[(idx-1) as usize]` instead of `LogosIndex` trait dispatch
+  - **Vec fill exclusive bound**: `While i < n: Push 0 to items` now optimizes to `vec![0; n]` (previously only `<=` was matched)
+  - **Swap pattern equality comparisons**: `If a equals b: swap` and `If a is not b: swap` now optimize to `arr.swap()`
+- 24 new optimizer tests across all 5 TIER 1 items (codegen assertions + E2E correctness)
+
 ## [0.8.14] - 2026-02-15
 
 ### Added

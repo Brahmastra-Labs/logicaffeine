@@ -1110,6 +1110,284 @@ Show b.
     assert!(!rust.contains("a * 0") && !rust.contains("a *"), "Float x * 0.0 should simplify to 0.0.\nGot:\n{}", rust);
 }
 
+// =============================================================================
+// TIER 1-C: Direct Array Indexing + Clone Elimination
+// =============================================================================
+
+#[test]
+fn tier1c_list_literal_direct_indexing() {
+    let source = "## Main\nLet items be [10, 20, 30].\nLet x be item 2 of items.\nShow x.";
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("LogosIndex"), "List literal should use direct indexing, got:\n{}", rust);
+}
+
+#[test]
+fn tier1c_vec_i64_no_clone() {
+    let source = "## Main\nLet items: Seq of Int be [1, 2, 3].\nLet x be item 2 of items.\nShow x.";
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("LogosIndex"), "Should use direct indexing, got:\n{}", rust);
+    assert!(!rust.contains(".clone()"), "Vec<i64> indexing should not clone (Copy type), got:\n{}", rust);
+}
+
+#[test]
+fn tier1c_list_literal_infers_element_type() {
+    // List literal [10, 20, 30] should infer Vec<i64> element type for Copy elimination
+    let source = "## Main\nLet items be [10, 20, 30].\nLet x be item 1 of items.\nShow x.";
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("LogosIndex"), "Should use direct indexing, got:\n{}", rust);
+    assert!(!rust.contains(".clone()"), "Integer list literal indexing should not clone (Copy type), got:\n{}", rust);
+}
+
+#[test]
+fn tier1c_e2e_direct_indexing_correct() {
+    let source = "## Main\nLet items be [10, 20, 30].\nShow item 1 of items.\nShow item 2 of items.\nShow item 3 of items.";
+    common::assert_exact_output(source, "10\n20\n30");
+}
+
+#[test]
+fn tier1c_set_index_direct_mutation() {
+    // SetIndex on a known Vec should use direct mutation, not LogosIndexMut
+    let source = "## Main\nLet items: Seq of Int be [1, 2, 3].\nSet item 2 of items to 99.\nShow item 2 of items.";
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("LogosIndexMut"), "SetIndex on known Vec should use direct mutation, got:\n{}", rust);
+}
+
+#[test]
+fn tier1c_e2e_set_index_correct() {
+    let source = "## Main\nLet items: Seq of Int be [1, 2, 3].\nSet item 2 of items to 99.\nShow items.";
+    common::assert_exact_output(source, "[1, 99, 3]");
+}
+
+// =============================================================================
+// TIER 1-D: Vec Fill Enhancement (exclusive bound)
+// =============================================================================
+
+#[test]
+fn tier1d_vec_fill_exclusive_bound() {
+    let source = "## Main\nLet mut items be a new Seq of Int.\nLet mut i be 0.\nWhile i is less than 5:\n    Push 0 to items.\n    Set i to i + 1.\nShow length of items.";
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("vec!["), "Should optimize exclusive bound fill, got:\n{}", rust);
+}
+
+#[test]
+fn tier1d_e2e_vec_fill_exclusive_correct() {
+    let source = "## Main\nLet mut items be a new Seq of Int.\nLet mut i be 0.\nWhile i is less than 5:\n    Push 0 to items.\n    Set i to i + 1.\nShow length of items.";
+    common::assert_exact_output(source, "5");
+}
+
+#[test]
+fn tier1d_e2e_vec_fill_exclusive_start_1() {
+    // Exclusive bound starting at 1: While i < 5, start=1 → 4 elements
+    let source = "## Main\nLet mut items be a new Seq of Int.\nLet mut i be 1.\nWhile i is less than 5:\n    Push 0 to items.\n    Set i to i + 1.\nShow length of items.";
+    common::assert_exact_output(source, "4");
+}
+
+// =============================================================================
+// TIER 1-E: Swap Pattern Enhancement
+// =============================================================================
+
+#[test]
+fn tier1e_swap_equality_comparison() {
+    // Use variable index j and (j+1) to satisfy adjacency requirement
+    let source = r#"## Main
+Let items: Seq of Int be [3, 1, 2].
+Let j be 1.
+Let a be item j of items.
+Let b be item (j + 1) of items.
+If a equals b:
+    Set item j of items to b.
+    Set item (j + 1) of items to a.
+Show items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains(".swap("), "Should optimize equality swap, got:\n{}", rust);
+}
+
+#[test]
+fn tier1e_swap_not_equals_comparison() {
+    let source = r#"## Main
+Let items: Seq of Int be [3, 1, 2].
+Let j be 1.
+Let a be item j of items.
+Let b be item (j + 1) of items.
+If a is not b:
+    Set item j of items to b.
+    Set item (j + 1) of items to a.
+Show items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains(".swap("), "Should optimize not-equal swap, got:\n{}", rust);
+}
+
+// =============================================================================
+// TIER 1-A: For-Range Loop Emission
+// =============================================================================
+
+#[test]
+fn tier1a_simple_counting_loop() {
+    let source = r#"## Main
+Let i be 1.
+While i is at most 5:
+    Show i.
+    Set i to i + 1.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("for i in 1..=5"), "Should emit for-range, got:\n{}", rust);
+    assert!(!rust.contains("while"), "Should not have while loop, got:\n{}", rust);
+}
+
+#[test]
+fn tier1a_exclusive_bound() {
+    let source = r#"## Main
+Let i be 0.
+While i is less than 5:
+    Show i.
+    Set i to i + 1.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("for i in 0..5"), "Should emit exclusive for-range, got:\n{}", rust);
+}
+
+#[test]
+fn tier1a_variable_limit() {
+    let source = r#"## Main
+Let n be 5.
+Let i be 1.
+While i is at most n:
+    Show i.
+    Set i to i + 1.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("for i in 1..=n"), "Should handle variable limits, got:\n{}", rust);
+}
+
+#[test]
+fn tier1a_counter_used_as_index() {
+    let source = r#"## Main
+Let items: Seq of Int be [10, 20, 30].
+Let i be 1.
+While i is at most 3:
+    Show item i of items.
+    Set i to i + 1.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("for i in 1..=3"), "Should emit for-range with indexing, got:\n{}", rust);
+}
+
+#[test]
+fn tier1a_no_match_counter_modified_in_body() {
+    // Counter set to something other than counter+1 inside the body → don't optimize
+    let source = r#"## Main
+Let i be 1.
+While i is at most 10:
+    If i equals 5:
+        Set i to 8.
+    Show i.
+    Set i to i + 1.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("while"), "Should NOT emit for-range when counter modified in body, got:\n{}", rust);
+}
+
+#[test]
+fn tier1a_no_match_step_not_1() {
+    let source = r#"## Main
+Let i be 0.
+While i is at most 10:
+    Show i.
+    Set i to i + 2.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("while"), "Should NOT emit for-range for step != 1, got:\n{}", rust);
+}
+
+#[test]
+fn tier1a_e2e_correct_sum() {
+    let source = r#"## Main
+Let sum be 0.
+Let i be 1.
+While i is at most 5:
+    Set sum to sum + i.
+    Set i to i + 1.
+Show sum.
+"#;
+    common::assert_exact_output(source, "15");
+}
+
+#[test]
+fn tier1a_e2e_post_loop_value() {
+    // After while (i <= 5) with i++, i should be 6
+    let source = r#"## Main
+Let i be 1.
+While i is at most 5:
+    Set i to i + 1.
+Show i.
+"#;
+    common::assert_exact_output(source, "6");
+}
+
+// =============================================================================
+// TIER 1-B: Iterator-Based Loops
+// =============================================================================
+
+#[test]
+fn tier1b_copy_type_no_clone() {
+    let source = r#"## Main
+Let items: Seq of Int be [1, 2, 3].
+Repeat for x in items:
+    Show x.
+Show items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains(".clone()"), "Copy-type iteration should not clone, got:\n{}", rust);
+    assert!(rust.contains(".iter().copied()"), "Should use iter().copied(), got:\n{}", rust);
+}
+
+#[test]
+fn tier1b_non_copy_type_still_clones() {
+    let source = r#"## Main
+Let items: Seq of Text be ["a", "b"].
+Repeat for x in items:
+    Show x.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains(".clone()"), "Non-Copy type should still clone, got:\n{}", rust);
+}
+
+#[test]
+fn tier1b_mutating_body_keeps_clone() {
+    let source = r#"## Main
+Let items: Seq of Int be [1, 2, 3].
+Repeat for x in items:
+    Push x to items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains(".clone()"), "Mutating body must keep .clone(), got:\n{}", rust);
+}
+
+#[test]
+fn tier1b_e2e_iter_copied_correct() {
+    let source = r#"## Main
+Let sum be 0.
+Let items: Seq of Int be [1, 2, 3, 4, 5].
+Repeat for x in items:
+    Set sum to sum + x.
+Show sum.
+"#;
+    common::assert_exact_output(source, "15");
+}
+
+#[test]
+fn tier1b_bool_seq_iter_copied() {
+    let source = r#"## Main
+Let flags: Seq of Bool be [true, false, true].
+Repeat for f in flags:
+    Show f.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains(".iter().copied()"), "Bool seq should use iter().copied(), got:\n{}", rust);
+}
+
 #[test]
 fn e2e_algebraic_identity_correct() {
     let source = r#"## Main

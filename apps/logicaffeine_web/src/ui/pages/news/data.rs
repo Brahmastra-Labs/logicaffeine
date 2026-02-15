@@ -62,6 +62,127 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-8-15-direct-strike",
+        title: "v0.8.15 — Direct Strike",
+        date: "2026-02-15",
+        summary: "For-range loop emission, iterator-based loops, list literal type inference, exclusive-bound vec fill, and equality swap patterns — five codegen optimizations that close the gap on array-heavy benchmarks.",
+        content: r#"
+## For-Range Loop Emission
+
+The highest-impact optimization in this release. The codegen now detects counting loop patterns and emits Rust `for` ranges instead of `while` loops. This gives LLVM trip count information, enabling unrolling and vectorization.
+
+```
+Let i be 1.
+While i is at most 5:
+    Show i.
+    Set i to i + 1.
+```
+
+Previously generated:
+
+```rust
+let mut i = 1;
+while (i <= 5) {
+    println!("{}", i);
+    i = (i + 1);
+}
+```
+
+Now generates:
+
+```rust
+for i in 1..=5 {
+    println!("{}", i);
+}
+let mut i = 6;
+```
+
+The post-loop `let mut i = 6` preserves counter semantics — code after the loop that reads `i` gets the correct value. LLVM eliminates it if unused.
+
+Both inclusive (`is at most` → `..=`) and exclusive (`is less than` → `..`) bounds are supported. Variable limits work: `While i is at most n` generates `for i in 1..=n`.
+
+A `body_modifies_var` guard prevents the transformation when the counter is modified inside the loop body (other than the final increment), and step sizes other than 1 correctly fall back to `while`:
+
+```
+Let i be 0.
+While i is at most 10:
+    Show i.
+    Set i to i + 2.
+```
+
+This stays as `while` — the step is 2, not 1.
+
+The pattern is integrated at all 7 peephole call sites in the codegen, including inside TCE, accumulator, memoization, and C export paths.
+
+## Iterator-Based Loops
+
+`Repeat for x in items` previously always emitted `for x in items.clone()`, copying the entire collection before iterating. For a `Vec<i64>` with a million elements, that's 8MB of unnecessary allocation.
+
+When the element type is `Copy` (`i64`, `f64`, `bool`) and the loop body doesn't mutate the collection, the codegen now emits `.iter().copied()`:
+
+```
+Let items: Seq of Int be [1, 2, 3].
+Repeat for x in items:
+    Show x.
+```
+
+Generates `for x in items.iter().copied()` instead of `for x in items.clone()`.
+
+A recursive `body_mutates_collection` helper walks through nested `If`, `While`, `Repeat`, and `Zone` blocks to detect `Push`, `Pop`, `Remove`, `SetIndex`, or `Set` operations targeting the collection. If any mutation is found, the safe `.clone()` path is preserved:
+
+```
+Repeat for x in items:
+    Push x to items.
+```
+
+This keeps `.clone()` — the body mutates `items`.
+
+Non-Copy types like `Text` also keep `.clone()`, since `.iter().copied()` requires `Copy`.
+
+## Direct Array Indexing for List Literals
+
+List literals like `[10, 20, 30]` now register their element type in the codegen's type tracking. Previously, only explicitly annotated variables (`Let items: Seq of Int`) or `Expr::New` constructors got type registration. List literals fell through to the `LogosIndex` trait dispatch path, adding bounds check overhead and an index conversion function call per access.
+
+Now `[10, 20, 30]` infers `Vec<i64>` from the first literal element, enabling direct `arr[(idx-1) as usize]` indexing without trait dispatch. Combined with Copy-type detection, integer list indexing also skips `.clone()`:
+
+```
+Let items be [10, 20, 30].
+Let x be item 2 of items.
+Show x.
+```
+
+Generates direct `items[(2 - 1) as usize]` instead of `LogosIndex::logos_get(&items, 2).clone()`.
+
+## Vec Fill Enhancement
+
+The vec-fill peephole pattern — converting push loops to `vec![val; count]` — previously only matched `While i is at most n` (inclusive `<=` bound). It now also matches `While i is less than n` (exclusive `<` bound):
+
+```
+Let mut items be a new Seq of Int.
+Let mut i be 0.
+While i is less than 5:
+    Push 0 to items.
+    Set i to i + 1.
+```
+
+Generates `vec![0i64; 5 as usize]` instead of a push loop. The count calculation adjusts for exclusive vs inclusive bounds: `i < 5` starting at 0 produces 5 elements; `i <= 5` starting at 0 produces 6.
+
+## Swap Pattern Enhancement
+
+The swap peephole — converting adjacent-index comparison + cross-assignment into `arr.swap()` — previously only matched `>`, `<`, `>=`, `<=` comparisons. It now also matches `equals` and `is not`:
+
+```
+If a equals b:
+    Set item j of items to b.
+    Set item (j + 1) of items to a.
+```
+
+Generates `items.swap(...)` instead of two separate assignments through a temporary. This covers partition-style algorithms that swap on equality conditions.
+"#,
+        tags: &["release", "performance", "compiler"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-8-14-bedrock",
         title: "v0.8.14 — Bedrock and Maybe",
         date: "2026-02-15",

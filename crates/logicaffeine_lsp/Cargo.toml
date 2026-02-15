@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-lsp"
-version = "0.8.14"
+version = "0.8.15"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -16,10 +16,10 @@ name = "logicaffeine-lsp"
 path = "src/main.rs"
 
 [dependencies]
-logicaffeine-base = { version = "0.8.14", path = "../logicaffeine_base" }
-logicaffeine-language = { version = "0.8.14", path = "../logicaffeine_language" }
-logicaffeine-compile = { version = "0.8.14", path = "../logicaffeine_compile", features = ["codegen"] }
-logicaffeine-proof = { version = "0.8.14", path = "../logicaffeine_proof" }
+logicaffeine-base = { version = "0.8.15", path = "../logicaffeine_base" }
+logicaffeine-language = { version = "0.8.15", path = "../logicaffeine_language" }
+logicaffeine-compile = { version = "0.8.15", path = "../logicaffeine_compile", features = ["codegen"] }
+logicaffeine-proof = { version = "0.8.15", path = "../logicaffeine_proof" }
 
 tower-lsp = "0.20"
 tokio = { version = "1", features = ["full"] }

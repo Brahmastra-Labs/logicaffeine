@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.15] - 2026-02-15
+
+### Added
+- For-range loop emission: `Let counter + While counter <= limit + Set counter to counter + 1` → `for counter in start..=limit` (and `start..limit` for exclusive `<` bounds)
+- Post-loop counter value restoration for correct semantics after for-range transformation
+- `body_modifies_var` helper for detecting counter modification inside loop bodies (prevents invalid for-range optimization)
+- Iterator-based loops: `.iter().copied()` for Copy-type `Vec` iteration instead of `.clone()` when body doesn't mutate the collection
+- `body_mutates_collection` helper for recursive mutation detection across nested If/While/Repeat/Zone blocks
+- List literal element type inference: `[10, 20, 30]` registers as `Vec<i64>` for direct indexing and Copy-type elision
+- Vec fill pattern: `BinaryOpKind::Lt` (exclusive bound) support alongside existing `LtEq`
+- Swap pattern: `BinaryOpKind::Eq` and `BinaryOpKind::NotEq` support alongside existing comparison operators
+
 ## [0.8.14] - 2026-02-15
 
 ### Added

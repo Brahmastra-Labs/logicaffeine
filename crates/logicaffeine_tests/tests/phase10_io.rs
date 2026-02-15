@@ -245,8 +245,9 @@ While count < 3:
     Set count to count + 1."#;
     let rust = compile_to_rust(source).expect("Should compile");
 
-    assert!(rust.contains("while"),
-            "Should have while loop.\nGot:\n{}", rust);
+    // For-range optimization may convert `while count < 3` → `for count in 0..3`
+    assert!(rust.contains("while") || rust.contains("for count in"),
+            "Should have while or for-range loop.\nGot:\n{}", rust);
     assert!(rust.contains("read_line()"),
             "Should have read_line in loop.\nGot:\n{}", rust);
 }
