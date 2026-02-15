@@ -429,8 +429,51 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Parse a type expression: Int, Text, List of Int, Result of Int and Text.
     /// Phase 36: Also supports "Type from Module" for qualified imports.
     /// Uses TypeRegistry to distinguish primitives from generics.
+    /// Also handles `fn(A, B) -> C` function types.
     fn parse_type_expression(&mut self) -> ParseResult<TypeExpr<'a>> {
         use noun::NounParsing;
+
+        // Handle `fn(A, B) -> C` function type syntax
+        if self.check_word("fn") {
+            if let Some(next) = self.tokens.get(self.current + 1) {
+                if matches!(next.kind, TokenType::LParen) {
+                    self.advance(); // consume "fn"
+                    self.advance(); // consume "("
+
+                    // Parse input types
+                    let mut inputs = Vec::new();
+                    if !self.check(&TokenType::RParen) {
+                        inputs.push(self.parse_type_expression()?);
+                        while self.check(&TokenType::Comma) {
+                            self.advance(); // consume ","
+                            inputs.push(self.parse_type_expression()?);
+                        }
+                    }
+
+                    if !self.check(&TokenType::RParen) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume ")"
+
+                    // Expect ->
+                    if !self.check(&TokenType::Arrow) {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedKeyword { keyword: "->".to_string() },
+                            span: self.current_span(),
+                        });
+                    }
+                    self.advance(); // consume "->"
+
+                    let output = self.parse_type_expression()?;
+                    let output_ref = self.ctx.alloc_type_expr(output);
+                    let inputs_ref = self.ctx.alloc_type_exprs(inputs);
+                    return Ok(TypeExpr::Function { inputs: inputs_ref, output: output_ref });
+                }
+            }
+        }
 
         // Bug fix: Handle parenthesized type expressions: "Seq of (Seq of Int)"
         if self.check(&TokenType::LParen) {
@@ -5578,8 +5621,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }
             }
 
-            // Parenthesized expression: (expr) or Tuple literal: (expr, expr, ...)
+            // Parenthesized expression, tuple literal, or closure
             TokenType::LParen => {
+                // Try closure parse first using speculative parsing.
+                // Closure syntax: `(name: Type, ...) -> expr` or `() -> expr`
+                if let Some(closure) = self.try_parse(|p| p.parse_closure_expr()) {
+                    return Ok(closure);
+                }
+
+                // Not a closure — parse as parenthesized expression or tuple
                 self.advance(); // consume '('
                 let first = self.parse_imperative_expr()?;
 
@@ -5652,6 +5702,111 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 })
             }
         }
+    }
+
+    /// Parse a closure expression: `(params) -> expr` or `(params) ->:` block.
+    /// Called speculatively — will fail (and rollback) if not a closure.
+    fn parse_closure_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        use crate::ast::stmt::ClosureBody;
+
+        // Expect '('
+        if !self.check(&TokenType::LParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedExpression,
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume '('
+
+        // Parse parameter list
+        let mut params = Vec::new();
+        if !self.check(&TokenType::RParen) {
+            // First parameter: name: Type
+            let name = self.expect_identifier()?;
+            if !self.check(&TokenType::Colon) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume ':'
+            let ty = self.parse_type_expression()?;
+            let ty_ref = self.ctx.alloc_type_expr(ty);
+            params.push((name, ty_ref));
+
+            // Additional parameters
+            while self.check(&TokenType::Comma) {
+                self.advance(); // consume ','
+                let name = self.expect_identifier()?;
+                if !self.check(&TokenType::Colon) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedKeyword { keyword: ":".to_string() },
+                        span: self.current_span(),
+                    });
+                }
+                self.advance(); // consume ':'
+                let ty = self.parse_type_expression()?;
+                let ty_ref = self.ctx.alloc_type_expr(ty);
+                params.push((name, ty_ref));
+            }
+        }
+
+        // Expect ')'
+        if !self.check(&TokenType::RParen) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: ")".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume ')'
+
+        // Expect '->'
+        if !self.check(&TokenType::Arrow) {
+            return Err(ParseError {
+                kind: ParseErrorKind::ExpectedKeyword { keyword: "->".to_string() },
+                span: self.current_span(),
+            });
+        }
+        self.advance(); // consume '->'
+
+        // Check for block body (->:) vs expression body (-> expr)
+        let body = if self.check(&TokenType::Colon) {
+            self.advance(); // consume ':'
+            // Parse indented block
+            if !self.check(&TokenType::Indent) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::ExpectedStatement,
+                    span: self.current_span(),
+                });
+            }
+            self.advance(); // consume Indent
+
+            let mut block_stmts = Vec::new();
+            while !self.check(&TokenType::Dedent) && !self.is_at_end() {
+                let stmt = self.parse_statement()?;
+                block_stmts.push(stmt);
+                if self.check(&TokenType::Period) {
+                    self.advance();
+                }
+            }
+            if self.check(&TokenType::Dedent) {
+                self.advance(); // consume Dedent
+            }
+
+            let block = self.ctx.stmts.expect("imperative arenas not initialized")
+                .alloc_slice(block_stmts.into_iter());
+            ClosureBody::Block(block)
+        } else {
+            // Single expression body — use parse_condition to support comparisons and boolean ops
+            let expr = self.parse_condition()?;
+            ClosureBody::Expression(expr)
+        };
+
+        Ok(self.ctx.alloc_imperative_expr(Expr::Closure {
+            params,
+            body,
+            return_type: None,
+        }))
     }
 
     /// Parse a complete imperative expression including binary operators.

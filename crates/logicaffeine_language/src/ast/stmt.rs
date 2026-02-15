@@ -723,6 +723,30 @@ pub enum Expr<'a> {
         value: &'a Expr<'a>,
         capacity: &'a Expr<'a>,
     },
+
+    /// Closure expression: `(params) -> body` or `(params) ->:` block body.
+    /// Captures variables from the enclosing scope by value (snapshot/clone).
+    Closure {
+        params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+        body: ClosureBody<'a>,
+        return_type: Option<&'a TypeExpr<'a>>,
+    },
+
+    /// Call an expression that evaluates to a callable value.
+    /// `f(x)` where `f` is a variable holding a closure, not a named function.
+    CallExpr {
+        callee: &'a Expr<'a>,
+        args: Vec<&'a Expr<'a>>,
+    },
+}
+
+/// Body of a closure expression.
+#[derive(Debug, Clone)]
+pub enum ClosureBody<'a> {
+    /// Single expression: `(n: Int) -> n * 2`
+    Expression(&'a Expr<'a>),
+    /// Block of statements: `(n: Int) ->:` followed by indented body
+    Block(Block<'a>),
 }
 
 /// Literal values in LOGOS.

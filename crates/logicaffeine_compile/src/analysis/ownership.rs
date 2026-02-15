@@ -382,6 +382,26 @@ impl<'a> OwnershipChecker<'a> {
             // Escape expressions are opaque — the Rust compiler handles ownership for raw code
             Expr::Escape { .. } => Ok(()),
 
+            // Closures capture by cloning — no ownership transfer at creation time.
+            // We only check the expression body for moved variables; block bodies
+            // create their own scope so ownership is handled there.
+            Expr::Closure { body, .. } => {
+                match body {
+                    crate::ast::stmt::ClosureBody::Expression(expr) => {
+                        self.check_not_moved(expr)
+                    }
+                    crate::ast::stmt::ClosureBody::Block(_) => Ok(()),
+                }
+            }
+
+            Expr::CallExpr { callee, args } => {
+                self.check_not_moved(callee)?;
+                for arg in args {
+                    self.check_not_moved(arg)?;
+                }
+                Ok(())
+            }
+
             // Literals are always safe
             Expr::Literal(_) => Ok(()),
         }

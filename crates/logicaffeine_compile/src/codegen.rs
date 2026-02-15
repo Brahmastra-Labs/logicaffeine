@@ -2893,6 +2893,16 @@ fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> boo
         Expr::List(items) | Expr::Tuple(items) => {
             items.iter().any(|i| calls_async_function_in_expr(i, async_fns))
         }
+        Expr::Closure { body, .. } => {
+            match body {
+                crate::ast::stmt::ClosureBody::Expression(expr) => calls_async_function_in_expr(expr, async_fns),
+                crate::ast::stmt::ClosureBody::Block(_) => false,
+            }
+        }
+        Expr::CallExpr { callee, args } => {
+            calls_async_function_in_expr(callee, async_fns)
+                || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
+        }
         _ => false,
     }
 }
@@ -3040,6 +3050,18 @@ fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
         Expr::WithCapacity { value, capacity } => {
             collect_expr_identifiers(value, identifiers);
             collect_expr_identifiers(capacity, identifiers);
+        }
+        Expr::Closure { body, .. } => {
+            match body {
+                crate::ast::stmt::ClosureBody::Expression(expr) => collect_expr_identifiers(expr, identifiers),
+                crate::ast::stmt::ClosureBody::Block(_) => {}
+            }
+        }
+        Expr::CallExpr { callee, args } => {
+            collect_expr_identifiers(callee, identifiers);
+            for arg in args {
+                collect_expr_identifiers(arg, identifiers);
+            }
         }
         Expr::OptionNone => {}
         Expr::Escape { .. } => {}
@@ -3927,7 +3949,7 @@ fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 .map(|i| codegen_type_expr(i, interner))
                 .collect();
             let output_str = codegen_type_expr(output, interner);
-            format!("fn({}) -> {}", inputs_str.join(", "), output_str)
+            format!("impl Fn({}) -> {}", inputs_str.join(", "), output_str)
         }
         // Phase 43C: Refinement types use the base type for Rust type annotation
         // The constraint predicate is handled separately via debug_assert!
@@ -6598,6 +6620,50 @@ fn codegen_expr_boxed_internal(
                 // Other expressions — ignore capacity hint
                 _ => recurse!(value)
             }
+        }
+
+        Expr::Closure { params, body, .. } => {
+            use crate::ast::stmt::ClosureBody;
+            let params_str: Vec<String> = params.iter()
+                .map(|(name, ty)| {
+                    let param_name = escape_rust_ident(interner.resolve(*name));
+                    let param_type = codegen_type_expr(ty, interner);
+                    format!("{}: {}", param_name, param_type)
+                })
+                .collect();
+
+            match body {
+                ClosureBody::Expression(expr) => {
+                    let body_str = recurse!(expr);
+                    format!("move |{}| {{ {} }}", params_str.join(", "), body_str)
+                }
+                ClosureBody::Block(stmts) => {
+                    let mut body_str = String::new();
+                    let mut ctx = RefinementContext::new();
+                    let empty_mutable = collect_mutable_vars(stmts);
+                    let empty_lww = HashSet::new();
+                    let empty_mv = HashSet::new();
+                    let mut empty_synced = HashSet::new();
+                    let empty_caps = HashMap::new();
+                    let empty_pipes = HashSet::new();
+                    let empty_boxed = HashSet::new();
+                    let empty_registry = TypeRegistry::new();
+                    for stmt in stmts.iter() {
+                        body_str.push_str(&codegen_stmt(
+                            stmt, interner, 2, &empty_mutable, &mut ctx,
+                            &empty_lww, &empty_mv, &mut empty_synced, &empty_caps,
+                            async_functions, &empty_pipes, &empty_boxed, &empty_registry,
+                        ));
+                    }
+                    format!("move |{}| {{\n{}{}}}", params_str.join(", "), body_str, "    ")
+                }
+            }
+        }
+
+        Expr::CallExpr { callee, args } => {
+            let callee_str = recurse!(callee);
+            let args_str: Vec<String> = args.iter().map(|a| recurse!(a)).collect();
+            format!("({})({})", callee_str, args_str.join(", "))
         }
     }
 }
