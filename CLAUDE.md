@@ -161,6 +161,31 @@ logos_verification/
 
 Verification is gated by license. Valid license keys are Stripe subscription IDs (`sub_*` format) validated against `api.logicaffeine.com/validate`. Only Pro, Premium, Lifetime, and Enterprise plans can use verification.
 
+## Release Process
+
+1. **Ensure all tests pass**: `cargo test -- --skip e2e`
+2. **Bump versions** in all 13 Cargo.toml files (lockstep versioning)
+3. **Update CHANGELOG.md** with the new version entry
+4. **Add news article** in `apps/logicaffeine_web/src/ui/pages/news/data.rs`
+5. **Pull and rebase**:
+   ```bash
+   git stash        # if needed
+   git pull --rebase origin main
+   git stash pop    # if stashed
+   ```
+6. **One clean commit**:
+   ```bash
+   git add -A
+   git commit -m "release <version> — <brief description>"
+   ```
+7. **Tag and push**:
+   ```bash
+   git tag v<version>
+   git push origin main --tags
+   ```
+
+The tag push triggers CI workflows: `publish.yml` (crates.io), `release.yml` (GitHub release + LSP binaries), `benchmark.yml` (benchmarks + frontend deploy).
+
 ## Updating Documentation (generate-docs.sh)
 
 When asked to update documentation, follow this process:

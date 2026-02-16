@@ -1,7 +1,8 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
     var args = std.process.args();
     _ = args.skip();
     const arg = args.next() orelse return;
@@ -25,5 +26,6 @@ pub fn main() !void {
             }
         }
     }
-    try stdout.print("{}\n", .{arr[0]});
+    try stdout.interface.print("{}\n", .{arr[0]});
+    try stdout.interface.flush();
 }

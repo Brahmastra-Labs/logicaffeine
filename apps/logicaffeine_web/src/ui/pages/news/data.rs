@@ -62,6 +62,35 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-8-19-benchmark-fixes",
+        title: "v0.8.19 — Benchmark Reliability",
+        date: "2026-02-15",
+        summary: "Fixes missing Zig benchmark data, increases benchmark runs for lower variance, and adds a swap pattern regression test.",
+        content: r#"
+## Benchmark Variance
+
+Geometric mean speedup numbers were bouncing between releases due to measurement noise. With only 3 warm-ups and 10 runs, individual outliers could shift results by several percent.
+
+v0.8.19 increases runtime benchmarks to **5 warm-ups and 20 runs**. Doubling the sample count reduces standard error by ~30%, giving more stable comparisons across versions.
+
+## Zig 0.15 Upgrade
+
+All 6 Zig benchmark programs were stuck on Zig 0.13 APIs. Two of them (Collection Operations, String Assembly) additionally used 0.14+ field init syntax that didn't work on either version — causing missing data on CI.
+
+Rather than patching for compatibility with an old version, all programs have been upgraded to Zig 0.15 and CI now installs Zig 0.15.2. Key API changes:
+
+- `std.io.getStdOut().writer()` replaced by `std.fs.File.stdout().writer(&buf)` with explicit buffering and flush
+- `std.ArrayList(T)` is now unmanaged — allocator passed to each method call instead of stored at init
+- `std.AutoHashMap` remains managed (no change)
+
+## Swap Pattern Regression Guard
+
+Investigation of a bubble_sort performance dip in v0.8.18 benchmarks confirmed the swap optimization fires correctly — the CI result was environmental noise. A new regression test locks this down: it compiles a bubble_sort kernel and asserts the generated Rust contains `.swap()`.
+"#,
+        tags: &["release", "benchmarks"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-8-18-propagation-fix",
         title: "v0.8.18 — Constant Propagation Safety Fix",
         date: "2026-02-15",

@@ -7,10 +7,12 @@ fn ackermann(m: i64, n: i64) i64 {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
     var args = std.process.args();
     _ = args.skip();
     const arg = args.next() orelse return;
     const m = try std.fmt.parseInt(i64, arg, 10);
-    try stdout.print("{}\n", .{ackermann(3, m)});
+    try stdout.interface.print("{}\n", .{ackermann(3, m)});
+    try stdout.interface.flush();
 }

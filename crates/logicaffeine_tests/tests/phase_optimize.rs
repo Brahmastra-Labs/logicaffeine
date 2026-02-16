@@ -1631,3 +1631,58 @@ Show z.
 "#;
     common::assert_exact_output(source, "10");
 }
+
+// =============================================================================
+// Swap Pattern Regression — Bubble Sort
+// =============================================================================
+
+#[test]
+fn tier1e_swap_in_nested_while_loop() {
+    // Mirrors the bubble_sort benchmark: swap pattern inside a nested while loop
+    // with `new Seq of Int` (inferred type, no annotation).
+    let source = r#"## Main
+Let mutable arr be a new Seq of Int.
+Push 3 to arr.
+Push 1 to arr.
+Push 2 to arr.
+Let n be 3.
+Let mutable i be 0.
+While i is less than n - 1:
+    Let mutable j be 1.
+    While j is at most n - 1 - i:
+        Let a be item j of arr.
+        Let b be item (j + 1) of arr.
+        If a is greater than b:
+            Set item j of arr to b.
+            Set item (j + 1) of arr to a.
+        Set j to j + 1.
+    Set i to i + 1.
+Show item 1 of arr.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains(".swap("), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
+}
+
+#[test]
+fn e2e_tier1e_swap_in_nested_while_loop_correct() {
+    let source = r#"## Main
+Let mutable arr be a new Seq of Int.
+Push 3 to arr.
+Push 1 to arr.
+Push 2 to arr.
+Let n be 3.
+Let mutable i be 0.
+While i is less than n - 1:
+    Let mutable j be 1.
+    While j is at most n - 1 - i:
+        Let a be item j of arr.
+        Let b be item (j + 1) of arr.
+        If a is greater than b:
+            Set item j of arr to b.
+            Set item (j + 1) of arr to a.
+        Set j to j + 1.
+    Set i to i + 1.
+Show item 1 of arr.
+"#;
+    common::assert_exact_output(source, "1");
+}

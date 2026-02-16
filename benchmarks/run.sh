@@ -22,8 +22,8 @@ GENERATED_DIR="$SCRIPT_DIR/generated"
 
 BENCHMARKS=(fib sieve collect strings bubble_sort ackermann)
 
-WARMUP="${BENCH_WARMUP:-3}"
-RUNS="${BENCH_RUNS:-10}"
+WARMUP="${BENCH_WARMUP:-5}"
+RUNS="${BENCH_RUNS:-20}"
 TIMEOUT="${BENCH_TIMEOUT:-120}"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-60}"
 SIZES_MODE="${BENCH_SIZES:-all}"  # "all" or "ref" (reference only)

@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.19] - 2026-02-15
+
+### Added
+- **Swap pattern regression test** — codegen and E2E tests verifying `.swap()` fires for the bubble_sort benchmark pattern (nested while loops, inferred Vec type via `new Seq of Int`).
+
+### Changed
+- **Benchmark warm-ups and runs increased** — runtime benchmarks now use 5 warm-ups and 20 runs (up from 3/10) to reduce variance between versions.
+- **Zig 0.15 upgrade** — all 6 Zig benchmark programs updated from Zig 0.13 to 0.15 API (`std.io.getStdOut()` → `std.fs.File.stdout().writer(&buf)`, ArrayList now unmanaged). CI updated from Zig 0.13.0 to 0.15.2.
+
 ## [0.8.18] - 2026-02-15
 
 ### Fixed

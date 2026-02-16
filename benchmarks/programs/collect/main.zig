@@ -1,16 +1,17 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
     var args = std.process.args();
     _ = args.skip();
     const arg = args.next() orelse return;
     const n = try std.fmt.parseInt(i64, arg, 10);
 
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var map: std.AutoHashMap(i64, i64) = .init(allocator);
+    var map = std.AutoHashMap(i64, i64).init(allocator);
     defer map.deinit();
     try map.ensureTotalCapacity(@intCast(n));
 
@@ -25,5 +26,6 @@ pub fn main() !void {
             if (v == i * 2) found += 1;
         }
     }
-    try stdout.print("{}\n", .{found});
+    try stdout.interface.print("{}\n", .{found});
+    try stdout.interface.flush();
 }

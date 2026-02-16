@@ -1,13 +1,14 @@
 const std = @import("std");
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var buf: [4096]u8 = undefined;
+    var stdout = std.fs.File.stdout().writer(&buf);
     var args = std.process.args();
     _ = args.skip();
     const arg = args.next() orelse return;
     const n = try std.fmt.parseInt(i64, arg, 10);
 
-    var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     var list: std.ArrayList(u8) = .empty;
@@ -24,5 +25,6 @@ pub fn main() !void {
     for (list.items) |c| {
         if (c == ' ') spaces += 1;
     }
-    try stdout.print("{}\n", .{spaces});
+    try stdout.interface.print("{}\n", .{spaces});
+    try stdout.interface.flush();
 }

@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-tests"
-version = "0.8.18"
+version = "0.8.19"
 edition = "2021"
 publish = false
 
