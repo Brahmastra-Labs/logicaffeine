@@ -72,11 +72,11 @@ fn fold_chained_arithmetic() {
 }
 
 #[test]
-fn fold_does_not_touch_variables() {
+fn propagation_folds_variable_into_arithmetic() {
     let source = "## Main\nLet a be 5.\nLet b be a + 1.\nShow b.";
     let rust = compile_to_rust(source).unwrap();
-    // Should NOT fold `a + 1` since `a` is a variable
-    assert!(!rust.contains("let b = 6;"), "Should NOT fold variable expressions.\nGot:\n{}", rust);
+    // Constant propagation substitutes a=5 into a+1, fold reduces to 6
+    assert!(rust.contains("let b = 6"), "Should propagate a=5 into a+1 and fold to 6.\nGot:\n{}", rust);
 }
 
 #[test]
@@ -1419,4 +1419,215 @@ Show double(5 + 0).
     let rust = compile_to_rust(source).unwrap();
     // Deep recursion folds into call args, then algebraic simplifies 5+0 to 5
     assert!(rust.contains("double(5)"), "Should fold 5+0 to 5 inside call args.\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// TIER 2: Sieve Vec-Fill Bug Fix (A1)
+// =============================================================================
+
+#[test]
+fn tier2_sieve_vec_fill_bool() {
+    let source = r#"## Main
+Let flags be a new Seq of Bool.
+Let i be 0.
+While i is at most 5:
+    Push false to flags.
+    Set i to i + 1.
+Show length of flags.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("vec!["), "Sieve-style fill should optimize to vec![...], got:\n{}", rust);
+}
+
+#[test]
+fn tier2_sieve_vec_fill_in_function() {
+    let source = r#"## To sieve (limit: Int) -> Int:
+    Let flags be a new Seq of Bool.
+    Let i be 0.
+    While i is at most limit:
+        Push false to flags.
+        Set i to i + 1.
+    Return length of flags.
+
+## Main
+Show sieve(5).
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("vec!["), "Sieve-style fill in function should optimize to vec![...], got:\n{}", rust);
+}
+
+#[test]
+fn tier2_vec_fill_int() {
+    let source = r#"## Main
+Let nums be a new Seq of Int.
+Let i be 0.
+While i is at most 10:
+    Push 0 to nums.
+    Set i to i + 1.
+Show length of nums.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("vec![0; "), "Int fill should optimize to vec![0; ...], got:\n{}", rust);
+}
+
+#[test]
+fn e2e_tier2_sieve_vec_fill_correct() {
+    let source = r#"## Main
+Let flags be a new Seq of Bool.
+Let i be 0.
+While i is at most 5:
+    Push false to flags.
+    Set i to i + 1.
+Show length of flags.
+"#;
+    common::assert_exact_output(source, "6");
+}
+
+// =============================================================================
+// TIER 2: Index Simplification (A2)
+// =============================================================================
+
+#[test]
+fn tier2_index_plus_one_simplifies() {
+    let source = r#"## Main
+Let items: Seq of Int be [10, 20, 30].
+Let j be 1.
+Show item (j + 1) of items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("j as usize") || rust.contains("(j) as usize"),
+            "item (j+1) should simplify to j as usize, got:\n{}", rust);
+    assert!(!rust.contains("+ 1) - 1"), "Should not have redundant +1-1, got:\n{}", rust);
+}
+
+#[test]
+fn tier2_index_one_plus_j_simplifies() {
+    let source = r#"## Main
+Let items: Seq of Int be [10, 20, 30].
+Let j be 1.
+Show item (1 + j) of items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("j as usize") || rust.contains("(j) as usize"),
+            "item (1+j) should simplify to j as usize, got:\n{}", rust);
+    assert!(!rust.contains("+ 1) - 1"), "Should not have redundant +1-1, got:\n{}", rust);
+}
+
+#[test]
+fn tier2_index_no_false_simplification() {
+    let source = r#"## Main
+Let items: Seq of Int be [10, 20, 30].
+Let j be 1.
+Show item (j + 2) of items.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // j+2 should become (j + 2 - 1) which is (j + 1), NOT j
+    assert!(!rust.contains("j as usize\n") && !rust.contains("(j) as usize\n"),
+            "item (j+2) should NOT simplify to just j, got:\n{}", rust);
+}
+
+#[test]
+fn e2e_tier2_index_simplification_correct() {
+    let source = r#"## Main
+Let items: Seq of Int be [10, 20, 30].
+Let j be 1.
+Show item (j + 1) of items.
+"#;
+    common::assert_exact_output(source, "20");
+}
+
+// =============================================================================
+// TIER 2-A: Constant Propagation
+// =============================================================================
+
+#[test]
+fn tier2a_constant_propagation_basic() {
+    let source = r#"## Main
+Let x be 10.
+Let y be x + 5.
+Show y.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("15"), "Should propagate x=10 into y=x+5 and fold to 15, got:\n{}", rust);
+}
+
+#[test]
+fn tier2a_propagation_multiple_uses() {
+    let source = r#"## Main
+Let a be 3.
+Let b be a + a.
+Show b.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("6"), "Should propagate a=3 into b=a+a and fold to 6, got:\n{}", rust);
+}
+
+#[test]
+fn tier2a_propagation_chain() {
+    let source = r#"## Main
+Let x be 2.
+Let y be x + 3.
+Let z be y * 2.
+Show z.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(rust.contains("10"), "Should chain propagate x=2→y=5→z=10, got:\n{}", rust);
+}
+
+#[test]
+fn tier2a_propagation_killed_by_reassignment() {
+    let source = r#"## Main
+Let mutable x be 10.
+Set x to 20.
+Let y be x + 5.
+Show y.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(!rust.contains("15"), "Should not propagate killed constant, got:\n{}", rust);
+}
+
+#[test]
+fn tier2a_propagation_skips_mutable() {
+    let source = r#"## Main
+Let mutable x be 10.
+Let y be x + 5.
+Show y.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // x is declared mutable, so we don't propagate it
+    assert!(!rust.contains("15"), "Should not propagate mutable variable, got:\n{}", rust);
+}
+
+#[test]
+fn tier2a_propagation_in_nested_let() {
+    let source = r#"## Main
+Let x be 7.
+If true:
+    Let y be x + 3.
+    Show y.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // x=7 should propagate into the nested Let value
+    assert!(rust.contains("10"), "Should propagate x=7 into nested y=x+3, got:\n{}", rust);
+}
+
+#[test]
+fn e2e_tier2a_propagation_correct() {
+    let source = r#"## Main
+Let x be 10.
+Let y be x + 5.
+Show y.
+"#;
+    common::assert_exact_output(source, "15");
+}
+
+#[test]
+fn e2e_tier2a_propagation_chain_correct() {
+    let source = r#"## Main
+Let x be 2.
+Let y be x + 3.
+Let z be y * 2.
+Show z.
+"#;
+    common::assert_exact_output(source, "10");
 }

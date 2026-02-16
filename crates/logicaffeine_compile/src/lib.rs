@@ -116,6 +116,10 @@ pub mod analysis;
 #[cfg(feature = "codegen")]
 pub mod codegen;
 
+// C code generation (benchmark-only subset)
+#[cfg(feature = "codegen")]
+pub mod codegen_c;
+
 // Compilation pipeline
 pub mod compile;
 pub use compile::{CompileOutput, CrateDependency, compile_program_full};

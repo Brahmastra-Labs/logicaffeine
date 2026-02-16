@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.17] - 2026-02-15
+
+### Added
+- **C codegen backend** — `compile_to_c()` produces self-contained C files with embedded runtime (Seq, Map, Set, string helpers, IO). Compiles with `gcc -O2`. Supports integers, floats, booleans, strings, collections, control flow, functions.
+- **Constant propagation** optimizer pass — forward substitution of immutable constants, chained with fold and DCE. Safety: skips Index/Slice expressions to preserve swap/vec-fill pattern detection.
+- **334 new E2E tests** across 20 new test files:
+  - 16 Rust codegen mirror files (181 tests) — every interpreter-only feature now also tested through the Rust codegen pipeline
+  - `e2e_codegen_gaps.rs` (64 tests) — floats, modulo, options, nothing, collection type combos, struct/enum patterns, control flow, functions, escape blocks, strings
+  - `e2e_codegen_optimization.rs` (15 tests) — TCO, constant propagation, DCE, vec-fill, swap, fold, index simplification
+  - `e2e_interpreter_gaps.rs` (60 tests) — interpreter counterparts for gap coverage
+  - `e2e_interpreter_optimization.rs` (14 tests) — interpreter counterparts for optimization correctness
+
+### Fixed
+- **For-range guard for complex expressions** — `While i is at most length of items` no longer produces `_` in generated Rust. Added `is_simple_expr()` guard.
+- **For-range post-loop value for empty loops** — empty loops now correctly keep the counter at its start value using `max(start, limit)`.
+- **Vec-fill pattern relaxed mutability** — `Let items be a new Seq of Bool` (without explicit `mutable`) now matches the vec-fill optimization.
+- **C codegen missing Set variants** — `SetI64` and `SetStr` added to `c_type_str()`.
+- **Interpreter float comparison** — `apply_comparison` now handles Float-Float, Int-Float, and Float-Int comparisons.
+
 ## [0.8.16] - 2026-02-15
 
 ### Fixed

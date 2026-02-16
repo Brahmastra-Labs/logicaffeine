@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.17] - 2026-02-15
+
+### Added
+- C codegen backend (`codegen_c.rs`) — `compile_to_c()` produces self-contained C files with embedded runtime (Seq, Map, Set, string helpers, IO)
+- C runtime: `Seq_i64`, `Seq_bool`, `Seq_str`, `Map_i64_i64` (open-addressing), string helpers, IO
+- C keyword escaping: `is_c_reserved()` + `escape_c_ident()` → `logos_` prefix for reserved words
+- Constant propagation optimizer pass (`optimize/propagate.rs`) — forward substitution of immutable constants
+- Pipeline order: fold → propagate → dce
+- `is_simple_expr()` guard for for-range pattern — prevents codegen of complex limit expressions
+
+### Fixed
+- For-range guard for complex expressions — `While i is at most length of items` no longer produces `_` in generated Rust
+- For-range post-loop value for empty loops — empty loops keep counter at start value using `max(start, limit)`
+- Vec-fill pattern relaxed mutability — `Let items be a new Seq of Bool` now matches without explicit `mutable`
+- C codegen missing `SetI64`/`SetStr` in `c_type_str()` match
+- Interpreter `apply_comparison` now handles Float-Float, Int-Float, Float-Int comparisons
+
 ## [0.8.16] - 2026-02-15
 
 ### Fixed

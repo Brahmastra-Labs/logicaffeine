@@ -62,6 +62,66 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-8-17-c-backend",
+        title: "v0.8.17 — C Backend & Test Expansion",
+        date: "2026-02-15",
+        summary: "A self-contained C codegen backend, constant propagation optimizer, and 334 new E2E tests across 20 files — plus 5 bug fixes with zero regressions.",
+        content: r#"
+## C Codegen Backend
+
+LOGOS can now compile to C. `compile_to_c()` produces a single self-contained `.c` file with an embedded runtime — no external dependencies, compiles with `gcc -O2`.
+
+The C runtime includes:
+- `Seq_i64`, `Seq_bool`, `Seq_str` — dynamic arrays with 1-based indexing
+- `Map_i64_i64` — open-addressing hash map
+- String helpers — `logos_concat`, `logos_substr`, `logos_parseInt`
+- IO — `printf`-based `Show` implementation
+
+C keyword escaping handles collisions: variables named `int`, `double`, `char`, `void`, etc. get a `logos_` prefix via `escape_c_ident()`. The `CContext::resolve()` method applies escaping at a single point for all name lookups.
+
+Supported: integers, floats, booleans, strings, sequences, maps, sets, control flow, functions, recursion.
+Not supported: CRDTs, async, zones, networking, polymorphism, closures, structs, enums, Escape blocks.
+
+## Constant Propagation
+
+A new optimizer pass (`optimize/propagate.rs`) performs forward substitution of immutable constants. Given:
+
+```
+Let x be 5.
+Let y be x + 3.
+Show y.
+```
+
+After constant propagation, `x` is substituted into the expression for `y`, enabling further folding by the existing constant folder. The pipeline order is: fold → propagate → dce.
+
+Safety: the pass skips substitution inside `Index` and `Slice` expressions to preserve swap and vec-fill pattern detection in the codegen.
+
+## 334 New E2E Tests
+
+20 new test files covering both Rust codegen and interpreter paths:
+
+- **16 Rust codegen mirror files** (181 tests) — every interpreter-only feature now also tested through the Rust codegen pipeline: primitives, variables, expressions, comparisons, logical operators, control flow, iteration, functions, collections, maps, sets, tuples, types, structs, enums, edge cases
+- **`e2e_codegen_gaps.rs`** (64 tests) — floats, modulo, options, nothing, collection type combos, struct/enum patterns, control flow, functions, escape blocks, strings
+- **`e2e_codegen_optimization.rs`** (15 tests) — TCO, constant propagation, DCE, vec-fill, swap, fold, index simplification
+- **`e2e_interpreter_gaps.rs`** (60 tests) — interpreter counterparts for gap coverage
+- **`e2e_interpreter_optimization.rs`** (14 tests) — interpreter counterparts for optimization correctness
+
+## Bug Fixes
+
+1. **For-range guard for complex expressions** — `While i is at most length of items` previously produced `_` in generated Rust because `codegen_expr_simple` couldn't handle the `length of` expression. Added `is_simple_expr()` guard to bail out when the limit is too complex.
+
+2. **For-range post-loop value for empty loops** — `While x < 5` with `x = 10` previously set `x = 5` after the empty loop. Now uses `max(start, limit)` for exclusive and `max(start, limit + 1)` for inclusive bounds.
+
+3. **Vec-fill pattern relaxed mutability** — `Let items be a new Seq of Bool` (without explicit `mutable`) now matches the vec-fill optimization. The pattern check was too strict about mutability annotations.
+
+4. **C codegen missing Set variants** — `SetI64` and `SetStr` were not handled in `c_type_str()`, causing a match failure.
+
+5. **Interpreter float comparison** — `apply_comparison` now handles Float-Float, Int-Float, and Float-Int comparisons instead of falling through to a default case.
+"#,
+        tags: &["release", "compiler", "testing"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-8-16-range-fix",
         title: "v0.8.16 — RangeInclusive Fix",
         date: "2026-02-15",

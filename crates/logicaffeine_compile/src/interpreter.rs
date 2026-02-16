@@ -1908,6 +1908,28 @@ impl<'a> Interpreter<'a> {
     {
         match (&left, &right) {
             (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
+            // Float comparison: map f64 to order-preserving i64
+            (RuntimeValue::Float(a), RuntimeValue::Float(b)) => {
+                let to_ord = |f: f64| -> i64 {
+                    let bits = f.to_bits() as i64;
+                    if bits >= 0 { bits } else { bits ^ i64::MAX }
+                };
+                Ok(RuntimeValue::Bool(cmp(to_ord(*a), to_ord(*b))))
+            }
+            (RuntimeValue::Int(a), RuntimeValue::Float(b)) => {
+                let to_ord = |f: f64| -> i64 {
+                    let bits = f.to_bits() as i64;
+                    if bits >= 0 { bits } else { bits ^ i64::MAX }
+                };
+                Ok(RuntimeValue::Bool(cmp(to_ord(*a as f64), to_ord(*b))))
+            }
+            (RuntimeValue::Float(a), RuntimeValue::Int(b)) => {
+                let to_ord = |f: f64| -> i64 {
+                    let bits = f.to_bits() as i64;
+                    if bits >= 0 { bits } else { bits ^ i64::MAX }
+                };
+                Ok(RuntimeValue::Bool(cmp(to_ord(*a), to_ord(*b as f64))))
+            }
             // Duration comparison (nanoseconds)
             (RuntimeValue::Duration(a), RuntimeValue::Duration(b)) => Ok(RuntimeValue::Bool(cmp(*a, *b))),
             // Date comparison (days)

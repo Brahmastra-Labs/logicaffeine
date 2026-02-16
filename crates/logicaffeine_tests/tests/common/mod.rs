@@ -437,6 +437,61 @@ pub fn assert_panics(source: &str, expected_msg: &str) {
 }
 
 // ============================================================
+// C Codegen E2E — compile LOGOS to C, build with gcc, run
+// ============================================================
+
+/// Compile LOGOS source to C, build with gcc, run, and check exact output.
+#[allow(dead_code)]
+pub fn assert_c_output(source: &str, expected: &str) {
+    use logicaffeine_compile::compile::compile_to_c;
+
+    let c_code = compile_to_c(source).unwrap_or_else(|e| {
+        panic!("LOGOS→C compile error: {:?}\n\nSource:\n{}", e, source);
+    });
+
+    let temp_dir = tempfile::tempdir().expect("temp dir");
+    let c_path = temp_dir.path().join("main.c");
+    let bin_path = temp_dir.path().join("main");
+
+    std::fs::write(&c_path, &c_code).expect("write C file");
+
+    let compile = std::process::Command::new("gcc")
+        .args(["-O2", "-o"])
+        .arg(&bin_path)
+        .arg(&c_path)
+        .args(["-lm"])
+        .output()
+        .expect("run gcc");
+
+    assert!(
+        compile.status.success(),
+        "gcc should compile successfully.\nstderr: {}\n\nGenerated C:\n{}",
+        String::from_utf8_lossy(&compile.stderr),
+        c_code
+    );
+
+    let run = std::process::Command::new(&bin_path)
+        .output()
+        .expect("run binary");
+
+    assert!(
+        run.status.success(),
+        "C binary should run successfully.\nstderr: {}\n\nGenerated C:\n{}",
+        String::from_utf8_lossy(&run.stderr),
+        c_code
+    );
+
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert_eq!(
+        stdout.trim(),
+        expected,
+        "\nSource:\n{}\n\nGenerated C:\n{}",
+        source,
+        c_code
+    );
+}
+
+// ============================================================
 // C ABI Linkage Tests — compile Rust staticlib, link with C
 // ============================================================
 

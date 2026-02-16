@@ -182,6 +182,46 @@ pub fn compile_to_rust(source: &str) -> Result<String, ParseError> {
     compile_program_full(source).map(|o| o.rust_code)
 }
 
+/// Compile LOGOS source to C code (benchmark-only subset).
+///
+/// Produces a self-contained C file with embedded runtime that can be
+/// compiled with `gcc -O2 -o program output.c`.
+pub fn compile_to_c(source: &str) -> Result<String, ParseError> {
+    let mut interner = Interner::new();
+    let mut lexer = Lexer::new(source, &mut interner);
+    let tokens = lexer.tokenize();
+
+    let (type_registry, _policy_registry) = {
+        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
+        let result = discovery.run_full();
+        (result.types, result.policies)
+    };
+    let codegen_registry = type_registry.clone();
+
+    let mut world_state = WorldState::new();
+    let expr_arena = Arena::new();
+    let term_arena = Arena::new();
+    let np_arena = Arena::new();
+    let sym_arena = Arena::new();
+    let role_arena = Arena::new();
+    let pp_arena = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let imperative_expr_arena: Arena<Expr> = Arena::new();
+    let type_expr_arena: Arena<TypeExpr> = Arena::new();
+
+    let ast_ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena,
+        &role_arena, &pp_arena, &stmt_arena, &imperative_expr_arena,
+        &type_expr_arena,
+    );
+
+    let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ast_ctx, type_registry);
+    let stmts = parser.parse_program()?;
+    let stmts = crate::optimize::optimize_program(stmts, &imperative_expr_arena, &stmt_arena, &mut interner);
+
+    Ok(crate::codegen_c::codegen_program_c(&stmts, &codegen_registry, &interner))
+}
+
 /// Compile LOGOS source and return full output including dependency metadata.
 ///
 /// This is the primary compilation entry point that returns both the generated

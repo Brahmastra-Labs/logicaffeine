@@ -1,6 +1,6 @@
 [package]
 name = "logicaffeine-data"
-version = "0.8.16"
+version = "0.8.17"
 edition.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -13,7 +13,7 @@ description = "WASM-safe data structures and CRDTs - NO IO"
 readme = "README.md"
 
 [dependencies]
-logicaffeine-base = { version = "0.8.16", path = "../logicaffeine_base" }
+logicaffeine-base = { version = "0.8.17", path = "../logicaffeine_base" }
 serde = { version = "1.0", features = ["derive"] }
 # CRITICAL: NO IO DEPENDENCIES - Lamport Invariant
 # No tokio, libp2p, std::time::SystemTime allowed

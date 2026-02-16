@@ -5684,6 +5684,12 @@ fn try_emit_for_range_pattern<'a>(
         return None;
     }
 
+    // Bail out if the limit expression is too complex for codegen_expr_simple
+    // (it returns "_" for unhandled expressions like `length of`).
+    if !is_simple_expr(limit_expr) {
+        return None;
+    }
+
     // Pattern matched! Emit for-range loop.
     let indent_str = "    ".repeat(indent);
     let counter_name = interner.resolve(counter_sym);
@@ -5726,10 +5732,21 @@ fn try_emit_for_range_pattern<'a>(
     // Emit post-loop counter value so subsequent code sees the correct value.
     // After `while (i <= limit) { ...; i++ }`, i == limit + 1.
     // After `while (i < limit) { ...; i++ }`, i == limit.
+    // If the loop never executes (start >= limit), the counter must stay at start.
+    // Use max(start, limit) to handle both cases correctly.
     let post_value = if is_exclusive {
-        limit_str
+        if let Expr::Literal(Literal::Number(n)) = limit_expr {
+            // Both start and limit known at compile time
+            format!("{}", std::cmp::max(counter_start, *n))
+        } else {
+            format!("({}_i64).max({})", counter_start, limit_str)
+        }
     } else {
-        format!("({} + 1)", limit_str)
+        if let Expr::Literal(Literal::Number(n)) = limit_expr {
+            format!("{}", std::cmp::max(counter_start, n + 1))
+        } else {
+            format!("({}_i64).max({} + 1)", counter_start, limit_str)
+        }
     };
     writeln!(output, "{}let mut {} = {};", indent_str, counter_name, post_value).unwrap();
 
@@ -5834,9 +5851,10 @@ fn try_emit_vec_fill_pattern<'a>(
         return None;
     }
 
-    // Statement 1: Let mutable vec_var be a new Seq of T.
+    // Statement 1: Let [mutable] vec_var be a new Seq of T.
+    // Note: mutable keyword is optional — mutability is inferred from Push in the loop body.
     let (vec_sym, elem_type) = match stmts[idx] {
-        Stmt::Let { var, value, mutable: true, ty, .. } => {
+        Stmt::Let { var, value, ty, .. } => {
             // Check for explicit type annotation like `: Seq of Bool`
             let type_from_annotation = if let Some(TypeExpr::Generic { base, params }) = ty {
                 let base_name = interner.resolve(*base);
@@ -5873,9 +5891,10 @@ fn try_emit_vec_fill_pattern<'a>(
         _ => return None,
     };
 
-    // Statement 2: Let mutable counter = 0 (or 1).
+    // Statement 2: Let [mutable] counter = 0 (or 1).
+    // Note: mutable keyword is optional — mutability is inferred from Set in the loop body.
     let (counter_sym, counter_start) = match stmts[idx + 1] {
-        Stmt::Let { var, value: Expr::Literal(Literal::Number(n)), mutable: true, .. } => {
+        Stmt::Let { var, value: Expr::Literal(Literal::Number(n)), .. } => {
             (*var, *n)
         }
         _ => return None,
@@ -6004,6 +6023,23 @@ fn try_emit_vec_fill_pattern<'a>(
             Some((output, 2)) // consumed 2 extra statements (counter init + while loop)
         }
         _ => None,
+    }
+}
+
+/// Check if an expression can be handled by codegen_expr_simple without fallback.
+fn is_simple_expr(expr: &Expr) -> bool {
+    match expr {
+        Expr::Literal(Literal::Number(_))
+        | Expr::Literal(Literal::Float(_))
+        | Expr::Literal(Literal::Boolean(_))
+        | Expr::Identifier(_) => true,
+        Expr::BinaryOp { op, left, right } => {
+            matches!(op,
+                BinaryOpKind::Add | BinaryOpKind::Subtract |
+                BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::Modulo
+            ) && is_simple_expr(left) && is_simple_expr(right)
+        }
+        _ => false,
     }
 }
 
@@ -7059,7 +7095,6 @@ pub fn codegen_stmt<'a>(
 
         Stmt::SetIndex { collection, index, value } => {
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
-            let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
             let value_str = codegen_expr_boxed_with_types(value, interner, synced_vars, boxed_fields, registry, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
 
             // Direct indexing for known collection types (avoids trait dispatch)
@@ -7071,18 +7106,36 @@ pub fn codegen_stmt<'a>(
 
             match known_type {
                 Some(t) if t.starts_with("Vec") => {
+                    // Peephole: simplify (x + 1) - 1 → x for 1-based indexing
+                    let index_part = if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = index {
+                        if matches!(right, Expr::Literal(Literal::Number(1))) {
+                            let inner = codegen_expr_with_async(left, interner, synced_vars, async_functions, ctx.get_variable_types());
+                            format!("({}) as usize", inner)
+                        } else if matches!(left, Expr::Literal(Literal::Number(1))) {
+                            let inner = codegen_expr_with_async(right, interner, synced_vars, async_functions, ctx.get_variable_types());
+                            format!("({}) as usize", inner)
+                        } else {
+                            let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
+                            format!("({} - 1) as usize", index_str)
+                        }
+                    } else {
+                        let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
+                        format!("({} - 1) as usize", index_str)
+                    };
                     // Evaluate value first if it references the same collection (borrow safety)
                     if value_str.contains(&coll_str) {
                         writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
-                        writeln!(output, "{}{}[({} - 1) as usize] = __set_tmp;", indent_str, coll_str, index_str).unwrap();
+                        writeln!(output, "{}{}[{}] = __set_tmp;", indent_str, coll_str, index_part).unwrap();
                     } else {
-                        writeln!(output, "{}{}[({} - 1) as usize] = {};", indent_str, coll_str, index_str, value_str).unwrap();
+                        writeln!(output, "{}{}[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
                     }
                 }
                 Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
+                    let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
                     writeln!(output, "{}{}.insert({}, {});", indent_str, coll_str, index_str, value_str).unwrap();
                 }
                 _ => {
+                    let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
                     // Fallback: polymorphic indexing via trait
                     if value_str.contains("logos_get") && value_str.contains(&coll_str) {
                         writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
@@ -7857,7 +7910,6 @@ fn codegen_expr_boxed_internal(
 
         Expr::Index { collection, index } => {
             let coll_str = recurse!(collection);
-            let index_str = recurse!(index);
             // Direct indexing for known collection types (avoids trait dispatch)
             let known_type = if let Expr::Identifier(sym) = collection {
                 variable_types.get(sym).map(|s| s.as_str())
@@ -7867,13 +7919,32 @@ fn codegen_expr_boxed_internal(
             match known_type {
                 Some(t) if t.starts_with("Vec") => {
                     let suffix = if has_copy_element_type(t) { "" } else { ".clone()" };
-                    format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
+                    // Peephole: simplify (x + 1) - 1 → x for 1-based indexing
+                    let simplified = if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = index {
+                        if matches!(right, Expr::Literal(Literal::Number(1))) {
+                            Some(recurse!(left))
+                        } else if matches!(left, Expr::Literal(Literal::Number(1))) {
+                            Some(recurse!(right))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(inner_str) = simplified {
+                        format!("{}[({}) as usize]{}", coll_str, inner_str, suffix)
+                    } else {
+                        let index_str = recurse!(index);
+                        format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
+                    }
                 }
                 Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
+                    let index_str = recurse!(index);
                     let suffix = if has_copy_value_type(t) { "" } else { ".clone()" };
                     format!("{}[&({})]{}", coll_str, index_str, suffix)
                 }
                 _ => {
+                    let index_str = recurse!(index);
                     // Fallback: polymorphic indexing via trait
                     format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
                 }
