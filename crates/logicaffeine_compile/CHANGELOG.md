@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.18] - 2026-02-15
+
+### Fixed
+- Constant propagation no longer substitutes `Literal::Text` (String) values — `is_literal` → `is_propagatable_literal` excludes non-Copy types to preserve use-after-move detection (E0382)
+- Zone-scoped `Let` bindings no longer leak into propagation environment — new `propagate_zone_block` processes zone bodies without registering their bindings, preserving escape analysis (E0597)
+
 ## [0.8.17] - 2026-02-15
 
 ### Added

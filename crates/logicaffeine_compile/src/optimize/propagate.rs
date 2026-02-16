@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::arena::Arena;
-use crate::ast::stmt::{Expr, Stmt};
+use crate::ast::stmt::{Expr, Literal, Stmt};
 use crate::intern::{Interner, Symbol};
 use super::fold;
 
@@ -68,7 +68,7 @@ fn propagate_stmt<'a>(
         // Substitute + fold in Let values — this is where cascading happens
         Stmt::Let { var, ty, value, mutable } => {
             let propagated = subst_and_fold(value, env, expr_arena, stmt_arena, interner);
-            if !mutable && !mutated.contains(&var) && is_literal(propagated) {
+            if !mutable && !mutated.contains(&var) && is_propagatable_literal(propagated) {
                 env.insert(var, propagated);
             }
             Stmt::Let { var, ty, value: propagated, mutable }
@@ -121,7 +121,7 @@ fn propagate_stmt<'a>(
         },
         Stmt::Zone { name, capacity, source_file, body } => Stmt::Zone {
             name, capacity, source_file,
-            body: propagate_nested_block(body, env, mutated, expr_arena, stmt_arena, interner),
+            body: propagate_zone_block(body, env, mutated, expr_arena, stmt_arena, interner),
         },
         Stmt::Concurrent { tasks } => Stmt::Concurrent {
             tasks: propagate_nested_block(tasks, env, mutated, expr_arena, stmt_arena, interner),
@@ -134,8 +134,42 @@ fn propagate_stmt<'a>(
     }
 }
 
-fn is_literal(expr: &Expr) -> bool {
-    matches!(expr, Expr::Literal(_))
+/// Propagate inside a zone body without registering zone-scoped bindings.
+///
+/// Zone-scoped variables must remain as identifiers so the escape checker
+/// can detect assignments to outer-scope variables (Hotel California rule).
+/// Substituting them with literals would hide escape violations.
+fn propagate_zone_block<'a>(
+    block: &'a [Stmt<'a>],
+    env: &HashMap<Symbol, &'a Expr<'a>>,
+    mutated: &HashSet<Symbol>,
+    expr_arena: &'a Arena<Expr<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    interner: &mut Interner,
+) -> &'a [Stmt<'a>] {
+    let mut child_env = env.clone();
+    let folded: Vec<Stmt<'a>> = block.iter().cloned().map(|stmt| {
+        match stmt {
+            // Substitute in Let values but do NOT add zone-scoped bindings to env
+            Stmt::Let { var, ty, value, mutable } => {
+                let propagated = subst_and_fold(value, &child_env, expr_arena, stmt_arena, interner);
+                // Intentionally do NOT insert into child_env — zone-scoped vars
+                // must stay as identifiers for escape analysis
+                Stmt::Let { var, ty, value: propagated, mutable }
+            }
+            // For other statements, delegate to normal propagation
+            other => propagate_stmt(other, &mut child_env, mutated, expr_arena, stmt_arena, interner),
+        }
+    }).collect();
+    stmt_arena.alloc_slice(folded)
+}
+
+/// Only propagate Copy-type literals. Text literals produce heap-allocated
+/// `String` values in Rust codegen — substituting them replaces a move with
+/// independent allocations, which changes ownership semantics and hides
+/// move-after-use errors (E0382) from rustc.
+fn is_propagatable_literal(expr: &Expr) -> bool {
+    matches!(expr, Expr::Literal(Literal::Number(_) | Literal::Float(_) | Literal::Boolean(_) | Literal::Nothing))
 }
 
 /// Substitute identifiers from env, then fold the result.

@@ -62,6 +62,51 @@ pub fn get_articles_by_tag(tag: &str) -> Vec<&'static Article> {
 /// All news articles
 static ARTICLES: &[Article] = &[
     Article {
+        slug: "release-0-8-18-propagation-fix",
+        title: "v0.8.18 — Constant Propagation Safety Fix",
+        date: "2026-02-15",
+        summary: "Fixes two constant propagation bugs that hid use-after-move and zone escape errors from rustc.",
+        content: r#"
+## The Problem
+
+v0.8.17 introduced a constant propagation optimizer pass that substitutes immutable variables with their literal values. Two edge cases broke safety checks that LOGOS relies on rustc to enforce.
+
+### String Propagation (E0382)
+
+String is non-Copy in Rust. When the propagator substituted a string variable with its literal value, each use site got an independent `String::from(...)` allocation instead of a move. This meant rustc could no longer detect use-after-move errors:
+
+```
+Let s be "hello".
+Let a be s.
+Let b be s.
+```
+
+Before the fix, `s` was substituted away — both `a` and `b` got their own `String::from("hello")`, and the program compiled. After the fix, `s` remains as an identifier, rustc sees the double move, and reports E0382.
+
+### Zone Escape (E0597)
+
+Zone-scoped variables were being propagated outside their zone. The escape checker treats `Expr::Literal` as always safe, so substituting a zone-scoped variable with its literal value hid the escape violation:
+
+```
+Let mutable leak be 0.
+Zone "test" with capacity 100:
+    Let p be 42.
+    Set leak to p.
+```
+
+Before the fix, `p` was propagated to `42`, and `Set leak to 42` passed escape analysis. After the fix, zone-scoped bindings are not registered in the propagation environment, so `p` remains as an identifier and the escape checker correctly reports E0597.
+
+## The Fix
+
+Two targeted changes in `optimize/propagate.rs`:
+
+1. **`is_propagatable_literal`** — replaces `is_literal`, excluding `Literal::Text` since String is non-Copy in Rust
+2. **`propagate_zone_block`** — processes zone bodies using the outer environment for substitution but does not register zone-scoped `Let` bindings, preventing them from leaking outward
+"#,
+        tags: &["release", "compiler"],
+        author: "LOGICAFFEINE Team",
+    },
+    Article {
         slug: "release-0-8-17-c-backend",
         title: "v0.8.17 — C Backend & Test Expansion",
         date: "2026-02-15",

@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.18] - 2026-02-15
+
+### Fixed
+- **Constant propagation string safety** — propagation no longer substitutes `Literal::Text` (String) values. String is non-Copy in Rust, so substituting string literals into multiple use sites created independent `String::from(...)` allocations, hiding use-after-move errors (E0382) from rustc.
+- **Constant propagation zone scoping** — zone-scoped `Let` bindings are no longer registered in the propagation environment. Previously, propagating a zone-scoped variable outward replaced `Expr::Identifier` with `Expr::Literal`, which the escape checker treated as safe — hiding zone escape violations (E0597).
+
 ## [0.8.17] - 2026-02-15
 
 ### Added

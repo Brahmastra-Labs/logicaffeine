@@ -259,6 +259,7 @@ fn compiler_label(key: &str) -> &'static str {
         "go_build" => "go build",
         "javac" => "javac",
         "nim_c" => "nim c -d:release",
+        "zig_build-exe" => "zig build-exe -O ReleaseFast",
         "largo_build" => "largo build",
         "largo_build_--release" => "largo build --release",
         _ => "unknown",

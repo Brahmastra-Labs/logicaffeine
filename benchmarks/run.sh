@@ -395,6 +395,8 @@ for bench in "${BENCHMARKS[@]}"; do
         COMPILE_ARGS+=(-n "javac" "javac -d /tmp $PROGRAMS_DIR/$bench/Main.java")
     command -v nim &>/dev/null && [ -f "$PROGRAMS_DIR/$bench/main.nim" ] && \
         COMPILE_ARGS+=(-n "nim c" "nim c -d:release --hints:off -o:/dev/null $PROGRAMS_DIR/$bench/main.nim")
+    command -v zig &>/dev/null && [ -f "$PROGRAMS_DIR/$bench/main.zig" ] && \
+        COMPILE_ARGS+=(-n "zig build-exe" "zig build-exe -O ReleaseFast --name /tmp/bench_zig_out $PROGRAMS_DIR/$bench/main.zig && rm -f /tmp/bench_zig_out")
 
     # LOGOS compilation (largo build + largo build --release)
     if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
@@ -536,6 +538,7 @@ lang_id() {
         "go build")         echo "go_build" ;;
         "javac")            echo "javac" ;;
         "nim c")            echo "nim_c" ;;
+        "zig build-exe")    echo "zig_build-exe" ;;
         "largo build")      echo "largo_build" ;;
         "largo build --release") echo "largo_build_--release" ;;
         *)                  echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' ;;
