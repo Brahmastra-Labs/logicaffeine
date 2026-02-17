@@ -310,6 +310,8 @@ fn substitute_identifiers<'a>(
         }
         // Don't propagate into closures (captured variables may change)
         Expr::Closure { .. } => expr,
+        // Interpolated strings — don't substitute (preserves format string shape)
+        Expr::InterpolatedString(_) => expr,
         // Leaves
         Expr::Literal(_) | Expr::OptionNone | Expr::Escape { .. } => expr,
     }

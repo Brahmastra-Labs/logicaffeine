@@ -284,6 +284,14 @@ impl<'a> OwnershipChecker<'a> {
     /// Check that an expression doesn't reference a moved variable
     fn check_not_moved(&self, expr: &Expr<'_>) -> Result<(), OwnershipError> {
         match expr {
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                        self.check_not_moved(value)?;
+                    }
+                }
+                Ok(())
+            }
             Expr::Identifier(sym) => {
                 match self.state.get(sym).copied() {
                     Some(VarState::Moved) => {

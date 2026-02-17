@@ -85,85 +85,67 @@ struct BenchSources {
     logos: &'static str,
 }
 
-static SOURCES: LazyLock<[BenchSources; 6]> = LazyLock::new(|| [
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/fib/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/fib/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/fib/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/fib/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/fib/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/fib/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/fib/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/fib/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/fib/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/fib/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/fib/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/sieve/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/sieve/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/sieve/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/sieve/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/sieve/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/sieve/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/sieve/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/sieve/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/sieve/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/sieve/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/sieve/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/collect/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/collect/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/collect/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/collect/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/collect/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/collect/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/collect/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/collect/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/collect/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/collect/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/collect/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/strings/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/strings/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/strings/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/strings/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/strings/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/strings/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/strings/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/strings/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/strings/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/strings/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/strings/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/bubble_sort/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/bubble_sort/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/bubble_sort/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/bubble_sort/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/bubble_sort/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/bubble_sort/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/bubble_sort/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/bubble_sort/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/bubble_sort/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/bubble_sort/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/bubble_sort/main.lg"),
-    },
-    BenchSources {
-        c: include_str!("../../../../../benchmarks/programs/ackermann/main.c"),
-        cpp: include_str!("../../../../../benchmarks/programs/ackermann/main.cpp"),
-        rust: include_str!("../../../../../benchmarks/programs/ackermann/main.rs"),
-        zig: include_str!("../../../../../benchmarks/programs/ackermann/main.zig"),
-        go: include_str!("../../../../../benchmarks/programs/ackermann/main.go"),
-        java: include_str!("../../../../../benchmarks/programs/ackermann/Main.java"),
-        js: include_str!("../../../../../benchmarks/programs/ackermann/main.js"),
-        python: include_str!("../../../../../benchmarks/programs/ackermann/main.py"),
-        ruby: include_str!("../../../../../benchmarks/programs/ackermann/main.rb"),
-        nim: include_str!("../../../../../benchmarks/programs/ackermann/main.nim"),
-        logos: include_str!("../../../../../benchmarks/programs/ackermann/main.lg"),
-    },
+macro_rules! bench_sources {
+    ($name:literal) => {
+        BenchSources {
+            c: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.c")),
+            cpp: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.cpp")),
+            rust: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.rs")),
+            zig: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.zig")),
+            go: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.go")),
+            java: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/Main.java")),
+            js: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.js")),
+            python: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.py")),
+            ruby: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.rb")),
+            nim: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.nim")),
+            logos: include_str!(concat!("../../../../../benchmarks/programs/", $name, "/main.lg")),
+        }
+    };
+}
+
+static SOURCES: LazyLock<[BenchSources; 32]> = LazyLock::new(|| [
+    // Recursion & Function Calls
+    bench_sources!("fib"),
+    bench_sources!("ackermann"),
+    bench_sources!("nqueens"),
+    // Sorting
+    bench_sources!("bubble_sort"),
+    bench_sources!("mergesort"),
+    bench_sources!("quicksort"),
+    bench_sources!("counting_sort"),
+    bench_sources!("heap_sort"),
+    // Floating Point
+    bench_sources!("nbody"),
+    bench_sources!("mandelbrot"),
+    bench_sources!("spectral_norm"),
+    bench_sources!("pi_leibniz"),
+    // Integer Mathematics
+    bench_sources!("gcd"),
+    bench_sources!("collatz"),
+    bench_sources!("primes"),
+    // Array Patterns
+    bench_sources!("sieve"),
+    bench_sources!("matrix_mult"),
+    bench_sources!("prefix_sum"),
+    bench_sources!("array_reverse"),
+    bench_sources!("array_fill"),
+    // Hash Maps & Lookup
+    bench_sources!("collect"),
+    bench_sources!("two_sum"),
+    bench_sources!("histogram"),
+    // Dynamic Programming
+    bench_sources!("knapsack"),
+    bench_sources!("coins"),
+    // Combinatorial
+    bench_sources!("fannkuch"),
+    // Memory & Allocation
+    bench_sources!("strings"),
+    bench_sources!("binary_trees"),
+    // Loop Overhead & Control Flow
+    bench_sources!("loop_sum"),
+    bench_sources!("fib_iterative"),
+    bench_sources!("graph_bfs"),
+    bench_sources!("string_search"),
 ]);
 
 const GITHUB_REPO: &str = "https://github.com/Brahmastra-Labs/logicaffeine";

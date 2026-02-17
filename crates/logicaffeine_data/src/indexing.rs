@@ -98,6 +98,32 @@ impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
     }
 }
 
+// === String with i64 (1-based character indexing) ===
+
+impl LogosIndex<i64> for String {
+    type Output = String;
+
+    #[inline(always)]
+    fn logos_get(&self, index: i64) -> String {
+        if index < 1 {
+            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
+        }
+        let idx = (index - 1) as usize;
+        match self.as_bytes().get(idx) {
+            Some(&b) if b.is_ascii() => {
+                // Fast path: ASCII byte
+                String::from(b as char)
+            }
+            _ => {
+                // Slow path: Unicode or out of bounds
+                self.chars().nth(idx)
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| panic!("Index {} is out of bounds for text of length {}", index, self.chars().count()))
+            }
+        }
+    }
+}
+
 // === HashMap<K, V> with K (key-based indexing) ===
 
 impl<K: Eq + Hash, V: Clone> LogosIndex<K> for HashMap<K, V> {

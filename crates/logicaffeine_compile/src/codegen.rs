@@ -66,6 +66,7 @@ use std::fmt::Write;
 
 use crate::analysis::registry::{FieldDef, FieldType, TypeDef, TypeRegistry, VariantDef};
 use crate::analysis::policy::{PolicyRegistry, PredicateDef, CapabilityDef, PolicyCondition};
+use crate::analysis::types::RustNames;
 use crate::ast::logic::{LogicExpr, NumberKind, Term};
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::formatter::RustFormatter;
@@ -107,9 +108,7 @@ pub struct RefinementContext<'a> {
     /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
     scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
 
-    /// Maps variable name Symbol to type name (for capability resolution).
-    ///
-    /// Example: `doc` → `"Document"` allows resolving "the document" to `&doc`.
+    /// Maps variable name Symbol to Rust type name (for capability resolution and optimization).
     variable_types: HashMap<Symbol, String>,
 
     /// Stack of scopes tracking which bindings came from boxed enum fields.
@@ -128,6 +127,16 @@ impl<'a> RefinementContext<'a> {
             variable_types: HashMap::new(),
             boxed_binding_scopes: vec![HashSet::new()],
             string_vars: HashSet::new(),
+        }
+    }
+
+    /// Create a RefinementContext seeded from a TypeEnv.
+    pub fn from_type_env(type_env: &crate::analysis::types::TypeEnv) -> Self {
+        Self {
+            scopes: vec![HashMap::new()],
+            variable_types: type_env.to_legacy_variable_types(),
+            boxed_binding_scopes: vec![HashSet::new()],
+            string_vars: type_env.to_legacy_string_vars(),
         }
     }
 
@@ -160,7 +169,6 @@ impl<'a> RefinementContext<'a> {
     }
 
     /// Register a variable as having String type.
-    /// Used for proper string concatenation codegen.
     fn register_string_var(&mut self, var: Symbol) {
         self.string_vars.insert(var);
     }
@@ -190,7 +198,7 @@ impl<'a> RefinementContext<'a> {
         None
     }
 
-    /// Phase 50: Register a variable with its type for capability resolution
+    /// Register a variable with its type for capability resolution.
     fn register_variable_type(&mut self, var: Symbol, type_name: String) {
         self.variable_types.insert(var, type_name);
     }
@@ -200,7 +208,7 @@ impl<'a> RefinementContext<'a> {
         &self.variable_types
     }
 
-    /// Phase 50: Find a variable name by its type (for resolving "the document" to "doc")
+    /// Find a variable name by its type (for resolving "the document" to "doc").
     fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
         let type_lower = type_name.to_lowercase();
         for (var_sym, var_type) in &self.variable_types {
@@ -491,7 +499,7 @@ fn is_rust_keyword(name: &str) -> bool {
 
 /// Escape a name as a Rust raw identifier if it's a keyword.
 /// e.g., "move" → "r#move", "add" → "add"
-fn escape_rust_ident(name: &str) -> String {
+pub(crate) fn escape_rust_ident(name: &str) -> String {
     if is_rust_keyword(name) {
         format!("r#{}", name)
     } else {
@@ -2903,6 +2911,13 @@ fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> boo
             calls_async_function_in_expr(callee, async_fns)
                 || args.iter().any(|a| calls_async_function_in_expr(a, async_fns))
         }
+        Expr::InterpolatedString(parts) => {
+            parts.iter().any(|p| {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                    calls_async_function_in_expr(value, async_fns)
+                } else { false }
+            })
+        }
         _ => false,
     }
 }
@@ -3048,6 +3063,13 @@ fn expr_calls_impure(expr: &Expr, impure_fns: &HashSet<Symbol>) -> bool {
             expr_calls_impure(callee, impure_fns)
                 || args.iter().any(|a| expr_calls_impure(a, impure_fns))
         }
+        Expr::InterpolatedString(parts) => {
+            parts.iter().any(|p| {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                    expr_calls_impure(value, impure_fns)
+                } else { false }
+            })
+        }
         _ => false,
     }
 }
@@ -3107,6 +3129,13 @@ fn count_self_calls_in_expr(func_name: Symbol, expr: &Expr) -> usize {
         Expr::FieldAccess { object, .. } => count_self_calls_in_expr(func_name, object),
         Expr::List(items) | Expr::Tuple(items) => {
             items.iter().map(|i| count_self_calls_in_expr(func_name, i)).sum()
+        }
+        Expr::InterpolatedString(parts) => {
+            parts.iter().map(|p| {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                    count_self_calls_in_expr(func_name, value)
+                } else { 0 }
+            }).sum()
         }
         _ => 0,
     }
@@ -3250,6 +3279,13 @@ fn expr_contains_self_call(func_name: Symbol, expr: &Expr) -> bool {
         Expr::FieldAccess { object, .. } => expr_contains_self_call(func_name, object),
         Expr::List(items) | Expr::Tuple(items) => {
             items.iter().any(|i| expr_contains_self_call(func_name, i))
+        }
+        Expr::InterpolatedString(parts) => {
+            parts.iter().any(|p| {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                    expr_contains_self_call(func_name, value)
+                } else { false }
+            })
         }
         _ => false,
     }
@@ -3452,6 +3488,7 @@ fn codegen_stmt_acc<'a>(
     pipe_vars: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,
     registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let op_str = match acc_info.op {
@@ -3491,7 +3528,7 @@ fn codegen_stmt_acc<'a>(
                 }
             }
             // Fallback
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
         }
 
         // Base return: no self-call
@@ -3511,14 +3548,14 @@ fn codegen_stmt_acc<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for s in *then_block {
-                output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for s in *else_stmts {
-                    output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    output.push_str(&codegen_stmt_acc(s, func_name, param_names, acc_info, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 }
                 ctx.pop_scope();
             }
@@ -3527,7 +3564,7 @@ fn codegen_stmt_acc<'a>(
         }
 
         // Everything else: delegate
-        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry),
+        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env),
     }
 }
 
@@ -3654,6 +3691,7 @@ fn codegen_mutual_tce_pair<'a>(
     async_functions: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,
     registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     // Extract function defs
     let mut a_def = None;
@@ -3669,9 +3707,10 @@ fn codegen_mutual_tce_pair<'a>(
     }
     let (a_params, a_body, a_ret) = a_def.expect("mutual TCE: func_a not found");
     let (b_params, b_body, _b_ret) = b_def.expect("mutual TCE: func_b not found");
+    let names = RustNames::new(interner);
 
-    let a_name = escape_rust_ident(interner.resolve(func_a));
-    let b_name = escape_rust_ident(interner.resolve(func_b));
+    let a_name = names.ident(func_a);
+    let b_name = names.ident(func_b);
     let merged_name = format!("__mutual_{}_{}", a_name, b_name);
 
     // Build param list (using func_a's param names, since types match)
@@ -3707,7 +3746,7 @@ fn codegen_mutual_tce_pair<'a>(
     let a_pipes = HashSet::new();
     let a_param_syms: Vec<Symbol> = a_params.iter().map(|(s, _)| *s).collect();
     for s in a_body {
-        output.push_str(&codegen_stmt_mutual_tce(s, func_a, func_b, &a_param_syms, 0, 1, interner, 4, &a_mutable, &mut a_ctx, lww_fields, mv_fields, &mut a_synced, &a_caps, async_functions, &a_pipes, boxed_fields, registry));
+        output.push_str(&codegen_stmt_mutual_tce(s, func_a, func_b, &a_param_syms, 0, 1, interner, 4, &a_mutable, &mut a_ctx, lww_fields, mv_fields, &mut a_synced, &a_caps, async_functions, &a_pipes, boxed_fields, registry, type_env));
     }
     writeln!(output, "            }}").unwrap();
 
@@ -3721,7 +3760,7 @@ fn codegen_mutual_tce_pair<'a>(
     let b_param_syms: Vec<Symbol> = b_params.iter().map(|(s, _)| *s).collect();
     // Map b's param names to a's param names for assignment
     for s in b_body {
-        output.push_str(&codegen_stmt_mutual_tce(s, func_b, func_a, &b_param_syms, 1, 0, interner, 4, &b_mutable, &mut b_ctx, lww_fields, mv_fields, &mut b_synced, &b_caps, async_functions, &b_pipes, boxed_fields, registry));
+        output.push_str(&codegen_stmt_mutual_tce(s, func_b, func_a, &b_param_syms, 1, 0, interner, 4, &b_mutable, &mut b_ctx, lww_fields, mv_fields, &mut b_synced, &b_caps, async_functions, &b_pipes, boxed_fields, registry, type_env));
     }
     writeln!(output, "            }}").unwrap();
 
@@ -3788,6 +3827,7 @@ fn codegen_stmt_mutual_tce<'a>(
     pipe_vars: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,
     registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let indent_str = "    ".repeat(indent);
 
@@ -3810,7 +3850,7 @@ fn codegen_stmt_mutual_tce<'a>(
                 writeln!(output, "{}}}", indent_str).unwrap();
                 return output;
             }
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
         }
 
         // Return with a call to self → standard self-TCE
@@ -3830,7 +3870,7 @@ fn codegen_stmt_mutual_tce<'a>(
                 writeln!(output, "{}}}", indent_str).unwrap();
                 return output;
             }
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
         }
 
         // If: recurse into branches
@@ -3840,14 +3880,14 @@ fn codegen_stmt_mutual_tce<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for s in *then_block {
-                output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for s in *else_stmts {
-                    output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    output.push_str(&codegen_stmt_mutual_tce(s, self_name, partner_name, param_names, self_tag, partner_tag, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 }
                 ctx.pop_scope();
             }
@@ -3856,7 +3896,7 @@ fn codegen_stmt_mutual_tce<'a>(
         }
 
         // Everything else: delegate
-        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry),
+        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env),
     }
 }
 
@@ -3884,6 +3924,7 @@ fn codegen_stmt_tce<'a>(
     pipe_vars: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,
     registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let indent_str = "    ".repeat(indent);
 
@@ -3908,7 +3949,7 @@ fn codegen_stmt_tce<'a>(
                 return output;
             }
             // Shouldn't reach here, but fall through to default
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
         }
 
         // Case 2: Return with outer self-call that has a nested self-call arg (Ackermann pattern)
@@ -3940,7 +3981,7 @@ fn codegen_stmt_tce<'a>(
                 }
             }
             // Not a self-call — delegate to normal codegen
-            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+            codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
         }
 
         // Case 3: If statement — recurse into branches
@@ -3950,14 +3991,14 @@ fn codegen_stmt_tce<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for s in *then_block {
-                output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for s in *else_stmts {
-                    output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    output.push_str(&codegen_stmt_tce(s, func_name, param_names, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 }
                 ctx.pop_scope();
             }
@@ -3966,7 +4007,7 @@ fn codegen_stmt_tce<'a>(
         }
 
         // Case 4: Everything else — delegate
-        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry),
+        _ => codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env),
     }
 }
 
@@ -4126,9 +4167,24 @@ fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Symbol>) {
                 collect_expr_identifiers(arg, identifiers);
             }
         }
+        Expr::InterpolatedString(parts) => {
+            for part in parts {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                    collect_expr_identifiers(value, identifiers);
+                }
+            }
+        }
         Expr::OptionNone => {}
         Expr::Escape { .. } => {}
         Expr::Literal(_) => {}
+    }
+}
+
+/// Extract a debug prefix string from an expression for `{var=}` format.
+fn expr_debug_prefix(expr: &Expr, interner: &Interner) -> String {
+    match expr {
+        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+        _ => "expr".to_string(),
     }
 }
 
@@ -4199,7 +4255,7 @@ fn collect_stmt_identifiers(stmt: &Stmt, identifiers: &mut HashSet<Symbol>) {
 /// # Returns
 ///
 /// A complete Rust source code string ready for compilation.
-pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner) -> String {
+pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &PolicyRegistry, interner: &Interner, type_env: &crate::analysis::types::TypeEnv) -> String {
     let mut output = String::new();
 
     // Prelude
@@ -4322,14 +4378,14 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 if !mutual_tce_emitted.contains(name) {
                     // Find the pair this function belongs to
                     if let Some((a, b)) = mutual_tce_pairs.iter().find(|(a, b)| *a == *name || *b == *name) {
-                        output.push_str(&codegen_mutual_tce_pair(*a, *b, stmts, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry));
+                        output.push_str(&codegen_mutual_tce_pair(*a, *b, stmts, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, type_env));
                         mutual_tce_emitted.insert(*a);
                         mutual_tce_emitted.insert(*b);
                     }
                 }
                 // Skip individual emission — already emitted as part of merged pair
             } else {
-                output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions));
+                output.push_str(&codegen_function_def(*name, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env));
             }
         }
     }
@@ -4363,7 +4419,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     if requires_vfs(stmts) {
         writeln!(output, "    let vfs = logicaffeine_system::fs::NativeVfs::new(\".\");").unwrap();
     }
-    let mut main_ctx = RefinementContext::new();
+    let mut main_ctx = RefinementContext::from_type_env(type_env);
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     // Phase 56: Pre-scan for Mount+Sync combinations
     let main_var_caps = analyze_variable_capabilities(stmts, interner);
@@ -4383,7 +4439,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 continue;
             }
             // Peephole: For-range loop optimization
-            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry) {
+            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env) {
                 output.push_str(&code);
                 i += 1 + skip;
                 continue;
@@ -4394,7 +4450,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 i += 1 + skip;
                 continue;
             }
-            output.push_str(&codegen_stmt(stmt_refs[i], interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry));
+            output.push_str(&codegen_stmt(stmt_refs[i], interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env));
             i += 1;
         }
     }
@@ -4422,10 +4478,12 @@ fn codegen_function_def(
     boxed_fields: &HashSet<(String, String, String)>,  // Phase 102
     registry: &TypeRegistry,  // Phase 103
     pure_functions: &HashSet<Symbol>,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let mut output = String::new();
-    let raw_name = interner.resolve(name);
-    let func_name = escape_rust_ident(raw_name);
+    let names = RustNames::new(interner);
+    let raw_name = names.raw(name);
+    let func_name = names.ident(name);
     let export_target_lower = export_target.map(|s| interner.resolve(s).to_lowercase());
 
     // Phase 54: Detect which parameters are used as pipe senders
@@ -4455,7 +4513,7 @@ fn codegen_function_def(
     // Build parameter list using TypeExpr
     let params_str: Vec<String> = params.iter()
         .map(|(param_name, param_type)| {
-            let pname = interner.resolve(*param_name);
+            let pname = names.ident(*param_name);
             let ty = codegen_type_expr(param_type, interner);
             // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
             if pipe_sender_params.contains(param_name) {
@@ -4503,7 +4561,7 @@ fn codegen_function_def(
         // Generate two-function pattern: inner function + C ABI wrapper
         return codegen_c_export_with_marshaling(
             name, params, body, return_type, interner,
-            lww_fields, mv_fields, async_functions, boxed_fields, registry,
+            lww_fields, mv_fields, async_functions, boxed_fields, registry, type_env,
         );
     }
 
@@ -4617,7 +4675,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
                     output.push_str(&code);
                     si += 1 + skip;
                     continue;
@@ -4627,7 +4685,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                output.push_str(&codegen_stmt_tce(stmt_refs[si], name, &param_syms, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt_tce(stmt_refs[si], name, &param_syms, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
             }
             writeln!(output, "    }}").unwrap();
@@ -4643,7 +4701,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
                     output.push_str(&code);
                     si += 1 + skip;
                     continue;
@@ -4653,7 +4711,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                output.push_str(&codegen_stmt_acc(stmt_refs[si], name, &param_syms, acc, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt_acc(stmt_refs[si], name, &param_syms, acc, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
             }
             writeln!(output, "    }}").unwrap();
@@ -4692,7 +4750,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
                     output.push_str(&code);
                     si += 1 + skip;
                     continue;
@@ -4702,7 +4760,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                output.push_str(&codegen_stmt(stmt_refs[si], interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt(stmt_refs[si], interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
             }
             writeln!(output, "    }})();").unwrap();
@@ -4717,7 +4775,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
                     output.push_str(&code);
                     si += 1 + skip;
                     continue;
@@ -4727,7 +4785,7 @@ fn codegen_function_def(
                     si += 1 + skip;
                     continue;
                 }
-                output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
             }
         }
@@ -4819,14 +4877,16 @@ fn codegen_c_export_with_marshaling(
     async_functions: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,
     registry: &crate::analysis::registry::TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let mut output = String::new();
-    let raw_name = interner.resolve(name);
+    let names = RustNames::new(interner);
+    let raw_name = names.raw(name);
     // All exported C ABI symbols use the `logos_` prefix to avoid keyword
     // collisions in target languages (C, Python, JS, etc.) and to provide
     // a consistent namespace for the generated library.
     let func_name = format!("logos_{}", raw_name);
-    let inner_name = escape_rust_ident(raw_name);
+    let inner_name = names.ident(name);
 
     // Classify return type
     let has_ref_return = return_type.map_or(false, |ty| {
@@ -4879,7 +4939,7 @@ fn codegen_c_export_with_marshaling(
                 si += 1 + skip;
                 continue;
             }
-            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry) {
+            if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;
@@ -4889,7 +4949,7 @@ fn codegen_c_export_with_marshaling(
                 si += 1 + skip;
                 continue;
             }
-            output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry));
+            output.push_str(&codegen_stmt(stmt_refs[si], interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
             si += 1;
         }
     }
@@ -4899,7 +4959,7 @@ fn codegen_c_export_with_marshaling(
     let mut c_params: Vec<String> = Vec::new();
 
     for (pname, ptype) in params.iter() {
-        let pn = interner.resolve(*pname);
+        let pn = names.ident(*pname);
         if classify_type_for_c_abi(ptype, interner, registry) == CAbiClass::ReferenceType {
             c_params.push(format!("{}: LogosHandle", pn));
         } else if is_text_type(ptype, interner) {
@@ -4957,7 +5017,7 @@ fn codegen_c_export_with_marshaling(
     // 3) Marshal parameters
     let call_args: Vec<String> = params.iter()
         .map(|(pname, ptype)| {
-            let pname_str = interner.resolve(*pname);
+            let pname_str = names.ident(*pname);
             if classify_type_for_c_abi(ptype, interner, registry) == CAbiClass::ReferenceType {
                 // Look up handle in registry, dereference, and clone for inner
                 let rust_ty = codegen_type_expr(ptype, interner);
@@ -5561,24 +5621,41 @@ fn infer_variant_type_annotation(
     Some(format!("{}<{}>", enum_str, param_strs.join(", ")))
 }
 
-/// Phase 103: Infer Rust type from a LOGOS expression.
-fn infer_rust_type_from_expr(expr: &Expr, interner: &Interner) -> String {
+/// Infer Rust type string from a LOGOS expression.
+/// Delegates to `LogosType::from_literal()` for literals.
+fn infer_rust_type_from_expr(expr: &Expr, _interner: &Interner) -> String {
     match expr {
-        Expr::Literal(lit) => match lit {
-            Literal::Number(_) => "i64".to_string(),
-            Literal::Float(_) => "f64".to_string(),
-            Literal::Text(_) => "String".to_string(),
-            Literal::Boolean(_) => "bool".to_string(),
-            Literal::Char(_) => "char".to_string(),
-            Literal::Nothing => "()".to_string(),
-            Literal::Duration(_) => "std::time::Duration".to_string(),
-            Literal::Date(_) => "LogosDate".to_string(),
-            Literal::Moment(_) => "LogosMoment".to_string(),
-            Literal::Span { .. } => "LogosSpan".to_string(),
-            Literal::Time(_) => "LogosTime".to_string(),
-        },
-        // For identifiers and complex expressions, let Rust infer
+        Expr::Literal(lit) => {
+            let ty = crate::analysis::types::LogosType::from_literal(lit);
+            ty.to_rust_type()
+        }
         _ => "_".to_string(),
+    }
+}
+
+/// Infer the numeric type of an expression for mixed Float*Int arithmetic coercion.
+///
+/// Follows the standard numeric promotion rule (Z embeds into R):
+/// if either operand of an arithmetic operation is f64, the result is f64.
+/// Returns "i64", "f64", or "unknown".
+///
+/// Delegates to a temporary TypeEnv built from variable_types for inference.
+fn infer_numeric_type(
+    expr: &Expr,
+    interner: &Interner,
+    variable_types: &HashMap<Symbol, String>,
+) -> &'static str {
+    // Build a temporary TypeEnv from the string-based variable types
+    let mut env = crate::analysis::types::TypeEnv::new();
+    for (sym, ty_str) in variable_types {
+        let ty = crate::analysis::types::LogosType::from_rust_type_str(ty_str);
+        env.register(*sym, ty);
+    }
+    let inferred = env.infer_expr(expr, interner);
+    match inferred {
+        crate::analysis::types::LogosType::Int => "i64",
+        crate::analysis::types::LogosType::Float => "f64",
+        _ => "unknown",
     }
 }
 
@@ -5601,6 +5678,7 @@ fn try_emit_for_range_pattern<'a>(
     pipe_vars: &HashSet<Symbol>,
     boxed_fields: &HashSet<(String, String, String)>,
     registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> Option<(String, usize)> {
     if idx + 1 >= stmts.len() {
         return None;
@@ -5692,7 +5770,8 @@ fn try_emit_for_range_pattern<'a>(
 
     // Pattern matched! Emit for-range loop.
     let indent_str = "    ".repeat(indent);
-    let counter_name = interner.resolve(counter_sym);
+    let names = RustNames::new(interner);
+    let counter_name = names.ident(counter_sym);
     let limit_str = codegen_expr_simple(limit_expr, interner);
 
     // Always use exclusive ranges (Range) instead of inclusive (RangeInclusive).
@@ -5723,7 +5802,7 @@ fn try_emit_for_range_pattern<'a>(
             bi += 1 + skip;
             continue;
         }
-        output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+        output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
         bi += 1;
     }
     ctx.pop_scope();
@@ -6016,7 +6095,8 @@ fn try_emit_vec_fill_pattern<'a>(
             writeln!(output, "{}let mut {}: Vec<{}> = vec![{}; {}];",
                 indent_str, vec_name, elem_type, val_str, count_expr).unwrap();
             // Re-emit counter variable declaration (it may be reused after the fill loop)
-            let counter_name = interner.resolve(counter_sym);
+            let names = RustNames::new(interner);
+            let counter_name = names.ident(counter_sym);
             writeln!(output, "{}let mut {} = {};",
                 indent_str, counter_name, counter_start).unwrap();
 
@@ -6240,13 +6320,15 @@ pub fn codegen_stmt<'a>(
     pipe_vars: &HashSet<Symbol>,  // Phase 54: Pipe declarations (have _tx/_rx suffixes)
     boxed_fields: &HashSet<(String, String, String)>,  // Phase 102: Recursive enum fields
     registry: &TypeRegistry,  // Phase 103: For type annotations on polymorphic enums
+    type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let mut output = String::new();
+    let names = RustNames::new(interner);
 
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
-            let var_name = interner.resolve(*var);
+            let var_name = names.ident(*var);
 
             // Register collection type for direct indexing optimization.
             // Check explicit type annotation first, then infer from Expr::New.
@@ -6300,6 +6382,20 @@ pub fn codegen_stmt<'a>(
                 ctx.register_variable_type(*var, format!("Vec<{}>", elem_type));
             }
 
+            // Register scalar types for mixed Float*Int arithmetic coercion
+            if !ctx.get_variable_types().contains_key(var) {
+                let inferred = infer_rust_type_from_expr(value, interner);
+                if inferred != "_" {
+                    ctx.register_variable_type(*var, inferred);
+                } else {
+                    // Try deeper numeric type inference for expressions like `4.0 * pi * pi`
+                    let numeric = infer_numeric_type(value, interner, ctx.get_variable_types());
+                    if numeric != "unknown" {
+                        ctx.register_variable_type(*var, numeric.to_string());
+                    }
+                }
+            }
+
             // Phase 54+: Use codegen_expr_boxed with string+type tracking for proper codegen
             let value_str = codegen_expr_boxed_with_types(
                 value, interner, synced_vars, boxed_fields, registry, async_functions,
@@ -6327,13 +6423,13 @@ pub fn codegen_stmt<'a>(
 
             // Phase 43C: Handle refinement type
             if let Some(TypeExpr::Refinement { base: _, var: bound_var, predicate }) = ty {
-                emit_refinement_check(var_name, *bound_var, predicate, interner, &indent_str, &mut output);
+                emit_refinement_check(&var_name, *bound_var, predicate, interner, &indent_str, &mut output);
                 ctx.register(*var, *bound_var, predicate);
             }
         }
 
         Stmt::Set { target, value } => {
-            let target_name = interner.resolve(*target);
+            let target_name = names.ident(*target);
             let string_vars = ctx.get_string_vars();
             let var_types = ctx.get_variable_types();
 
@@ -6393,12 +6489,12 @@ pub fn codegen_stmt<'a>(
 
             // Phase 43C: Check if this variable has a refinement constraint
             if let Some((bound_var, predicate)) = ctx.get_constraint(*target) {
-                emit_refinement_check(target_name, bound_var, predicate, interner, &indent_str, &mut output);
+                emit_refinement_check(&target_name, bound_var, predicate, interner, &indent_str, &mut output);
             }
         }
 
         Stmt::Call { function, args } => {
-            let func_name = escape_rust_ident(interner.resolve(*function));
+            let func_name = names.ident(*function);
             let args_str: Vec<String> = args.iter().map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types())).collect();
             // Add .await if calling an async function
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
@@ -6410,14 +6506,14 @@ pub fn codegen_stmt<'a>(
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
             for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
                 for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 }
                 ctx.pop_scope();
             }
@@ -6438,7 +6534,7 @@ pub fn codegen_stmt<'a>(
                     bi += 1 + skip;
                     continue;
                 }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry) {
+                if let Some((code, skip)) = try_emit_for_range_pattern(&body_refs, bi, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env) {
                     output.push_str(&code);
                     bi += 1 + skip;
                     continue;
@@ -6448,7 +6544,7 @@ pub fn codegen_stmt<'a>(
                     bi += 1 + skip;
                     continue;
                 }
-                output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 bi += 1;
             }
             ctx.pop_scope();
@@ -6515,7 +6611,7 @@ pub fn codegen_stmt<'a>(
                         bi += 1 + skip;
                         continue;
                     }
-                    output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                     bi += 1;
                 }
             }
@@ -6680,7 +6776,7 @@ pub fn codegen_stmt<'a>(
         // =====================================================================
 
         Stmt::LaunchTask { function, args } => {
-            let fn_name = escape_rust_ident(interner.resolve(*function));
+            let fn_name = names.ident(*function);
             // Phase 54: When passing a pipe variable, pass the sender (_tx)
             let args_str: Vec<String> = args.iter()
                 .map(|a| {
@@ -6703,7 +6799,7 @@ pub fn codegen_stmt<'a>(
 
         Stmt::LaunchTaskWithHandle { handle, function, args } => {
             let handle_name = interner.resolve(*handle);
-            let fn_name = escape_rust_ident(interner.resolve(*function));
+            let fn_name = names.ident(*function);
             // Phase 54: When passing a pipe variable, pass the sender (_tx)
             let args_str: Vec<String> = args.iter()
                 .map(|a| {
@@ -6866,7 +6962,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, var_name, var_name
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 3, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}        }}", indent_str).unwrap();
@@ -6881,7 +6977,7 @@ pub fn codegen_stmt<'a>(
                             indent_str, ms_str
                         ).unwrap();
                         for stmt in *body {
-                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            let stmt_code = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
                             write!(output, "{}", stmt_code).unwrap();
                         }
                         writeln!(output, "{}    }}", indent_str).unwrap();
@@ -6899,11 +6995,84 @@ pub fn codegen_stmt<'a>(
         }
 
         Stmt::Show { object, recipient } => {
-            // Borrow semantics: pass immutable reference
-            // Use string_vars for proper concatenation of string variables
-            let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
-            let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
-            writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
+            // Optimization: Show with InterpolatedString → println! directly
+            if let Expr::InterpolatedString(parts) = object {
+                let recv_name = if let Expr::Identifier(sym) = recipient {
+                    interner.resolve(*sym).to_string()
+                } else {
+                    String::new()
+                };
+                if recv_name == "show" {
+                    // Emit println! directly — no intermediate String allocation
+                    let mut fmt_str = String::new();
+                    let mut args = Vec::new();
+                    for part in parts {
+                        match part {
+                            crate::ast::stmt::StringPart::Literal(sym) => {
+                                let text = interner.resolve(*sym);
+                                for ch in text.chars() {
+                                    match ch {
+                                        '{' => fmt_str.push_str("{{"),
+                                        '}' => fmt_str.push_str("}}"),
+                                        '\n' => fmt_str.push_str("\\n"),
+                                        '\t' => fmt_str.push_str("\\t"),
+                                        '\r' => fmt_str.push_str("\\r"),
+                                        _ => fmt_str.push(ch),
+                                    }
+                                }
+                            }
+                            crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
+                                if *debug {
+                                    let debug_prefix = expr_debug_prefix(value, interner);
+                                    for ch in debug_prefix.chars() {
+                                        match ch {
+                                            '{' => fmt_str.push_str("{{"),
+                                            '}' => fmt_str.push_str("}}"),
+                                            _ => fmt_str.push(ch),
+                                        }
+                                    }
+                                    fmt_str.push('=');
+                                }
+                                let needs_float_cast = if let Some(spec) = format_spec {
+                                    let spec_str = interner.resolve(*spec);
+                                    if spec_str == "$" {
+                                        fmt_str.push('$');
+                                        fmt_str.push_str("{:.2}");
+                                        true
+                                    } else if spec_str.starts_with('.') {
+                                        fmt_str.push_str(&format!("{{:{}}}", spec_str));
+                                        true
+                                    } else {
+                                        fmt_str.push_str(&format!("{{:{}}}", spec_str));
+                                        false
+                                    }
+                                } else {
+                                    fmt_str.push_str("{}");
+                                    false
+                                };
+                                let arg_str = codegen_expr_with_async_and_strings(value, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                                if needs_float_cast {
+                                    args.push(format!("{} as f64", arg_str));
+                                } else {
+                                    args.push(arg_str);
+                                }
+                            }
+                        }
+                    }
+                    writeln!(output, "{}println!(\"{}\"{});", indent_str, fmt_str,
+                        args.iter().map(|a| format!(", {}", a)).collect::<String>()).unwrap();
+                } else {
+                    let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                    let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
+                    writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
+                }
+            } else {
+                // Borrow semantics: pass immutable reference
+                // Use string_vars for proper concatenation of string variables
+                let obj_str = codegen_expr_with_async_and_strings(object, interner, synced_vars, async_functions, ctx.get_string_vars(), ctx.get_variable_types());
+                let recv_str = codegen_expr_with_async(recipient, interner, synced_vars, async_functions, ctx.get_variable_types());
+                writeln!(output, "{}{}(&{});", indent_str, recv_str, obj_str).unwrap();
+            }
         }
 
         Stmt::SetField { object, field, value } => {
@@ -7035,7 +7204,7 @@ pub fn codegen_stmt<'a>(
 
                                         ctx.push_scope();
                                         for inner_stmt in inner_arm.body {
-                                            inner_output.push_str(&codegen_stmt(inner_stmt, interner, indent + 4, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                                            inner_output.push_str(&codegen_stmt(inner_stmt, interner, indent + 4, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                                         }
                                         ctx.pop_scope();
                                         writeln!(inner_output, "{}    }}", "    ".repeat(indent + 2)).unwrap();
@@ -7044,13 +7213,13 @@ pub fn codegen_stmt<'a>(
                                 writeln!(inner_output, "{}}}", "    ".repeat(indent + 2)).unwrap();
                                 inner_output
                             } else {
-                                codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+                                codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
                             }
                         } else {
-                            codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+                            codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
                         }
                     } else {
-                        codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry)
+                        codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env)
                     };
                     output.push_str(&inner_stmt_code);
                 }
@@ -7071,7 +7240,7 @@ pub fn codegen_stmt<'a>(
             let coll_str = codegen_expr_with_async(collection, interner, synced_vars, async_functions, ctx.get_variable_types());
             match into {
                 Some(var) => {
-                    let var_name = interner.resolve(*var);
+                    let var_name = names.ident(*var);
                     // Unwrap the Option returned by pop() - panics if empty
                     writeln!(output, "{}let {} = {}.pop().expect(\"Pop from empty collection\");", indent_str, var_name, coll_str).unwrap();
                 }
@@ -7176,7 +7345,7 @@ pub fn codegen_stmt<'a>(
 
             // Generate body statements
             for stmt in *body {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
             }
 
             ctx.pop_scope();
@@ -7246,7 +7415,7 @@ pub fn codegen_stmt<'a>(
             if has_intra_dependency {
                 // Generate sequential Let bindings
                 for stmt in *tasks {
-                    output.push_str(&codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry));
+                    output.push_str(&codegen_stmt(stmt, interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 }
             } else {
                 // Generate concurrent execution with tokio::join!
@@ -7277,7 +7446,7 @@ pub fn codegen_stmt<'a>(
                         }
                         _ => {
                             // Fallback for other statement types
-                            let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
                             inner.trim().to_string()
                         }
                     };
@@ -7342,7 +7511,7 @@ pub fn codegen_stmt<'a>(
                         }
                         _ => {
                             // Fallback for other statement types
-                            let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            let inner = codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
                             inner.trim().to_string()
                         }
                     };
@@ -7372,7 +7541,7 @@ pub fn codegen_stmt<'a>(
                             format!("{}({})", func_name, args_str.join(", "))
                         }
                         _ => {
-                            let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry);
+                            let inner = codegen_stmt(stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env);
                             inner.trim().to_string()
                         }
                     };
@@ -7578,31 +7747,26 @@ fn get_root_identifier(expr: &Expr) -> Option<Symbol> {
     }
 }
 
-/// Check if a type string represents a Copy type (no .clone() needed on indexing).
+/// Check if a type string represents a Copy type (no .clone() needed).
+/// Delegates to `LogosType::is_copy()` — single source of truth.
 fn is_copy_type(ty: &str) -> bool {
-    matches!(ty, "i64" | "u64" | "f64" | "i32" | "u32" | "f32" | "bool" | "char" | "u8" | "i8" | "()")
+    crate::analysis::types::LogosType::from_rust_type_str(ty).is_copy()
 }
 
 /// Check if a Vec<T> type has a Copy element type.
+/// Delegates to `LogosType::element_type().is_copy()` — single source of truth.
 fn has_copy_element_type(vec_type: &str) -> bool {
-    if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
-        is_copy_type(inner)
-    } else {
-        false
-    }
+    crate::analysis::types::LogosType::from_rust_type_str(vec_type)
+        .element_type()
+        .map_or(false, |e| e.is_copy())
 }
 
 /// Check if a HashMap<K, V> type has a Copy value type.
+/// Delegates to `LogosType::value_type().is_copy()` — single source of truth.
 fn has_copy_value_type(map_type: &str) -> bool {
-    let inner = map_type.strip_prefix("std::collections::HashMap<")
-        .or_else(|| map_type.strip_prefix("HashMap<"));
-    if let Some(inner) = inner.and_then(|s| s.strip_suffix('>')) {
-        // Split on ", " to get key and value types
-        if let Some((_key, value)) = inner.split_once(", ") {
-            return is_copy_type(value);
-        }
-    }
-    false
+    crate::analysis::types::LogosType::from_rust_type_str(map_type)
+        .value_type()
+        .map_or(false, |v| v.is_copy())
 }
 
 pub fn codegen_expr(expr: &Expr, interner: &Interner, synced_vars: &HashSet<Symbol>) -> String {
@@ -7686,6 +7850,8 @@ fn is_definitely_string_expr_with_vars(expr: &Expr, string_vars: &HashSet<Symbol
         }
         // WithCapacity wrapping a string value is a string
         Expr::WithCapacity { value, .. } => is_definitely_string_expr_with_vars(value, string_vars),
+        // Interpolated strings always produce strings
+        Expr::InterpolatedString(_) => true,
         _ => false,
     }
 }
@@ -7789,6 +7955,7 @@ fn codegen_expr_boxed_internal(
     string_vars: &HashSet<Symbol>,
     variable_types: &HashMap<Symbol, String>,
 ) -> String {
+    let names = RustNames::new(interner);
     // Helper macro for recursive calls with all context
     macro_rules! recurse {
         ($e:expr) => {
@@ -7800,7 +7967,7 @@ fn codegen_expr_boxed_internal(
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
         Expr::Identifier(sym) => {
-            let name = interner.resolve(*sym).to_string();
+            let name = names.ident(*sym);
             // Dereference boxed bindings from enum destructuring
             if boxed_bindings.contains(sym) {
                 format!("(*{})", name)
@@ -7891,20 +8058,80 @@ fn codegen_expr_boxed_internal(
                 BinaryOpKind::Or => "||",
                 BinaryOpKind::Concat => unreachable!(), // Handled above
             };
+
+            // Mixed Float*Int arithmetic coercion: if one side is f64,
+            // cast the other side to f64 so Rust compiles mixed operations.
+            if !matches!(op, BinaryOpKind::And | BinaryOpKind::Or) {
+                let left_type = infer_numeric_type(left, interner, variable_types);
+                let right_type = infer_numeric_type(right, interner, variable_types);
+                if left_type == "f64" && right_type != "f64" {
+                    return format!("({} {} (({}) as f64))", left_str, op_str, right_str);
+                } else if right_type == "f64" && left_type != "f64" {
+                    return format!("((({}) as f64) {} {})", left_str, op_str, right_str);
+                }
+            }
+
             format!("({} {} {})", left_str, op_str, right_str)
         }
 
         Expr::Call { function, args } => {
-            let func_name = escape_rust_ident(interner.resolve(*function));
-            // Recursively codegen args with full context
+            let func_name = names.ident(*function);
+            let raw_name = names.raw(*function);
+            // Recursively codegen args with full context.
+            // Clone non-Copy identifier arguments to avoid move-after-use errors
+            // when variables are reused (e.g., inside while loops or after the call).
             let args_str: Vec<String> = args.iter()
-                .map(|a| recurse!(a))
+                .map(|a| {
+                    let s = recurse!(a);
+                    if let Expr::Identifier(sym) = a {
+                        if let Some(ty) = variable_types.get(sym) {
+                            if !is_copy_type(ty) {
+                                return format!("{}.clone()", s);
+                            }
+                        }
+                    }
+                    s
+                })
                 .collect();
-            // Add .await if this function is async
-            if async_functions.contains(function) {
-                format!("{}({}).await", func_name, args_str.join(", "))
-            } else {
-                format!("{}({})", func_name, args_str.join(", "))
+            // Builtin math functions → Rust method call syntax
+            match raw_name {
+                "sqrt" if args_str.len() == 1 => {
+                    format!("(({}) as f64).sqrt()", args_str[0])
+                }
+                "abs" if args_str.len() == 1 => {
+                    let arg_type = infer_numeric_type(&args[0], interner, variable_types);
+                    if arg_type == "f64" {
+                        format!("(({}) as f64).abs()", args_str[0])
+                    } else {
+                        format!("(({}) as i64).abs()", args_str[0])
+                    }
+                }
+                "floor" if args_str.len() == 1 => {
+                    format!("((({}) as f64).floor() as i64)", args_str[0])
+                }
+                "ceil" if args_str.len() == 1 => {
+                    format!("((({}) as f64).ceil() as i64)", args_str[0])
+                }
+                "round" if args_str.len() == 1 => {
+                    format!("((({}) as f64).round() as i64)", args_str[0])
+                }
+                "pow" if args_str.len() == 2 => {
+                    format!("((({}) as f64).powf(({}) as f64))", args_str[0], args_str[1])
+                }
+                "min" if args_str.len() == 2 => {
+                    format!("({}).min({})", args_str[0], args_str[1])
+                }
+                "max" if args_str.len() == 2 => {
+                    format!("({}).max({})", args_str[0], args_str[1])
+                }
+                _ => {
+                    // Add .await if this function is async
+                    if async_functions.contains(function) {
+                        format!("{}({}).await", func_name, args_str.join(", "))
+                    } else {
+                        format!("{}({})", func_name, args_str.join(", "))
+                    }
+                }
             }
         }
 
@@ -8211,7 +8438,7 @@ fn codegen_expr_boxed_internal(
             use crate::ast::stmt::ClosureBody;
             let params_str: Vec<String> = params.iter()
                 .map(|(name, ty)| {
-                    let param_name = escape_rust_ident(interner.resolve(*name));
+                    let param_name = names.ident(*name);
                     let param_type = codegen_type_expr(ty, interner);
                     format!("{}: {}", param_name, param_type)
                 })
@@ -8233,11 +8460,13 @@ fn codegen_expr_boxed_internal(
                     let empty_pipes = HashSet::new();
                     let empty_boxed = HashSet::new();
                     let empty_registry = TypeRegistry::new();
+                    let type_env = crate::analysis::types::TypeEnv::new();
                     for stmt in stmts.iter() {
                         body_str.push_str(&codegen_stmt(
                             stmt, interner, 2, &empty_mutable, &mut ctx,
                             &empty_lww, &empty_mv, &mut empty_synced, &empty_caps,
                             async_functions, &empty_pipes, &empty_boxed, &empty_registry,
+                            &type_env,
                         ));
                     }
                     format!("move |{}| {{\n{}{}}}", params_str.join(", "), body_str, "    ")
@@ -8250,6 +8479,109 @@ fn codegen_expr_boxed_internal(
             let args_str: Vec<String> = args.iter().map(|a| recurse!(a)).collect();
             format!("({})({})", callee_str, args_str.join(", "))
         }
+
+        Expr::InterpolatedString(parts) => {
+            codegen_interpolated_string(parts, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars, variable_types)
+        }
+    }
+}
+
+fn codegen_interpolated_string(
+    parts: &[crate::ast::stmt::StringPart],
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    async_functions: &HashSet<Symbol>,
+    boxed_bindings: &HashSet<Symbol>,
+    string_vars: &HashSet<Symbol>,
+    variable_types: &HashMap<Symbol, String>,
+) -> String {
+    use crate::ast::stmt::StringPart;
+
+    let mut fmt_str = String::new();
+    let mut args = Vec::new();
+
+    for part in parts {
+        match part {
+            StringPart::Literal(sym) => {
+                let text = interner.resolve(*sym);
+                // Escape braces and special chars in the format string
+                for ch in text.chars() {
+                    match ch {
+                        '{' => fmt_str.push_str("{{"),
+                        '}' => fmt_str.push_str("}}"),
+                        '\n' => fmt_str.push_str("\\n"),
+                        '\t' => fmt_str.push_str("\\t"),
+                        '\r' => fmt_str.push_str("\\r"),
+                        _ => fmt_str.push(ch),
+                    }
+                }
+            }
+            StringPart::Expr { value, format_spec, debug } => {
+                if *debug {
+                    let debug_prefix = expr_debug_prefix(value, interner);
+                    for ch in debug_prefix.chars() {
+                        match ch {
+                            '{' => fmt_str.push_str("{{"),
+                            '}' => fmt_str.push_str("}}"),
+                            _ => fmt_str.push(ch),
+                        }
+                    }
+                    fmt_str.push('=');
+                }
+                let needs_float_cast = if let Some(spec) = format_spec {
+                    let spec_str = interner.resolve(*spec);
+                    if spec_str == "$" {
+                        fmt_str.push('$');
+                        fmt_str.push_str("{:.2}");
+                        true
+                    } else if spec_str.starts_with('.') {
+                        fmt_str.push_str(&format!("{{:{}}}", spec_str));
+                        true
+                    } else {
+                        fmt_str.push_str(&format!("{{:{}}}", spec_str));
+                        false
+                    }
+                } else {
+                    fmt_str.push_str("{}");
+                    false
+                };
+                let arg_str = codegen_expr_boxed_internal(
+                    value, interner, synced_vars, boxed_fields, registry,
+                    async_functions, boxed_bindings, string_vars, variable_types,
+                );
+                if needs_float_cast {
+                    args.push(format!("{} as f64", arg_str));
+                } else {
+                    args.push(arg_str);
+                }
+            }
+        }
+    }
+
+    if args.is_empty() {
+        // No holes — emit raw String::from (no format! escaping needed).
+        // Reconstruct the raw text from parts without brace escaping.
+        let mut raw = String::new();
+        for part in parts {
+            if let StringPart::Literal(sym) = part {
+                let text = interner.resolve(*sym);
+                for ch in text.chars() {
+                    match ch {
+                        '\n' => raw.push_str("\\n"),
+                        '\t' => raw.push_str("\\t"),
+                        '\r' => raw.push_str("\\r"),
+                        '"' => raw.push_str("\\\""),
+                        '\\' => raw.push_str("\\\\"),
+                        _ => raw.push(ch),
+                    }
+                }
+            }
+        }
+        format!("String::from(\"{}\")", raw)
+    } else {
+        format!("format!(\"{}\"{})", fmt_str, args.iter().map(|a| format!(", {}", a)).collect::<String>())
     }
 }
 
@@ -8258,7 +8590,18 @@ fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
         Literal::Number(n) => n.to_string(),
         Literal::Float(f) => format!("{}f64", f),
         // String literals are converted to String for consistent Text type handling
-        Literal::Text(sym) => format!("String::from(\"{}\")", interner.resolve(*sym)),
+        Literal::Text(sym) => {
+            let raw = interner.resolve(*sym);
+            let escaped: String = raw.chars().map(|c| match c {
+                '\n' => "\\n".to_string(),
+                '\r' => "\\r".to_string(),
+                '\t' => "\\t".to_string(),
+                '\\' => "\\\\".to_string(),
+                '"' => "\\\"".to_string(),
+                other => other.to_string(),
+            }).collect();
+            format!("String::from(\"{}\")", escaped)
+        }
         Literal::Boolean(b) => b.to_string(),
         Literal::Nothing => "()".to_string(),
         // Character literals

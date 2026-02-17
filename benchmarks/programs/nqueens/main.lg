@@ -1,0 +1,36 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To isSafe (queens: Seq of Int, row: Int, col: Int) -> Int:
+    Let mutable i be 1.
+    While i is less than row:
+        Let qc be item i of queens.
+        If qc equals col:
+            Return 0.
+        If qc - col equals i - row:
+            Return 0.
+        If col - qc equals i - row:
+            Return 0.
+        If qc - col equals row - i:
+            Return 0.
+        Set i to i + 1.
+    Return 1.
+
+## To solve (queens: Seq of Int, row: Int, n: Int) -> Int:
+    If row is greater than n:
+        Return 1.
+    Let mutable count be 0.
+    Let mutable col be 1.
+    While col is at most n:
+        If isSafe(queens, row, col) equals 1:
+            Let mutable next be queens.
+            Push col to next.
+            Set count to count + solve(next, row + 1, n).
+        Set col to col + 1.
+    Return count.
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let queens be a new Seq of Int.
+Show solve(queens, 1, n).

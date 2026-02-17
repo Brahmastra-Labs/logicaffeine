@@ -772,6 +772,47 @@ pub fn assert_interpreter_runs(source: &str) {
     );
 }
 
+/// Assert that LOGOS source fails to compile (parse error, analysis error, etc.)
+/// and that the error message contains the expected substring.
+#[allow(dead_code)]
+pub fn assert_compile_fails(source: &str, expected_error: &str) {
+    let result = run_logos(source);
+    assert!(
+        !result.success,
+        "Expected compilation to fail, but it succeeded.\nSource:\n{}\n\nstdout: {}",
+        source,
+        result.stdout
+    );
+    let all_errors = format!("{}\n{}", result.stderr, result.stdout);
+    assert!(
+        all_errors.contains(expected_error),
+        "Expected error containing '{}' but got:\n{}\n\nSource:\n{}",
+        expected_error,
+        all_errors,
+        source
+    );
+}
+
+/// Assert that LOGOS source fails during interpretation
+/// and that the error message contains the expected substring.
+#[allow(dead_code)]
+pub fn assert_interpreter_fails(source: &str, expected_error: &str) {
+    let result = run_interpreter(source);
+    assert!(
+        !result.success,
+        "Expected interpreter to fail, but it succeeded.\nSource:\n{}\n\nOutput: {}",
+        source,
+        result.output
+    );
+    assert!(
+        result.error.contains(expected_error),
+        "Expected error containing '{}' but got:\n{}\n\nSource:\n{}",
+        expected_error,
+        result.error,
+        source
+    );
+}
+
 /// Assert that LOGOS code produces output containing the expected substring via the interpreter.
 #[allow(dead_code)]
 pub fn assert_interpreter_output_contains(source: &str, expected: &str) {
