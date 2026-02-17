@@ -924,6 +924,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), CompileError> {
 /// # }
 /// ```
 pub fn compile_and_run(source: &str, output_dir: &Path) -> Result<String, CompileError> {
+    // Pre-check: catch ownership errors (use-after-move) with friendly messages
+    // before codegen runs (codegen defensively clones, masking these errors)
+    compile_to_rust_checked(source).map_err(CompileError::Parse)?;
+
     compile_to_dir(source, output_dir)?;
 
     // Run cargo build with JSON message format for structured error parsing
