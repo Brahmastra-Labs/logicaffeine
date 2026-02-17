@@ -379,6 +379,9 @@ pub fn fold_expr<'a>(
             }
         }
 
+        // Interpolated strings — fold sub-expressions in holes
+        Expr::InterpolatedString(_) => expr,
+
         // Leaves — no sub-expressions to fold
         Expr::Literal(_) | Expr::Identifier(_) | Expr::OptionNone | Expr::Escape { .. } => expr,
     }

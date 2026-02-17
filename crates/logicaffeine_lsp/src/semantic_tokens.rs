@@ -175,7 +175,7 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
         }
 
         // String literals → string
-        TokenType::StringLiteral(_) | TokenType::CharLiteral(_) => (Some(4), 0),
+        TokenType::StringLiteral(_) | TokenType::InterpolatedString(_) | TokenType::CharLiteral(_) => (Some(4), 0),
 
         // Number literals → number
         TokenType::Number(_) | TokenType::DurationLiteral { .. }

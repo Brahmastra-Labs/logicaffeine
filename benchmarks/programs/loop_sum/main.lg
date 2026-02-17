@@ -1,0 +1,12 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.
+Let mutable i be 1.
+While i is at most n:
+    Set sum to (sum + i) % 1000000007.
+    Set i to i + 1.
+Show sum.

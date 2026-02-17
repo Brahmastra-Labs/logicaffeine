@@ -1,0 +1,7 @@
+## Main
+Let mutable sum be 0.
+Let mutable i be 1.
+While i is at most 100000:
+    Set sum to (sum + i) % 1000000007.
+    Set i to i + 1.
+Show sum.

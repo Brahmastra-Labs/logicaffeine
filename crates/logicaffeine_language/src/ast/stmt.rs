@@ -738,6 +738,23 @@ pub enum Expr<'a> {
         callee: &'a Expr<'a>,
         args: Vec<&'a Expr<'a>>,
     },
+
+    /// Interpolated string: `"Hello, {name}! Value: {x:.2}"`
+    InterpolatedString(Vec<StringPart<'a>>),
+}
+
+/// A segment of an interpolated string.
+#[derive(Debug, Clone)]
+pub enum StringPart<'a> {
+    /// Literal text segment
+    Literal(Symbol),
+    /// Expression with optional format specifier
+    Expr {
+        value: &'a Expr<'a>,
+        format_spec: Option<Symbol>,
+        /// Self-documenting debug format: `{var=}` → `"var=42"`
+        debug: bool,
+    },
 }
 
 /// Body of a closure expression.

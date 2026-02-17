@@ -307,7 +307,8 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
     // Note: Static verification is available when the `verification` feature is enabled,
     // but must be explicitly invoked via compile_to_rust_verified().
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     // Universal ABI: Generate C header + bindings if any C exports exist
     let has_c = stmts.iter().any(|stmt| {
@@ -489,7 +490,8 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     Ok(rust_code)
 }
@@ -606,7 +608,8 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner);
+    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     Ok(rust_code)
 }
@@ -1086,7 +1089,8 @@ fn compile_to_rust_with_registry_full(
         }
     })?;
 
-    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner);
+    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, interner, &codegen_registry);
+    let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner, &type_env);
 
     // Universal ABI: Generate C header + bindings if any C exports exist
     let has_c = stmts.iter().any(|stmt| {

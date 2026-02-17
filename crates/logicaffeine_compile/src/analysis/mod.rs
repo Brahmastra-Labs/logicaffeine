@@ -41,11 +41,13 @@
 
 pub mod escape;
 pub mod ownership;
+pub mod types;
 mod discovery;
 
 pub use escape::{EscapeChecker, EscapeError, EscapeErrorKind};
 pub use ownership::{OwnershipChecker, OwnershipError, OwnershipErrorKind, VarState};
 pub use discovery::discover_with_imports;
+pub use types::{LogosType, TypeEnv, FnSig, RustNames};
 
 // Re-export language analysis types with submodule aliases
 pub mod registry {

@@ -307,6 +307,14 @@ impl<'a> EscapeChecker<'a> {
                 }
             }
 
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                        self.check_no_escape(value, max_depth)?;
+                    }
+                }
+            }
+
             // Literals are always safe
             Expr::Literal(_) => {}
         }

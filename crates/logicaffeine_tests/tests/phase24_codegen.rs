@@ -182,7 +182,8 @@ fn codegen_let_statement() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "let x = 42;\n");
 }
 
@@ -201,7 +202,8 @@ fn codegen_let_mutable() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "let mut count = 0;\n");
 }
 
@@ -218,7 +220,8 @@ fn codegen_set_statement() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "x = 10;\n");
 }
 
@@ -233,7 +236,8 @@ fn codegen_return_with_value() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "return 42;\n");
 }
 
@@ -244,7 +248,8 @@ fn codegen_return_without_value() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "return;\n");
 }
 
@@ -264,7 +269,8 @@ fn codegen_if_without_else() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert!(result.contains("if x {"), "Expected 'if x {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -285,7 +291,8 @@ fn codegen_while_loop() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert!(result.contains("while running {"), "Expected 'while running {{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
@@ -305,7 +312,8 @@ fn codegen_indentation() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 1, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "    let x = 5;\n");
 }
 
@@ -313,9 +321,11 @@ fn codegen_indentation() {
 fn codegen_program_wraps_in_main() {
     let mut interner = Interner::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
     let policies = PolicyRegistry::new();
     let stmts: &[Stmt] = &[];
-    let result = codegen_program(stmts, &registry, &policies, &interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::infer_program(stmts, &interner, &registry);
+    let result = codegen_program(stmts, &registry, &policies, &interner, &type_env);
     assert!(result.contains("fn main()"), "Expected 'fn main()' but got: {}", result);
     assert!(result.contains("{"), "Expected '{{' but got: {}", result);
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
@@ -333,7 +343,8 @@ fn codegen_call_statement() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
-    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    let result = codegen_stmt(&stmt, &interner, 0, &HashSet::<Symbol>::new(), &mut ctx, &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars, &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(), &HashSet::new(), &registry, &type_env);
     assert_eq!(result, "println();\n");
 }
 
@@ -531,6 +542,7 @@ fn codegen_stmt_call_async_function_awaits() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // Mark async_helper as an async function
     let mut async_functions = HashSet::new();
@@ -540,7 +552,7 @@ fn codegen_stmt_call_async_function_awaits() {
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains(".await"), "Call to async function should have .await: {}", result);
@@ -561,6 +573,7 @@ fn codegen_stmt_call_sync_function_no_await() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // empty async_functions means sync_helper is NOT async
     let async_functions = HashSet::new();
@@ -569,7 +582,7 @@ fn codegen_stmt_call_sync_function_no_await() {
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(!result.contains(".await"), "Call to sync function should NOT have .await: {}", result);
@@ -593,6 +606,7 @@ fn codegen_concurrent_with_async_call() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let mut async_functions = HashSet::new();
     async_functions.insert(async_fn);
@@ -601,7 +615,7 @@ fn codegen_concurrent_with_async_call() {
         &concurrent, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains("fetch_data().await"), "Async call in Concurrent should have .await: {}", result);
@@ -624,6 +638,7 @@ fn codegen_concurrent_with_sync_call() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // Empty async_functions = sync_fn is NOT async
     let async_functions = HashSet::new();
@@ -632,7 +647,7 @@ fn codegen_concurrent_with_sync_call() {
         &concurrent, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     // The sync function should NOT have .await
@@ -663,6 +678,7 @@ fn codegen_select_receive_with_local_pipe() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // Mark jobs as a local pipe
     let mut pipe_vars = HashSet::new();
@@ -672,7 +688,7 @@ fn codegen_select_receive_with_local_pipe() {
         &select, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &empty_async_fns(), &pipe_vars,
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains("jobs_rx.recv()"), "Local pipe should use _rx suffix: {}", result);
@@ -701,6 +717,7 @@ fn codegen_select_receive_with_pipe_param() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // Empty pipe_vars means input_pipe is NOT a local pipe (it's a parameter)
     let pipe_vars = HashSet::new();
@@ -709,7 +726,7 @@ fn codegen_select_receive_with_pipe_param() {
         &select, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &empty_async_fns(), &pipe_vars,
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     // Should use input_pipe.recv() NOT input_pipe_rx.recv()
@@ -728,12 +745,13 @@ fn codegen_sleep_statement() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let result = codegen_stmt(
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains("tokio::time::sleep"), "Sleep should use tokio: {}", result);
@@ -756,12 +774,13 @@ fn codegen_create_pipe() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let result = codegen_stmt(
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains("jobs_tx"), "CreatePipe should create _tx var: {}", result);
@@ -782,12 +801,13 @@ fn codegen_launch_task() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     let result = codegen_stmt(
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &empty_async_fns(), &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains("tokio::spawn"), "LaunchTask should use tokio::spawn: {}", result);
@@ -817,6 +837,7 @@ fn codegen_let_with_async_call_awaits() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // Mark fetch_data as an async function
     let mut async_functions = HashSet::new();
@@ -826,7 +847,7 @@ fn codegen_let_with_async_call_awaits() {
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(result.contains(".await"), "Let with async call should have .await: {}", result);
@@ -856,6 +877,7 @@ fn codegen_let_with_sync_call_no_await() {
     let mut ctx = RefinementContext::new();
     let mut synced_vars = HashSet::<Symbol>::new();
     let registry = TypeRegistry::with_primitives(&mut interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
 
     // Empty async_functions = sync_fn is NOT async
     let async_functions = HashSet::new();
@@ -864,7 +886,7 @@ fn codegen_let_with_sync_call_no_await() {
         &stmt, &interner, 0, &HashSet::new(), &mut ctx,
         &empty_lww_fields(), &empty_mv_fields(), &mut synced_vars,
         &empty_var_caps(), &async_functions, &empty_pipe_vars(),
-        &HashSet::new(), &registry
+        &HashSet::new(), &registry, &type_env,
     );
 
     assert!(!result.contains(".await"), "Let with sync call should NOT have .await: {}", result);

@@ -16,6 +16,42 @@ const C_RUNTIME: &str = r#"
 #include <stdbool.h>
 #include <string.h>
 #include <inttypes.h>
+#include <stdarg.h>
+#include <math.h>
+
+/* ========== String Formatting Helpers ========== */
+
+static char *logos_center_str(const char *s, int width) {
+    int len = (int)strlen(s);
+    if (len >= width) return strdup(s);
+    int total_pad = width - len;
+    int left = total_pad / 2;
+    int right = total_pad - left;
+    char *result = (char *)malloc(width + 1);
+    memset(result, ' ', left);
+    memcpy(result + left, s, len);
+    memset(result + left + len, ' ', right);
+    result[width] = '\0';
+    return result;
+}
+
+static char *logos_center_i64(int64_t val, int width) {
+    char tmp[64];
+    snprintf(tmp, 64, "%" PRId64, val);
+    return logos_center_str(tmp, width);
+}
+
+static char *logos_dyn_sprintf(const char *fmt, ...) {
+    va_list args, args2;
+    va_start(args, fmt);
+    va_copy(args2, args);
+    int len = vsnprintf(NULL, 0, fmt, args);
+    va_end(args);
+    char *buf = (char *)malloc(len + 1);
+    vsnprintf(buf, len + 1, fmt, args2);
+    va_end(args2);
+    return buf;
+}
 
 /* ========== Dynamic Array: Seq_i64 ========== */
 
@@ -1002,6 +1038,7 @@ fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
             }
             CType::Int64
         }
+        Expr::InterpolatedString(_) => CType::String,
         Expr::NewVariant { enum_name, .. } => CType::Enum(*enum_name),
         Expr::OptionSome { .. } | Expr::OptionNone => CType::Int64,
         _ => CType::Int64,
@@ -1099,6 +1136,85 @@ fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                         "\"0\"".to_string()
                     };
                     format!("atof({})", arg)
+                }
+                "sqrt" => {
+                    let arg = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0.0".to_string()
+                    };
+                    format!("sqrt({})", arg)
+                }
+                "abs" => {
+                    let arg = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0".to_string()
+                    };
+                    format!("fabs({})", arg)
+                }
+                "floor" => {
+                    let arg = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0.0".to_string()
+                    };
+                    format!("(int64_t)floor({})", arg)
+                }
+                "ceil" => {
+                    let arg = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0.0".to_string()
+                    };
+                    format!("(int64_t)ceil({})", arg)
+                }
+                "round" => {
+                    let arg = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0.0".to_string()
+                    };
+                    format!("(int64_t)round({})", arg)
+                }
+                "pow" => {
+                    let base = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0.0".to_string()
+                    };
+                    let exp = if let Some(a) = args.get(1) {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "1.0".to_string()
+                    };
+                    format!("pow((double)({}), (double)({}))", base, exp)
+                }
+                "min" => {
+                    let a_str = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0".to_string()
+                    };
+                    let b_str = if let Some(b) = args.get(1) {
+                        codegen_expr(b, ctx)
+                    } else {
+                        "0".to_string()
+                    };
+                    format!("(({a}) < ({b}) ? ({a}) : ({b}))", a = a_str, b = b_str)
+                }
+                "max" => {
+                    let a_str = if let Some(a) = args.first() {
+                        codegen_expr(a, ctx)
+                    } else {
+                        "0".to_string()
+                    };
+                    let b_str = if let Some(b) = args.get(1) {
+                        codegen_expr(b, ctx)
+                    } else {
+                        "0".to_string()
+                    };
+                    format!("(({a}) > ({b}) ? ({a}) : ({b}))", a = a_str, b = b_str)
                 }
                 _ => {
                     let fname = escape_c_ident(raw_name);
@@ -1327,6 +1443,9 @@ fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 format!("seq_i64_slice(&{}, {}, {})", coll, start_str, end_str)
             }
         }
+        Expr::InterpolatedString(parts) => {
+            codegen_interpolated_string_c(parts, ctx)
+        }
         Expr::Escape { code, .. } => {
             format!("/* Escape: {} */0", ctx.interner.resolve(*code).replace("*/", "* /"))
         }
@@ -1339,9 +1458,153 @@ fn codegen_literal(lit: &Literal, ctx: &CContext) -> String {
         Literal::Number(n) => format!("{}LL", n),
         Literal::Float(f) => format!("{}", f),
         Literal::Boolean(b) => if *b { "true".to_string() } else { "false".to_string() },
-        Literal::Text(sym) => format!("\"{}\"", ctx.interner.resolve(*sym).replace('\\', "\\\\").replace('"', "\\\"")),
+        Literal::Text(sym) => {
+            let raw = ctx.interner.resolve(*sym);
+            let escaped: String = raw.chars().map(|c| match c {
+                '\n' => "\\n".to_string(),
+                '\r' => "\\r".to_string(),
+                '\t' => "\\t".to_string(),
+                '\\' => "\\\\".to_string(),
+                '"' => "\\\"".to_string(),
+                other => other.to_string(),
+            }).collect();
+            format!("\"{}\"", escaped)
+        }
         Literal::Nothing => "0".to_string(),
         _ => "0".to_string(),
+    }
+}
+
+fn c_format_spec_for_hole(expr: &Expr, spec: Option<&str>, ctx: &CContext) -> (String, String) {
+    let ty = infer_expr_type(expr, ctx);
+    let val_str = codegen_expr(expr, ctx);
+
+    if let Some(spec) = spec {
+        if spec == "$" {
+            return ("$%.2f".to_string(), format!("(double)({})", val_str));
+        }
+        if spec.starts_with('.') {
+            if let Ok(prec) = spec[1..].parse::<usize>() {
+                return (format!("%.{}f", prec), format!("(double)({})", val_str));
+            }
+        }
+        if spec.starts_with('>') || spec.starts_with('<') || spec.starts_with('^') {
+            let align = &spec[..1];
+            if let Ok(width) = spec[1..].parse::<usize>() {
+                if align == "^" {
+                    match ty {
+                        CType::Int64 => return ("%s".to_string(), format!("logos_center_i64({}, {})", val_str, width)),
+                        _ => return ("%s".to_string(), format!("logos_center_str({}, {})", val_str, width)),
+                    }
+                }
+                let c_flag = match align {
+                    ">" => "",
+                    "<" => "-",
+                    _ => unreachable!(),
+                };
+                match ty {
+                    CType::String => return (format!("%{}{}s", c_flag, width), val_str),
+                    CType::Int64 => return (format!("%{}{}\" PRId64 \"", c_flag, width), val_str),
+                    _ => return (format!("%{}{}s", c_flag, width), val_str),
+                }
+            }
+        }
+    }
+
+    match ty {
+        CType::Int64 => ("%\" PRId64 \"".to_string(), val_str),
+        CType::Float64 => ("%g".to_string(), val_str),
+        CType::Bool => ("%s".to_string(), format!("{} ? \"true\" : \"false\"", val_str)),
+        CType::String => ("%s".to_string(), val_str),
+        _ => ("%\" PRId64 \"".to_string(), val_str),
+    }
+}
+
+fn codegen_interpolated_string_c(parts: &[crate::ast::stmt::StringPart], ctx: &CContext) -> String {
+    let mut fmt = String::new();
+    let mut args = Vec::new();
+
+    for part in parts {
+        match part {
+            crate::ast::stmt::StringPart::Literal(sym) => {
+                let text = ctx.interner.resolve(*sym);
+                for c in text.chars() {
+                    match c {
+                        '\n' => fmt.push_str("\\n"),
+                        '\r' => fmt.push_str("\\r"),
+                        '\t' => fmt.push_str("\\t"),
+                        '\\' => fmt.push_str("\\\\"),
+                        '"' => fmt.push_str("\\\""),
+                        '%' => fmt.push_str("%%"),
+                        other => fmt.push(other),
+                    }
+                }
+            }
+            crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
+                if *debug {
+                    let name = match value {
+                        Expr::Identifier(sym) => ctx.interner.resolve(*sym).to_string(),
+                        _ => "?".to_string(),
+                    };
+                    fmt.push_str(&name);
+                    fmt.push('=');
+                }
+                let spec_str = format_spec.map(|s| ctx.interner.resolve(s).to_string());
+                let (hole_fmt, hole_arg) = c_format_spec_for_hole(value, spec_str.as_deref(), ctx);
+                fmt.push_str(&hole_fmt);
+                args.push(hole_arg);
+            }
+        }
+    }
+
+    if args.is_empty() {
+        format!("strdup(\"{}\")", fmt)
+    } else {
+        format!("logos_dyn_sprintf(\"{}\", {})", fmt, args.join(", "))
+    }
+}
+
+fn codegen_interpolated_show_c(parts: &[crate::ast::stmt::StringPart], ctx: &CContext, pad: &str, output: &mut String) {
+    let mut fmt = String::new();
+    let mut args = Vec::new();
+
+    for part in parts {
+        match part {
+            crate::ast::stmt::StringPart::Literal(sym) => {
+                let text = ctx.interner.resolve(*sym);
+                for c in text.chars() {
+                    match c {
+                        '\n' => fmt.push_str("\\n"),
+                        '\r' => fmt.push_str("\\r"),
+                        '\t' => fmt.push_str("\\t"),
+                        '\\' => fmt.push_str("\\\\"),
+                        '"' => fmt.push_str("\\\""),
+                        '%' => fmt.push_str("%%"),
+                        other => fmt.push(other),
+                    }
+                }
+            }
+            crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
+                if *debug {
+                    let name = match value {
+                        Expr::Identifier(sym) => ctx.interner.resolve(*sym).to_string(),
+                        _ => "?".to_string(),
+                    };
+                    fmt.push_str(&name);
+                    fmt.push('=');
+                }
+                let spec_str = format_spec.map(|s| ctx.interner.resolve(s).to_string());
+                let (hole_fmt, hole_arg) = c_format_spec_for_hole(value, spec_str.as_deref(), ctx);
+                fmt.push_str(&hole_fmt);
+                args.push(hole_arg);
+            }
+        }
+    }
+
+    if args.is_empty() {
+        writeln!(output, "{}puts(\"{}\");", pad, fmt).unwrap();
+    } else {
+        writeln!(output, "{}printf(\"{}\\n\", {});", pad, fmt, args.join(", ")).unwrap();
     }
 }
 
@@ -1392,6 +1655,10 @@ fn codegen_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: us
             writeln!(output, "{}{} = {};", pad, var_name, val_str).unwrap();
         }
         Stmt::Show { object, .. } => {
+            if let Expr::InterpolatedString(parts) = object {
+                codegen_interpolated_show_c(parts, ctx, &pad, output);
+                return;
+            }
             let ty = infer_expr_type(object, ctx);
             let val_str = codegen_expr(object, ctx);
             match ty {

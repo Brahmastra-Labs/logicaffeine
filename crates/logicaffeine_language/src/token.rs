@@ -485,6 +485,10 @@ pub enum TokenType {
     /// String literal: `"hello world"`
     StringLiteral(Symbol),
 
+    /// Interpolated string literal: `"Hello, {name}!"`
+    /// Contains raw content with {} holes preserved
+    InterpolatedString(Symbol),
+
     // Character literal: `x` (backtick syntax)
     CharLiteral(Symbol),
 

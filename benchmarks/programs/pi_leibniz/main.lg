@@ -1,0 +1,15 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable sum be 0.0.
+Let mutable sign be 1.0.
+Let mutable k be 0.
+While k is less than n:
+    Set sum to sum + sign / (2.0 * k + 1.0).
+    Set sign to 0.0 - sign.
+    Set k to k + 1.
+Let result be sum * 4.0.
+Show "{result:.15}".

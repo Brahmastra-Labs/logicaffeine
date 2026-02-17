@@ -5235,8 +5235,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     return self.parse_span_literal_from_num(&num_str);
                 }
 
-                // Check if it's a float (contains decimal point)
-                if num_str.contains('.') {
+                // Check if it's a float (contains decimal point or scientific notation)
+                if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
                     let num = num_str.parse::<f64>().unwrap_or(0.0);
                     Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Float(num))))
                 } else {
@@ -5249,6 +5249,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::StringLiteral(sym) => {
                 self.advance();
                 Ok(self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym))))
+            }
+
+            // String interpolation: "Hello, {name}!"
+            TokenType::InterpolatedString(sym) => {
+                let raw = self.interner.resolve(*sym).to_string();
+                self.advance();
+                let parts = self.parse_interpolation_parts(&raw)?;
+                Ok(self.ctx.alloc_imperative_expr(Expr::InterpolatedString(parts)))
             }
 
             // Character literals
@@ -5971,6 +5979,176 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
     /// Parse a Span literal starting from a number that was already consumed.
     /// Handles patterns like: "3 days", "2 months", "1 year and 3 days"
+    /// Parse the contents of an interpolated string into a sequence of literal/expression parts.
+    ///
+    /// Input is the raw string content (without quotes), e.g., `Hello, {name}! Value: {x:.2}`
+    /// `{{` and `}}` are escape sequences for literal braces.
+    fn parse_interpolation_parts(&mut self, raw: &str) -> ParseResult<Vec<crate::ast::stmt::StringPart<'a>>> {
+        use crate::ast::stmt::StringPart;
+
+        let mut parts = Vec::new();
+        let chars: Vec<char> = raw.chars().collect();
+        let mut i = 0;
+        let mut literal_buf = String::new();
+
+        while i < chars.len() {
+            match chars[i] {
+                '{' if i + 1 < chars.len() && chars[i + 1] == '{' => {
+                    // Escaped brace: {{ → literal {
+                    literal_buf.push('{');
+                    i += 2;
+                }
+                '{' => {
+                    // Flush literal buffer
+                    if !literal_buf.is_empty() {
+                        let sym = self.interner.intern(&literal_buf);
+                        parts.push(StringPart::Literal(sym));
+                        literal_buf.clear();
+                    }
+
+                    // Find matching closing brace
+                    let start = i + 1;
+                    let mut depth = 1;
+                    let mut j = start;
+                    while j < chars.len() && depth > 0 {
+                        if chars[j] == '{' { depth += 1; }
+                        if chars[j] == '}' { depth -= 1; }
+                        if depth > 0 { j += 1; }
+                    }
+                    if depth != 0 {
+                        return Err(ParseError {
+                            kind: crate::error::ParseErrorKind::Custom(
+                                "Unclosed interpolation brace in string".to_string()
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+
+                    let hole_content: String = chars[start..j].iter().collect();
+
+                    // Detect debug format: {var=} or {var=:.2}
+                    // Debug `=` is always the LAST `=` in the hole content.
+                    // Using rfind ensures comparison operators like `==` don't trigger
+                    // false positives — `{x == 5}` has no trailing `=` after an identifier.
+                    let (hole_after_debug, is_debug) = {
+                        if let Some(eq_pos) = hole_content.rfind('=') {
+                            let before_eq = hole_content[..eq_pos].trim();
+                            // Only treat as debug if the part before = is a simple identifier
+                            // and the `=` is not part of `==`, `<=`, `>=`, `!=`
+                            let is_double_eq = eq_pos > 0 && hole_content.as_bytes().get(eq_pos - 1) == Some(&b'=');
+                            let is_preceded_by_comparison = eq_pos > 0 && matches!(hole_content.as_bytes().get(eq_pos - 1), Some(b'!' | b'<' | b'>'));
+                            if !is_double_eq && !is_preceded_by_comparison
+                                && !before_eq.is_empty()
+                                && before_eq.chars().all(|c| c.is_alphanumeric() || c == '_')
+                            {
+                                (hole_content[..eq_pos].to_string() + &hole_content[eq_pos + 1..], true)
+                            } else {
+                                (hole_content.clone(), false)
+                            }
+                        } else {
+                            (hole_content.clone(), false)
+                        }
+                    };
+
+                    // Split on `:` for format specifier (but not `::`)
+                    let (expr_str, format_spec) = if let Some(colon_pos) = hole_after_debug.rfind(':') {
+                        let before = &hole_after_debug[..colon_pos];
+                        let after = &hole_after_debug[colon_pos + 1..];
+                        // Only treat as format spec if the part after `:` looks like a format spec
+                        // (starts with `.`, `<`, `>`, `^`, `$`, or a digit, or is a known specifier letter)
+                        if !after.is_empty() && (after.starts_with('.') || after.starts_with('<') || after.starts_with('>') || after.starts_with('^') || after == "$" || after.chars().next().map_or(false, |c| c.is_ascii_digit())) {
+                            // Validate the format spec matches a known pattern
+                            let valid = if after == "$" {
+                                true
+                            } else if after.starts_with('.') {
+                                after[1..].parse::<usize>().is_ok()
+                            } else if after.starts_with('<') || after.starts_with('>') || after.starts_with('^') {
+                                after[1..].parse::<usize>().is_ok()
+                            } else {
+                                after.parse::<usize>().is_ok()
+                            };
+                            if !valid {
+                                return Err(ParseError {
+                                    kind: crate::error::ParseErrorKind::Custom(
+                                        format!("Invalid format specifier `{}` in interpolation hole", after)
+                                    ),
+                                    span: self.current_span(),
+                                });
+                            }
+                            (before.to_string(), Some(after.to_string()))
+                        } else {
+                            (hole_after_debug.clone(), None)
+                        }
+                    } else {
+                        (hole_after_debug.clone(), None)
+                    };
+
+                    // Parse the expression through a sub-parser
+                    let expr_source = expr_str.trim().to_string();
+                    if expr_source.is_empty() {
+                        return Err(ParseError {
+                            kind: crate::error::ParseErrorKind::Custom(
+                                "Empty interpolation hole in string".to_string()
+                            ),
+                            span: self.current_span(),
+                        });
+                    }
+
+                    // Lex + parse the expression fragment by temporarily swapping
+                    // the parser's token stream
+                    let sub_expr = {
+                        let mut sub_lexer = crate::lexer::Lexer::new(&expr_source, self.interner);
+                        let sub_tokens = sub_lexer.tokenize();
+
+                        // Save and swap parser state
+                        let saved_tokens = std::mem::replace(&mut self.tokens, sub_tokens);
+                        let saved_current = self.current;
+                        self.current = 0;
+
+                        let result = self.parse_primary_or_binary_expr();
+
+                        // Restore parser state
+                        self.tokens = saved_tokens;
+                        self.current = saved_current;
+
+                        result?
+                    };
+
+                    let format_sym = format_spec.map(|s| self.interner.intern(&s));
+                    parts.push(StringPart::Expr {
+                        value: sub_expr,
+                        format_spec: format_sym,
+                        debug: is_debug,
+                    });
+
+                    i = j + 1; // skip past closing '}'
+                }
+                '}' if i + 1 < chars.len() && chars[i + 1] == '}' => {
+                    // Escaped brace: }} → literal }
+                    literal_buf.push('}');
+                    i += 2;
+                }
+                _ => {
+                    literal_buf.push(chars[i]);
+                    i += 1;
+                }
+            }
+        }
+
+        // Flush remaining literal
+        if !literal_buf.is_empty() {
+            let sym = self.interner.intern(&literal_buf);
+            parts.push(StringPart::Literal(sym));
+        }
+
+        Ok(parts)
+    }
+
+    /// Parse a primary expression or a full binary expression for interpolation holes.
+    fn parse_primary_or_binary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
+        self.parse_imperative_expr()
+    }
+
     fn parse_span_literal_from_num(&mut self, first_num_str: &str) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::Literal;
         use crate::token::CalendarUnit;

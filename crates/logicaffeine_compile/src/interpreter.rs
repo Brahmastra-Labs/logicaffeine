@@ -511,8 +511,13 @@ pub struct Interpreter<'a> {
     sym_parse_int: Option<Symbol>,
     sym_parse_float: Option<Symbol>,
     sym_abs: Option<Symbol>,
+    sym_sqrt: Option<Symbol>,
     sym_min: Option<Symbol>,
     sym_max: Option<Symbol>,
+    sym_floor: Option<Symbol>,
+    sym_ceil: Option<Symbol>,
+    sym_round: Option<Symbol>,
+    sym_pow: Option<Symbol>,
     sym_copy: Option<Symbol>,
 }
 
@@ -535,8 +540,13 @@ impl<'a> Interpreter<'a> {
             sym_parse_int: interner.lookup("parseInt"),
             sym_parse_float: interner.lookup("parseFloat"),
             sym_abs: interner.lookup("abs"),
+            sym_sqrt: interner.lookup("sqrt"),
             sym_min: interner.lookup("min"),
             sym_max: interner.lookup("max"),
+            sym_floor: interner.lookup("floor"),
+            sym_ceil: interner.lookup("ceil"),
+            sym_round: interner.lookup("round"),
+            sym_pow: interner.lookup("pow"),
             sym_copy: interner.lookup("copy"),
         }
     }
@@ -1665,6 +1675,35 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Nothing)
             }
 
+            Expr::InterpolatedString(parts) => {
+                let mut result = String::new();
+                for part in parts {
+                    match part {
+                        crate::ast::stmt::StringPart::Literal(sym) => {
+                            result.push_str(self.interner.resolve(*sym));
+                        }
+                        crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
+                            let val = self.evaluate_expr(value).await?;
+                            if *debug {
+                                let prefix = match value {
+                                    Expr::Identifier(sym) => self.interner.resolve(*sym).to_string(),
+                                    _ => "expr".to_string(),
+                                };
+                                result.push_str(&prefix);
+                                result.push('=');
+                            }
+                            if let Some(spec_sym) = format_spec {
+                                let spec = self.interner.resolve(*spec_sym);
+                                result.push_str(&apply_format_spec(&val, spec));
+                            } else {
+                                result.push_str(&val.to_display_string());
+                            }
+                        }
+                    }
+                }
+                Ok(RuntimeValue::Text(Rc::new(result)))
+            }
+
             Expr::Escape { .. } => {
                 Err("Escape expressions contain raw Rust code and cannot be interpreted. \
                      Use `largo build` or `largo run` to compile and run this program.".to_string())
@@ -2039,6 +2078,16 @@ impl<'a> Interpreter<'a> {
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
                 _ => Err(format!("abs() requires a number, got {}", val.type_name())),
             };
+        } else if func_sym == self.sym_sqrt {
+            if args.len() != 1 {
+                return Err("sqrt() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr(args[0]).await?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.sqrt())),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Float((n as f64).sqrt())),
+                _ => Err(format!("sqrt() requires a number, got {}", val.type_name())),
+            };
         } else if func_sym == self.sym_min {
             if args.len() != 2 {
                 return Err("min() takes exactly 2 arguments".to_string());
@@ -2047,7 +2096,10 @@ impl<'a> Interpreter<'a> {
             let b = self.evaluate_expr(args[1]).await?;
             return match (&a, &b) {
                 (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
-                _ => Err("min() requires integers".to_string()),
+                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.min(*y))),
+                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).min(*y))),
+                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.min(*y as f64))),
+                _ => Err("min() requires numbers".to_string()),
             };
         } else if func_sym == self.sym_max {
             if args.len() != 2 {
@@ -2057,7 +2109,59 @@ impl<'a> Interpreter<'a> {
             let b = self.evaluate_expr(args[1]).await?;
             return match (&a, &b) {
                 (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
-                _ => Err("max() requires integers".to_string()),
+                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.max(*y))),
+                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).max(*y))),
+                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.max(*y as f64))),
+                _ => Err("max() requires numbers".to_string()),
+            };
+        } else if func_sym == self.sym_floor {
+            if args.len() != 1 {
+                return Err("floor() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr(args[0]).await?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.floor() as i64)),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                _ => Err(format!("floor() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_ceil {
+            if args.len() != 1 {
+                return Err("ceil() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr(args[0]).await?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.ceil() as i64)),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                _ => Err(format!("ceil() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_round {
+            if args.len() != 1 {
+                return Err("round() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr(args[0]).await?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.round() as i64)),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                _ => Err(format!("round() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_pow {
+            if args.len() != 2 {
+                return Err("pow() takes exactly 2 arguments".to_string());
+            }
+            let base = self.evaluate_expr(args[0]).await?;
+            let exp = self.evaluate_expr(args[1]).await?;
+            return match (&base, &exp) {
+                (RuntimeValue::Int(b), RuntimeValue::Int(e)) => {
+                    if *e >= 0 {
+                        Ok(RuntimeValue::Int(b.pow(*e as u32)))
+                    } else {
+                        Ok(RuntimeValue::Float((*b as f64).powi(*e as i32)))
+                    }
+                }
+                (RuntimeValue::Float(b), RuntimeValue::Int(e)) => Ok(RuntimeValue::Float(b.powi(*e as i32))),
+                (RuntimeValue::Float(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float(b.powf(*e))),
+                (RuntimeValue::Int(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float((*b as f64).powf(*e))),
+                _ => Err("pow() requires numbers".to_string()),
             };
         } else if func_sym == self.sym_copy {
             if args.len() != 1 {
@@ -3261,6 +3365,35 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Nothing)
             }
 
+            Expr::InterpolatedString(parts) => {
+                let mut result = String::new();
+                for part in parts {
+                    match part {
+                        crate::ast::stmt::StringPart::Literal(sym) => {
+                            result.push_str(self.interner.resolve(*sym));
+                        }
+                        crate::ast::stmt::StringPart::Expr { value, format_spec, debug } => {
+                            let val = self.evaluate_expr_sync(value)?;
+                            if *debug {
+                                let prefix = match value {
+                                    Expr::Identifier(sym) => self.interner.resolve(*sym).to_string(),
+                                    _ => "expr".to_string(),
+                                };
+                                result.push_str(&prefix);
+                                result.push('=');
+                            }
+                            if let Some(spec_sym) = format_spec {
+                                let spec = self.interner.resolve(*spec_sym);
+                                result.push_str(&apply_format_spec(&val, spec));
+                            } else {
+                                result.push_str(&val.to_display_string());
+                            }
+                        }
+                    }
+                }
+                Ok(RuntimeValue::Text(Rc::new(result)))
+            }
+
             Expr::Escape { .. } => {
                 Err("Escape expressions contain raw Rust code and cannot be interpreted. \
                      Use `largo build` or `largo run` to compile and run this program.".to_string())
@@ -3365,6 +3498,16 @@ impl<'a> Interpreter<'a> {
                 RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.abs())),
                 _ => Err(format!("abs() requires a number, got {}", val.type_name())),
             };
+        } else if func_sym == self.sym_sqrt {
+            if args.len() != 1 {
+                return Err("sqrt() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Float(f.sqrt())),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Float((n as f64).sqrt())),
+                _ => Err(format!("sqrt() requires a number, got {}", val.type_name())),
+            };
         } else if func_sym == self.sym_min {
             if args.len() != 2 {
                 return Err("min() takes exactly 2 arguments".to_string());
@@ -3373,7 +3516,10 @@ impl<'a> Interpreter<'a> {
             let b = self.evaluate_expr_sync(args[1])?;
             return match (&a, &b) {
                 (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.min(y))),
-                _ => Err("min() requires integers".to_string()),
+                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.min(*y))),
+                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).min(*y))),
+                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.min(*y as f64))),
+                _ => Err("min() requires numbers".to_string()),
             };
         } else if func_sym == self.sym_max {
             if args.len() != 2 {
@@ -3383,7 +3529,59 @@ impl<'a> Interpreter<'a> {
             let b = self.evaluate_expr_sync(args[1])?;
             return match (&a, &b) {
                 (RuntimeValue::Int(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Int(*x.max(y))),
-                _ => Err("max() requires integers".to_string()),
+                (RuntimeValue::Float(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float(x.max(*y))),
+                (RuntimeValue::Int(x), RuntimeValue::Float(y)) => Ok(RuntimeValue::Float((*x as f64).max(*y))),
+                (RuntimeValue::Float(x), RuntimeValue::Int(y)) => Ok(RuntimeValue::Float(x.max(*y as f64))),
+                _ => Err("max() requires numbers".to_string()),
+            };
+        } else if func_sym == self.sym_floor {
+            if args.len() != 1 {
+                return Err("floor() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.floor() as i64)),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                _ => Err(format!("floor() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_ceil {
+            if args.len() != 1 {
+                return Err("ceil() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.ceil() as i64)),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                _ => Err(format!("ceil() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_round {
+            if args.len() != 1 {
+                return Err("round() takes exactly 1 argument".to_string());
+            }
+            let val = self.evaluate_expr_sync(args[0])?;
+            return match val {
+                RuntimeValue::Float(f) => Ok(RuntimeValue::Int(f.round() as i64)),
+                RuntimeValue::Int(n) => Ok(RuntimeValue::Int(n)),
+                _ => Err(format!("round() requires a number, got {}", val.type_name())),
+            };
+        } else if func_sym == self.sym_pow {
+            if args.len() != 2 {
+                return Err("pow() takes exactly 2 arguments".to_string());
+            }
+            let base = self.evaluate_expr_sync(args[0])?;
+            let exp = self.evaluate_expr_sync(args[1])?;
+            return match (&base, &exp) {
+                (RuntimeValue::Int(b), RuntimeValue::Int(e)) => {
+                    if *e >= 0 {
+                        Ok(RuntimeValue::Int(b.pow(*e as u32)))
+                    } else {
+                        Ok(RuntimeValue::Float((*b as f64).powi(*e as i32)))
+                    }
+                }
+                (RuntimeValue::Float(b), RuntimeValue::Int(e)) => Ok(RuntimeValue::Float(b.powi(*e as i32))),
+                (RuntimeValue::Float(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float(b.powf(*e))),
+                (RuntimeValue::Int(b), RuntimeValue::Float(e)) => Ok(RuntimeValue::Float((*b as f64).powf(*e))),
+                _ => Err("pow() requires numbers".to_string()),
             };
         } else if func_sym == self.sym_copy {
             if args.len() != 1 {
@@ -3620,6 +3818,13 @@ impl<'a> Interpreter<'a> {
                     Self::collect_symbols_from_expr(arg, exclude, out, seen);
                 }
             }
+            Expr::InterpolatedString(parts) => {
+                for part in parts {
+                    if let crate::ast::stmt::StringPart::Expr { value, .. } = part {
+                        Self::collect_symbols_from_expr(value, exclude, out, seen);
+                    }
+                }
+            }
         }
     }
 
@@ -3821,6 +4026,49 @@ impl<'a> Interpreter<'a> {
 ///
 /// Only 4 statement types need async: ReadFrom (file), WriteFile, Sleep, Mount.
 /// If none are present, the sync execution path can be used for better performance.
+fn apply_format_spec(val: &RuntimeValue, spec: &str) -> String {
+    // Currency: $
+    if spec == "$" {
+        let f = match val {
+            RuntimeValue::Float(f) => *f,
+            RuntimeValue::Int(n) => *n as f64,
+            _ => return format!("${}", val.to_display_string()),
+        };
+        return format!("${:.2}", f);
+    }
+    // Precision: .N
+    if spec.starts_with('.') {
+        if let Ok(precision) = spec[1..].parse::<usize>() {
+            match val {
+                RuntimeValue::Float(f) => return format!("{:.prec$}", f, prec = precision),
+                RuntimeValue::Int(n) => return format!("{:.prec$}", *n as f64, prec = precision),
+                _ => return val.to_display_string(),
+            }
+        }
+    }
+    // Alignment: >N, <N, ^N
+    if spec.len() >= 2 {
+        let first = spec.as_bytes()[0];
+        if first == b'>' || first == b'<' || first == b'^' {
+            if let Ok(width) = spec[1..].parse::<usize>() {
+                let s = val.to_display_string();
+                return match first {
+                    b'>' => format!("{:>w$}", s, w = width),
+                    b'<' => format!("{:<w$}", s, w = width),
+                    b'^' => format!("{:^w$}", s, w = width),
+                    _ => unreachable!(),
+                };
+            }
+        }
+    }
+    // Bare width: N (right-align by default, matching Rust's behavior)
+    if let Ok(width) = spec.parse::<usize>() {
+        let s = val.to_display_string();
+        return format!("{:>w$}", s, w = width);
+    }
+    val.to_display_string()
+}
+
 pub fn needs_async(stmts: &[Stmt]) -> bool {
     stmts.iter().any(|s| stmt_needs_async(s))
 }

@@ -20,7 +20,28 @@ RESULTS_DIR="$SCRIPT_DIR/results"
 RAW_DIR="$RESULTS_DIR/raw"
 GENERATED_DIR="$SCRIPT_DIR/generated"
 
-BENCHMARKS=(fib sieve collect strings bubble_sort ackermann)
+BENCHMARKS=(
+    # Recursion & Function Calls
+    fib ackermann nqueens
+    # Sorting
+    bubble_sort mergesort quicksort counting_sort heap_sort
+    # Floating Point
+    nbody mandelbrot spectral_norm pi_leibniz
+    # Integer Mathematics
+    gcd collatz primes
+    # Array Patterns
+    sieve matrix_mult prefix_sum array_reverse array_fill
+    # Hash Maps & Lookup
+    collect two_sum histogram
+    # Dynamic Programming
+    knapsack coins
+    # Combinatorial
+    fannkuch
+    # Memory & Allocation
+    strings binary_trees
+    # Loop Overhead & Control Flow
+    loop_sum fib_iterative graph_bfs string_search
+)
 
 WARMUP="${BENCH_WARMUP:-5}"
 RUNS="${BENCH_RUNS:-20}"
@@ -88,7 +109,13 @@ info "Phase 1: Building all implementations..."
 # Build largo (the LOGOS CLI)
 info "Building largo..."
 cargo build -p logicaffeine-cli --release --manifest-path "$SCRIPT_DIR/../Cargo.toml" 2>/dev/null
-LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
+LARGO="$LOGOS_TARGET_DIR/release/logicaffeine-cli"
+if [ ! -f "$LARGO" ]; then
+    LARGO="$LOGOS_TARGET_DIR/release/largo"
+fi
+if [ ! -f "$LARGO" ]; then
+    LARGO="$SCRIPT_DIR/../target/release/logicaffeine-cli"
+fi
 if [ ! -f "$LARGO" ]; then
     LARGO="$SCRIPT_DIR/../target/release/largo"
 fi
@@ -208,15 +235,37 @@ info "Phase 2: Verifying correctness at reference sizes..."
 
 ref_size() {
     case "$1" in
-        fib) echo 30 ;; sieve) echo 1000000 ;; collect) echo 50000 ;;
-        strings) echo 50000 ;; bubble_sort) echo 2000 ;; ackermann) echo 10 ;;
+        fib) echo 30 ;; ackermann) echo 10 ;; nqueens) echo 11 ;;
+        bubble_sort) echo 2000 ;; mergesort) echo 10000 ;; quicksort) echo 10000 ;;
+        counting_sort) echo 100000 ;; heap_sort) echo 10000 ;;
+        nbody) echo 10000 ;; mandelbrot) echo 500 ;; spectral_norm) echo 1000 ;; pi_leibniz) echo 10000000 ;;
+        gcd) echo 2000 ;; collatz) echo 1000000 ;; primes) echo 100000 ;;
+        sieve) echo 1000000 ;; matrix_mult) echo 200 ;; prefix_sum) echo 1000000 ;;
+        array_reverse) echo 1000000 ;; array_fill) echo 5000000 ;;
+        collect) echo 50000 ;; two_sum) echo 10000 ;; histogram) echo 1000000 ;;
+        knapsack) echo 1000 ;; coins) echo 10000 ;;
+        fannkuch) echo 9 ;;
+        strings) echo 50000 ;; binary_trees) echo 16 ;;
+        loop_sum) echo 100000000 ;; fib_iterative) echo 100000000 ;;
+        graph_bfs) echo 10000 ;; string_search) echo 100000 ;;
     esac
 }
 
 interp_size() {
     case "$1" in
-        fib) echo 35 ;; sieve) echo 10000 ;; collect) echo 1000 ;;
-        strings) echo 1000 ;; bubble_sort) echo 1000 ;; ackermann) echo 3 ;;
+        fib) echo 35 ;; ackermann) echo 3 ;; nqueens) echo 8 ;;
+        bubble_sort) echo 1000 ;; mergesort) echo 1000 ;; quicksort) echo 1000 ;;
+        counting_sort) echo 10000 ;; heap_sort) echo 1000 ;;
+        nbody) echo 1000 ;; mandelbrot) echo 100 ;; spectral_norm) echo 100 ;; pi_leibniz) echo 100000 ;;
+        gcd) echo 500 ;; collatz) echo 10000 ;; primes) echo 10000 ;;
+        sieve) echo 10000 ;; matrix_mult) echo 50 ;; prefix_sum) echo 10000 ;;
+        array_reverse) echo 10000 ;; array_fill) echo 100000 ;;
+        collect) echo 1000 ;; two_sum) echo 1000 ;; histogram) echo 10000 ;;
+        knapsack) echo 100 ;; coins) echo 1000 ;;
+        fannkuch) echo 7 ;;
+        strings) echo 1000 ;; binary_trees) echo 10 ;;
+        loop_sum) echo 100000 ;; fib_iterative) echo 100000 ;;
+        graph_bfs) echo 1000 ;; string_search) echo 10000 ;;
     esac
 }
 
@@ -548,20 +597,57 @@ lang_id() {
 # Benchmark descriptions
 bench_name() {
     case "$1" in
-        fib) echo "Recursive Fibonacci" ;; sieve) echo "Sieve of Eratosthenes" ;;
-        collect) echo "Collection Operations" ;; strings) echo "String Assembly" ;;
-        bubble_sort) echo "Bubble Sort" ;; ackermann) echo "Ackermann Function" ;;
+        fib) echo "Recursive Fibonacci" ;; ackermann) echo "Ackermann Function" ;; nqueens) echo "N-Queens" ;;
+        bubble_sort) echo "Bubble Sort" ;; mergesort) echo "Merge Sort" ;; quicksort) echo "Quicksort" ;;
+        counting_sort) echo "Counting Sort" ;; heap_sort) echo "Heap Sort" ;;
+        nbody) echo "N-Body Simulation" ;; mandelbrot) echo "Mandelbrot Set" ;;
+        spectral_norm) echo "Spectral Norm" ;; pi_leibniz) echo "Pi (Leibniz Series)" ;;
+        gcd) echo "GCD Sum" ;; collatz) echo "Collatz Conjecture" ;; primes) echo "Primes (Trial Division)" ;;
+        sieve) echo "Sieve of Eratosthenes" ;; matrix_mult) echo "Matrix Multiply" ;;
+        prefix_sum) echo "Prefix Sum" ;; array_reverse) echo "Array Reverse" ;; array_fill) echo "Array Fill & Sum" ;;
+        collect) echo "Collection Operations" ;; two_sum) echo "Two Sum" ;; histogram) echo "Histogram" ;;
+        knapsack) echo "0/1 Knapsack" ;; coins) echo "Coin Change" ;;
+        fannkuch) echo "Fannkuch Redux" ;;
+        strings) echo "String Assembly" ;; binary_trees) echo "Binary Trees" ;;
+        loop_sum) echo "Loop Sum" ;; fib_iterative) echo "Iterative Fibonacci" ;;
+        graph_bfs) echo "Graph BFS" ;; string_search) echo "Naive String Search" ;;
     esac
 }
 
 bench_desc() {
     case "$1" in
         fib) echo "Naive recursive fibonacci. Measures function call overhead and recursion depth." ;;
-        sieve) echo "Classic prime sieve. Measures indexed array mutation, tight loops, and conditional branching." ;;
-        collect) echo "Hash map insert and lookup. Measures hash computation, allocation pressure, and cache behavior." ;;
-        strings) echo "String concatenation and assembly. Measures allocator throughput and GC pressure." ;;
-        bubble_sort) echo "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns." ;;
         ackermann) echo "Ackermann(3, m). Measures extreme recursion depth and stack frame overhead." ;;
+        nqueens) echo "N-Queens backtracking. Measures recursive constraint solving." ;;
+        bubble_sort) echo "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns." ;;
+        mergesort) echo "Top-down merge sort. Measures allocation-heavy divide-and-conquer." ;;
+        quicksort) echo "Lomuto-partition quicksort. Measures in-place swap-heavy recursion." ;;
+        counting_sort) echo "Non-comparison O(n+k) sort. Measures pure array indexing throughput." ;;
+        heap_sort) echo "Heap sort with sift-down. Measures logarithmic array jumps." ;;
+        nbody) echo "5-body gravitational simulation. Measures FP struct arrays and sqrt." ;;
+        mandelbrot) echo "Mandelbrot set escape iteration. Measures FP branching and convergence." ;;
+        spectral_norm) echo "Spectral norm power method. Measures FP dot products and array throughput." ;;
+        pi_leibniz) echo "Leibniz series for pi. Measures pure FP loop overhead." ;;
+        gcd) echo "GCD sum via Euclidean algorithm. Measures modulo-heavy tight loops." ;;
+        collatz) echo "Collatz step counting. Measures unpredictable branching." ;;
+        primes) echo "Trial division prime counting. Measures nested loops with early exit." ;;
+        sieve) echo "Classic prime sieve. Measures indexed array mutation and tight loops." ;;
+        matrix_mult) echo "O(n^3) matrix multiply. Measures cache locality and triple-nested loops." ;;
+        prefix_sum) echo "Sequential prefix sum scan. Measures read-modify-write bandwidth." ;;
+        array_reverse) echo "Two-pointer in-place reversal. Measures strided cache access." ;;
+        array_fill) echo "Array push and sum. Measures raw memory bandwidth and allocation." ;;
+        collect) echo "Hash map insert and lookup. Measures hash computation and cache behavior." ;;
+        two_sum) echo "Interleaved hash insert+lookup. Measures hash table under mixed workload." ;;
+        histogram) echo "Array-indexed frequency counting. Measures random array access." ;;
+        knapsack) echo "0/1 knapsack DP. Measures 2D table fills and conditional max." ;;
+        coins) echo "Coin change DP. Measures 1D DP with inner-loop additions." ;;
+        fannkuch) echo "Fannkuch permutation benchmark. Measures tight array reversal loops." ;;
+        strings) echo "String concatenation and assembly. Measures allocator throughput and GC pressure." ;;
+        binary_trees) echo "Recursive tree creation and checksum. Measures allocation pressure." ;;
+        loop_sum) echo "Pure loop accumulation. Measures raw loop overhead with minimal body." ;;
+        fib_iterative) echo "Iterative fibonacci mod. Measures loop + data dependency chain." ;;
+        graph_bfs) echo "BFS on generated graph. Measures queue operations and random access." ;;
+        string_search) echo "Naive O(nm) string search. Measures character-level access and inner loop." ;;
     esac
 }
 

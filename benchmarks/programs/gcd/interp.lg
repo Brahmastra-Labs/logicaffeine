@@ -1,0 +1,19 @@
+## To gcd (a: Int, b: Int) -> Int:
+    Let mutable x be a.
+    Let mutable y be b.
+    While y is greater than 0:
+        Let temp be y.
+        Set y to x % y.
+        Set x to temp.
+    Return x.
+
+## Main
+Let mutable sum be 0.
+Let mutable i be 1.
+While i is at most 500:
+    Let mutable j be i.
+    While j is at most 500:
+        Set sum to sum + gcd(i, j).
+        Set j to j + 1.
+    Set i to i + 1.
+Show sum.

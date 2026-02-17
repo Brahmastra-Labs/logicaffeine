@@ -696,7 +696,7 @@ impl<'a> Lexer<'a> {
                         word_start = look_ahead + 1; // Start after the newline
                     }
                 }
-                // String literals: "hello world"
+                // String literals: "hello world" or """multi-line"""
                 '"' => {
                     // Push any pending word
                     if !current_word.is_empty() {
@@ -709,40 +709,80 @@ impl<'a> Lexer<'a> {
                         });
                     }
 
-                    // Scan until closing quote
-                    let string_start = i;
-                    let mut j = char_idx + 1;
-                    let mut string_content = String::new();
-                    while j < chars.len() && chars[j] != '"' {
-                        if chars[j] == '\\' && j + 1 < chars.len() {
-                            // Escape sequence - skip backslash, include next char
+                    // Check for triple-quote: """
+                    if char_idx + 2 < chars.len() && chars[char_idx + 1] == '"' && chars[char_idx + 2] == '"' {
+                        let string_start = i;
+                        let mut j = char_idx + 3; // skip opening """
+                        // Skip optional newline after opening """
+                        if j < chars.len() && chars[j] == '\n' {
                             j += 1;
-                            if j < chars.len() {
+                        }
+                        let mut raw_content = String::new();
+                        // Scan until closing """
+                        while j < chars.len() {
+                            if j + 2 < chars.len() && chars[j] == '"' && chars[j + 1] == '"' && chars[j + 2] == '"' {
+                                break;
+                            }
+                            raw_content.push(chars[j]);
+                            j += 1;
+                        }
+                        // Strip trailing newline before closing """
+                        if raw_content.ends_with('\n') {
+                            raw_content.pop();
+                        }
+                        // Dedent: find minimum common indentation and strip it
+                        let dedented = Self::dedent_triple_quote(&raw_content);
+                        let end_pos = if j + 2 < chars.len() { j + 3 } else { chars.len() };
+                        items.push(WordItem {
+                            word: format!("\x00STR:{}", dedented),
+                            trailing_punct: None,
+                            start: string_start,
+                            end: end_pos,
+                            punct_pos: None,
+                        });
+                        // Skip past the closing """
+                        if j + 2 < chars.len() {
+                            skip_count = (j + 2) - char_idx;
+                        } else {
+                            skip_count = chars.len() - 1 - char_idx;
+                        }
+                        word_start = end_pos;
+                    } else {
+                        // Single-quoted string: scan until closing quote
+                        let string_start = i;
+                        let mut j = char_idx + 1;
+                        let mut string_content = String::new();
+                        while j < chars.len() && chars[j] != '"' {
+                            if chars[j] == '\\' && j + 1 < chars.len() {
+                                // Escape sequence - skip backslash, include next char
+                                j += 1;
+                                if j < chars.len() {
+                                    string_content.push(chars[j]);
+                                }
+                            } else {
                                 string_content.push(chars[j]);
                             }
-                        } else {
-                            string_content.push(chars[j]);
+                            j += 1;
                         }
-                        j += 1;
-                    }
 
-                    // Create a special marker for string literals
-                    // We prefix with a special character to identify in tokenize()
-                    items.push(WordItem {
-                        word: format!("\x00STR:{}", string_content),
-                        trailing_punct: None,
-                        start: string_start,
-                        end: if j < chars.len() { j + 1 } else { j },
-                        punct_pos: None,
-                    });
+                        // Create a special marker for string literals
+                        // We prefix with a special character to identify in tokenize()
+                        items.push(WordItem {
+                            word: format!("\x00STR:{}", string_content),
+                            trailing_punct: None,
+                            start: string_start,
+                            end: if j < chars.len() { j + 1 } else { j },
+                            punct_pos: None,
+                        });
 
-                    // Skip past the closing quote
-                    if j < chars.len() {
-                        skip_count = j - char_idx;
-                    } else {
-                        skip_count = j - char_idx - 1;
+                        // Skip past the closing quote
+                        if j < chars.len() {
+                            skip_count = j - char_idx;
+                        } else {
+                            skip_count = j - char_idx - 1;
+                        }
+                        word_start = if j < chars.len() { j + 1 } else { j };
                     }
-                    word_start = if j < chars.len() { j + 1 } else { j };
                 }
                 // Character literals with backticks: `x`
                 '`' => {
@@ -918,6 +958,10 @@ impl<'a> Lexer<'a> {
                 // Special handling for ':' in time literals (9:30am, 11:45pm)
                 ':' if Self::is_time_colon(&current_word, &chars, char_idx) => {
                     // This colon is part of a time, include it in the word
+                    current_word.push(c);
+                }
+                // Scientific notation: 4.84e+00, 1.66E-03, 2.5e-2
+                '+' | '-' if Self::is_exponent_sign(&current_word, &chars, char_idx) => {
                     current_word.push(c);
                 }
                 '(' | ')' | '[' | ']' | ',' | '?' | '!' | ':' | '+' | '-' | '*' | '/' | '%' | '<' | '>' | '=' => {
@@ -1134,9 +1178,16 @@ impl<'a> Lexer<'a> {
             // Check for string literal marker (pre-tokenized in Stage 1)
             if word.starts_with("\x00STR:") {
                 let content = &word[5..]; // Skip the marker prefix
-                let sym = self.interner.intern(content);
                 let span = Span::new(word_start, word_end);
-                tokens.push(Token::new(TokenType::StringLiteral(sym), sym, span));
+                if Self::has_unescaped_brace(content) {
+                    let sym = self.interner.intern(content);
+                    tokens.push(Token::new(TokenType::InterpolatedString(sym), sym, span));
+                } else {
+                    // Collapse {{ → { and }} → } for plain strings
+                    let normalized = content.replace("{{", "{").replace("}}", "}");
+                    let sym = self.interner.intern(&normalized);
+                    tokens.push(Token::new(TokenType::StringLiteral(sym), sym, span));
+                }
                 self.pos += 1;
                 continue;
             }
@@ -1317,6 +1368,22 @@ impl<'a> Lexer<'a> {
                 }
             }
             structural_events = filtered;
+        }
+
+        // Filter out structural events from within multi-line string literals.
+        // Triple-quote strings span multiple lines; their internal indentation
+        // must not generate Indent/Dedent tokens.
+        {
+            let string_spans: Vec<(usize, usize)> = tokens.iter()
+                .filter(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)))
+                .filter(|t| t.span.end - t.span.start > 6) // only multi-line strings (""" adds >=6 chars)
+                .map(|t| (t.span.start, t.span.end))
+                .collect();
+            if !string_spans.is_empty() {
+                structural_events.retain(|&(pos, _)| {
+                    !string_spans.iter().any(|(start, end)| pos > *start && pos < *end)
+                });
+            }
         }
 
         // Sort events by position, with dedents before indents at same position
@@ -1518,6 +1585,70 @@ impl<'a> Lexer<'a> {
         }
 
         false
+    }
+
+    /// Check if a string contains an unescaped `{` (i.e., not part of `{{`).
+    /// Used to distinguish `InterpolatedString` from `StringLiteral`.
+    fn has_unescaped_brace(content: &str) -> bool {
+        let bytes = content.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'{' {
+                if i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+                    i += 2;
+                } else {
+                    return true;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        false
+    }
+
+    /// Check if a `+` or `-` at the current position is the sign of a scientific notation exponent.
+    ///
+    /// Detects patterns like:
+    /// - "4.84e+" followed by "00" → exponent sign in `4.84e+00`
+    /// - "2.5e-" followed by "2"  → exponent sign in `2.5e-2`
+    fn is_exponent_sign(current_word: &str, chars: &[char], char_idx: usize) -> bool {
+        // Word must end with e/E
+        if !current_word.ends_with('e') && !current_word.ends_with('E') {
+            return false;
+        }
+        // Before e/E must contain a digit (ensures it's a number, not a bare "e")
+        let before_e = &current_word[..current_word.len() - 1];
+        if before_e.is_empty() || !before_e.chars().next().unwrap().is_ascii_digit() {
+            return false;
+        }
+        // Next char must be a digit (the exponent value)
+        char_idx + 1 < chars.len() && chars[char_idx + 1].is_ascii_digit()
+    }
+
+    /// Dedent a triple-quoted string: strip the common leading whitespace from each line.
+    /// Joins lines with literal newline characters (not escape sequences).
+    fn dedent_triple_quote(raw: &str) -> String {
+        let lines: Vec<&str> = raw.lines().collect();
+        if lines.is_empty() {
+            return String::new();
+        }
+        // Find minimum indentation of non-empty lines
+        let min_indent = lines.iter()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.len() - l.trim_start().len())
+            .min()
+            .unwrap_or(0);
+        // Strip that indentation and join with actual newlines
+        lines.iter()
+            .map(|l| {
+                if l.len() >= min_indent {
+                    &l[min_indent..]
+                } else {
+                    l.trim()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     fn is_numeric_literal(word: &str) -> bool {
@@ -2663,5 +2794,26 @@ mod tests {
         // EOF at end
         assert_eq!(tokens[5].span.start, input.len());
         assert_eq!(tokens[5].kind, TokenType::EOF);
+    }
+
+    #[test]
+    fn triple_quote_produces_string_token() {
+        let mut interner = Interner::new();
+        let source = "## Main\nLet msg be \"\"\"\n    Hello\n    World\n\"\"\".\nShow msg.";
+        let mut lexer = Lexer::new(source, &mut interner);
+        let tokens = lexer.tokenize();
+        // Dump all tokens for debugging
+        for (i, t) in tokens.iter().enumerate() {
+            let lex = interner.resolve(t.lexeme);
+            eprintln!("Token[{}]: {:?} lex={:?} span={}..{}", i, t.kind, lex, t.span.start, t.span.end);
+        }
+        // Find the string token
+        let str_token = tokens.iter().find(|t| matches!(t.kind, TokenType::StringLiteral(_) | TokenType::InterpolatedString(_)));
+        assert!(str_token.is_some(), "Should have a string token. Tokens: {:?}", tokens.iter().map(|t| format!("{:?}", t.kind)).collect::<Vec<_>>());
+        if let Some(tok) = str_token {
+            let content = interner.resolve(tok.lexeme);
+            eprintln!("Triple-quote content: {:?}", content);
+            assert!(content.contains("Hello"), "Should contain Hello, got: {:?}", content);
+        }
     }
 }
