@@ -158,6 +158,8 @@ pub enum TokenType {
     Let,
     Set,
     Return,
+    /// Exits the innermost while loop: `Break.`
+    Break,
     Be,
     While,
     Repeat,
@@ -506,6 +508,12 @@ pub enum TokenType {
     RBracket,
     Comma,
     Period,
+
+    // Bitwise Operators
+    /// "x xor y" → bitwise XOR (`^`)
+    Xor,
+    /// "x shifted left/right by y" → bit shift (`<<`/`>>`)
+    Shifted,
 
     // Arithmetic Operators
     Plus,

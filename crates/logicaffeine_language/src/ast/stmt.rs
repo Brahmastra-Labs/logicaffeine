@@ -90,11 +90,17 @@ pub enum BinaryOpKind {
     Gt,
     LtEq,
     GtEq,
-    // Logical operators for compound conditions
+    // Logical/bitwise operators — type-aware in codegen (&&/|| for Bool, &/| for Int)
     And,
     Or,
     /// String concatenation ("X combined with Y")
     Concat,
+    /// Bitwise XOR: "x xor y" → `x ^ y`
+    BitXor,
+    /// Left shift: "x shifted left by y" → `x << y`
+    Shl,
+    /// Right shift: "x shifted right by y" → `x >> y`
+    Shr,
 }
 
 /// Block is a sequence of statements.
@@ -162,6 +168,9 @@ pub enum Stmt<'a> {
         value: Option<&'a Expr<'a>>,
     },
 
+    /// Break: `Break.` — exits the innermost while loop.
+    Break,
+
     /// Bridge to Logic Kernel: `Assert that P.`
     Assert {
         proposition: &'a LogicExpr<'a>,
@@ -212,6 +221,8 @@ pub enum Stmt<'a> {
     /// Function definition.
     FunctionDef {
         name: Symbol,
+        /// Generic type parameters: empty for monomorphic functions, e.g. `[T, U]` for polymorphic.
+        generics: Vec<Symbol>,
         params: Vec<(Symbol, &'a TypeExpr<'a>)>,
         body: Block<'a>,
         return_type: Option<&'a TypeExpr<'a>>,
@@ -600,6 +611,11 @@ pub enum Expr<'a> {
         op: BinaryOpKind,
         left: &'a Expr<'a>,
         right: &'a Expr<'a>,
+    },
+
+    /// Unary NOT: "not x" → `!x` (logical for Bool, bitwise for Int)
+    Not {
+        operand: &'a Expr<'a>,
     },
 
     /// Function call as expression: f(x, y)

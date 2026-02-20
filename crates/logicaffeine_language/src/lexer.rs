@@ -2111,6 +2111,9 @@ impl<'a> Lexer<'a> {
                 }
             }
             "return" => return TokenType::Return,
+            "break" => return TokenType::Break,
+            "xor" => return TokenType::Xor,
+            "shifted" => return TokenType::Shifted,
             "be" if self.in_let_context => {
                 self.in_let_context = false;
                 return TokenType::Be;

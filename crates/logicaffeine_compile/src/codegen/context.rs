@@ -52,6 +52,16 @@ pub struct RefinementContext<'a> {
     /// Tracks variables that are known to be String type.
     /// Used for proper string concatenation codegen (format! vs +).
     string_vars: HashSet<Symbol>,
+
+    /// Variables live immediately after the current top-level statement.
+    ///
+    /// `None` = no liveness information available → OPT-1C must conservatively clone.
+    /// `Some(set)` = liveness computed; variables NOT in `set` are dead after this statement.
+    ///
+    /// Set by the caller of `codegen_stmt` before each top-level statement in a function body.
+    /// Consumed (cleared to `None`) at the start of `codegen_stmt` so that recursive calls for
+    /// nested blocks conservatively clone.
+    live_vars_after: Option<HashSet<Symbol>>,
 }
 
 impl<'a> RefinementContext<'a> {
@@ -61,6 +71,7 @@ impl<'a> RefinementContext<'a> {
             variable_types: HashMap::new(),
             boxed_binding_scopes: vec![HashSet::new()],
             string_vars: HashSet::new(),
+            live_vars_after: None,
         }
     }
 
@@ -71,7 +82,24 @@ impl<'a> RefinementContext<'a> {
             variable_types: type_env.to_legacy_variable_types(),
             boxed_binding_scopes: vec![HashSet::new()],
             string_vars: type_env.to_legacy_string_vars(),
+            live_vars_after: None,
         }
+    }
+
+    /// Set the live-after set for the next statement about to be generated.
+    ///
+    /// Must be called before each top-level `codegen_stmt` call in a function body.
+    /// `codegen_stmt` will consume this (clearing it to `None`) so recursive nested calls
+    /// conservatively clone.
+    pub fn set_live_vars_after(&mut self, live: HashSet<Symbol>) {
+        self.live_vars_after = Some(live);
+    }
+
+    /// Take (and clear) the live-after set.  Called once at the start of `codegen_stmt`.
+    ///
+    /// Returns `None` when no liveness information was provided (conservative path).
+    pub fn take_live_vars_after(&mut self) -> Option<HashSet<Symbol>> {
+        self.live_vars_after.take()
     }
 
     pub(super) fn push_scope(&mut self) {

@@ -37,10 +37,11 @@ pub fn eliminate_dead_code<'a>(stmts: Vec<Stmt<'a>>, stmt_arena: &'a Arena<Stmt<
                     body: dce_block(body, stmt_arena),
                 });
             }
-            Stmt::FunctionDef { name, params, body, return_type, is_native, native_path, is_exported, export_target } => {
+            Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target } => {
                 result.push(Stmt::FunctionDef {
                     name,
                     params,
+                    generics,
                     body: dce_block(body, stmt_arena),
                     return_type,
                     is_native,

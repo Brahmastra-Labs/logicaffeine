@@ -70,6 +70,9 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
                 BinaryOpKind::And => "&&",
                 BinaryOpKind::Or => "||",
                 BinaryOpKind::Concat => "+",
+                BinaryOpKind::BitXor => "^",
+                BinaryOpKind::Shl => "<<",
+                BinaryOpKind::Shr => ">>",
             };
             format!("({} {} {})", l, op_str, r)
         }

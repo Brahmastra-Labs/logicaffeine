@@ -47,16 +47,16 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 }
                 "Map" | "HashMap" => {
                     if params_str.len() >= 2 {
-                        format!("std::collections::HashMap<{}, {}>", params_str[0], params_str[1])
+                        format!("FxHashMap<{}, {}>", params_str[0], params_str[1])
                     } else {
-                        "std::collections::HashMap<String, String>".to_string()
+                        "FxHashMap<String, String>".to_string()
                     }
                 }
                 "Set" | "HashSet" => {
                     if !params_str.is_empty() {
-                        format!("std::collections::HashSet<{}>", params_str[0])
+                        format!("FxHashSet<{}>", params_str[0])
                     } else {
-                        "std::collections::HashSet<()>".to_string()
+                        "FxHashSet<()>".to_string()
                     }
                 }
                 other => {
@@ -360,8 +360,8 @@ pub(super) fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String 
 
             let base_str = match base_name {
                 "List" | "Seq" => "Vec",
-                "Set" => "std::collections::HashSet",
-                "Map" => "std::collections::HashMap",
+                "Set" => "FxHashSet",
+                "Map" => "FxHashMap",
                 "Option" | "Maybe" => "Option",
                 "Result" => "Result",
                 // Phase 49: CRDT generic type

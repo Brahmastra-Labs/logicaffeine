@@ -564,7 +564,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     let val_rust = codegen_type_expr(&params[1], interner);
                     let is_key_text = is_text_type(&params[0], interner);
                     let is_val_text = is_text_type(&params[1], interner);
-                    let map_type = format!("std::collections::HashMap<{}, {}>", key_rust, val_rust);
+                    let map_type = format!("FxHashMap<{}, {}>", key_rust, val_rust);
 
                     // len
                     writeln!(out, "#[no_mangle]").unwrap();
@@ -680,7 +680,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     writeln!(out, "#[no_mangle]").unwrap();
                     writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
                     emit_catch_unwind_open(&mut out);
-                    emit_registry_create(&mut out, &format!("std::collections::HashMap::<{}, {}>::new()", key_rust, val_rust), &map_type);
+                    emit_registry_create(&mut out, &format!("FxHashMap::<{}, {}>::default()", key_rust, val_rust), &map_type);
                     emit_catch_unwind_close(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "}}\n").unwrap();
 
@@ -801,7 +801,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                 "Set" | "HashSet" if !params.is_empty() => {
                     let inner_rust_type = codegen_type_expr(&params[0], interner);
                     let is_inner_text = is_text_type(&params[0], interner);
-                    let set_type = format!("std::collections::HashSet<{}>", inner_rust_type);
+                    let set_type = format!("FxHashSet<{}>", inner_rust_type);
 
                     // len
                     writeln!(out, "#[no_mangle]").unwrap();
@@ -842,7 +842,7 @@ pub(crate) fn codegen_c_accessors(ty: &TypeExpr, interner: &Interner, registry: 
                     writeln!(out, "#[no_mangle]").unwrap();
                     writeln!(out, "pub extern \"C\" fn logos_{}_create() -> LogosHandle {{", mangled).unwrap();
                     emit_catch_unwind_open(&mut out);
-                    emit_registry_create(&mut out, &format!("std::collections::HashSet::<{}>::new()", inner_rust_type), &set_type);
+                    emit_registry_create(&mut out, &format!("FxHashSet::<{}>::default()", inner_rust_type), &set_type);
                     emit_catch_unwind_close(&mut out, "std::ptr::null_mut() as LogosHandle");
                     writeln!(out, "}}\n").unwrap();
 

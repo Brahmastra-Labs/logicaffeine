@@ -116,7 +116,7 @@ pub(super) fn codegen_c_export_with_marshaling(
         let stmt_refs: Vec<&Stmt> = body.iter().collect();
         let mut si = 0;
         while si < stmt_refs.len() {
-            if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1) {
+            if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
                 output.push_str(&code);
                 si += 1 + skip;
                 continue;

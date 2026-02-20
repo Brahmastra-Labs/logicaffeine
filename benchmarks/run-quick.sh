@@ -2,9 +2,10 @@
 # Requires bash 4+ for associative arrays (macOS: brew install bash)
 # LOGICAFFEINE Quick Benchmark Suite
 #
-# Runs ALL 32 benchmarks at their smallest size with minimal warmup/runs.
-# Produces results/latest.json identical in format to run.sh output.
-# Use this for fast local validation before deploying.
+# Runs ALL 32 benchmarks at their reference size with enough runs for
+# statistically accurate results. Produces results/latest.json identical
+# in format to run.sh output. Skips debug builds, compilation benchmarks,
+# and multi-size scaling sweeps.
 #
 # Usage: bash benchmarks/run-quick.sh
 
@@ -32,10 +33,10 @@ BENCHMARKS=(
     loop_sum fib_iterative graph_bfs string_search
 )
 
-# Quick mode: 1 warmup, 3 runs, smallest size only
-WARMUP=1
-RUNS=3
-TIMEOUT=60
+# Quick mode: reference sizes, enough runs for statistical accuracy
+WARMUP=3
+RUNS=10
+TIMEOUT=120
 BUILD_TIMEOUT=60
 SKIP_LANGS="${SKIP_LANGS:-}"
 
@@ -82,9 +83,25 @@ else
     }
 fi
 
-# Quick size: always use the smallest size from sizes.txt
+# Quick size: middle ground between smallest and reference.
+# Big enough for real measurement (~5-50ms compiled, ~1-2s interpreted),
+# small enough to keep the full suite under ~15 minutes.
 quick_size() {
-    head -c 100 "$PROGRAMS_DIR/$1/sizes.txt" | tr ' ' '\n' | head -1
+    case "$1" in
+        fib) echo 25 ;; ackermann) echo 8 ;; nqueens) echo 10 ;;
+        bubble_sort) echo 1000 ;; mergesort) echo 5000 ;; quicksort) echo 5000 ;;
+        counting_sort) echo 50000 ;; heap_sort) echo 5000 ;;
+        nbody) echo 5000 ;; mandelbrot) echo 200 ;; spectral_norm) echo 500 ;; pi_leibniz) echo 1000000 ;;
+        gcd) echo 1000 ;; collatz) echo 100000 ;; primes) echo 50000 ;;
+        sieve) echo 100000 ;; matrix_mult) echo 100 ;; prefix_sum) echo 100000 ;;
+        array_reverse) echo 100000 ;; array_fill) echo 1000000 ;;
+        collect) echo 10000 ;; two_sum) echo 5000 ;; histogram) echo 100000 ;;
+        knapsack) echo 500 ;; coins) echo 5000 ;;
+        fannkuch) echo 8 ;;
+        strings) echo 10000 ;; binary_trees) echo 14 ;;
+        loop_sum) echo 10000000 ;; fib_iterative) echo 10000000 ;;
+        graph_bfs) echo 5000 ;; string_search) echo 50000 ;;
+    esac
 }
 
 # Interpreter size: same as interp.lg hardcoded size (smallest practical)

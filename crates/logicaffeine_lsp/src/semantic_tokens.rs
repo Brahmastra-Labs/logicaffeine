@@ -110,7 +110,7 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
         }
 
         // Imperative keywords → keyword
-        TokenType::Let | TokenType::Set | TokenType::Return | TokenType::Be
+        TokenType::Let | TokenType::Set | TokenType::Return | TokenType::Break | TokenType::Be
         | TokenType::While | TokenType::Repeat | TokenType::For | TokenType::In
         | TokenType::From | TokenType::Assert | TokenType::Trust
         | TokenType::Otherwise | TokenType::Else | TokenType::Elif
@@ -187,7 +187,7 @@ fn classify_token_inner(kind: &TokenType, depth: usize) -> (Option<u32>, u32) {
         TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash
         | TokenType::Percent | TokenType::Lt | TokenType::Gt | TokenType::LtEq
         | TokenType::GtEq | TokenType::EqEq | TokenType::NotEq | TokenType::Arrow
-        | TokenType::Assign => {
+        | TokenType::Assign | TokenType::Xor | TokenType::Shifted => {
             (Some(6), 0)
         }
 

@@ -472,7 +472,8 @@ impl<'a> OwnershipChecker<'a> {
                 }
                 Ok(())
             }
-            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr } => {
+            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr }
+            | Expr::Not { operand: expr } => {
                 self.check_not_moved(expr)
             }
             Expr::ManifestOf { zone } => {
