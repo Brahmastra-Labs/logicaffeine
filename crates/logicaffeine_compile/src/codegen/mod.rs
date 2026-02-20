@@ -105,7 +105,8 @@ pub(crate) use expr::{
 pub(crate) use stmt::{get_root_identifier, is_copy_type, has_copy_element_type, has_copy_value_type};
 pub(crate) use peephole::{
     try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
-    body_mutates_collection,
+    try_emit_seq_copy_pattern, try_emit_rotate_left_pattern,
+    body_mutates_collection, exprs_equal,
 };
 pub(crate) use types::is_recursive_field;
 

@@ -16,7 +16,7 @@
 //! (less than 1 or greater than collection length). Map operations
 //! panic if the key is not found.
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 use std::hash::Hash;
 
 /// Immutable element access by index.
@@ -126,7 +126,7 @@ impl LogosIndex<i64> for String {
 
 // === HashMap<K, V> with K (key-based indexing) ===
 
-impl<K: Eq + Hash, V: Clone> LogosIndex<K> for HashMap<K, V> {
+impl<K: Eq + Hash, V: Clone> LogosIndex<K> for FxHashMap<K, V> {
     type Output = V;
 
     #[inline(always)]
@@ -135,7 +135,7 @@ impl<K: Eq + Hash, V: Clone> LogosIndex<K> for HashMap<K, V> {
     }
 }
 
-impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for HashMap<K, V> {
+impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for FxHashMap<K, V> {
     #[inline(always)]
     fn logos_set(&mut self, key: K, value: V) {
         self.insert(key, value);
@@ -144,7 +144,7 @@ impl<K: Eq + Hash, V: Clone> LogosIndexMut<K> for HashMap<K, V> {
 
 // === &str convenience for HashMap<String, V> ===
 
-impl<V: Clone> LogosIndex<&str> for HashMap<String, V> {
+impl<V: Clone> LogosIndex<&str> for FxHashMap<String, V> {
     type Output = V;
 
     #[inline(always)]
@@ -153,7 +153,7 @@ impl<V: Clone> LogosIndex<&str> for HashMap<String, V> {
     }
 }
 
-impl<V: Clone> LogosIndexMut<&str> for HashMap<String, V> {
+impl<V: Clone> LogosIndexMut<&str> for FxHashMap<String, V> {
     #[inline(always)]
     fn logos_set(&mut self, key: &str, value: V) {
         self.insert(key.to_string(), value);
@@ -188,21 +188,21 @@ mod tests {
 
     #[test]
     fn hashmap_string_key() {
-        let mut m: HashMap<String, i64> = HashMap::new();
+        let mut m: FxHashMap<String, i64> = FxHashMap::default();
         m.insert("iron".to_string(), 42);
         assert_eq!(LogosIndex::logos_get(&m, "iron".to_string()), 42);
     }
 
     #[test]
     fn hashmap_str_key() {
-        let mut m: HashMap<String, i64> = HashMap::new();
+        let mut m: FxHashMap<String, i64> = FxHashMap::default();
         m.insert("iron".to_string(), 42);
         assert_eq!(LogosIndex::logos_get(&m, "iron"), 42);
     }
 
     #[test]
     fn hashmap_set_key() {
-        let mut m: HashMap<String, i64> = HashMap::new();
+        let mut m: FxHashMap<String, i64> = FxHashMap::default();
         LogosIndexMut::logos_set(&mut m, "iron", 42i64);
         assert_eq!(m.get("iron"), Some(&42));
     }

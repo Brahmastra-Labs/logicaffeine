@@ -307,7 +307,11 @@ pub fn compile_program_full(source: &str) -> Result<CompileOutput, ParseError> {
     // Note: Static verification is available when the `verification` feature is enabled,
     // but must be explicitly invoked via compile_to_rust_verified().
 
-    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let type_env = crate::analysis::check_program(&stmts, &interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(&interner),
+            span: crate::token::Span::default(),
+        })?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     // Universal ABI: Generate C header + bindings if any C exports exist
@@ -490,7 +494,11 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let type_env = crate::analysis::check_program(&stmts, &interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(&interner),
+            span: crate::token::Span::default(),
+        })?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     Ok(rust_code)
@@ -608,7 +616,11 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
         }
     })?;
 
-    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, &interner, &codegen_registry);
+    let type_env = crate::analysis::check_program(&stmts, &interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(&interner),
+            span: crate::token::Span::default(),
+        })?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, &interner, &type_env);
 
     Ok(rust_code)
@@ -1093,7 +1105,11 @@ fn compile_to_rust_with_registry_full(
         }
     })?;
 
-    let type_env = crate::analysis::types::TypeEnv::infer_program(&stmts, interner, &codegen_registry);
+    let type_env = crate::analysis::check_program(&stmts, interner, &codegen_registry)
+        .map_err(|e| ParseError {
+            kind: e.to_parse_error_kind(interner),
+            span: crate::token::Span::default(),
+        })?;
     let rust_code = codegen_program(&stmts, &codegen_registry, &codegen_policies, interner, &type_env);
 
     // Universal ABI: Generate C header + bindings if any C exports exist

@@ -252,7 +252,7 @@ fn codegen_expr_boxed_internal(
                 if let Expr::Index { collection, index } = left {
                     if let Expr::Identifier(sym) = collection {
                         if let Some(t) = variable_types.get(sym) {
-                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") {
+                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") {
                                 let coll_str = recurse!(collection);
                                 let key_str = recurse!(index);
                                 let val_str = recurse!(right);
@@ -270,7 +270,7 @@ fn codegen_expr_boxed_internal(
                 if let Expr::Index { collection, index } = right {
                     if let Expr::Identifier(sym) = collection {
                         if let Some(t) = variable_types.get(sym) {
-                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") {
+                            if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") {
                                 let coll_str = recurse!(collection);
                                 let key_str = recurse!(index);
                                 let val_str = recurse!(left);
@@ -284,10 +284,66 @@ fn codegen_expr_boxed_internal(
                         }
                     }
                 }
+
+                // String byte comparison: item X of str1 == item Y of str2
+                // Emits as_bytes() comparison instead of allocating String per character
+                if let (Expr::Index { collection: left_coll, index: left_idx },
+                        Expr::Index { collection: right_coll, index: right_idx }) = (left, right) {
+                    let left_is_string = if let Expr::Identifier(sym) = left_coll {
+                        string_vars.contains(sym)
+                            || variable_types.get(sym).map(|t| t == "String").unwrap_or(false)
+                    } else { false };
+                    let right_is_string = if let Expr::Identifier(sym) = right_coll {
+                        string_vars.contains(sym)
+                            || variable_types.get(sym).map(|t| t == "String").unwrap_or(false)
+                    } else { false };
+                    if left_is_string && right_is_string {
+                        let cmp = if neg { "!=" } else { "==" };
+                        let left_coll_str = recurse!(left_coll);
+                        let right_coll_str = recurse!(right_coll);
+                        // 1-based → 0-based index with peephole: (x+1)-1 → x
+                        let left_idx_str = if let Expr::BinaryOp { op: BinaryOpKind::Add, left: l, right: r } = left_idx {
+                            if matches!(r, Expr::Literal(Literal::Number(1))) {
+                                format!("({}) as usize", recurse!(l))
+                            } else if matches!(l, Expr::Literal(Literal::Number(1))) {
+                                format!("({}) as usize", recurse!(r))
+                            } else {
+                                format!("({} - 1) as usize", recurse!(left_idx))
+                            }
+                        } else {
+                            format!("({} - 1) as usize", recurse!(left_idx))
+                        };
+                        let right_idx_str = if let Expr::BinaryOp { op: BinaryOpKind::Add, left: l, right: r } = right_idx {
+                            if matches!(r, Expr::Literal(Literal::Number(1))) {
+                                format!("({}) as usize", recurse!(l))
+                            } else if matches!(l, Expr::Literal(Literal::Number(1))) {
+                                format!("({}) as usize", recurse!(r))
+                            } else {
+                                format!("({} - 1) as usize", recurse!(right_idx))
+                            }
+                        } else {
+                            format!("({} - 1) as usize", recurse!(right_idx))
+                        };
+                        return format!("({}.as_bytes()[{}] {} {}.as_bytes()[{}])",
+                            left_coll_str, left_idx_str, cmp, right_coll_str, right_idx_str);
+                    }
+                }
             }
 
             let left_str = recurse!(left);
             let right_str = recurse!(right);
+
+            // And/Or are type-aware: integers → bitwise (&/|), booleans → logical (&&/||)
+            if matches!(op, BinaryOpKind::And | BinaryOpKind::Or) {
+                let left_type = infer_numeric_type(left, interner, variable_types);
+                let op_str = match op {
+                    BinaryOpKind::And => if left_type == "i64" { "&" } else { "&&" },
+                    BinaryOpKind::Or  => if left_type == "i64" { "|" } else { "||" },
+                    _ => unreachable!(),
+                };
+                return format!("({} {} {})", left_str, op_str, right_str);
+            }
+
             let op_str = match op {
                 BinaryOpKind::Add => "+",
                 BinaryOpKind::Subtract => "-",
@@ -300,9 +356,11 @@ fn codegen_expr_boxed_internal(
                 BinaryOpKind::Gt => ">",
                 BinaryOpKind::LtEq => "<=",
                 BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And => "&&",
-                BinaryOpKind::Or => "||",
-                BinaryOpKind::Concat => unreachable!(), // Handled above
+                BinaryOpKind::And | BinaryOpKind::Or => unreachable!(), // handled above
+                BinaryOpKind::Concat => unreachable!(), // handled above
+                BinaryOpKind::BitXor => "^",
+                BinaryOpKind::Shl => "<<",
+                BinaryOpKind::Shr => ">>",
             };
 
             // Mixed Float*Int arithmetic coercion: if one side is f64,
@@ -323,20 +381,39 @@ fn codegen_expr_boxed_internal(
         Expr::Call { function, args } => {
             let func_name = names.ident(*function);
             let raw_name = names.raw(*function);
+            // Check if callee has borrow params (encoded as "fn_borrow:0,1" in variable_types)
+            let callee_borrow_indices: HashSet<usize> = variable_types.get(function)
+                .and_then(|t| t.strip_prefix("fn_borrow:"))
+                .map(|s| s.split(',').filter_map(|i| i.parse().ok()).collect())
+                .unwrap_or_default();
             // Recursively codegen args with full context.
-            // Clone non-Copy identifier arguments to avoid move-after-use errors
-            // when variables are reused (e.g., inside while loops or after the call).
+            // Borrow params: pass &name (or pass through if already a slice).
+            // Non-borrow params: clone non-Copy identifiers to avoid move-after-use.
             let args_str: Vec<String> = args.iter()
-                .map(|a| {
+                .enumerate()
+                .map(|(i, a)| {
                     let s = recurse!(a);
-                    if let Expr::Identifier(sym) = a {
-                        if let Some(ty) = variable_types.get(sym) {
-                            if !is_copy_type(ty) {
-                                return format!("{}.clone()", s);
+                    if callee_borrow_indices.contains(&i) {
+                        // Borrow param: pass reference instead of cloning
+                        if let Expr::Identifier(sym) = a {
+                            if let Some(ty) = variable_types.get(sym) {
+                                if ty.starts_with("&[") {
+                                    return s; // Already a slice — pass through
+                                }
                             }
                         }
+                        format!("&{}", s)
+                    } else {
+                        // Regular param: clone non-Copy identifiers
+                        if let Expr::Identifier(sym) = a {
+                            if let Some(ty) = variable_types.get(sym) {
+                                if !is_copy_type(ty) {
+                                    return format!("{}.clone()", s);
+                                }
+                            }
+                        }
+                        s
                     }
-                    s
                 })
                 .collect();
             // Builtin math functions → Rust method call syntax
@@ -411,7 +488,29 @@ fn codegen_expr_boxed_internal(
                         format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
                     }
                 }
-                Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
+                Some(t) if t.starts_with("&[") => {
+                    // Slice type — direct indexing works the same as Vec
+                    let elem = t.strip_prefix("&[").and_then(|s| s.strip_suffix(']')).unwrap_or("_");
+                    let suffix = if is_copy_type(elem) { "" } else { ".clone()" };
+                    let simplified = if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = index {
+                        if matches!(right, Expr::Literal(Literal::Number(1))) {
+                            Some(recurse!(left))
+                        } else if matches!(left, Expr::Literal(Literal::Number(1))) {
+                            Some(recurse!(right))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(inner_str) = simplified {
+                        format!("{}[({}) as usize]{}", coll_str, inner_str, suffix)
+                    } else {
+                        let index_str = recurse!(index);
+                        format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
+                    }
+                }
+                Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") => {
                     let index_str = recurse!(index);
                     let suffix = if has_copy_value_type(t) { "" } else { ".clone()" };
                     format!("{}[&({})]{}", coll_str, index_str, suffix)
@@ -434,11 +533,20 @@ fn codegen_expr_boxed_internal(
         }
 
         Expr::Copy { expr: inner } => {
-            let expr_str = recurse!(inner);
-            // Phase 43D: Explicit owned copy — .to_owned() is universal:
-            // - &[T] (slices) → Vec<T> via [T]: ToOwned<Owned=Vec<T>>
-            // - Vec<T>, HashMap<K,V>, HashSet<T> → Self via Clone blanket impl
-            format!("{}.to_owned()", expr_str)
+            // Special case: Copy of Slice → emit arr[range].to_vec() without &
+            // Otherwise the & from Slice codegen captures .to_owned() giving &Vec<T>
+            if let Expr::Slice { collection, start, end } = inner {
+                let coll_str = recurse!(collection);
+                let start_str = recurse!(start);
+                let end_str = recurse!(end);
+                format!("{}[({} - 1) as usize..{} as usize].to_vec()", coll_str, start_str, end_str)
+            } else {
+                let expr_str = recurse!(inner);
+                // Phase 43D: Explicit owned copy — .to_owned() is universal:
+                // - &[T] (slices) → Vec<T> via [T]: ToOwned<Owned=Vec<T>>
+                // - Vec<T>, HashMap<K,V>, HashSet<T> → Self via Clone blanket impl
+                format!("{}.to_owned()", expr_str)
+            }
         }
 
         Expr::Give { value } => {
@@ -463,13 +571,13 @@ fn codegen_expr_boxed_internal(
         Expr::Union { left, right } => {
             let left_str = recurse!(left);
             let right_str = recurse!(right);
-            format!("{}.union(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+            format!("{}.union(&{}).cloned().collect::<FxHashSet<_>>()", left_str, right_str)
         }
 
         Expr::Intersection { left, right } => {
             let left_str = recurse!(left);
             let right_str = recurse!(right);
-            format!("{}.intersection(&{}).cloned().collect::<std::collections::HashSet<_>>()", left_str, right_str)
+            format!("{}.intersection(&{}).cloned().collect::<FxHashSet<_>>()", left_str, right_str)
         }
 
         // Phase 48: Sipping Protocol expressions
@@ -664,13 +772,13 @@ fn codegen_expr_boxed_internal(
                                 (codegen_type_expr(&type_args[0], interner),
                                  codegen_type_expr(&type_args[1], interner))
                             } else { ("String".to_string(), "String".to_string()) };
-                            format!("{{ let __m: std::collections::HashMap<{}, {}> = std::collections::HashMap::with_capacity(({}) as usize); __m }}", k, v, cap_str)
+                            format!("{{ let __m: FxHashMap<{}, {}> = FxHashMap::with_capacity_and_hasher(({}) as usize, Default::default()); __m }}", k, v, cap_str)
                         }
                         "Set" | "HashSet" => {
                             let elem = if !type_args.is_empty() {
                                 codegen_type_expr(&type_args[0], interner)
                             } else { "()".to_string() };
-                            format!("{{ let __s: std::collections::HashSet<{}> = std::collections::HashSet::with_capacity(({}) as usize); __s }}", elem, cap_str)
+                            format!("{{ let __s: FxHashSet<{}> = FxHashSet::with_capacity_and_hasher(({}) as usize, Default::default()); __s }}", elem, cap_str)
                         }
                         _ => recurse!(value) // Unknown type — ignore capacity
                     }
@@ -728,6 +836,11 @@ fn codegen_expr_boxed_internal(
 
         Expr::InterpolatedString(parts) => {
             codegen_interpolated_string(parts, interner, synced_vars, boxed_fields, registry, async_functions, boxed_bindings, string_vars, variable_types)
+        }
+
+        Expr::Not { operand } => {
+            let operand_str = recurse!(operand);
+            format!("!({})", operand_str)
         }
     }
 }

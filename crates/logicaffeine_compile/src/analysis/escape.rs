@@ -228,7 +228,8 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(end, max_depth)?;
             }
 
-            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr } => {
+            Expr::Copy { expr } | Expr::Give { value: expr } | Expr::Length { collection: expr }
+            | Expr::Not { operand: expr } => {
                 self.check_no_escape(expr, max_depth)?;
             }
 

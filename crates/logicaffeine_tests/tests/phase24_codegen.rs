@@ -366,6 +366,7 @@ fn test_collect_async_functions_with_sleep() {
 
     let func_def = Stmt::FunctionDef {
         name: sleeper,
+        generics: vec![],
         params: vec![],
         body,
         return_type: None,
@@ -397,6 +398,7 @@ fn test_collect_async_functions_with_launch_task() {
 
     let func_def = Stmt::FunctionDef {
         name: launcher,
+        generics: vec![],
         params: vec![],
         body,
         return_type: None,
@@ -426,6 +428,7 @@ fn test_collect_async_functions_transitive() {
     let helper_body: &[Stmt] = std::slice::from_ref(sleep_stmt);
     let helper_def = Stmt::FunctionDef {
         name: helper,
+        generics: vec![],
         params: vec![],
         body: helper_body,
         return_type: None,
@@ -444,6 +447,7 @@ fn test_collect_async_functions_transitive() {
     let wrapper_body: &[Stmt] = std::slice::from_ref(call_stmt);
     let wrapper_def = Stmt::FunctionDef {
         name: wrapper,
+        generics: vec![],
         params: vec![],
         body: wrapper_body,
         return_type: None,
@@ -891,4 +895,334 @@ fn codegen_let_with_sync_call_no_await() {
 
     assert!(!result.contains(".await"), "Let with sync call should NOT have .await: {}", result);
     assert_eq!(result, "let x = compute();\n");
+}
+
+// =============================================================================
+// Generic (polymorphic) function codegen — Phase 3
+// =============================================================================
+
+#[test]
+fn codegen_generic_identity_has_type_param() {
+    // "## To identity of [T] (x: T) -> T:" should emit "fn identity<T>(x: T) -> T"
+    let code = r#"## To identity of [T] (x: T) -> T:
+    Return x.
+
+## Main
+Let r be identity(42).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    assert!(
+        rust.contains("fn identity<T>"),
+        "Generic function should emit <T> type param.\nGot:\n{}", rust
+    );
+    assert!(
+        rust.contains("x: T"),
+        "Parameter type should be T.\nGot:\n{}", rust
+    );
+    assert!(
+        rust.contains("-> T"),
+        "Return type should be T.\nGot:\n{}", rust
+    );
+}
+
+#[test]
+fn codegen_generic_two_type_params() {
+    // Two type params [T] and [U] both appear in the signature.
+    // Note: "A" tokenizes as Article(Indefinite) in Logos (case-insensitive "a"),
+    // so we use T/U which are proper type parameter names without article conflicts.
+    let code = r#"## To first of [T] and [U] (x: T, y: U) -> T:
+    Return x.
+
+## Main
+Let r be first(1, true).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    assert!(
+        rust.contains("fn first<T, U>"),
+        "Two-param generic should emit <T, U>.\nGot:\n{}", rust
+    );
+}
+
+#[test]
+fn codegen_monomorphic_function_has_no_type_params() {
+    // Non-generic functions must NOT have angle brackets in their signature
+    let code = r#"## To double (n: Int) -> Int:
+    Return n + n.
+
+## Main
+Let r be double(5).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    assert!(
+        rust.contains("fn double("),
+        "Monomorphic function should not have type params.\nGot:\n{}", rust
+    );
+    assert!(
+        !rust.contains("fn double<"),
+        "Monomorphic function must not have angle brackets.\nGot:\n{}", rust
+    );
+}
+
+// ============================================================================
+// Phase 5: Function Types as First-Class Values
+// ============================================================================
+
+#[test]
+fn codegen_function_type_param_emits_impl_fn() {
+    // A parameter typed as `fn(Int) -> Bool` must emit `impl Fn(i64) -> bool`
+    // in the generated Rust function signature.
+    // Closures in Logos use `(param: Type) -> expr` syntax (no `fn` keyword).
+    let code = r#"## To apply (f: fn(Int) -> Bool, n: Int) -> Bool:
+    Return f(n).
+
+## Main
+Show apply((x: Int) -> x > 0, 42).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    assert!(
+        rust.contains("impl Fn(i64) -> bool"),
+        "Function type parameter should emit `impl Fn(i64) -> bool`.\nGot:\n{}", rust
+    );
+}
+
+#[test]
+fn codegen_function_type_param_two_inputs_emits_impl_fn() {
+    // Two-input function type: fn(Int, Int) -> Int must emit `impl Fn(i64, i64) -> i64`
+    let code = r#"## To combine (f: fn(Int, Int) -> Int, x: Int, y: Int) -> Int:
+    Return f(x, y).
+
+## Main
+Show combine((p: Int, q: Int) -> p + q, 3, 4).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    assert!(
+        rust.contains("impl Fn(i64, i64) -> i64"),
+        "Two-input function type should emit `impl Fn(i64, i64) -> i64`.\nGot:\n{}", rust
+    );
+}
+
+#[test]
+fn codegen_function_type_param_no_inputs_emits_impl_fn() {
+    // Zero-input function type: fn() -> Int must emit `impl Fn() -> i64`
+    let code = r#"## To compute (producer: fn() -> Int) -> Int:
+    Return producer().
+
+## Main
+Show compute(() -> 42).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    assert!(
+        rust.contains("impl Fn() -> i64"),
+        "Zero-input function type should emit `impl Fn() -> i64`.\nGot:\n{}", rust
+    );
+}
+
+// =============================================================================
+// Pass 3: Vec-fill peephole type registration
+// =============================================================================
+
+#[test]
+fn codegen_vec_fill_registers_type_for_index() {
+    let code = r#"## To sieve (limit: Int) -> Int:
+    Let mutable flags be a new Seq of Bool.
+    Let mutable i be 0.
+    While i is at most limit:
+        Push false to flags.
+        Set i to i + 1.
+    Set i to 2.
+    While i is at most limit:
+        If item (i + 1) of flags equals false:
+            Let mutable j be i * i.
+            While j is at most limit:
+                Set item (j + 1) of flags to true.
+                Set j to j + i.
+        Set i to i + 1.
+    Return 0.
+
+## Main
+Show sieve(100).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
+    assert!(!rust.contains("LogosIndex::logos_get"),
+        "Vec-fill variable should use direct indexing.\nGot:\n{}", rust);
+    assert!(!rust.contains("LogosIndexMut::logos_set"),
+        "Vec-fill variable should use direct set-index.\nGot:\n{}", rust);
+}
+
+#[test]
+fn codegen_vec_fill_int_direct_index() {
+    let code = r#"## To fill (n: Int) -> Int:
+    Let mutable arr be a new Seq of Int.
+    Let mutable i be 0.
+    While i < n:
+        Push 0 to arr.
+        Set i to i + 1.
+    Set item 1 of arr to 42.
+    Return item 1 of arr.
+
+## Main
+Show fill(10).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
+    assert!(!rust.contains("LogosIndex::logos_get"),
+        "Vec-fill Int should use direct indexing.\nGot:\n{}", rust);
+    assert!(!rust.contains("LogosIndexMut::logos_set"),
+        "Vec-fill Int should use direct set-index.\nGot:\n{}", rust);
+}
+
+// =============================================================================
+// Pass 2: Last-Use Move Optimization
+// =============================================================================
+
+#[test]
+fn codegen_vec_fill_set_counter_direct_index() {
+    // counting_sort pattern: counter variable declared earlier, then reused via Set (not Let)
+    // The vec-fill peephole must match Stmt::Set for counter init, not just Stmt::Let.
+    let code = r#"## To countSort (n: Int) -> Int:
+    Let mutable i be 0.
+    Let mutable counts be a new Seq of Int.
+    Set i to 0.
+    While i < n:
+        Push 0 to counts.
+        Set i to i + 1.
+    Set item 1 of counts to 42.
+    Return item 1 of counts.
+
+## Main
+Show countSort(1000).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
+    // counts should be optimized to vec![0; n] — NOT Seq::default() + push loop
+    assert!(rust.contains("vec![0;"),
+        "Set-counter vec-fill should emit vec![].\nGot:\n{}", rust);
+    assert!(!rust.contains("counts.push("),
+        "Set-counter vec-fill should not have push loop.\nGot:\n{}", rust);
+}
+
+#[test]
+fn codegen_vec_fill_main_body_for_range_index() {
+    // histogram pattern: vec-fill in main, then for-range loop indexes the vec
+    let code = r#"## Main
+Let mutable counts be a new Seq of Int.
+Let mutable idx be 0.
+While idx is less than 100:
+    Push 0 to counts.
+    Set idx to idx + 1.
+Let mutable i be 0.
+While i is less than 50:
+    Set item (i + 1) of counts to i.
+    Set i to i + 1.
+Show item 1 of counts.
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile");
+    // vec-fill should fire and register the type, enabling direct indexing
+    assert!(rust.contains("vec![0;"),
+        "Vec-fill in main body should emit vec![].\nGot:\n{}", rust);
+    assert!(!rust.contains("LogosIndex::logos_get"),
+        "Vec-fill in main body should enable direct indexing.\nGot:\n{}", rust);
+    assert!(!rust.contains("LogosIndexMut::logos_set"),
+        "Vec-fill in main body should enable direct set-index.\nGot:\n{}", rust);
+}
+
+#[test]
+fn codegen_last_use_emits_move() {
+    // When a Seq variable is passed to a function and is NOT used after the call,
+    // the argument should be moved (no .clone()) — last-use move optimization.
+    let code = r#"## To consume (arr: Seq of Int) -> Int:
+    Push 99 to arr.
+    Return length of arr.
+
+## To process (items: Seq of Int) -> Int:
+    Set result to consume(items).
+    Return result.
+
+## Main
+Let data be [1, 2, 3].
+Show process(data).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    // `items` is not used after `Set result to consume(items)` — should be moved, no clone.
+    assert!(
+        !rust.contains("items.clone()"),
+        "Last-use arg should be moved, not cloned.\nGot:\n{}", rust
+    );
+}
+
+#[test]
+fn codegen_not_last_use_emits_clone() {
+    // When a Seq variable is used AFTER being passed to a function,
+    // the argument must be cloned — it is NOT the last use.
+    let code = r#"## To consume (arr: Seq of Int) -> Int:
+    Push 99 to arr.
+    Return length of arr.
+
+## To process (items: Seq of Int) -> Int:
+    Set x to consume(items).
+    Set y to consume(items).
+    Return x + y.
+
+## Main
+Let data be [1, 2, 3].
+Show process(data).
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    // `items` is used in both Set statements — at least the first call must clone.
+    assert!(
+        rust.contains("items.clone()"),
+        "Non-last-use arg must be cloned.\nGot:\n{}", rust
+    );
+}
+
+#[test]
+fn codegen_consumed_seq_param_takes_ownership() {
+    // When a Seq parameter is immediately copied into a mutable local
+    // (e.g. `Let mutable result be arr`), the parameter should be taken
+    // by value (Vec<i64>) not by borrow (&[i64]). This avoids a full
+    // .to_vec() clone on every call.
+    let code = r#"## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:
+    If lo is at least hi:
+        Return arr.
+    Let mutable result be arr.
+    Let mutable i be lo.
+    Let mutable j be lo.
+    While j is less than hi:
+        If item j of result is at most item hi of result:
+            Let tmp be item i of result.
+            Set item i of result to item j of result.
+            Set item j of result to tmp.
+            Set i to i + 1.
+        Set j to j + 1.
+    Let tmp be item i of result.
+    Set item i of result to item hi of result.
+    Set item hi of result to tmp.
+    Set result to qs(result, lo, i - 1).
+    Set result to qs(result, i + 1, hi).
+    Return result.
+
+## Main
+Let mutable arr be [3, 1, 2].
+Set arr to qs(arr, 1, 3).
+Show item 1 of arr.
+"#;
+    let rust = logicaffeine_compile::compile_to_rust(code)
+        .expect("compile should succeed");
+    // The `arr` parameter should be owned (Vec<i64>), not borrowed (&[i64]).
+    // This means the function signature should NOT contain &[i64] for arr.
+    assert!(
+        !rust.contains("arr: &[i64]"),
+        "Consumed Seq param should not be borrowed.\nGot:\n{}", rust
+    );
+    // The first statement `let mut result = arr` should be a move, not a .to_vec() clone.
+    assert!(
+        !rust.contains("arr.to_vec()"),
+        "Consumed Seq param should not need .to_vec() clone.\nGot:\n{}", rust
+    );
 }

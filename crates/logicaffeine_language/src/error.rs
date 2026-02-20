@@ -141,6 +141,33 @@ pub enum ParseErrorKind {
         expected: String,
         found: String,
     },
+    /// Type mismatch with context (e.g., "in argument 2 of 'compute'").
+    TypeMismatchDetailed {
+        expected: String,
+        found: String,
+        context: String,
+    },
+    /// A type variable would occur in its own definition (e.g., `T = List<T>`).
+    InfiniteType {
+        var_description: String,
+        type_description: String,
+    },
+    /// Wrong number of arguments in a function call.
+    ArityMismatch {
+        function: String,
+        expected: usize,
+        found: usize,
+    },
+    /// A field name does not exist on the struct type.
+    FieldNotFound {
+        type_name: String,
+        field_name: String,
+        available: Vec<String>,
+    },
+    /// Tried to call something that is not a function.
+    NotAFunction {
+        found_type: String,
+    },
     /// Invalid refinement predicate in a dependent type.
     InvalidRefinementPredicate,
     /// Grammar error (e.g., "its" vs "it's").
@@ -347,6 +374,52 @@ pub fn socratic_explanation(error: &ParseError, _interner: &Interner) -> String 
                 pos, expected, found
             )
         }
+        ParseErrorKind::TypeMismatchDetailed { expected, found, context } => {
+            let ctx_note = if context.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", context)
+            };
+            format!(
+                "At position {}, I expected '{}' but found '{}'{}.  \
+                Check that the types are consistent — perhaps the annotation or the value needs adjusting.",
+                pos, expected, found, ctx_note
+            )
+        }
+        ParseErrorKind::InfiniteType { var_description, type_description } => {
+            format!(
+                "At position {}, I detected an infinite recursive type: {} would need to equal {}. \
+                A type cannot contain itself. Consider using a named record or a level of indirection.",
+                pos, var_description, type_description
+            )
+        }
+        ParseErrorKind::ArityMismatch { function, expected, found } => {
+            format!(
+                "At position {}, '{}' takes {} argument(s) but was called with {}. \
+                Check the function signature and ensure you pass the right number of values.",
+                pos, function, expected, found
+            )
+        }
+        ParseErrorKind::FieldNotFound { type_name, field_name, available } => {
+            let avail_note = if available.is_empty() {
+                String::new()
+            } else {
+                format!(" Available fields: {}.", available.join(", "))
+            };
+            format!(
+                "At position {}, '{}' has no field named '{}'.{} \
+                Check the spelling or use one of the declared fields.",
+                pos, type_name, field_name, avail_note
+            )
+        }
+        ParseErrorKind::NotAFunction { found_type } => {
+            format!(
+                "At position {}, I tried to call a value of type '{}' as a function. \
+                Only functions and closures can be called. \
+                Check that you are applying arguments to an actual function.",
+                pos, found_type
+            )
+        }
         ParseErrorKind::InvalidRefinementPredicate => {
             format!(
                 "At position {}, the refinement predicate is not valid. \
@@ -428,5 +501,108 @@ mod tests {
         let source = "Alll men are mortal.";
         let display = error.display_with_source(source);
         assert!(display.contains("\x1b["), "Should contain ANSI escape codes: {}", display);
+    }
+
+    // =========================================================================
+    // Phase 4 — Type error reporting variants
+    // =========================================================================
+
+    #[test]
+    fn type_mismatch_detailed_socratic_mentions_types() {
+        let interner = logicaffeine_base::Interner::new();
+        let error = ParseError {
+            kind: ParseErrorKind::TypeMismatchDetailed {
+                expected: "Int".to_string(),
+                found: "Bool".to_string(),
+                context: "in let binding".to_string(),
+            },
+            span: Span::new(0, 0),
+        };
+        let explanation = socratic_explanation(&error, &interner);
+        assert!(explanation.contains("Int"), "Should mention expected type: {}", explanation);
+        assert!(explanation.contains("Bool"), "Should mention found type: {}", explanation);
+        assert!(explanation.contains("let binding"), "Should include context: {}", explanation);
+    }
+
+    #[test]
+    fn type_mismatch_detailed_without_context_is_clean() {
+        let interner = logicaffeine_base::Interner::new();
+        let error = ParseError {
+            kind: ParseErrorKind::TypeMismatchDetailed {
+                expected: "Text".to_string(),
+                found: "Int".to_string(),
+                context: String::new(),
+            },
+            span: Span::new(0, 0),
+        };
+        let explanation = socratic_explanation(&error, &interner);
+        assert!(explanation.contains("Text"), "Should mention expected type: {}", explanation);
+        assert!(explanation.contains("Int"), "Should mention found type: {}", explanation);
+        // No spurious "()" from empty context
+        assert!(!explanation.contains("()"), "Empty context should not leave '()': {}", explanation);
+    }
+
+    #[test]
+    fn infinite_type_socratic_mentions_both_descriptions() {
+        let interner = logicaffeine_base::Interner::new();
+        let error = ParseError {
+            kind: ParseErrorKind::InfiniteType {
+                var_description: "type variable α0".to_string(),
+                type_description: "Seq of α0".to_string(),
+            },
+            span: Span::new(0, 0),
+        };
+        let explanation = socratic_explanation(&error, &interner);
+        assert!(explanation.contains("α0"), "Should mention var: {}", explanation);
+        assert!(explanation.contains("Seq of α0"), "Should mention type: {}", explanation);
+    }
+
+    #[test]
+    fn arity_mismatch_socratic_mentions_function_and_counts() {
+        let interner = logicaffeine_base::Interner::new();
+        let error = ParseError {
+            kind: ParseErrorKind::ArityMismatch {
+                function: "double".to_string(),
+                expected: 1,
+                found: 3,
+            },
+            span: Span::new(0, 0),
+        };
+        let explanation = socratic_explanation(&error, &interner);
+        assert!(explanation.contains("double"), "Should name the function: {}", explanation);
+        assert!(explanation.contains("1"), "Should mention expected count: {}", explanation);
+        assert!(explanation.contains("3"), "Should mention found count: {}", explanation);
+    }
+
+    #[test]
+    fn field_not_found_socratic_mentions_type_and_field() {
+        let interner = logicaffeine_base::Interner::new();
+        let error = ParseError {
+            kind: ParseErrorKind::FieldNotFound {
+                type_name: "Point".to_string(),
+                field_name: "z".to_string(),
+                available: vec!["x".to_string(), "y".to_string()],
+            },
+            span: Span::new(0, 0),
+        };
+        let explanation = socratic_explanation(&error, &interner);
+        assert!(explanation.contains("Point"), "Should name the type: {}", explanation);
+        assert!(explanation.contains("z"), "Should name the missing field: {}", explanation);
+        assert!(explanation.contains("x"), "Should list available fields: {}", explanation);
+        assert!(explanation.contains("y"), "Should list available fields: {}", explanation);
+    }
+
+    #[test]
+    fn not_a_function_socratic_mentions_found_type() {
+        let interner = logicaffeine_base::Interner::new();
+        let error = ParseError {
+            kind: ParseErrorKind::NotAFunction {
+                found_type: "Int".to_string(),
+            },
+            span: Span::new(0, 0),
+        };
+        let explanation = socratic_explanation(&error, &interner);
+        assert!(explanation.contains("Int"), "Should mention the type found: {}", explanation);
+        assert!(explanation.to_lowercase().contains("function"), "Should mention function: {}", explanation);
     }
 }

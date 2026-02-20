@@ -12,7 +12,7 @@ While i is at most n:
     While d * d is at most i:
         If i % d equals 0:
             Set isPrime to 0.
-            Set d to i.
+            Break.
         Set d to d + 1.
     If isPrime equals 1:
         Set count to count + 1.

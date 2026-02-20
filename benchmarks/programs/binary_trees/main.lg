@@ -2,9 +2,16 @@
 ## To native parseInt (s: Text) -> Int
 
 ## To makeCheck (depth: Int) -> Int:
-    If depth equals 0:
-        Return 1.
-    Return 1 + makeCheck(depth - 1) + makeCheck(depth - 1).
+    Let mutable stack be a new Seq of Int.
+    Push depth to stack.
+    Let mutable result be 0.
+    While length of stack is greater than 0:
+        Pop from stack into d.
+        Set result to result + 1.
+        If d is greater than 0:
+            Push d - 1 to stack.
+            Push d - 1 to stack.
+    Return result.
 
 ## Main
 Let arguments be args().

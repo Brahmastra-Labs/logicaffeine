@@ -23,7 +23,8 @@ use super::expr::{
 };
 use super::peephole::{
     try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
-    body_mutates_collection,
+    try_emit_seq_copy_pattern, try_emit_rotate_left_pattern,
+    body_mutates_collection, exprs_equal,
 };
 use super::types::{
     codegen_type_expr, infer_rust_type_from_expr, infer_numeric_type,
@@ -51,6 +52,11 @@ pub fn codegen_stmt<'a>(
     let mut output = String::new();
     let names = RustNames::new(interner);
 
+    // OPT-1C: Take liveness snapshot before any recursion.
+    // None = no liveness info → conservative clone.
+    // Recursive calls (If/While/etc. bodies) see None → conservative clone.
+    let live_vars_after: Option<HashSet<Symbol>> = ctx.take_live_vars_after();
+
     match stmt {
         Stmt::Let { var, ty, value, mutable } => {
             let var_name = names.ident(*var);
@@ -70,9 +76,9 @@ pub fn codegen_stmt<'a>(
                     }
                     "Map" | "HashMap" => {
                         let rust_type = if params.len() >= 2 {
-                            format!("std::collections::HashMap<{}, {}>", codegen_type_expr(&params[0], interner), codegen_type_expr(&params[1], interner))
+                            format!("FxHashMap<{}, {}>", codegen_type_expr(&params[0], interner), codegen_type_expr(&params[1], interner))
                         } else {
-                            "std::collections::HashMap<String, String>".to_string()
+                            "FxHashMap<String, String>".to_string()
                         };
                         ctx.register_variable_type(*var, rust_type);
                     }
@@ -91,9 +97,9 @@ pub fn codegen_stmt<'a>(
                     }
                     "Map" | "HashMap" => {
                         let rust_type = if type_args.len() >= 2 {
-                            format!("std::collections::HashMap<{}, {}>", codegen_type_expr(&type_args[0], interner), codegen_type_expr(&type_args[1], interner))
+                            format!("rustc_hash::FxHashMap<{}, {}>", codegen_type_expr(&type_args[0], interner), codegen_type_expr(&type_args[1], interner))
                         } else {
-                            "std::collections::HashMap<String, String>".to_string()
+                            "FxHashMap<String, String>".to_string()
                         };
                         ctx.register_variable_type(*var, rust_type);
                     }
@@ -105,6 +111,40 @@ pub fn codegen_stmt<'a>(
                     .map(|e| infer_rust_type_from_expr(e, interner))
                     .unwrap_or_else(|| "_".to_string());
                 ctx.register_variable_type(*var, format!("Vec<{}>", elem_type));
+            } else if let Expr::Identifier(src_sym) = value {
+                // Propagate type from source variable: `Let result be arr` inherits arr's type.
+                // For borrow params (&[T]), the copy becomes Vec<T> (owned).
+                if let Some(src_type) = ctx.get_variable_types().get(src_sym).cloned() {
+                    if src_type.starts_with("&[") {
+                        // Borrow param copied → becomes owned Vec
+                        let inner = src_type.strip_prefix("&[").and_then(|s| s.strip_suffix(']')).unwrap_or("_");
+                        ctx.register_variable_type(*var, format!("Vec<{}>", inner));
+                    } else if !src_type.starts_with("fn_borrow:") {
+                        ctx.register_variable_type(*var, src_type);
+                    }
+                }
+            } else if let Expr::Copy { expr: inner } = value {
+                // `Copy of items ... of arr` or `Copy of arr` produces same collection type
+                let src_sym = match inner {
+                    Expr::Slice { collection, .. } => {
+                        if let Expr::Identifier(s) = collection { Some(*s) } else { None }
+                    }
+                    Expr::Identifier(s) => Some(*s),
+                    _ => None,
+                };
+                if let Some(s) = src_sym {
+                    if let Some(src_type) = ctx.get_variable_types().get(&s).cloned() {
+                        if src_type.starts_with("Vec") || src_type.starts_with("&[") {
+                            // Slice/copy always produces owned Vec
+                            let elem = if src_type.starts_with("Vec<") {
+                                src_type.strip_prefix("Vec<").and_then(|t| t.strip_suffix('>')).unwrap_or("_")
+                            } else {
+                                src_type.strip_prefix("&[").and_then(|t| t.strip_suffix(']')).unwrap_or("_")
+                            };
+                            ctx.register_variable_type(*var, format!("Vec<{}>", elem));
+                        }
+                    }
+                }
             }
 
             // Register scalar types for mixed Float*Int arithmetic coercion
@@ -122,17 +162,29 @@ pub fn codegen_stmt<'a>(
             }
 
             // Phase 54+: Use codegen_expr_boxed with string+type tracking for proper codegen
-            let value_str = codegen_expr_boxed_with_types(
+            let mut value_str = codegen_expr_boxed_with_types(
                 value, interner, synced_vars, boxed_fields, registry, async_functions,
                 ctx.get_string_vars(), ctx.get_variable_types()
             );
 
+            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
+            let is_mutable = *mutable || mutable_vars.contains(var);
+
+            // When assigning a &[T] borrow param to a mutable local, convert to owned Vec.
+            // `Let mutable result be arr` where arr: &[i64] → `let mut result = arr.to_vec();`
+            if is_mutable {
+                if let Expr::Identifier(src_sym) = value {
+                    if let Some(src_type) = ctx.get_variable_types().get(src_sym) {
+                        if src_type.starts_with("&[") {
+                            value_str = format!("{}.to_vec()", value_str);
+                        }
+                    }
+                }
+            }
+
             // Phase 103: Get explicit type annotation or infer for multi-param generic enums
             let type_annotation = ty.map(|t| codegen_type_expr(t, interner))
                 .or_else(|| infer_variant_type_annotation(value, registry, interner));
-
-            // Grand Challenge: Variable is mutable if explicitly marked OR if it's a Set target
-            let is_mutable = *mutable || mutable_vars.contains(var);
 
             match (is_mutable, type_annotation) {
                 (true, Some(t)) => writeln!(output, "{}let mut {}: {} = {};", indent_str, var_name, t, value_str).unwrap(),
@@ -204,11 +256,140 @@ pub fn codegen_stmt<'a>(
             };
 
             if !used_write {
-                // Fallback: standard assignment with format!
-                let value_str = codegen_expr_boxed_with_types(
-                    value, interner, synced_vars, boxed_fields, registry, async_functions,
-                    string_vars, var_types
-                );
+                // OPT-1B: Last-use clone elimination for `Set x to f(x, ...)`.
+                // When the target variable appears as a direct non-borrow argument
+                // and doesn't appear in other arg sub-expressions, skip cloning it
+                // since the old value is immediately overwritten by the result.
+                let value_str = if let Expr::Call { function, args } = value {
+                    let target_positions: Vec<usize> = args.iter().enumerate()
+                        .filter(|(_, a)| matches!(a, Expr::Identifier(sym) if *sym == *target))
+                        .map(|(i, _)| i)
+                        .collect();
+
+                    let mut other_ids = HashSet::new();
+                    for (i, a) in args.iter().enumerate() {
+                        if target_positions.contains(&i) { continue; }
+                        collect_expr_identifiers(a, &mut other_ids);
+                    }
+                    let target_in_others = other_ids.contains(target);
+
+                    let callee_borrow_indices: HashSet<usize> = var_types.get(function)
+                        .and_then(|t| t.strip_prefix("fn_borrow:"))
+                        .map(|s| s.split(',').filter_map(|idx| idx.parse().ok()).collect())
+                        .unwrap_or_default();
+
+                    let can_move = target_positions.len() == 1
+                        && !callee_borrow_indices.contains(&target_positions[0])
+                        && !target_in_others
+                        && var_types.get(target).map_or(false, |t| !is_copy_type(t));
+
+                    if can_move {
+                        let func_name = names.ident(*function);
+                        let move_pos = target_positions[0];
+                        let args_str: Vec<String> = args.iter().enumerate()
+                            .map(|(i, a)| {
+                                let s = codegen_expr_boxed_with_types(
+                                    a, interner, synced_vars, boxed_fields, registry,
+                                    async_functions, string_vars, var_types
+                                );
+                                if callee_borrow_indices.contains(&i) {
+                                    if let Expr::Identifier(sym) = a {
+                                        if let Some(ty) = var_types.get(sym) {
+                                            if ty.starts_with("&[") {
+                                                return s;
+                                            }
+                                        }
+                                    }
+                                    format!("&{}", s)
+                                } else if i == move_pos {
+                                    s // Move: no .clone()
+                                } else {
+                                    if let Expr::Identifier(sym) = a {
+                                        if let Some(ty) = var_types.get(sym) {
+                                            if !is_copy_type(ty) {
+                                                return format!("{}.clone()", s);
+                                            }
+                                        }
+                                    }
+                                    s
+                                }
+                            })
+                            .collect();
+                        if async_functions.contains(function) {
+                            format!("{}({}).await", func_name, args_str.join(", "))
+                        } else {
+                            format!("{}({})", func_name, args_str.join(", "))
+                        }
+                    } else {
+                        // OPT-1C: Cross-variable last-use move.
+                        // Build the call manually so we can move args that are not live
+                        // after this statement instead of cloning them.
+                        //
+                        // Safety conditions for moving arg at position i:
+                        //   1. Liveness info is available (live_vars_after is Some)
+                        //   2. The variable is NOT live after this statement
+                        //   3. The variable does NOT appear in any other arg expression
+                        //      (moving it first would invalidate a borrow in a later arg)
+                        let func_name = names.ident(*function);
+                        let args_str: Vec<String> = args.iter().enumerate()
+                            .map(|(i, a)| {
+                                let s = codegen_expr_boxed_with_types(
+                                    a, interner, synced_vars, boxed_fields, registry,
+                                    async_functions, string_vars, var_types
+                                );
+                                if callee_borrow_indices.contains(&i) {
+                                    if let Expr::Identifier(sym) = a {
+                                        if let Some(ty) = var_types.get(sym) {
+                                            if ty.starts_with("&[") {
+                                                return s;
+                                            }
+                                        }
+                                    }
+                                    format!("&{}", s)
+                                } else if let Expr::Identifier(sym) = a {
+                                    if let Some(ty) = var_types.get(sym) {
+                                        if !is_copy_type(ty) {
+                                            // Can move only when liveness says it's dead AND
+                                            // the variable isn't referenced in any other arg.
+                                            let can_move_opt1c = live_vars_after
+                                                .as_ref()
+                                                .map(|live| {
+                                                    if live.contains(sym) {
+                                                        return false;
+                                                    }
+                                                    // Check it doesn't appear in other args
+                                                    let mut other_ids = HashSet::new();
+                                                    for (j, other_a) in args.iter().enumerate() {
+                                                        if j == i { continue; }
+                                                        collect_expr_identifiers(other_a, &mut other_ids);
+                                                    }
+                                                    !other_ids.contains(sym)
+                                                })
+                                                .unwrap_or(false);
+                                            if can_move_opt1c {
+                                                return s; // Move: dead after this stmt, safe
+                                            }
+                                            return format!("{}.clone()", s);
+                                        }
+                                    }
+                                    s
+                                } else {
+                                    s
+                                }
+                            })
+                            .collect();
+                        if async_functions.contains(function) {
+                            format!("{}({}).await", func_name, args_str.join(", "))
+                        } else {
+                            format!("{}({})", func_name, args_str.join(", "))
+                        }
+                    }
+                } else {
+                    codegen_expr_boxed_with_types(
+                        value, interner, synced_vars, boxed_fields, registry,
+                        async_functions, string_vars, var_types
+                    )
+                };
                 writeln!(output, "{}{} = {};", indent_str, target_name, value_str).unwrap();
             }
 
@@ -220,7 +401,28 @@ pub fn codegen_stmt<'a>(
 
         Stmt::Call { function, args } => {
             let func_name = names.ident(*function);
-            let args_str: Vec<String> = args.iter().map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types())).collect();
+            let variable_types = ctx.get_variable_types();
+            // Check if callee has borrow params (encoded as "fn_borrow:0,1" in variable_types)
+            let callee_borrow_indices: HashSet<usize> = variable_types.get(function)
+                .and_then(|t| t.strip_prefix("fn_borrow:"))
+                .map(|s| s.split(',').filter_map(|i| i.parse().ok()).collect())
+                .unwrap_or_default();
+            let args_str: Vec<String> = args.iter().enumerate().map(|(i, a)| {
+                let s = codegen_expr_with_async(a, interner, synced_vars, async_functions, variable_types);
+                if callee_borrow_indices.contains(&i) {
+                    // Borrow param: pass reference instead of moving
+                    if let Expr::Identifier(sym) = a {
+                        if let Some(ty) = variable_types.get(sym) {
+                            if ty.starts_with("&[") {
+                                return s; // Already a slice — pass through
+                            }
+                        }
+                    }
+                    format!("&{}", s)
+                } else {
+                    s
+                }
+            }).collect();
             // Add .await if calling an async function
             let await_suffix = if async_functions.contains(function) { ".await" } else { "" };
             writeln!(output, "{}{}({}){};", indent_str, func_name, args_str.join(", "), await_suffix).unwrap();
@@ -230,15 +432,45 @@ pub fn codegen_stmt<'a>(
             let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
-            for stmt in *then_block {
-                output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+            {
+                let block_refs: Vec<&Stmt> = then_block.iter().collect();
+                let mut bi = 0;
+                while bi < block_refs.len() {
+                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&block_refs, bi, interner, indent + 1, ctx) {
+                        output.push_str(&code);
+                        bi += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&block_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        bi += 1 + skip;
+                        continue;
+                    }
+                    output.push_str(&codegen_stmt(block_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                    bi += 1;
+                }
             }
             ctx.pop_scope();
             if let Some(else_stmts) = else_block {
                 writeln!(output, "{}}} else {{", indent_str).unwrap();
                 ctx.push_scope();
-                for stmt in *else_stmts {
-                    output.push_str(&codegen_stmt(stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                {
+                    let block_refs: Vec<&Stmt> = else_stmts.iter().collect();
+                    let mut bi = 0;
+                    while bi < block_refs.len() {
+                        if let Some((code, skip)) = try_emit_seq_copy_pattern(&block_refs, bi, interner, indent + 1, ctx) {
+                            output.push_str(&code);
+                            bi += 1 + skip;
+                            continue;
+                        }
+                        if let Some((code, skip)) = try_emit_rotate_left_pattern(&block_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                            output.push_str(&code);
+                            bi += 1 + skip;
+                            continue;
+                        }
+                        output.push_str(&codegen_stmt(block_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
+                        bi += 1;
+                    }
                 }
                 ctx.pop_scope();
             }
@@ -250,11 +482,26 @@ pub fn codegen_stmt<'a>(
             let cond_str = codegen_expr_with_async(cond, interner, synced_vars, async_functions, ctx.get_variable_types());
             writeln!(output, "{}while {} {{", indent_str, cond_str).unwrap();
             ctx.push_scope();
+
+            // OPT-5: Extract sentinel context from while condition.
+            // For `While counter < limit:`, detect `Set counter to limit` inside If blocks
+            // as sentinel exits and replace with `break`.
+            let sentinel_ctx: Option<(Symbol, &Expr)> = match cond {
+                Expr::BinaryOp { op: BinaryOpKind::Lt, left, right } => {
+                    if let Expr::Identifier(sym) = left {
+                        Some((*sym, *right))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
             // Peephole: process body statements with peephole optimizations
             let body_refs: Vec<&Stmt> = body.iter().collect();
             let mut bi = 0;
             while bi < body_refs.len() {
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1) {
+                if let Some((code, skip)) = try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1, ctx) {
                     output.push_str(&code);
                     bi += 1 + skip;
                     continue;
@@ -268,6 +515,30 @@ pub fn codegen_stmt<'a>(
                     output.push_str(&code);
                     bi += 1 + skip;
                     continue;
+                }
+                if let Some((code, skip)) = try_emit_seq_copy_pattern(&body_refs, bi, interner, indent + 1, ctx) {
+                    output.push_str(&code);
+                    bi += 1 + skip;
+                    continue;
+                }
+                if let Some((code, skip)) = try_emit_rotate_left_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                    output.push_str(&code);
+                    bi += 1 + skip;
+                    continue;
+                }
+                // OPT-5: Sentinel → break transformation.
+                // If this statement is an If whose then_block ends with `Set counter to limit`,
+                // emit break instead of the sentinel set.
+                if let Some((counter_sym, limit_expr)) = &sentinel_ctx {
+                    if let Some(code) = try_emit_sentinel_break(
+                        body_refs[bi], *counter_sym, limit_expr, interner, indent + 1,
+                        mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps,
+                        async_functions, pipe_vars, boxed_fields, registry, type_env,
+                    ) {
+                        output.push_str(&code);
+                        bi += 1;
+                        continue;
+                    }
                 }
                 output.push_str(&codegen_stmt(body_refs[bi], interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps, async_functions, pipe_vars, boxed_fields, registry, type_env));
                 bi += 1;
@@ -304,21 +575,37 @@ pub fn codegen_stmt<'a>(
                 writeln!(output, "{}let mut __iter = ({}).into_iter();", indent_str, iter_str).unwrap();
                 writeln!(output, "{}while let Some({}) = __iter.next() {{", indent_str, pattern_str).unwrap();
             } else {
-                // Optimization: for known Vec<T> with Copy element type and non-mutating body,
+                // Optimization: for known Vec<T>/&[T] with Copy element type,
                 // use .iter().copied() instead of .clone() to avoid copying the entire collection.
-                let use_iter_copied = if let Expr::Identifier(coll_sym) = iterable {
+                // For slices, must use .iter() since .clone() on &[T] clones the reference, not the data.
+                let (use_iter_copied, use_iter_cloned) = if let Expr::Identifier(coll_sym) = iterable {
                     if let Some(coll_type) = ctx.get_variable_types().get(coll_sym) {
-                        coll_type.starts_with("Vec") && has_copy_element_type(coll_type)
+                        if coll_type.starts_with("&[") {
+                            // Slice type: must use .iter() (can't move/clone a borrowed slice)
+                            let elem = coll_type.strip_prefix("&[").and_then(|s| s.strip_suffix(']')).unwrap_or("_");
+                            if is_copy_type(elem) {
+                                (true, false)
+                            } else {
+                                (false, true)
+                            }
+                        } else if coll_type.starts_with("Vec") && has_copy_element_type(coll_type)
                             && !body_mutates_collection(body, *coll_sym)
+                        {
+                            (true, false)
+                        } else {
+                            (false, false)
+                        }
                     } else {
-                        false
+                        (false, false)
                     }
                 } else {
-                    false
+                    (false, false)
                 };
 
                 if use_iter_copied {
                     writeln!(output, "{}for {} in {}.iter().copied() {{", indent_str, pattern_str, iter_str).unwrap();
+                } else if use_iter_cloned {
+                    writeln!(output, "{}for {} in {}.iter().cloned() {{", indent_str, pattern_str, iter_str).unwrap();
                 } else {
                     // Clone the collection before iterating to avoid moving it.
                     // This allows the collection to be reused after the loop.
@@ -326,12 +613,22 @@ pub fn codegen_stmt<'a>(
                 }
             }
             ctx.push_scope();
-            // Peephole: process body statements with swap pattern detection
+            // Peephole: process body statements with swap, seq-copy, and rotate-left detection
             {
                 let body_refs: Vec<&Stmt> = body.iter().collect();
                 let mut bi = 0;
                 while bi < body_refs.len() {
                     if let Some((code, skip)) = try_emit_swap_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        bi += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&body_refs, bi, interner, indent + 1, ctx) {
+                        output.push_str(&code);
+                        bi += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&body_refs, bi, interner, indent + 1, ctx.get_variable_types()) {
                         output.push_str(&code);
                         bi += 1 + skip;
                         continue;
@@ -347,10 +644,26 @@ pub fn codegen_stmt<'a>(
         Stmt::Return { value } => {
             if let Some(v) = value {
                 let value_str = codegen_expr_with_async(v, interner, synced_vars, async_functions, ctx.get_variable_types());
-                writeln!(output, "{}return {};", indent_str, value_str).unwrap();
+                // If returning a borrowed slice param, convert to owned Vec
+                let needs_to_vec = if let Expr::Identifier(sym) = v {
+                    ctx.get_variable_types().get(sym)
+                        .map(|t| t.starts_with("&["))
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                if needs_to_vec {
+                    writeln!(output, "{}return {}.to_vec();", indent_str, value_str).unwrap();
+                } else {
+                    writeln!(output, "{}return {};", indent_str, value_str).unwrap();
+                }
             } else {
                 writeln!(output, "{}return;", indent_str).unwrap();
             }
+        }
+
+        Stmt::Break => {
+            writeln!(output, "{}break;", indent_str).unwrap();
         }
 
         Stmt::Assert { proposition } => {
@@ -1016,15 +1329,11 @@ pub fn codegen_stmt<'a>(
                         let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
                         format!("({} - 1) as usize", index_str)
                     };
-                    // Evaluate value first if it references the same collection (borrow safety)
-                    if value_str.contains(&coll_str) {
-                        writeln!(output, "{}let __set_tmp = {};", indent_str, value_str).unwrap();
-                        writeln!(output, "{}{}[{}] = __set_tmp;", indent_str, coll_str, index_part).unwrap();
-                    } else {
-                        writeln!(output, "{}{}[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
-                    }
+                    // Direct indexing with [] is safe in Rust even when reading
+                    // from the same collection (e.g., items[0] = items[2] + 5)
+                    writeln!(output, "{}{}[{}] = {};", indent_str, coll_str, index_part, value_str).unwrap();
                 }
-                Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") => {
+                Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") => {
                     let index_str = codegen_expr_with_async(index, interner, synced_vars, async_functions, ctx.get_variable_types());
                     writeln!(output, "{}{}.insert({}, {});", indent_str, coll_str, index_str, value_str).unwrap();
                 }
@@ -1225,12 +1534,29 @@ pub fn codegen_stmt<'a>(
                     let inner_code = match stmt {
                         Stmt::Let { value, .. } => {
                             // Return the value expression directly (not "let x = value;")
-                            codegen_expr(value, interner, synced_vars)
+                            codegen_expr_with_async(value, interner, synced_vars, async_functions, ctx.get_variable_types())
                         }
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
-                            let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types()))
+                            let variable_types = ctx.get_variable_types();
+                            let callee_borrow_indices: HashSet<usize> = variable_types.get(function)
+                                .and_then(|t| t.strip_prefix("fn_borrow:"))
+                                .map(|s| s.split(',').filter_map(|idx| idx.parse().ok()).collect())
+                                .unwrap_or_default();
+                            let args_str: Vec<String> = args.iter().enumerate()
+                                .map(|(idx, a)| {
+                                    let s = codegen_expr_with_async(a, interner, synced_vars, async_functions, variable_types);
+                                    if callee_borrow_indices.contains(&idx) {
+                                        if let Expr::Identifier(sym) = a {
+                                            if let Some(ty) = variable_types.get(sym) {
+                                                if ty.starts_with("&[") {
+                                                    return s;
+                                                }
+                                            }
+                                        }
+                                        format!("&{}", s)
+                                    } else { s }
+                                })
                                 .collect();
                             format!("{}({})", func_name, args_str.join(", "))
                         }
@@ -1256,12 +1582,29 @@ pub fn codegen_stmt<'a>(
                     // For Let statements, generate only the VALUE so the closure returns it
                     let inner_code = match stmt {
                         Stmt::Let { value, .. } => {
-                            codegen_expr(value, interner, synced_vars)
+                            codegen_expr_with_async(value, interner, synced_vars, async_functions, ctx.get_variable_types())
                         }
                         Stmt::Call { function, args } => {
                             let func_name = interner.resolve(*function);
-                            let args_str: Vec<String> = args.iter()
-                                .map(|a| codegen_expr_with_async(a, interner, synced_vars, async_functions, ctx.get_variable_types()))
+                            let variable_types = ctx.get_variable_types();
+                            let callee_borrow_indices: HashSet<usize> = variable_types.get(function)
+                                .and_then(|t| t.strip_prefix("fn_borrow:"))
+                                .map(|s| s.split(',').filter_map(|idx| idx.parse().ok()).collect())
+                                .unwrap_or_default();
+                            let args_str: Vec<String> = args.iter().enumerate()
+                                .map(|(idx, a)| {
+                                    let s = codegen_expr_with_async(a, interner, synced_vars, async_functions, variable_types);
+                                    if callee_borrow_indices.contains(&idx) {
+                                        if let Expr::Identifier(sym) = a {
+                                            if let Some(ty) = variable_types.get(sym) {
+                                                if ty.starts_with("&[") {
+                                                    return s;
+                                                }
+                                            }
+                                        }
+                                        format!("&{}", s)
+                                    } else { s }
+                                })
                                 .collect();
                             format!("{}({})", func_name, args_str.join(", "))
                         }
@@ -1460,6 +1803,79 @@ pub fn codegen_stmt<'a>(
     }
 
     output
+}
+
+/// OPT-5: Sentinel → break transformation.
+///
+/// Detects `If cond then: ...; Set counter to limit.` inside a `While counter < limit:` loop
+/// and replaces the sentinel set with `break;`. This gives LLVM a clean early-exit edge
+/// instead of an opaque counter assignment that forces one more condition check.
+///
+/// Returns the generated code if the pattern matches, or None.
+fn try_emit_sentinel_break<'a>(
+    stmt: &Stmt<'a>,
+    counter_sym: Symbol,
+    limit_expr: &Expr<'a>,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
+) -> Option<String> {
+    // Match: If cond then: ...; Set counter to limit. (no else block)
+    let (if_cond, then_block, else_block) = match stmt {
+        Stmt::If { cond, then_block, else_block } => (cond, then_block, else_block),
+        _ => return None,
+    };
+
+    if else_block.is_some() {
+        return None;
+    }
+
+    if then_block.is_empty() {
+        return None;
+    }
+
+    // Last statement in then_block must be `Set counter to limit`
+    let last = &then_block[then_block.len() - 1];
+    match last {
+        Stmt::Set { target, value, .. } => {
+            if *target != counter_sym || !exprs_equal(value, limit_expr) {
+                return None;
+            }
+        }
+        _ => return None,
+    }
+
+    // Pattern matched! Emit if block with break instead of sentinel set.
+    let indent_str = "    ".repeat(indent);
+    let var_types = ctx.get_variable_types();
+    let cond_str = codegen_expr_with_async(if_cond, interner, synced_vars, async_functions, var_types);
+    let mut output = String::new();
+    writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+
+    // Emit all then_block statements except the last (the sentinel set)
+    for s in &then_block[..then_block.len() - 1] {
+        output.push_str(&codegen_stmt(
+            s, interner, indent + 1, mutable_vars, ctx,
+            lww_fields, mv_fields, synced_vars, var_caps,
+            async_functions, pipe_vars, boxed_fields, registry, type_env,
+        ));
+    }
+
+    // Emit break instead of the sentinel set
+    writeln!(output, "{}    break;", indent_str).unwrap();
+    writeln!(output, "{}}}", indent_str).unwrap();
+
+    Some(output)
 }
 
 /// Phase 52: Extract the root identifier from an expression.

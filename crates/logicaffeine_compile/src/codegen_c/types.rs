@@ -226,6 +226,7 @@ pub(super) fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
                 | BinaryOpKind::Gt | BinaryOpKind::GtEq
                 | BinaryOpKind::And | BinaryOpKind::Or => CType::Bool,
                 BinaryOpKind::Concat => CType::String,
+                BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => CType::Int64,
                 BinaryOpKind::Add | BinaryOpKind::Subtract
                 | BinaryOpKind::Multiply | BinaryOpKind::Divide
                 | BinaryOpKind::Modulo => {

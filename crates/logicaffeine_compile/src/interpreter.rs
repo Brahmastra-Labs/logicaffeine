@@ -757,6 +757,8 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Return(ret_val))
             }
 
+            Stmt::Break => Ok(ControlFlow::Break),
+
             Stmt::FunctionDef { name, params, body, return_type, .. } => {
                 let func = FunctionDef {
                     params: params.clone(),
@@ -1380,6 +1382,10 @@ impl<'a> Interpreter<'a> {
                 match op {
                     BinaryOpKind::And => {
                         let left_val = self.evaluate_expr(left).await?;
+                        if matches!(left_val, RuntimeValue::Int(_)) {
+                            let right_val = self.evaluate_expr(right).await?;
+                            return self.apply_binary_op(*op, left_val, right_val);
+                        }
                         if !left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(false));
                         }
@@ -1388,6 +1394,10 @@ impl<'a> Interpreter<'a> {
                     }
                     BinaryOpKind::Or => {
                         let left_val = self.evaluate_expr(left).await?;
+                        if matches!(left_val, RuntimeValue::Int(_)) {
+                            let right_val = self.evaluate_expr(right).await?;
+                            return self.apply_binary_op(*op, left_val, right_val);
+                        }
                         if left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(true));
                         }
@@ -1675,6 +1685,15 @@ impl<'a> Interpreter<'a> {
                 Ok(RuntimeValue::Nothing)
             }
 
+            Expr::Not { operand } => {
+                let val = self.evaluate_expr(operand).await?;
+                match val {
+                    RuntimeValue::Bool(b) => Ok(RuntimeValue::Bool(!b)),
+                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(!n)),
+                    other => Err(format!("Cannot apply 'not' to {}", other.type_name())),
+                }
+            }
+
             Expr::InterpolatedString(parts) => {
                 let mut result = String::new();
                 for part in parts {
@@ -1783,10 +1802,28 @@ impl<'a> Interpreter<'a> {
             BinaryOpKind::Gt => self.apply_comparison(left, right, |a, b| a > b),
             BinaryOpKind::LtEq => self.apply_comparison(left, right, |a, b| a <= b),
             BinaryOpKind::GtEq => self.apply_comparison(left, right, |a, b| a >= b),
-            BinaryOpKind::And => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
-            BinaryOpKind::Or => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+            BinaryOpKind::And => match (&left, &right) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a & b)),
+                _ => Ok(RuntimeValue::Bool(left.is_truthy() && right.is_truthy())),
+            },
+            BinaryOpKind::Or => match (&left, &right) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a | b)),
+                _ => Ok(RuntimeValue::Bool(left.is_truthy() || right.is_truthy())),
+            },
             // Phase 53: String concatenation
             BinaryOpKind::Concat => self.apply_concat(left, right),
+            BinaryOpKind::BitXor => match (left, right) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a ^ b)),
+                _ => Err("Bitwise XOR requires integer operands".to_string()),
+            },
+            BinaryOpKind::Shl => match (left, right) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a << b)),
+                _ => Err("Left shift requires integer operands".to_string()),
+            },
+            BinaryOpKind::Shr => match (left, right) {
+                (RuntimeValue::Int(a), RuntimeValue::Int(b)) => Ok(RuntimeValue::Int(a >> b)),
+                _ => Err("Right shift requires integer operands".to_string()),
+            },
         }
     }
 
@@ -2528,6 +2565,8 @@ impl<'a> Interpreter<'a> {
                 Ok(ControlFlow::Return(ret_val))
             }
 
+            Stmt::Break => Ok(ControlFlow::Break),
+
             Stmt::FunctionDef { name, params, body, return_type, .. } => {
                 let func = FunctionDef {
                     params: params.clone(),
@@ -3073,6 +3112,10 @@ impl<'a> Interpreter<'a> {
                 match op {
                     BinaryOpKind::And => {
                         let left_val = self.evaluate_expr_sync(left)?;
+                        if matches!(left_val, RuntimeValue::Int(_)) {
+                            let right_val = self.evaluate_expr_sync(right)?;
+                            return self.apply_binary_op(*op, left_val, right_val);
+                        }
                         if !left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(false));
                         }
@@ -3081,6 +3124,10 @@ impl<'a> Interpreter<'a> {
                     }
                     BinaryOpKind::Or => {
                         let left_val = self.evaluate_expr_sync(left)?;
+                        if matches!(left_val, RuntimeValue::Int(_)) {
+                            let right_val = self.evaluate_expr_sync(right)?;
+                            return self.apply_binary_op(*op, left_val, right_val);
+                        }
                         if left_val.is_truthy() {
                             return Ok(RuntimeValue::Bool(true));
                         }
@@ -3363,6 +3410,15 @@ impl<'a> Interpreter<'a> {
 
             Expr::OptionNone => {
                 Ok(RuntimeValue::Nothing)
+            }
+
+            Expr::Not { operand } => {
+                let val = self.evaluate_expr_sync(operand)?;
+                match val {
+                    RuntimeValue::Bool(b) => Ok(RuntimeValue::Bool(!b)),
+                    RuntimeValue::Int(n) => Ok(RuntimeValue::Int(!n)),
+                    other => Err(format!("Cannot apply 'not' to {}", other.type_name())),
+                }
             }
 
             Expr::InterpolatedString(parts) => {
@@ -3763,7 +3819,8 @@ impl<'a> Interpreter<'a> {
                 Self::collect_symbols_from_expr(start, exclude, out, seen);
                 Self::collect_symbols_from_expr(end, exclude, out, seen);
             }
-            Expr::Copy { expr: e } | Expr::Give { value: e } | Expr::Length { collection: e } => {
+            Expr::Copy { expr: e } | Expr::Give { value: e } | Expr::Length { collection: e }
+            | Expr::Not { operand: e } => {
                 Self::collect_symbols_from_expr(e, exclude, out, seen);
             }
             Expr::List(items) | Expr::Tuple(items) => {

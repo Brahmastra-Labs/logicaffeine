@@ -44,6 +44,8 @@ pub enum LogosType {
     Span,
     Nat,
     UserDefined(Symbol),
+    /// First-class function type: fn(P1, P2, ...) -> R
+    Function(Vec<LogosType>, Box<LogosType>),
     Unknown,
 }
 
@@ -165,6 +167,14 @@ impl LogosType {
                 format!("std::collections::HashSet<{}>", inner.to_rust_type())
             }
             LogosType::Option(inner) => format!("Option<{}>", inner.to_rust_type()),
+            LogosType::Function(params, ret) => {
+                let params_str = params
+                    .iter()
+                    .map(|p| p.to_rust_type())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("impl Fn({}) -> {}", params_str, ret.to_rust_type())
+            }
             LogosType::UserDefined(_) => "_".into(),
             LogosType::Unknown => "_".into(),
         }
@@ -216,7 +226,14 @@ impl LogosType {
             }
             TypeExpr::Refinement { base, .. } => LogosType::from_type_expr(base, interner),
             TypeExpr::Persistent { inner } => LogosType::from_type_expr(inner, interner),
-            TypeExpr::Function { .. } => LogosType::Unknown,
+            TypeExpr::Function { inputs, output } => {
+                let params = inputs
+                    .iter()
+                    .map(|i| LogosType::from_type_expr(i, interner))
+                    .collect();
+                let ret = Box::new(LogosType::from_type_expr(output, interner));
+                LogosType::Function(params, ret)
+            }
         }
     }
 
@@ -265,6 +282,8 @@ impl LogosType {
                 } else if let Some(inner) = s
                     .strip_prefix("std::collections::HashMap<")
                     .or_else(|| s.strip_prefix("HashMap<"))
+                    .or_else(|| s.strip_prefix("rustc_hash::FxHashMap<"))
+                    .or_else(|| s.strip_prefix("FxHashMap<"))
                     .and_then(|s| s.strip_suffix('>'))
                 {
                     if let Some((key, val)) = inner.split_once(", ") {
@@ -278,6 +297,8 @@ impl LogosType {
                 } else if let Some(inner) = s
                     .strip_prefix("std::collections::HashSet<")
                     .or_else(|| s.strip_prefix("HashSet<"))
+                    .or_else(|| s.strip_prefix("rustc_hash::FxHashSet<"))
+                    .or_else(|| s.strip_prefix("FxHashSet<"))
                     .and_then(|s| s.strip_suffix('>'))
                 {
                     LogosType::Set(Box::new(Self::from_rust_type_str(inner)))
@@ -353,11 +374,21 @@ impl TypeEnv {
                     | BinaryOpKind::LtEq
                     | BinaryOpKind::GtEq => LogosType::Bool,
 
-                    // Logical operators produce Bool
-                    BinaryOpKind::And | BinaryOpKind::Or => LogosType::Bool,
+                    // And/Or: type-aware — integer operands → Int (bitwise), else → Bool (logical)
+                    BinaryOpKind::And | BinaryOpKind::Or => {
+                        let lt = self.infer_expr(left, interner);
+                        if matches!(lt, LogosType::Int) {
+                            LogosType::Int
+                        } else {
+                            LogosType::Bool
+                        }
+                    }
 
                     // Concat always produces String
                     BinaryOpKind::Concat => LogosType::String,
+
+                    // Bitwise ops always produce Int
+                    BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => LogosType::Int,
 
                     // Add: could be numeric or string concatenation
                     BinaryOpKind::Add => {
@@ -380,6 +411,11 @@ impl TypeEnv {
                         LogosType::numeric_promotion(&lt, &rt)
                     }
                 }
+            }
+
+            Expr::Not { operand } => {
+                let ty = self.infer_expr(operand, interner);
+                ty
             }
 
             Expr::Length { .. } => LogosType::Int,
@@ -1344,5 +1380,172 @@ mod tests {
         let r#move = interner.intern("move");
         let names = RustNames::new(&interner);
         assert_eq!(names.raw(r#move), "move");
+    }
+
+    // =========================================================================
+    // Phase 5: LogosType::Function
+    // =========================================================================
+
+    #[test]
+    fn function_type_is_not_copy() {
+        let fn_ty = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        assert!(!fn_ty.is_copy());
+    }
+
+    #[test]
+    fn function_type_zero_params_is_not_copy() {
+        let fn_ty = LogosType::Function(vec![], Box::new(LogosType::Unit));
+        assert!(!fn_ty.is_copy());
+    }
+
+    #[test]
+    fn to_rust_type_function_single_param() {
+        let fn_ty = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        assert_eq!(fn_ty.to_rust_type(), "impl Fn(i64) -> bool");
+    }
+
+    #[test]
+    fn to_rust_type_function_two_params() {
+        let fn_ty = LogosType::Function(
+            vec![LogosType::Int, LogosType::String],
+            Box::new(LogosType::Bool),
+        );
+        assert_eq!(fn_ty.to_rust_type(), "impl Fn(i64, String) -> bool");
+    }
+
+    #[test]
+    fn to_rust_type_function_zero_params() {
+        let fn_ty = LogosType::Function(vec![], Box::new(LogosType::Int));
+        assert_eq!(fn_ty.to_rust_type(), "impl Fn() -> i64");
+    }
+
+    #[test]
+    fn to_rust_type_function_nested_param() {
+        // fn(fn(Int) -> Bool) -> String
+        let inner_fn = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        let fn_ty = LogosType::Function(vec![inner_fn], Box::new(LogosType::String));
+        assert_eq!(
+            fn_ty.to_rust_type(),
+            "impl Fn(impl Fn(i64) -> bool) -> String"
+        );
+    }
+
+    #[test]
+    fn from_type_expr_function_one_param() {
+        use crate::ast::stmt::TypeExpr;
+        let mut interner = Interner::new();
+        let int_sym = interner.intern("Int");
+        let bool_sym = interner.intern("Bool");
+        let int_ty = TypeExpr::Primitive(int_sym);
+        let bool_ty = TypeExpr::Primitive(bool_sym);
+        let fn_ty = TypeExpr::Function {
+            inputs: std::slice::from_ref(&int_ty),
+            output: &bool_ty,
+        };
+        assert_eq!(
+            LogosType::from_type_expr(&fn_ty, &interner),
+            LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool))
+        );
+    }
+
+    #[test]
+    fn from_type_expr_function_zero_params() {
+        use crate::ast::stmt::TypeExpr;
+        let mut interner = Interner::new();
+        let unit_sym = interner.intern("Unit");
+        let unit_ty = TypeExpr::Primitive(unit_sym);
+        let fn_ty = TypeExpr::Function {
+            inputs: &[],
+            output: &unit_ty,
+        };
+        assert_eq!(
+            LogosType::from_type_expr(&fn_ty, &interner),
+            LogosType::Function(vec![], Box::new(LogosType::Unit))
+        );
+    }
+
+    #[test]
+    fn from_type_expr_function_two_params() {
+        use crate::ast::stmt::TypeExpr;
+        let mut interner = Interner::new();
+        let int_sym = interner.intern("Int");
+        let text_sym = interner.intern("Text");
+        let bool_sym = interner.intern("Bool");
+        let int_ty = TypeExpr::Primitive(int_sym);
+        let text_ty = TypeExpr::Primitive(text_sym);
+        let bool_ty = TypeExpr::Primitive(bool_sym);
+        let inputs = [int_ty, text_ty];
+        let fn_ty = TypeExpr::Function {
+            inputs: &inputs,
+            output: &bool_ty,
+        };
+        assert_eq!(
+            LogosType::from_type_expr(&fn_ty, &interner),
+            LogosType::Function(
+                vec![LogosType::Int, LogosType::String],
+                Box::new(LogosType::Bool)
+            )
+        );
+    }
+
+    #[test]
+    fn from_type_expr_function_nested() {
+        // fn(fn(Int) -> Bool) -> Text should parse correctly
+        use crate::ast::stmt::TypeExpr;
+        let mut interner = Interner::new();
+        let int_sym = interner.intern("Int");
+        let bool_sym = interner.intern("Bool");
+        let text_sym = interner.intern("Text");
+        let int_ty = TypeExpr::Primitive(int_sym);
+        let bool_ty = TypeExpr::Primitive(bool_sym);
+        let text_ty = TypeExpr::Primitive(text_sym);
+        let inner_fn = TypeExpr::Function {
+            inputs: std::slice::from_ref(&int_ty),
+            output: &bool_ty,
+        };
+        let outer_fn = TypeExpr::Function {
+            inputs: std::slice::from_ref(&inner_fn),
+            output: &text_ty,
+        };
+        let inner_logos = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        let expected = LogosType::Function(vec![inner_logos], Box::new(LogosType::String));
+        assert_eq!(LogosType::from_type_expr(&outer_fn, &interner), expected);
+    }
+
+    #[test]
+    fn function_type_equality_same() {
+        let a = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        let b = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn function_type_equality_different_params() {
+        let a = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        let b = LogosType::Function(vec![LogosType::String], Box::new(LogosType::Bool));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn function_type_equality_different_return() {
+        let a = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        let b = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::String));
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn function_type_not_numeric_not_string_not_float() {
+        let fn_ty = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        assert!(!fn_ty.is_numeric());
+        assert!(!fn_ty.is_string());
+        assert!(!fn_ty.is_float());
+    }
+
+    #[test]
+    fn function_type_element_type_is_none() {
+        let fn_ty = LogosType::Function(vec![LogosType::Int], Box::new(LogosType::Bool));
+        assert!(fn_ty.element_type().is_none());
+        assert!(fn_ty.key_type().is_none());
+        assert!(fn_ty.value_type().is_none());
     }
 }

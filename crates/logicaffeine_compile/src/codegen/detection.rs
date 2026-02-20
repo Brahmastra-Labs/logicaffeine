@@ -858,7 +858,8 @@ pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Sy
             collect_expr_identifiers(start, identifiers);
             collect_expr_identifiers(end, identifiers);
         }
-        Expr::Copy { expr: inner } | Expr::Give { value: inner } | Expr::Length { collection: inner } => {
+        Expr::Copy { expr: inner } | Expr::Give { value: inner } | Expr::Length { collection: inner }
+        | Expr::Not { operand: inner } => {
             collect_expr_identifiers(inner, identifiers);
         }
         Expr::Contains { collection, value } | Expr::Union { left: collection, right: value } | Expr::Intersection { left: collection, right: value } => {
@@ -922,6 +923,156 @@ pub(super) fn collect_expr_identifiers(expr: &Expr, identifiers: &mut HashSet<Sy
     }
 }
 
+/// Check if a symbol appears anywhere in a slice of statements (expressions or targets).
+/// Used by dead-counter elimination to decide if a post-loop counter binding is needed.
+pub(super) fn symbol_appears_in_stmts(sym: Symbol, stmts: &[&Stmt]) -> bool {
+    stmts.iter().any(|s| symbol_appears_in_stmt(sym, s))
+}
+
+fn symbol_appears_in_stmt(sym: Symbol, stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Let { value, .. } => symbol_appears_in_expr(sym, value),
+        Stmt::Set { target, value, .. } => *target == sym || symbol_appears_in_expr(sym, value),
+        Stmt::Show { object, .. } => symbol_appears_in_expr(sym, object),
+        Stmt::Return { value } => value.as_ref().map_or(false, |v| symbol_appears_in_expr(sym, v)),
+        Stmt::Call { function, args } => *function == sym || args.iter().any(|a| symbol_appears_in_expr(sym, a)),
+        Stmt::If { cond, then_block, else_block } => {
+            symbol_appears_in_expr(sym, cond)
+                || then_block.iter().any(|s| symbol_appears_in_stmt(sym, s))
+                || else_block.map_or(false, |b| b.iter().any(|s| symbol_appears_in_stmt(sym, s)))
+        }
+        Stmt::While { cond, body, .. } => {
+            symbol_appears_in_expr(sym, cond)
+                || body.iter().any(|s| symbol_appears_in_stmt(sym, s))
+        }
+        Stmt::Repeat { iterable, body, .. } => {
+            symbol_appears_in_expr(sym, iterable)
+                || body.iter().any(|s| symbol_appears_in_stmt(sym, s))
+        }
+        Stmt::Zone { body, .. } => body.iter().any(|s| symbol_appears_in_stmt(sym, s)),
+        Stmt::Push { collection, value } => {
+            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, value)
+        }
+        Stmt::Pop { collection, .. } => symbol_appears_in_expr(sym, collection),
+        Stmt::Add { collection, value } | Stmt::Remove { collection, value } => {
+            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, value)
+        }
+        Stmt::SetIndex { collection, index, value } => {
+            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, index) || symbol_appears_in_expr(sym, value)
+        }
+        Stmt::Inspect { target, arms, .. } => {
+            symbol_appears_in_expr(sym, target)
+                || arms.iter().any(|arm| arm.body.iter().any(|s| symbol_appears_in_stmt(sym, s)))
+        }
+        Stmt::RuntimeAssert { condition } => symbol_appears_in_expr(sym, condition),
+        Stmt::FunctionDef { body, .. } => body.iter().any(|s| symbol_appears_in_stmt(sym, s)),
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            tasks.iter().any(|s| symbol_appears_in_stmt(sym, s))
+        }
+        _ => false,
+    }
+}
+
+fn symbol_appears_in_expr(sym: Symbol, expr: &Expr) -> bool {
+    match expr {
+        Expr::Identifier(s) => *s == sym,
+        Expr::BinaryOp { left, right, .. } => {
+            symbol_appears_in_expr(sym, left) || symbol_appears_in_expr(sym, right)
+        }
+        Expr::Call { function, args } => {
+            *function == sym || args.iter().any(|a| symbol_appears_in_expr(sym, a))
+        }
+        Expr::Index { collection, index } => {
+            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, index)
+        }
+        Expr::Slice { collection, start, end } => {
+            symbol_appears_in_expr(sym, collection)
+                || symbol_appears_in_expr(sym, start)
+                || symbol_appears_in_expr(sym, end)
+        }
+        Expr::Length { collection } | Expr::Copy { expr: collection } | Expr::Give { value: collection } => {
+            symbol_appears_in_expr(sym, collection)
+        }
+        Expr::Contains { collection, value } | Expr::Union { left: collection, right: value } | Expr::Intersection { left: collection, right: value } => {
+            symbol_appears_in_expr(sym, collection) || symbol_appears_in_expr(sym, value)
+        }
+        Expr::FieldAccess { object, .. } => symbol_appears_in_expr(sym, object),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| symbol_appears_in_expr(sym, i))
+        }
+        Expr::Range { start, end } => {
+            symbol_appears_in_expr(sym, start) || symbol_appears_in_expr(sym, end)
+        }
+        Expr::New { init_fields, .. } => {
+            init_fields.iter().any(|(_, v)| symbol_appears_in_expr(sym, v))
+        }
+        Expr::NewVariant { fields, .. } => {
+            fields.iter().any(|(_, v)| symbol_appears_in_expr(sym, v))
+        }
+        Expr::OptionSome { value } => symbol_appears_in_expr(sym, value),
+        Expr::WithCapacity { value, capacity } => {
+            symbol_appears_in_expr(sym, value) || symbol_appears_in_expr(sym, capacity)
+        }
+        Expr::CallExpr { callee, args } => {
+            symbol_appears_in_expr(sym, callee)
+                || args.iter().any(|a| symbol_appears_in_expr(sym, a))
+        }
+        Expr::InterpolatedString(parts) => {
+            parts.iter().any(|p| {
+                if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
+                    symbol_appears_in_expr(sym, value)
+                } else { false }
+            })
+        }
+        Expr::Closure { body, .. } => {
+            match body {
+                crate::ast::stmt::ClosureBody::Expression(e) => symbol_appears_in_expr(sym, e),
+                crate::ast::stmt::ClosureBody::Block(stmts) => stmts.iter().any(|s| symbol_appears_in_stmt(sym, s)),
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Check if a TypeExpr is a Vec/Seq/List type (collection that could be borrowed as &[T]).
+pub(super) fn is_vec_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
+    match ty {
+        TypeExpr::Generic { base, .. } => {
+            let name = interner.resolve(*base);
+            matches!(name, "Seq" | "List" | "Vec")
+        }
+        _ => false,
+    }
+}
+
+/// For a function's parameters and body, return the set of parameter indices
+/// whose Vec<T> params are read-only (never mutated in the body).
+/// These can safely be borrowed as &[T] instead of owned Vec<T>.
+pub(super) fn collect_readonly_vec_param_indices(
+    params: &[(Symbol, &TypeExpr)],
+    body: &[Stmt],
+    interner: &Interner,
+) -> HashSet<usize> {
+    let mutable_vars = collect_mutable_vars(body);
+    let mut readonly_indices = HashSet::new();
+    for (i, (param_sym, param_ty)) in params.iter().enumerate() {
+        if is_vec_type_expr(param_ty, interner) && !mutable_vars.contains(param_sym) {
+            readonly_indices.insert(i);
+        }
+    }
+    readonly_indices
+}
+
+/// Convert a Vec<T> type string to a slice &[T] type string.
+/// E.g., "Vec<i64>" → "&[i64]", "Vec<String>" → "&[String]"
+pub(super) fn vec_to_slice_type(vec_type: &str) -> String {
+    if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        format!("&[{}]", inner)
+    } else {
+        vec_type.to_string()
+    }
+}
+
 /// Extract a debug prefix string from an expression for `{var=}` format.
 pub(super) fn expr_debug_prefix(expr: &Expr, interner: &Interner) -> String {
     match expr {
@@ -939,6 +1090,107 @@ pub(super) fn collect_stmt_identifiers(stmt: &Stmt, identifiers: &mut HashSet<Sy
         Stmt::Call { args, .. } => {
             for arg in args {
                 collect_expr_identifiers(arg, identifiers);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Collect parameter indices where any call site passes `Give` as the argument.
+/// If a caller writes `Call f with Give x`, index 0 must not be borrowed as &[T].
+pub(super) fn collect_give_arg_indices(fn_sym: Symbol, stmts: &[Stmt]) -> HashSet<usize> {
+    let mut result = HashSet::new();
+    for stmt in stmts {
+        scan_give_args_stmt(fn_sym, stmt, &mut result);
+    }
+    result
+}
+
+fn scan_give_args_stmt(fn_sym: Symbol, stmt: &Stmt, result: &mut HashSet<usize>) {
+    match stmt {
+        Stmt::Call { function, args } => {
+            if *function == fn_sym {
+                for (i, arg) in args.iter().enumerate() {
+                    if matches!(arg, Expr::Give { .. }) {
+                        result.insert(i);
+                    }
+                }
+            }
+            for arg in args {
+                scan_give_args_expr(fn_sym, arg, result);
+            }
+        }
+        Stmt::Let { value, .. } | Stmt::Set { value, .. } => {
+            scan_give_args_expr(fn_sym, value, result);
+        }
+        Stmt::Return { value: Some(v) } => scan_give_args_expr(fn_sym, v, result),
+        Stmt::FunctionDef { body, .. } => {
+            for s in *body {
+                scan_give_args_stmt(fn_sym, s, result);
+            }
+        }
+        Stmt::If { then_block, else_block, .. } => {
+            for s in *then_block {
+                scan_give_args_stmt(fn_sym, s, result);
+            }
+            if let Some(b) = else_block {
+                for s in *b {
+                    scan_give_args_stmt(fn_sym, s, result);
+                }
+            }
+        }
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+            for s in *body {
+                scan_give_args_stmt(fn_sym, s, result);
+            }
+        }
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+            for s in *tasks {
+                scan_give_args_stmt(fn_sym, s, result);
+            }
+        }
+        Stmt::Inspect { arms, .. } => {
+            for arm in arms.iter() {
+                for s in arm.body.iter() {
+                    scan_give_args_stmt(fn_sym, s, result);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn scan_give_args_expr(fn_sym: Symbol, expr: &Expr, result: &mut HashSet<usize>) {
+    match expr {
+        Expr::Call { function, args } => {
+            if *function == fn_sym {
+                for (i, arg) in args.iter().enumerate() {
+                    if matches!(arg, Expr::Give { .. }) {
+                        result.insert(i);
+                    }
+                }
+            }
+            for arg in args {
+                scan_give_args_expr(fn_sym, arg, result);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            scan_give_args_expr(fn_sym, left, result);
+            scan_give_args_expr(fn_sym, right, result);
+        }
+        Expr::FieldAccess { object, .. }
+        | Expr::Give { value: object }
+        | Expr::Copy { expr: object }
+        | Expr::Length { collection: object } => {
+            scan_give_args_expr(fn_sym, object, result);
+        }
+        Expr::Index { collection, index } => {
+            scan_give_args_expr(fn_sym, collection, result);
+            scan_give_args_expr(fn_sym, index, result);
+        }
+        Expr::List(items) | Expr::Tuple(items) => {
+            for item in items {
+                scan_give_args_expr(fn_sym, item, result);
             }
         }
         _ => {}
