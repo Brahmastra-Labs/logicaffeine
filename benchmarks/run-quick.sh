@@ -251,7 +251,6 @@ for bench in "${BENCHMARKS[@]}"; do
     HYPERFINE_ARGS=(
         --warmup "$WARMUP"
         --runs "$RUNS"
-        --timeout "$TIMEOUT"
         --export-json "$RAW_DIR/${bench}_${size}.json"
         --time-unit millisecond
     )
@@ -277,7 +276,7 @@ for bench in "${BENCHMARKS[@]}"; do
         warn "hyperfine failed for $bench at $size"
     fi
 
-    # Detect per-command timeouts (hyperfine --timeout killed individual commands)
+    # Detect per-command timeouts (run_timeout killed individual commands)
     if [ -f "$RAW_DIR/${bench}_${size}.json" ] && \
        jq -e '[.results[] | select(.mean == null)] | length > 0' "$RAW_DIR/${bench}_${size}.json" &>/dev/null; then
         warn "per-command timeout detected for $bench at $size"
