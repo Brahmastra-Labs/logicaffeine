@@ -240,49 +240,84 @@ fi
 ok "Phase 2 complete: all verified"
 
 # ===========================================================================
-# Phase 3: Quick Benchmark (smallest size, 3 runs)
+# Phase 3: Quick Benchmark — per-language timeout isolation
 # ===========================================================================
 info "Phase 3: Quick benchmarking..."
+
+PER_LANG_DIR="$RAW_DIR/per_lang"
+mkdir -p "$PER_LANG_DIR"
+
+# Merge multiple single-language hyperfine JSONs into one combined result.
+merge_hyperfine_results() {
+    local output_file="$1"
+    shift
+    local files=("$@")
+    if [ ${#files[@]} -eq 0 ]; then
+        echo '{"results":[]}' > "$output_file"
+        return
+    fi
+    jq -s '{ results: [.[].results[]] }' "${files[@]}" > "$output_file"
+}
+
+declare -A LANG_TIMEOUTS
+
+try_bench() {
+    local lang_id="$1" label="$2" cmd="$3"
+
+    if [[ "${LANG_TIMEOUTS[${bench}_${lang_id}]:-}" == "1" ]]; then
+        warn "  Skipping $label (timed out at smaller size)"
+        return
+    fi
+
+    local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
+    local rc=0
+    run_timeout "$HYPERFINE_TIMEOUT" hyperfine \
+        --warmup "$WARMUP" --runs "$RUNS" \
+        --export-json "$pf" --time-unit millisecond \
+        -n "$label" "$cmd" || rc=$?
+
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+        LANG_TIMEOUTS["${bench}_${lang_id}"]=1
+        warn "  $label timed out for $bench at $size — skipping larger sizes"
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}_${lang_id}.timeout"
+    elif [ "$rc" -ne 0 ]; then
+        warn "  $label benchmark failed for $bench at $size"
+    fi
+
+    [ -f "$pf" ] && MERGE_FILES+=("$pf")
+}
 
 for bench in "${BENCHMARKS[@]}"; do
     size="$(quick_size "$bench")"
     info "Benchmarking $bench at n=$size..."
+    MERGE_FILES=()
 
-    HYPERFINE_ARGS=(
-        --warmup "$WARMUP"
-        --runs "$RUNS"
-        --export-json "$RAW_DIR/${bench}_${size}.json"
-        --time-unit millisecond
-    )
+    [ -f "$BIN_DIR/${bench}_c" ]   && try_bench c "C" "$BIN_DIR/${bench}_c $size"
+    [ -f "$BIN_DIR/${bench}_cpp" ] && try_bench cpp "C++" "$BIN_DIR/${bench}_cpp $size"
+    [ -f "$BIN_DIR/${bench}_rs" ]  && try_bench rust "Rust" "$BIN_DIR/${bench}_rs $size"
+    [ -f "$BIN_DIR/${bench}_zig" ] && try_bench zig "Zig" "$BIN_DIR/${bench}_zig $size"
+    [ -f "$BIN_DIR/${bench}_go" ]  && try_bench go "Go" "$BIN_DIR/${bench}_go $size"
+    [ -d "$BIN_DIR/java/$bench" ]  && try_bench java "Java" "java -cp $BIN_DIR/java/$bench Main $size"
+    [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && try_bench js "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size"
+    [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && try_bench python "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size"
+    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && try_bench ruby "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size"
+    [ -f "$BIN_DIR/${bench}_nim" ] && try_bench nim "Nim" "$BIN_DIR/${bench}_nim $size"
+    [ -f "$BIN_DIR/${bench}_logos_release" ] && try_bench logos_release "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size"
 
-    [ -f "$BIN_DIR/${bench}_c" ]   && HYPERFINE_ARGS+=(-n "C" "$BIN_DIR/${bench}_c $size")
-    [ -f "$BIN_DIR/${bench}_cpp" ] && HYPERFINE_ARGS+=(-n "C++" "$BIN_DIR/${bench}_cpp $size")
-    [ -f "$BIN_DIR/${bench}_rs" ]  && HYPERFINE_ARGS+=(-n "Rust" "$BIN_DIR/${bench}_rs $size")
-    [ -f "$BIN_DIR/${bench}_zig" ] && HYPERFINE_ARGS+=(-n "Zig" "$BIN_DIR/${bench}_zig $size")
-    [ -f "$BIN_DIR/${bench}_go" ]  && HYPERFINE_ARGS+=(-n "Go" "$BIN_DIR/${bench}_go $size")
-    [ -d "$BIN_DIR/java/$bench" ]  && HYPERFINE_ARGS+=(-n "Java" "java -cp $BIN_DIR/java/$bench Main $size")
-    [ -f "$PROGRAMS_DIR/$bench/main.js" ]  && HYPERFINE_ARGS+=(-n "JavaScript" "node $PROGRAMS_DIR/$bench/main.js $size")
-    [ -f "$PROGRAMS_DIR/$bench/main.py" ]  && HYPERFINE_ARGS+=(-n "Python" "python3 $PROGRAMS_DIR/$bench/main.py $size")
-    [ -f "$PROGRAMS_DIR/$bench/main.rb" ]  && HYPERFINE_ARGS+=(-n "Ruby" "RUBY_THREAD_VM_STACK_SIZE=67108864 ruby $PROGRAMS_DIR/$bench/main.rb $size")
-    [ -f "$BIN_DIR/${bench}_nim" ] && HYPERFINE_ARGS+=(-n "Nim" "$BIN_DIR/${bench}_nim $size")
-    [ -f "$BIN_DIR/${bench}_logos_release" ] && HYPERFINE_ARGS+=(-n "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size")
-
-    rc=0
-    run_timeout "$HYPERFINE_TIMEOUT" hyperfine "${HYPERFINE_ARGS[@]}" || rc=$?
-    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
-        warn "hyperfine timed out for $bench at $size (>${HYPERFINE_TIMEOUT}s)"
-        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
-    elif [ "$rc" -ne 0 ]; then
-        warn "hyperfine failed for $bench at $size"
+    # Merge per-language results into the combined file Phase 4 expects
+    if [ ${#MERGE_FILES[@]} -gt 0 ]; then
+        merge_hyperfine_results "$RAW_DIR/${bench}_${size}.json" "${MERGE_FILES[@]}"
+    else
+        echo '{"results":[]}' > "$RAW_DIR/${bench}_${size}.json"
     fi
 
-    # Detect per-command timeouts (run_timeout killed individual commands)
-    if [ -f "$RAW_DIR/${bench}_${size}.json" ] && \
-       jq -e '[.results[] | select(.mean == null)] | length > 0' "$RAW_DIR/${bench}_${size}.json" &>/dev/null; then
-        warn "per-command timeout detected for $bench at $size"
-        [ ! -f "$RAW_DIR/${bench}_${size}.timeout" ] && echo "$TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
-        jq '.results = [.results[] | select(.mean != null)]' "$RAW_DIR/${bench}_${size}.json" > "$RAW_DIR/${bench}_${size}.json.tmp" && \
-            mv "$RAW_DIR/${bench}_${size}.json.tmp" "$RAW_DIR/${bench}_${size}.json"
+    # Collect per-language timeout markers
+    has_timeout=false
+    for tf in "$RAW_DIR/${bench}_${size}_"*.timeout; do
+        [ -f "$tf" ] && has_timeout=true && break
+    done
+    if [ "$has_timeout" = true ]; then
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
     fi
 done
 

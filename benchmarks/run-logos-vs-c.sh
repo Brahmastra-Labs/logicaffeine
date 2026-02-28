@@ -269,9 +269,51 @@ fi
 ok "Phase 2 complete: all verified"
 
 # ===========================================================================
-# Phase 3: Benchmark
+# Phase 3: Benchmark — per-language timeout isolation
 # ===========================================================================
 info "Phase 3: Benchmarking LOGOS (release) vs C at calibrated sizes ($WARMUP warmup, $RUNS runs)..."
+
+PER_LANG_DIR="$RAW_DIR/per_lang"
+mkdir -p "$PER_LANG_DIR"
+
+merge_hyperfine_results() {
+    local output_file="$1"
+    shift
+    local files=("$@")
+    if [ ${#files[@]} -eq 0 ]; then
+        echo '{"results":[]}' > "$output_file"
+        return
+    fi
+    jq -s '{ results: [.[].results[]] }' "${files[@]}" > "$output_file"
+}
+
+declare -A LANG_TIMEOUTS
+
+try_bench() {
+    local lang_id="$1" label="$2" cmd="$3"
+
+    if [[ "${LANG_TIMEOUTS[${bench}_${lang_id}]:-}" == "1" ]]; then
+        warn "  Skipping $label (timed out at smaller size)"
+        return
+    fi
+
+    local pf="$PER_LANG_DIR/${bench}_${size}_${lang_id}.json"
+    local rc=0
+    run_timeout "$HYPERFINE_TIMEOUT" hyperfine \
+        --warmup "$WARMUP" --runs "$RUNS" \
+        --export-json "$pf" --time-unit millisecond \
+        -n "$label" "$cmd" || rc=$?
+
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+        LANG_TIMEOUTS["${bench}_${lang_id}"]=1
+        warn "  $label timed out for $bench at $size — skipping larger sizes"
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}_${lang_id}.timeout"
+    elif [ "$rc" -ne 0 ]; then
+        warn "  $label benchmark failed for $bench at $size"
+    fi
+
+    [ -f "$pf" ] && MERGE_FILES+=("$pf")
+}
 
 for bench in "${BENCHMARKS[@]}"; do
     size="$(bench_size "$bench")"
@@ -283,33 +325,25 @@ for bench in "${BENCHMARKS[@]}"; do
     fi
 
     info "Benchmarking $bench at n=$size..."
+    MERGE_FILES=()
 
-    HYPERFINE_ARGS=(
-        --warmup "$WARMUP"
-        --runs "$RUNS"
-        --export-json "$RAW_DIR/${bench}_${size}.json"
-        --time-unit millisecond
-    )
+    [ -f "$BIN_DIR/${bench}_c" ]             && try_bench c "C" "$BIN_DIR/${bench}_c $size"
+    [ -f "$BIN_DIR/${bench}_logos_release" ] && try_bench logos_release "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size"
 
-    [ -f "$BIN_DIR/${bench}_c" ]             && HYPERFINE_ARGS+=(-n "C" "$BIN_DIR/${bench}_c $size")
-    [ -f "$BIN_DIR/${bench}_logos_release" ] && HYPERFINE_ARGS+=(-n "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size")
-
-    rc=0
-    run_timeout "$HYPERFINE_TIMEOUT" hyperfine "${HYPERFINE_ARGS[@]}" || rc=$?
-    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
-        warn "hyperfine timed out for $bench at $size (>${HYPERFINE_TIMEOUT}s)"
-        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
-    elif [ "$rc" -ne 0 ]; then
-        warn "hyperfine failed for $bench at $size"
+    # Merge per-language results
+    if [ ${#MERGE_FILES[@]} -gt 0 ]; then
+        merge_hyperfine_results "$RAW_DIR/${bench}_${size}.json" "${MERGE_FILES[@]}"
+    else
+        echo '{"results":[]}' > "$RAW_DIR/${bench}_${size}.json"
     fi
 
-    # Detect per-command timeouts (run_timeout killed individual commands)
-    if [ -f "$RAW_DIR/${bench}_${size}.json" ] && \
-       jq -e '[.results[] | select(.mean == null)] | length > 0' "$RAW_DIR/${bench}_${size}.json" &>/dev/null; then
-        warn "per-command timeout detected for $bench at $size"
-        [ ! -f "$RAW_DIR/${bench}_${size}.timeout" ] && echo "$TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
-        jq '.results = [.results[] | select(.mean != null)]' "$RAW_DIR/${bench}_${size}.json" > "$RAW_DIR/${bench}_${size}.json.tmp" && \
-            mv "$RAW_DIR/${bench}_${size}.json.tmp" "$RAW_DIR/${bench}_${size}.json"
+    # Collect per-language timeout markers
+    has_timeout=false
+    for tf in "$RAW_DIR/${bench}_${size}_"*.timeout; do
+        [ -f "$tf" ] && has_timeout=true && break
+    done
+    if [ "$has_timeout" = true ]; then
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
     fi
 done
 

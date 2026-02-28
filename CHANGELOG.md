@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.2] - 2026-02-28
+
+### Fixed
+- **Benchmark timeout isolation** — each language now runs in its own hyperfine invocation with an independent timeout. Previously, all 11 languages ran in a single hyperfine call; when one language (e.g., Python on ackermann n=11) exceeded the timeout, `run_timeout` killed the entire process and remaining languages (JS, Ruby, Nim, LOGOS) were never measured. Per-language results are merged into the same JSON format so downstream assembly is unchanged.
+- **Smart timeout skipping** — if a language times out at size N, it is automatically skipped for all larger sizes of that benchmark, avoiding wasted CI minutes on languages known to be too slow.
+- **Trimmed benchmark sizes** — removed noise sizes from all 32 `sizes.txt` files where C runtime is <10ms (process startup dominates measurement). Keeps 3-5 meaningful sizes per benchmark for real scaling data.
+- Applied to all three benchmark scripts: `run.sh`, `run-quick.sh`, `run-logos-vs-c.sh`.
+
 ## [0.9.1] - 2026-02-28
 
 ### Fixed
