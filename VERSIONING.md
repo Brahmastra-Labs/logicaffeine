@@ -206,6 +206,7 @@ These crates still follow lockstep versioning for consistency.
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.9.1 | 2026-02-28 | Fix benchmark CI: remove invalid hyperfine --timeout flag |
 | 0.9.0 | 2026-02-27 | Type checker, codegen refactor, 15 optimizations, language features |
 | 0.8.19 | 2026-02-15 | Benchmark reliability: Zig 0.15 upgrade, swap pattern regression test |
 | 0.8.18 | 2026-02-15 | Constant propagation safety fix (string + zone scoping) |
