@@ -12,10 +12,20 @@ while pos < n
 end
 text = text.join
 needle = "XXXXX"
+needle_len = 5
 count = 0
 i = 0
-while (idx = text.index(needle, i))
-  count += 1
-  i = idx + 1
+while i <= n - needle_len
+  match = true
+  j = 0
+  while j < needle_len
+    if text[i + j] != needle[j]
+      match = false
+      break
+    end
+    j += 1
+  end
+  count += 1 if match
+  i += 1
 end
 puts count

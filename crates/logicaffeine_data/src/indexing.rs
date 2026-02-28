@@ -98,6 +98,60 @@ impl<T: Clone> LogosIndexMut<i64> for Vec<T> {
     }
 }
 
+// === [T] slice with i64 (1-based indexing, used by &mut [T] borrow params) ===
+
+impl<T: Clone> LogosIndex<i64> for [T] {
+    type Output = T;
+
+    #[inline(always)]
+    fn logos_get(&self, index: i64) -> T {
+        if index < 1 {
+            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
+        }
+        let idx = (index - 1) as usize;
+        if idx >= self.len() {
+            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
+        }
+        unsafe { self.get_unchecked(idx).clone() }
+    }
+}
+
+impl<T: Clone> LogosIndexMut<i64> for [T] {
+    #[inline(always)]
+    fn logos_set(&mut self, index: i64, value: T) {
+        if index < 1 {
+            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
+        }
+        let idx = (index - 1) as usize;
+        if idx >= self.len() {
+            panic!("Index {} is out of bounds for seq of length {}", index, self.len());
+        }
+        unsafe { *self.get_unchecked_mut(idx) = value; }
+    }
+}
+
+// === &mut [T] with i64 (thin wrapper for UFCS compatibility) ===
+//
+// When the codegen emits `LogosIndex::logos_get(&arr, i)` where `arr: &mut [T]`,
+// the first argument is `&&mut [T]`. Rust doesn't auto-coerce this to `&[T]`
+// in UFCS, so we need an explicit impl that delegates to the `[T]` impl.
+
+impl<T: Clone> LogosIndex<i64> for &mut [T] {
+    type Output = T;
+
+    #[inline(always)]
+    fn logos_get(&self, index: i64) -> T {
+        <[T] as LogosIndex<i64>>::logos_get(self, index)
+    }
+}
+
+impl<T: Clone> LogosIndexMut<i64> for &mut [T] {
+    #[inline(always)]
+    fn logos_set(&mut self, index: i64, value: T) {
+        <[T] as LogosIndexMut<i64>>::logos_set(self, index, value)
+    }
+}
+
 // === String with i64 (1-based character indexing) ===
 
 impl LogosIndex<i64> for String {
@@ -119,6 +173,37 @@ impl LogosIndex<i64> for String {
                 self.chars().nth(idx)
                     .map(|c| c.to_string())
                     .unwrap_or_else(|| panic!("Index {} is out of bounds for text of length {}", index, self.chars().count()))
+            }
+        }
+    }
+}
+
+// === String with i64 (1-based character indexing, char return) ===
+
+/// Zero-allocation character access for string comparisons.
+///
+/// Unlike [`LogosIndex`] for `String` which returns a `String`,
+/// this trait returns a `char` — avoiding heap allocation entirely.
+/// Used by the codegen optimizer for string-index-vs-string-index comparisons.
+pub trait LogosGetChar {
+    fn logos_get_char(&self, index: i64) -> char;
+}
+
+impl LogosGetChar for String {
+    #[inline(always)]
+    fn logos_get_char(&self, index: i64) -> char {
+        if index < 1 {
+            panic!("Index {} is invalid: LOGOS uses 1-based indexing (minimum is 1)", index);
+        }
+        let idx = (index - 1) as usize;
+        match self.as_bytes().get(idx) {
+            Some(&b) if b.is_ascii() => b as char,
+            _ => {
+                self.chars().nth(idx)
+                    .unwrap_or_else(|| panic!(
+                        "Index {} is out of bounds for text of length {}",
+                        index, self.chars().count()
+                    ))
             }
         }
     }

@@ -2,7 +2,7 @@
   "name": "logicaffeine",
   "displayName": "LogicAffeine",
   "description": "Language support for LogicAffeine (.lg files)",
-  "version": "0.8.12",
+  "version": "0.9.0",
   "publisher": "brahmastra-labs",
   "repository": {
     "type": "git",

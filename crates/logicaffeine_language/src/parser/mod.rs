@@ -73,8 +73,9 @@ pub use verb::{LogicVerbParsing, ImperativeVerbParsing};
 
 use crate::analysis::TypeRegistry;
 use crate::arena_ctx::AstContext;
-use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm};
+use crate::ast::{AspectOperator, LogicExpr, NeoEventData, NumberKind, QuantifierKind, TemporalOperator, Term, ThematicRole, Stmt, Expr, Literal, TypeExpr, BinaryOpKind, MatchArm, OptFlag};
 use crate::ast::stmt::{ReadSource, Pattern};
+use std::collections::HashSet;
 use crate::drs::{Case, Gender, Number, ReferentSource};
 use crate::drs::{Drs, BoxType, WorldState};
 use crate::error::{ParseError, ParseErrorKind};
@@ -739,6 +740,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     BlockType::Theorem | BlockType::Definition | BlockType::Proof |
                     BlockType::Example | BlockType::Logic | BlockType::Note | BlockType::TypeDef |
                     BlockType::Policy | BlockType::Requires => ParserMode::Declarative,
+                    BlockType::No => self.mode, // Annotation — keep current mode
                 };
                 self.current += 1;
             } else {
@@ -1104,6 +1106,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
         let mut in_definition_block = false;
+        let mut pending_opt_flags: HashSet<OptFlag> = HashSet::new();
 
         // Check if we started in a Definition block (from process_block_headers)
         if self.mode == ParserMode::Declarative {
@@ -1128,12 +1131,42 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         self.advance();
                         continue;
                     }
+                    BlockType::No => {
+                        // Optimization annotation: ## No Memo, ## No TCO, etc.
+                        self.advance(); // consume the ## No header
+                        // Parse the annotation keyword that follows.
+                        // Use the token's lexeme for a universal approach regardless of token type.
+                        if let Some(token) = self.tokens.get(self.current) {
+                            let word = self.interner.resolve(token.lexeme).to_lowercase();
+                            match word.as_str() {
+                                "memo" => { pending_opt_flags.insert(OptFlag::NoMemo); }
+                                "tco" => { pending_opt_flags.insert(OptFlag::NoTCO); }
+                                "peephole" => { pending_opt_flags.insert(OptFlag::NoPeephole); }
+                                "borrow" => { pending_opt_flags.insert(OptFlag::NoBorrow); }
+                                "optimize" => {
+                                    pending_opt_flags.insert(OptFlag::NoOptimize);
+                                    pending_opt_flags.insert(OptFlag::NoMemo);
+                                    pending_opt_flags.insert(OptFlag::NoTCO);
+                                    pending_opt_flags.insert(OptFlag::NoPeephole);
+                                    pending_opt_flags.insert(OptFlag::NoBorrow);
+                                }
+                                _ => {} // Unknown annotation — ignore silently
+                            }
+                            self.advance(); // consume the flag word
+                        }
+                        // Skip any trailing newlines
+                        while self.check(&TokenType::Newline) {
+                            self.advance();
+                        }
+                        continue;
+                    }
                     BlockType::Function => {
                         in_definition_block = false;
                         self.mode = ParserMode::Imperative;
                         self.advance();
-                        // Parse function definition
-                        let func_def = self.parse_function_def()?;
+                        // Parse function definition, passing pending annotations
+                        let flags = std::mem::take(&mut pending_opt_flags);
+                        let func_def = self.parse_function_def_with_flags(flags)?;
                         statements.push(func_def);
                         continue;
                     }
@@ -4636,6 +4669,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// Syntax: [To] [native] name (a: Type) [and (b: Type)] [-> ReturnType]
     ///         body statements... (only if not native)
     fn parse_function_def(&mut self) -> ParseResult<Stmt<'a>> {
+        self.parse_function_def_with_flags(HashSet::new())
+    }
+
+    /// Parse function definition with optimization annotation flags.
+    fn parse_function_def_with_flags(&mut self, opt_flags: HashSet<OptFlag>) -> ParseResult<Stmt<'a>> {
         // Consume "To" if present (when called from parse_statement)
         if self.check(&TokenType::To) || self.check_preposition_is("to") {
             self.advance();
@@ -4811,6 +4849,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 native_path,
                 is_exported: false,
                 export_target: None,
+                opt_flags: opt_flags.clone(),
             });
         }
 
@@ -4870,6 +4909,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             native_path: None,
             is_exported,
             export_target,
+            opt_flags,
         })
     }
 
@@ -5652,6 +5692,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::Either |    // correlative: "either X or Y"
             TokenType::Combined |  // string concat: "combined with"
             TokenType::Shared |    // CRDT modifier
+            TokenType::Particle(_) |  // phrasal verb particles: out, up, down, etc.
+            TokenType::Preposition(_) |  // prepositions: from, into, etc.
             TokenType::All => {    // quantifier in FOL, but valid variable name in imperative code
                 let sym = token.lexeme;
                 self.advance();
@@ -6491,6 +6533,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             TokenType::CalendarUnit(_) |
             // Phase 103: Focus particles can be variant names (Just, Only, Even)
             TokenType::Focus(_) |
+            // Phrasal verb particles can be variable names (out, up, down, etc.)
+            TokenType::Particle(_) |
+            // Prepositions can be variable names in code context (from, into, etc.)
+            TokenType::Preposition(_) |
             // Escape hatch keyword can be a variable name
             TokenType::Escape => {
                 // Use the raw lexeme (interned string) as the symbol

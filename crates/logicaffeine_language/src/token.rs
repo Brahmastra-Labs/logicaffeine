@@ -103,6 +103,8 @@ pub enum BlockType {
     Policy,
     /// `## Requires` - External crate dependency declarations.
     Requires,
+    /// `## No` - Optimization annotation (followed by Memo, TCO, Peephole, Borrow, or Optimize).
+    No,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

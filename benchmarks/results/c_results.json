@@ -1,11 +1,13 @@
 {
   "schema_version": 1,
   "metadata": {
-    "date": "2026-02-20T02:50:46Z",
-    "commit": "2e61b0a",
+    "date": "2026-02-28T05:39:30Z",
+    "commit": "9502dbb",
     "logos_version": "0.8.19",
     "cpu": "Apple M1 Max",
     "os": "macOS 15.2 arm64",
+    "warmup": 5,
+    "runs": 30,
     "versions": {
       "c": "Apple clang version 16.0.0 (clang-1600.0.26.6)"
     }
@@ -19,9 +21,9 @@
     },
     {
       "id": "logos_release",
-      "label": "LOGOS (release)",
+      "label": "LOGOS",
       "color": "#00d4ff",
-      "tier": "logos"
+      "tier": "systems"
     }
   ],
   "benchmarks": [
@@ -40,36 +42,41 @@
         "40"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow fib(n).",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn fib(n: i64) -> i64 {\n    use std::cell::RefCell;\n    thread_local! {\n        static __MEMO_FIB: RefCell<FxHashMap<i64, i64>> = RefCell::new(FxHashMap::default());\n    }\n    if let Some(__v) = __MEMO_FIB.with(|c| c.borrow().get(&n).copied()) {\n        return __v;\n    }\n    let __memo_result = (|| -> i64 {\n        if (n < 2) {\n            return n;\n        }\n        return (fib((n - 1)) + fib((n - 2)));\n    })();\n    __MEMO_FIB.with(|c| c.borrow_mut().insert(n, __memo_result));\n    __memo_result\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    show(&fib(n));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn fib(n: i64) -> i64 {\n    use std::cell::RefCell;\n    thread_local! {\n        static __MEMO_FIB: RefCell<FxHashMap<i64, i64>> = RefCell::new(FxHashMap::default());\n    }\n    if let Some(__v) = __MEMO_FIB.with(|c| c.borrow().get(&n).copied()) {\n        return __v;\n    }\n    let __memo_result = (|| -> i64 {\n        if (n < 2) {\n            return n;\n        }\n        return (fib((n - 1)) + fib((n - 2)));\n    })();\n    __MEMO_FIB.with(|c| c.borrow_mut().insert(n, __memo_result));\n    __memo_result\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    show(&fib(n));\n}",
       "scaling": {
         "40": {
           "c": {
-            "mean_ms": 215.81728514933332000,
-            "median_ms": 173.88888766000,
-            "stddev_ms": 207.89609227412326000,
-            "min_ms": 0,
-            "max_ms": 804.8620961599999000,
-            "cv": 0.96329676341851374959,
-            "runs": 30
+            "mean_ms": 320.28771189333327000,
+            "median_ms": 316.80733466000,
+            "stddev_ms": 10.780972790587193000,
+            "min_ms": 310.94158416000,
+            "max_ms": 347.86458416000,
+            "cv": 0.03366027602762863588,
+            "runs": 30,
+            "user_ms": 313.10756666666667000,
+            "system_ms": 1.8687133333333335000
           },
           "logos_release": {
-            "mean_ms": 0,
-            "median_ms": 0,
-            "stddev_ms": 0,
-            "min_ms": 0,
-            "max_ms": 0,
-            "cv": 0,
-            "runs": 30
+            "mean_ms": 2.5031591599999985000,
+            "median_ms": 2.378521659999999000,
+            "stddev_ms": 0.5406930575412545000,
+            "min_ms": 1.6963761599999984000,
+            "max_ms": 3.5472511599999985000,
+            "cv": 0.21600426620145673198,
+            "runs": 30,
+            "user_ms": 1.5422000000000003000,
+            "system_ms": 0.8092466666666669000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "ackermann",
       "name": "Ackermann Function",
       "description": "Ackermann(3, m). Measures extreme recursion depth and stack frame overhead.",
-      "reference_size": "12",
+      "reference_size": "11",
       "sizes": [
         "3",
         "4",
@@ -80,298 +87,345 @@
         "12"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To ackermann (m: Int) and (n: Int) -> Int:\n    If m equals 0:\n        Return n + 1.\n    If n equals 0:\n        Return ackermann(m - 1, 1).\n    Return ackermann(m - 1, ackermann(m, n - 1)).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow ackermann(3, n).",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn ackermann(mut m: i64, mut n: i64) -> i64 {\n    loop {\n        if (m == 0) {\n            return (n + 1);\n        }\n        if (n == 0) {\n            {\n                let __tce_0 = (m - 1);\n                let __tce_1 = 1;\n                m = __tce_0;\n                n = __tce_1;\n                continue;\n            }\n        }\n        {\n            let __tce_0 = (m - 1);\n            let __tce_1 = ackermann(m, (n - 1));\n            m = __tce_0;\n            n = __tce_1;\n            continue;\n        }\n    }\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    show(&ackermann(3, n));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn ackermann(mut m: i64, mut n: i64) -> i64 {\n    loop {\n        if (m == 0) {\n            return (n + 1);\n        }\n        if (n == 0) {\n            {\n                let __tce_0 = (m - 1);\n                let __tce_1 = 1;\n                m = __tce_0;\n                n = __tce_1;\n                continue;\n            }\n        }\n        {\n            let __tce_0 = (m - 1);\n            let __tce_1 = ackermann(m, (n - 1));\n            m = __tce_0;\n            n = __tce_1;\n            continue;\n        }\n    }\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    show(&ackermann(3, n));\n}",
       "scaling": {
-        "12": {
+        "11": {
           "c": {
-            "mean_ms": 3718.134072546667000,
-            "median_ms": 3509.6465183800003000,
-            "stddev_ms": 1095.222733229073000,
-            "min_ms": 2265.79233088000,
-            "max_ms": 6606.53474688000,
-            "cv": 0.29456246382178480560,
-            "runs": 30
+            "mean_ms": 554.2143677000001000,
+            "median_ms": 552.1268733000,
+            "stddev_ms": 11.379434361565096000,
+            "min_ms": 536.8772688000001000,
+            "max_ms": 589.2961858000,
+            "cv": 0.02053255026351979930,
+            "runs": 30,
+            "user_ms": 544.0550866666667000,
+            "system_ms": 4.073226666666666000
           },
           "logos_release": {
-            "mean_ms": 2813.5117323133323000,
-            "median_ms": 2392.94112288000,
-            "stddev_ms": 833.6851305835893000,
-            "min_ms": 2244.57266388000,
-            "max_ms": 5701.54178988000,
-            "cv": 0.29631478732029837015,
-            "runs": 30
+            "mean_ms": 601.0057772999999000,
+            "median_ms": 574.3318523000001000,
+            "stddev_ms": 81.88184204460054000,
+            "min_ms": 558.7033938000,
+            "max_ms": 966.1408528000001000,
+            "cv": 0.13624135596907606236,
+            "runs": 30,
+            "user_ms": 565.2091199999998000,
+            "system_ms": 5.9381600000000005000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "nqueens",
       "name": "N-Queens",
       "description": "N-Queens backtracking. Measures recursive constraint solving.",
-      "reference_size": "13",
+      "reference_size": "14",
       "sizes": [
         "8",
         "9",
         "10",
         "11",
         "12",
-        "13"
+        "13",
+        "14"
       ],
-      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To isSafe (queens: Seq of Int, row: Int, col: Int) -> Int:\n    Let mutable i be 1.\n    While i is less than row:\n        Let qc be item i of queens.\n        If qc equals col:\n            Return 0.\n        If qc - col equals i - row:\n            Return 0.\n        If col - qc equals i - row:\n            Return 0.\n        If qc - col equals row - i:\n            Return 0.\n        Set i to i + 1.\n    Return 1.\n\n## To solve (queens: Seq of Int, row: Int, n: Int) -> Int:\n    If row is greater than n:\n        Return 1.\n    Let mutable count be 0.\n    Let mutable col be 1.\n    While col is at most n:\n        If isSafe(queens, row, col) equals 1:\n            Let mutable next be queens.\n            Push col to next.\n            Set count to count + solve(next, row + 1, n).\n        Set col to col + 1.\n    Return count.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet queens be a new Seq of Int.\nShow solve(queens, 1, n).",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn isSafe(queens: &[i64], row: i64, col: i64) -> i64 {\n    for i in 1..row {\n        let qc = queens[(i - 1) as usize];\n        if (qc == col) {\n            return 0;\n        }\n        if ((qc - col) == (i - row)) {\n            return 0;\n        }\n        if ((col - qc) == (i - row)) {\n            return 0;\n        }\n        if ((qc - col) == (row - i)) {\n            return 0;\n        }\n    }\n    return 1;\n}\n\nfn solve(queens: &[i64], row: i64, n: i64) -> i64 {\n    if (row > n) {\n        return 1;\n    }\n    let mut count = 0;\n    for col in 1..(n + 1) {\n        if (isSafe(queens, row, col) == 1) {\n            let mut next = queens.to_vec();\n            next.push(col);\n            count = (count + solve(&next, (row + 1), n));\n        }\n    }\n    return count;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let queens = Seq::<i64>::default();\n    show(&solve(&queens, 1, n));\n}",
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To solve (row: Int, cols: Int, diag1: Int, diag2: Int, n: Int) -> Int:\n    If row equals n:\n        Return 1.\n    Let all be (1 shifted left by n) - 1.\n    Let mutable available be all and not (cols or diag1 or diag2).\n    Let mutable count be 0.\n    While available is not 0:\n        Let bit be available and (0 - available).\n        Set available to available xor bit.\n        Set count to count + solve(row + 1, cols or bit, (diag1 or bit) shifted left by 1, (diag2 or bit) shifted right by 1, n).\n    Return count.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow solve(0, 0, 0, 0, n).",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn solve(row: i64, cols: i64, diag1: i64, diag2: i64, n: i64) -> i64 {\n    if (row == n) {\n        return 1;\n    }\n    let all = ((1 << n) - 1);\n    let mut available = (all & !(((cols | diag1) | diag2)));\n    let mut count = 0;\n    while (available != 0) {\n        let bit = (available & (0 - available));\n        available = (available ^ bit);\n        count = (count + solve((row + 1), (cols | bit), ((diag1 | bit) << 1), ((diag2 | bit) >> 1), n));\n    }\n    return count;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    show(&solve(0, 0, 0, 0, n));\n}",
       "scaling": {
-        "13": {
+        "14": {
           "c": {
-            "mean_ms": 28.985235199999994000,
-            "median_ms": 28.2494239000,
-            "stddev_ms": 4.840373104162315000,
-            "min_ms": 25.354840900000005000,
-            "max_ms": 53.6290069000,
-            "cv": 0.16699443943661067832,
-            "runs": 30
+            "mean_ms": 164.24947207999996000,
+            "median_ms": 161.99910378000,
+            "stddev_ms": 9.734495055171447000,
+            "min_ms": 157.69831278000,
+            "max_ms": 211.29664578000001000,
+            "cv": 0.05926652263716334844,
+            "runs": 30,
+            "user_ms": 157.86429999999993000,
+            "system_ms": 2.8032999999999995000
           },
           "logos_release": {
-            "mean_ms": 951.4374825666668000,
-            "median_ms": 949.7181119000001000,
-            "stddev_ms": 12.123501433042118000,
-            "min_ms": 931.8241319000001000,
-            "max_ms": 991.3430069000001000,
-            "cv": 0.01274229957846192974,
-            "runs": 30
+            "mean_ms": 176.2590859466667000,
+            "median_ms": 169.08974978000,
+            "stddev_ms": 19.62803655627691000,
+            "min_ms": 164.15547878000,
+            "max_ms": 255.83677078000006000,
+            "cv": 0.11135900569810088121,
+            "runs": 30,
+            "user_ms": 166.1584333333333000,
+            "system_ms": 2.1340333333333336000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "bubble_sort",
       "name": "Bubble Sort",
       "description": "O(n^2) bubble sort. Measures nested loops, indexed array mutation, and swap patterns.",
-      "reference_size": "10000",
+      "reference_size": "30000",
       "sizes": [
         "100",
         "500",
         "1000",
         "2000",
         "5000",
-        "10000"
+        "10000",
+        "30000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 4294967296.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n - 1:\n    Let mutable j be 1.\n    While j is at most n - 1 - i:\n        Let a be item j of arr.\n        Let b be item (j + 1) of arr.\n        If a is greater than b:\n            Set item j of arr to b.\n            Set item (j + 1) of arr to a.\n        Set j to j + 1.\n    Set i to i + 1.\nShow item 1 of arr.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 4294967296);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    i = 0;\n    while (i < (n - 1)) {\n        for j in 1..(((n - 1) - i) + 1) {\n            if arr[(j - 1) as usize] > arr[((j + 1) - 1) as usize] {\n                arr.swap((j - 1) as usize, ((j + 1) - 1) as usize);\n            }\n        }\n        i = (i + 1);\n    }\n    show(&arr[(1 - 1) as usize]);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 4294967296);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = 0;\n    for i in 0..(n - 1) {\n        unsafe { std::hint::assert_unchecked((((n - 1) - i) as usize) <= arr.len()); }\n        for j in 1..(((n - 1) - i) + 1) {\n            if arr[(j - 1) as usize] > arr[(j) as usize] {\n                let __swap_tmp = arr[(j - 1) as usize];\n                arr[(j - 1) as usize] = arr[(j) as usize];\n                arr[(j) as usize] = __swap_tmp;\n            }\n        }\n    }\n    show(&arr[0]);\n}",
       "scaling": {
-        "10000": {
+        "30000": {
           "c": {
-            "mean_ms": 36.34318844000,
-            "median_ms": 31.75716324000,
-            "stddev_ms": 14.365729454164741000,
-            "min_ms": 29.932350240000006000,
-            "max_ms": 89.22480924000001000,
-            "cv": 0.39527983291508754040,
-            "runs": 30
+            "mean_ms": 638.9719865066665000,
+            "median_ms": 641.2745074399999000,
+            "stddev_ms": 15.68072455652178000,
+            "min_ms": 595.10650744000,
+            "max_ms": 667.71984044000,
+            "cv": 0.02454055089683995155,
+            "runs": 30,
+            "user_ms": 632.3823733333335000,
+            "system_ms": 2.3157200000000003000
           },
           "logos_release": {
-            "mean_ms": 88.16915654000,
-            "median_ms": 86.06468424000,
-            "stddev_ms": 8.269417884081712000,
-            "min_ms": 82.79555924000,
-            "max_ms": 125.17597624000001000,
-            "cv": 0.09379037078947326856,
-            "runs": 30
+            "mean_ms": 995.7520935733334000,
+            "median_ms": 989.32598644000,
+            "stddev_ms": 19.17153809079907000,
+            "min_ms": 983.09742444000,
+            "max_ms": 1072.7179234400002000,
+            "cv": 0.01925332441130053045,
+            "runs": 30,
+            "user_ms": 987.9368066666666000,
+            "system_ms": 3.2864533333333322000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "mergesort",
       "name": "Merge Sort",
       "description": "Top-down merge sort. Measures allocation-heavy divide-and-conquer.",
-      "reference_size": "100000",
+      "reference_size": "3000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "3000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To mergeSort (arr: Seq of Int) -> Seq of Int:\n    Let n be length of arr.\n    If n is less than 2:\n        Return arr.\n    Let mid be n / 2.\n    Let mutable left be a new Seq of Int.\n    Let mutable right be a new Seq of Int.\n    Let mutable i be 1.\n    While i is at most mid:\n        Push item i of arr to left.\n        Set i to i + 1.\n    While i is at most n:\n        Push item i of arr to right.\n        Set i to i + 1.\n    Set left to mergeSort(left).\n    Set right to mergeSort(right).\n    Let mutable result be a new Seq of Int.\n    Let mutable li be 1.\n    Let mutable ri be 1.\n    While li is at most length of left:\n        If ri is greater than length of right:\n            Push item li of left to result.\n            Set li to li + 1.\n        Otherwise:\n            If item li of left is at most item ri of right:\n                Push item li of left to result.\n                Set li to li + 1.\n            Otherwise:\n                Push item ri of right to result.\n                Set ri to ri + 1.\n    While ri is at most length of right:\n        Push item ri of right to result.\n        Set ri to ri + 1.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to mergeSort(arr).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn mergeSort(arr: &[i64]) -> Vec<i64> {\n    let n = (arr.len() as i64);\n    if (n < 2) {\n        return arr.to_vec();\n    }\n    let mid = (n / 2);\n    let mut left = Seq::<i64>::default();\n    let mut right = Seq::<i64>::default();\n    for i in 1..(mid + 1) {\n        left.push(arr[(i - 1) as usize]);\n    }\n    let mut i = (1_i64).max(mid + 1);\n    while (i <= n) {\n        right.push(arr[(i - 1) as usize]);\n        i = (i + 1);\n    }\n    left = mergeSort(&left);\n    right = mergeSort(&right);\n    let mut result = Seq::<i64>::default();\n    let mut li = 1;\n    let mut ri = 1;\n    while (li <= (left.len() as i64)) {\n        if (ri > (right.len() as i64)) {\n            result.push(left[(li - 1) as usize]);\n            li = (li + 1);\n        } else {\n            if (left[(li - 1) as usize] <= right[(ri - 1) as usize]) {\n                result.push(left[(li - 1) as usize]);\n                li = (li + 1);\n            } else {\n                result.push(right[(ri - 1) as usize]);\n                ri = (ri + 1);\n            }\n        }\n    }\n    while (ri <= (right.len() as i64)) {\n        result.push(right[(ri - 1) as usize]);\n        ri = (ri + 1);\n    }\n    return result;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    arr = mergeSort(&arr);\n    let mut checksum = 0;\n    i = 1;\n    while (i <= n) {\n        checksum = ((checksum + arr[(i - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[(1 - 1) as usize], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn mergeSort(arr: &[i64]) -> Vec<i64> {\n    let n = (arr.len() as i64);\n    if (n < 2) {\n        return arr.to_vec();\n    }\n    let mid = (n / 2);\n    let mut left: Vec<i64> = arr[..mid as usize].to_vec();\n    let mut right = Seq::<i64>::default();\n    let mut i = mid + 1;\n    if i <= n {\n        right.extend_from_slice(&arr[(i - 1) as usize..n as usize]);\n    }\n    left = mergeSort(&left);\n    right = mergeSort(&right);\n    let mut result: Vec<i64> = Vec::with_capacity((left.len() + right.len()) as usize);\n    let mut li = 1;\n    let mut ri = 1;\n    let left_len = (left.len() as i64);\n    let right_len = (right.len() as i64);\n    unsafe { std::hint::assert_unchecked((left_len as usize) <= left.len()); }\n    while (li <= left_len) {\n        if (ri > right_len) {\n            result.extend_from_slice(&left[(li - 1) as usize..]);\n            break;\n        } else {\n            if (left[(li - 1) as usize] <= right[(ri - 1) as usize]) {\n                result.push(left[(li - 1) as usize]);\n                li = (li + 1);\n            } else {\n                result.push(right[(ri - 1) as usize]);\n                ri = (ri + 1);\n            }\n        }\n    }\n    if ri <= (right.len() as i64) {\n        result.extend_from_slice(&right[(ri - 1) as usize..(right.len() as i64) as usize]);\n    }\n    return result;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    arr = mergeSort(&arr);\n    let mut checksum = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 0..n {\n        checksum = ((checksum + arr[i as usize]) % 1000000007);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[0], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
       "scaling": {
-        "100000": {
+        "3000000": {
           "c": {
-            "mean_ms": 7.439588613333334000,
-            "median_ms": 6.845919180000001000,
-            "stddev_ms": 1.4515112060426453000,
-            "min_ms": 5.565773680000001000,
-            "max_ms": 10.25798168000,
-            "cv": 0.19510638040404905783,
-            "runs": 30
+            "mean_ms": 464.8701356266667000,
+            "median_ms": 457.76128836000,
+            "stddev_ms": 18.519007836203076000,
+            "min_ms": 440.23868386000004000,
+            "max_ms": 509.78276686000,
+            "cv": 0.03983694889592893872,
+            "runs": 30,
+            "user_ms": 438.0940266666666000,
+            "system_ms": 19.475499999999996000
           },
           "logos_release": {
-            "mean_ms": 39.89470394666667000,
-            "median_ms": 38.86871068000,
-            "stddev_ms": 5.125457808888571000,
-            "min_ms": 37.21894068000001000,
-            "max_ms": 66.05481568000,
-            "cv": 0.12847464204122310271,
-            "runs": 30
+            "mean_ms": 848.5978814599999000,
+            "median_ms": 837.69660036000,
+            "stddev_ms": 55.45368696278602000,
+            "min_ms": 779.52339286000,
+            "max_ms": 1008.58868386000,
+            "cv": 0.06534742564685500403,
+            "runs": 30,
+            "user_ms": 788.5487933333332000,
+            "system_ms": 37.1788000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "quicksort",
       "name": "Quicksort",
       "description": "Lomuto-partition quicksort. Measures in-place swap-heavy recursion.",
-      "reference_size": "100000",
+      "reference_size": "3000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "3000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To qs (arr: Seq of Int, lo: Int, hi: Int) -> Seq of Int:\n    If lo is at least hi:\n        Return arr.\n    Let pivot be item hi of arr.\n    Let mutable result be arr.\n    Let mutable i be lo.\n    Let mutable j be lo.\n    While j is less than hi:\n        If item j of result is at most pivot:\n            Let tmp be item i of result.\n            Set item i of result to item j of result.\n            Set item j of result to tmp.\n            Set i to i + 1.\n        Set j to j + 1.\n    Let tmp be item i of result.\n    Set item i of result to item hi of result.\n    Set item hi of result to tmp.\n    Set result to qs(result, lo, i - 1).\n    Set result to qs(result, i + 1, hi).\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nSet arr to qs(arr, 1, n).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn qs(arr: &[i64], lo: i64, hi: i64) -> Vec<i64> {\n    if (lo >= hi) {\n        return arr.to_vec();\n    }\n    let pivot = arr[(hi - 1) as usize];\n    let mut result = arr.to_vec();\n    let mut i = lo;\n    let mut j = lo;\n    while (j < hi) {\n        if (result[(j - 1) as usize] <= pivot) {\n            let tmp = result[(i - 1) as usize];\n            result[(i - 1) as usize] = result[(j - 1) as usize];\n            result[(j - 1) as usize] = tmp;\n            i = (i + 1);\n        }\n        j = (j + 1);\n    }\n    result.swap((i - 1) as usize, (hi - 1) as usize);\n    result = qs(&result, lo, (i - 1));\n    result = qs(&result, (i + 1), hi);\n    return result;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    arr = qs(&arr, 1, n);\n    let mut checksum = 0;\n    i = 1;\n    while (i <= n) {\n        checksum = ((checksum + arr[(i - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[(1 - 1) as usize], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn qs(arr: &mut [i64], lo: i64, hi: i64) {\n    if (lo >= hi) {\n        return;\n    }\n    let pivot = arr[(hi - 1) as usize];\n    let mut result = arr;\n    let mut i = lo;\n    unsafe { std::hint::assert_unchecked((hi as usize) <= result.len()); }\n    for j in lo..hi {\n        if (result[(j - 1) as usize] <= pivot) {\n            let tmp = result[(i - 1) as usize];\n            result[(i - 1) as usize] = result[(j - 1) as usize];\n            result[(j - 1) as usize] = tmp;\n            i = (i + 1);\n        }\n    }\n    let __swap_tmp = result[(i - 1) as usize];\n    result[(i - 1) as usize] = result[(hi - 1) as usize];\n    result[(hi - 1) as usize] = __swap_tmp;\n    qs(result, lo, (i - 1));\n    qs(result, (i + 1), hi);\n    return;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    qs(&mut arr, 1, n);\n    let mut checksum = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 0..n {\n        checksum = ((checksum + arr[i as usize]) % 1000000007);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[0], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
       "scaling": {
-        "100000": {
+        "3000000": {
           "c": {
-            "mean_ms": 9.71425584000,
-            "median_ms": 7.20009364000,
-            "stddev_ms": 8.94872175465516000,
-            "min_ms": 5.583072140000001000,
-            "max_ms": 53.84582314000,
-            "cv": 0.92119477827703166607,
-            "runs": 30
+            "mean_ms": 247.9601417533333000,
+            "median_ms": 241.45997522000,
+            "stddev_ms": 15.710007572687753000,
+            "min_ms": 235.78724622000002000,
+            "max_ms": 298.15066222000003000,
+            "cv": 0.06335698738354413428,
+            "runs": 30,
+            "user_ms": 236.79182000000004000,
+            "system_ms": 3.4570666666666667000
           },
           "logos_release": {
-            "mean_ms": 8196.76251564000,
-            "median_ms": 8089.92967664000,
-            "stddev_ms": 569.5660118217252000,
-            "min_ms": 7845.35632314000,
-            "max_ms": 10507.56753114000,
-            "cv": 0.06948670413897598561,
-            "runs": 30
+            "mean_ms": 269.27695002000007000,
+            "median_ms": 267.04103722000005000,
+            "stddev_ms": 9.183682703868162000,
+            "min_ms": 261.81741322000,
+            "max_ms": 301.18245422000,
+            "cv": 0.03410497149193817065,
+            "runs": 30,
+            "user_ms": 261.1671533333333000,
+            "system_ms": 3.907433333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "counting_sort",
       "name": "Counting Sort",
       "description": "Non-comparison O(n+k) sort. Measures pure array indexing throughput.",
-      "reference_size": "1000000",
+      "reference_size": "40000000",
       "sizes": [
         "10000",
         "50000",
         "100000",
         "500000",
-        "1000000"
+        "1000000",
+        "40000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 1000 to arr.\n    Set i to i + 1.\nLet mutable counts be a new Seq of Int.\nSet i to 0.\nWhile i is less than 1000:\n    Push 0 to counts.\n    Set i to i + 1.\nSet i to 1.\nWhile i is at most n:\n    Let v be item i of arr.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable sorted be a new Seq of Int.\nLet mutable v be 0.\nWhile v is less than 1000:\n    Let mutable c be 0.\n    While c is less than item (v + 1) of counts:\n        Push v to sorted.\n        Set c to c + 1.\n    Set v to v + 1.\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of sorted) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of sorted + \" \" + item n of sorted + \" \" + checksum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 1000));\n    }\n    let mut i = (0_i64).max(n);\n    let mut counts: Vec<i64> = vec![0; 1000 as usize];\n    i = 0;\n    i = 1;\n    while (i <= n) {\n        let mut v = arr[(i - 1) as usize];\n        counts[(v) as usize] = (counts[(v) as usize] + 1);\n        i = (i + 1);\n    }\n    let mut sorted = Seq::<i64>::default();\n    for v in 0..1000 {\n        let mut c = 0;\n        while (c < counts[(v) as usize]) {\n            sorted.push(v);\n            c = (c + 1);\n        }\n    }\n    let mut checksum = 0;\n    i = 1;\n    while (i <= n) {\n        checksum = ((checksum + sorted[(i - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", sorted[(1 - 1) as usize], \" \", sorted[(n - 1) as usize], \" \", checksum));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 1000));\n    }\n    let mut i = (0_i64).max(n);\n    let mut counts: Vec<i64> = vec![0; 1000 as usize];\n    i = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 0..n {\n        let mut v = arr[i as usize];\n        counts[(v) as usize] = (counts[v as usize] + 1);\n    }\n    i = (1_i64).max(n + 1);\n    let mut sorted = Seq::<i64>::default();\n    for v in 0..1000 {\n        let mut c = 0;\n        while (c < counts[v as usize]) {\n            sorted.push(v);\n            c = (c + 1);\n        }\n    }\n    let mut checksum = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= sorted.len()); }\n    for i in 0..n {\n        checksum = ((checksum + sorted[i as usize]) % 1000000007);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", sorted[0], \" \", sorted[(n - 1) as usize], \" \", checksum));\n}",
       "scaling": {
-        "1000000": {
+        "40000000": {
           "c": {
-            "mean_ms": 7.596771900000002000,
-            "median_ms": 6.778252200000001000,
-            "stddev_ms": 4.3782545304902835000,
-            "min_ms": 6.193252200000001000,
-            "max_ms": 30.6720862000,
-            "cv": 0.57633091899077321873,
-            "runs": 30
+            "mean_ms": 263.63949692000005000,
+            "median_ms": 260.72055682000006000,
+            "stddev_ms": 11.140310346495494000,
+            "min_ms": 253.32478582000,
+            "max_ms": 297.61091082000,
+            "cv": 0.04225584738494611707,
+            "runs": 30,
+            "user_ms": 224.8866666666666000,
+            "system_ms": 34.116240000000006000
           },
           "logos_release": {
-            "mean_ms": 11.989590033333334000,
-            "median_ms": 10.605106700000002000,
-            "stddev_ms": 7.084197649255314000,
-            "min_ms": 9.925835200000002000,
-            "max_ms": 49.396960200000006000,
-            "cv": 0.59086237557413565325,
-            "runs": 30
+            "mean_ms": 392.39250381999996000,
+            "median_ms": 380.99709832000006000,
+            "stddev_ms": 38.98290584376399000,
+            "min_ms": 348.36716082000,
+            "max_ms": 504.79424482000,
+            "cv": 0.09934671397710085330,
+            "runs": 30,
+            "user_ms": 290.4908333333333000,
+            "system_ms": 82.42484000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "heap_sort",
       "name": "Heap Sort",
       "description": "Heap sort with sift-down. Measures logarithmic array jumps.",
-      "reference_size": "100000",
+      "reference_size": "2500000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "2500000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To siftDown (arr: Seq of Int, start: Int, end: Int) -> Seq of Int:\n    Let mutable result be arr.\n    Let mutable root be start.\n    While 2 * root + 1 is at most end:\n        Let child be 2 * root + 1.\n        Let mutable swapIdx be root.\n        If item (swapIdx + 1) of result is less than item (child + 1) of result:\n            Set swapIdx to child.\n        If child + 1 is at most end:\n            If item (swapIdx + 1) of result is less than item (child + 2) of result:\n                Set swapIdx to child + 1.\n        If swapIdx equals root:\n            Return result.\n        Let tmp be item (root + 1) of result.\n        Set item (root + 1) of result to item (swapIdx + 1) of result.\n        Set item (swapIdx + 1) of result to tmp.\n        Set root to swapIdx.\n    Return result.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nLet mutable start be (n - 2) / 2.\nWhile start is at least 0:\n    Set arr to siftDown(arr, start, n - 1).\n    Set start to start - 1.\nLet mutable end be n - 1.\nWhile end is greater than 0:\n    Let tmp be item 1 of arr.\n    Set item 1 of arr to item (end + 1) of arr.\n    Set item (end + 1) of arr to tmp.\n    Set end to end - 1.\n    Set arr to siftDown(arr, 0, end).\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set checksum to (checksum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + checksum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn siftDown(arr: &[i64], start: i64, end: i64) -> Vec<i64> {\n    let mut result = arr.to_vec();\n    let mut root = start;\n    while (((2 * root) + 1) <= end) {\n        let child = ((2 * root) + 1);\n        let mut swapIdx = root;\n        if (result[(swapIdx) as usize] < result[(child) as usize]) {\n            swapIdx = child;\n        }\n        if ((child + 1) <= end) {\n            if (result[(swapIdx) as usize] < result[((child + 2) - 1) as usize]) {\n                swapIdx = (child + 1);\n            }\n        }\n        if (swapIdx == root) {\n            return result;\n        }\n        result.swap(((root + 1) - 1) as usize, ((swapIdx + 1) - 1) as usize);\n        root = swapIdx;\n    }\n    return result;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    let mut start = ((n - 2) / 2);\n    while (start >= 0) {\n        arr = siftDown(&arr, start, (n - 1));\n        start = (start - 1);\n    }\n    let mut end = (n - 1);\n    while (end > 0) {\n        arr.swap((1 - 1) as usize, ((end + 1) - 1) as usize);\n        end = (end - 1);\n        arr = siftDown(&arr, 0, end);\n    }\n    let mut checksum = 0;\n    i = 1;\n    while (i <= n) {\n        checksum = ((checksum + arr[(i - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[(1 - 1) as usize], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn siftDown(arr: &mut [i64], start: i64, end: i64) {\n    let mut result = arr;\n    let mut root = start;\n    while (((2 * root) + 1) <= end) {\n        let child = ((2 * root) + 1);\n        let mut swapIdx = root;\n        if (result[swapIdx as usize] < result[child as usize]) {\n            swapIdx = child;\n        }\n        if ((child + 1) <= end) {\n            if (result[swapIdx as usize] < result[(child + 1) as usize]) {\n                swapIdx = (child + 1);\n            }\n        }\n        if (swapIdx == root) {\n            return;\n        }\n        let __swap_tmp = result[(root) as usize];\n        result[(root) as usize] = result[(swapIdx) as usize];\n        result[(swapIdx) as usize] = __swap_tmp;\n        root = swapIdx;\n    }\n    return;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut i = (0_i64).max(n);\n    let mut start = ((n - 2) / 2);\n    while (start >= 0) {\n        siftDown(&mut arr, start, (n - 1));\n        start = (start - 1);\n    }\n    let mut end = (n - 1);\n    while (end > 0) {\n        let __swap_tmp = arr[0];\n        arr[0] = arr[(end) as usize];\n        arr[(end) as usize] = __swap_tmp;\n        end = (end - 1);\n        siftDown(&mut arr, 0, end);\n    }\n    let mut checksum = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 0..n {\n        checksum = ((checksum + arr[i as usize]) % 1000000007);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[0], \" \", arr[(n - 1) as usize], \" \", checksum));\n}",
       "scaling": {
-        "100000": {
+        "2500000": {
           "c": {
-            "mean_ms": 8.176514986666668000,
-            "median_ms": 8.237885319999999000,
-            "stddev_ms": 0.35286799200336734000,
-            "min_ms": 7.3515108200000005000,
-            "max_ms": 8.89359382000,
-            "cv": 0.04315628266795626066,
-            "runs": 30
+            "mean_ms": 341.8611767266667000,
+            "median_ms": 334.71548466000,
+            "stddev_ms": 31.766807032462235000,
+            "min_ms": 292.65152666000005000,
+            "max_ms": 438.15177666000005000,
+            "cv": 0.09292311966111676361,
+            "runs": 30,
+            "user_ms": 329.7234266666667000,
+            "system_ms": 4.628933333333332000
           },
           "logos_release": {
-            "mean_ms": 3301.9539109533342000,
-            "median_ms": 3060.05930282000,
-            "stddev_ms": 985.2453277370865000,
-            "min_ms": 2556.31263582000,
-            "max_ms": 6869.5718028199995000,
-            "cv": 0.29838251965565086864,
-            "runs": 30
+            "mean_ms": 528.1239516933334000,
+            "median_ms": 499.86469365999997000,
+            "stddev_ms": 68.11511345415774000,
+            "min_ms": 421.57636066000004000,
+            "max_ms": 671.22777666000,
+            "cv": 0.12897561876479757632,
+            "runs": 30,
+            "user_ms": 513.1609933333333000,
+            "system_ms": 5.8025333333333335000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "nbody",
       "name": "N-Body Simulation",
       "description": "5-body gravitational simulation. Measures FP struct arrays and sqrt.",
-      "reference_size": "100000",
+      "reference_size": "4000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "4000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet pi be 3.141592653589793.\nLet solarMass be 4.0 * pi * pi.\nLet daysPerYear be 365.24.\n\nLet mutable bx be a new Seq of Float.\nLet mutable posY be a new Seq of Float.\nLet mutable bz be a new Seq of Float.\nLet mutable bvx be a new Seq of Float.\nLet mutable bvy be a new Seq of Float.\nLet mutable bvz be a new Seq of Float.\nLet mutable bm be a new Seq of Float.\n\nPush 0.0 to bx. Push 0.0 to posY. Push 0.0 to bz.\nPush 0.0 to bvx. Push 0.0 to bvy. Push 0.0 to bvz.\nPush solarMass to bm.\n\nPush 4.841431442464721 to bx. Push 0.0 - 1.1603200440274284 to posY. Push 0.0 - 0.10362204447112311 to bz.\nPush 0.001660076642744037 * daysPerYear to bvx. Push 0.007699011184197404 * daysPerYear to bvy. Push 0.0 - 0.0000690460016972063 * daysPerYear to bvz.\nPush 0.0009547919384243266 * solarMass to bm.\n\nPush 8.34336671824458 to bx. Push 4.124798564124305 to posY. Push 0.0 - 0.4035234171143214 to bz.\nPush 0.0 - 0.002767425107268624 * daysPerYear to bvx. Push 0.004998528012349172 * daysPerYear to bvy. Push 0.00002304172975737639 * daysPerYear to bvz.\nPush 0.0002858859806661308 * solarMass to bm.\n\nPush 12.894369562139131 to bx. Push 0.0 - 15.111151401698631 to posY. Push 0.0 - 0.22330757889265573 to bz.\nPush 0.002964601375647616 * daysPerYear to bvx. Push 0.0023784717395948095 * daysPerYear to bvy. Push 0.0 - 0.000029658956854023756 * daysPerYear to bvz.\nPush 0.00004366244043351563 * solarMass to bm.\n\nPush 15.379697114850917 to bx. Push 0.0 - 25.919314609987964 to posY. Push 0.17925877295037118 to bz.\nPush 0.0026806777249038932 * daysPerYear to bvx. Push 0.001628241700382423 * daysPerYear to bvy. Push 0.0 - 0.00009515922545197159 * daysPerYear to bvz.\nPush 0.00005151389020466114 * solarMass to bm.\n\nLet mutable px be 0.0.\nLet mutable py be 0.0.\nLet mutable pz be 0.0.\nLet mutable i be 1.\nWhile i is at most 5:\n    Set px to px + item i of bvx * item i of bm.\n    Set py to py + item i of bvy * item i of bm.\n    Set pz to pz + item i of bvz * item i of bm.\n    Set i to i + 1.\nSet item 1 of bvx to 0.0 - px / solarMass.\nSet item 1 of bvy to 0.0 - py / solarMass.\nSet item 1 of bvz to 0.0 - pz / solarMass.\n\nLet mutable e be 0.0.\nSet i to 1.\nWhile i is at most 5:\n    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).\n    Let mutable j be i + 1.\n    While j is at most 5:\n        Let dx be item i of bx - item j of bx.\n        Let dy be item i of posY - item j of posY.\n        Let dz be item i of bz - item j of bz.\n        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).\n        Set j to j + 1.\n    Set i to i + 1.\nShow \"{e:.9}\".\n\nLet dt be 0.01.\nLet mutable step be 0.\nWhile step is less than n:\n    Set i to 1.\n    While i is at most 5:\n        Let mutable j be i + 1.\n        While j is at most 5:\n            Let dx be item i of bx - item j of bx.\n            Let dy be item i of posY - item j of posY.\n            Let dz be item i of bz - item j of bz.\n            Let dist be sqrt(dx * dx + dy * dy + dz * dz).\n            Let mag be dt / (dist * dist * dist).\n            Set item i of bvx to item i of bvx - dx * item j of bm * mag.\n            Set item i of bvy to item i of bvy - dy * item j of bm * mag.\n            Set item i of bvz to item i of bvz - dz * item j of bm * mag.\n            Set item j of bvx to item j of bvx + dx * item i of bm * mag.\n            Set item j of bvy to item j of bvy + dy * item i of bm * mag.\n            Set item j of bvz to item j of bvz + dz * item i of bm * mag.\n            Set j to j + 1.\n        Set i to i + 1.\n    Set i to 1.\n    While i is at most 5:\n        Set item i of bx to item i of bx + dt * item i of bvx.\n        Set item i of posY to item i of posY + dt * item i of bvy.\n        Set item i of bz to item i of bz + dt * item i of bvz.\n        Set i to i + 1.\n    Set step to step + 1.\n\nSet e to 0.0.\nSet i to 1.\nWhile i is at most 5:\n    Set e to e + 0.5 * item i of bm * (item i of bvx * item i of bvx + item i of bvy * item i of bvy + item i of bvz * item i of bvz).\n    Let mutable j be i + 1.\n    While j is at most 5:\n        Let dx be item i of bx - item j of bx.\n        Let dy be item i of posY - item j of posY.\n        Let dz be item i of bz - item j of bz.\n        Set e to e - item i of bm * item j of bm / sqrt(dx * dx + dy * dy + dz * dz).\n        Set j to j + 1.\n    Set i to i + 1.\nShow \"{e:.9}\".",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let pi = 3.141592653589793f64;\n    let solarMass = ((4f64 * pi) * pi);\n    let daysPerYear = 365.24f64;\n    let mut bx = Seq::<f64>::default();\n    let mut posY = Seq::<f64>::default();\n    let mut bz = Seq::<f64>::default();\n    let mut bvx = Seq::<f64>::default();\n    let mut bvy = Seq::<f64>::default();\n    let mut bvz = Seq::<f64>::default();\n    let mut bm = Seq::<f64>::default();\n    bx.push(0f64);\n    posY.push(0f64);\n    bz.push(0f64);\n    bvx.push(0f64);\n    bvy.push(0f64);\n    bvz.push(0f64);\n    bm.push(solarMass);\n    bx.push(4.841431442464721f64);\n    posY.push((0f64 - 1.1603200440274284f64));\n    bz.push((0f64 - 0.10362204447112311f64));\n    bvx.push((0.001660076642744037f64 * daysPerYear));\n    bvy.push((0.007699011184197404f64 * daysPerYear));\n    bvz.push((0f64 - (0.0000690460016972063f64 * daysPerYear)));\n    bm.push((0.0009547919384243266f64 * solarMass));\n    bx.push(8.34336671824458f64);\n    posY.push(4.124798564124305f64);\n    bz.push((0f64 - 0.4035234171143214f64));\n    bvx.push((0f64 - (0.002767425107268624f64 * daysPerYear)));\n    bvy.push((0.004998528012349172f64 * daysPerYear));\n    bvz.push((0.00002304172975737639f64 * daysPerYear));\n    bm.push((0.0002858859806661308f64 * solarMass));\n    bx.push(12.894369562139131f64);\n    posY.push((0f64 - 15.111151401698631f64));\n    bz.push((0f64 - 0.22330757889265573f64));\n    bvx.push((0.002964601375647616f64 * daysPerYear));\n    bvy.push((0.0023784717395948095f64 * daysPerYear));\n    bvz.push((0f64 - (0.000029658956854023756f64 * daysPerYear)));\n    bm.push((0.00004366244043351563f64 * solarMass));\n    bx.push(15.379697114850917f64);\n    posY.push((0f64 - 25.919314609987964f64));\n    bz.push(0.17925877295037118f64);\n    bvx.push((0.0026806777249038932f64 * daysPerYear));\n    bvy.push((0.001628241700382423f64 * daysPerYear));\n    bvz.push((0f64 - (0.00009515922545197159f64 * daysPerYear)));\n    bm.push((0.00005151389020466114f64 * solarMass));\n    let mut px = 0f64;\n    let mut py = 0f64;\n    let mut pz = 0f64;\n    for i in 1..6 {\n        px = (px + (bvx[(i - 1) as usize] * bm[(i - 1) as usize]));\n        py = (py + (bvy[(i - 1) as usize] * bm[(i - 1) as usize]));\n        pz = (pz + (bvz[(i - 1) as usize] * bm[(i - 1) as usize]));\n    }\n    let mut i = 6;\n    bvx[(1 - 1) as usize] = (0f64 - (px / solarMass));\n    bvy[(1 - 1) as usize] = (0f64 - (py / solarMass));\n    bvz[(1 - 1) as usize] = (0f64 - (pz / solarMass));\n    let mut e = 0f64;\n    i = 1;\n    while (i <= 5) {\n        e = (e + ((0.5f64 * bm[(i - 1) as usize]) * (((bvx[(i - 1) as usize] * bvx[(i - 1) as usize]) + (bvy[(i - 1) as usize] * bvy[(i - 1) as usize])) + (bvz[(i - 1) as usize] * bvz[(i - 1) as usize]))));\n        let mut j = (i + 1);\n        while (j <= 5) {\n            let dx = (bx[(i - 1) as usize] - bx[(j - 1) as usize]);\n            let dy = (posY[(i - 1) as usize] - posY[(j - 1) as usize]);\n            let dz = (bz[(i - 1) as usize] - bz[(j - 1) as usize]);\n            e = (e - ((bm[(i - 1) as usize] * bm[(j - 1) as usize]) / (((((dx * dx) + (dy * dy)) + (dz * dz))) as f64).sqrt()));\n            j = (j + 1);\n        }\n        i = (i + 1);\n    }\n    println!(\"{:.9}\", e as f64);\n    let dt = 0.01f64;\n    for step in 0..n {\n        i = 1;\n        while (i <= 5) {\n            let mut j = (i + 1);\n            while (j <= 5) {\n                let dx = (bx[(i - 1) as usize] - bx[(j - 1) as usize]);\n                let dy = (posY[(i - 1) as usize] - posY[(j - 1) as usize]);\n                let dz = (bz[(i - 1) as usize] - bz[(j - 1) as usize]);\n                let dist = (((((dx * dx) + (dy * dy)) + (dz * dz))) as f64).sqrt();\n                let mag = (dt / ((dist * dist) * dist));\n                bvx[(i - 1) as usize] = (bvx[(i - 1) as usize] - ((dx * bm[(j - 1) as usize]) * mag));\n                bvy[(i - 1) as usize] = (bvy[(i - 1) as usize] - ((dy * bm[(j - 1) as usize]) * mag));\n                bvz[(i - 1) as usize] = (bvz[(i - 1) as usize] - ((dz * bm[(j - 1) as usize]) * mag));\n                bvx[(j - 1) as usize] = (bvx[(j - 1) as usize] + ((dx * bm[(i - 1) as usize]) * mag));\n                bvy[(j - 1) as usize] = (bvy[(j - 1) as usize] + ((dy * bm[(i - 1) as usize]) * mag));\n                bvz[(j - 1) as usize] = (bvz[(j - 1) as usize] + ((dz * bm[(i - 1) as usize]) * mag));\n                j = (j + 1);\n            }\n            i = (i + 1);\n        }\n        i = 1;\n        while (i <= 5) {\n            bx[(i - 1) as usize] = (bx[(i - 1) as usize] + (dt * bvx[(i - 1) as usize]));\n            posY[(i - 1) as usize] = (posY[(i - 1) as usize] + (dt * bvy[(i - 1) as usize]));\n            bz[(i - 1) as usize] = (bz[(i - 1) as usize] + (dt * bvz[(i - 1) as usize]));\n            i = (i + 1);\n        }\n    }\n    e = 0f64;\n    i = 1;\n    while (i <= 5) {\n        e = (e + ((0.5f64 * bm[(i - 1) as usize]) * (((bvx[(i - 1) as usize] * bvx[(i - 1) as usize]) + (bvy[(i - 1) as usize] * bvy[(i - 1) as usize])) + (bvz[(i - 1) as usize] * bvz[(i - 1) as usize]))));\n        let mut j = (i + 1);\n        while (j <= 5) {\n            let dx = (bx[(i - 1) as usize] - bx[(j - 1) as usize]);\n            let dy = (posY[(i - 1) as usize] - posY[(j - 1) as usize]);\n            let dz = (bz[(i - 1) as usize] - bz[(j - 1) as usize]);\n            e = (e - ((bm[(i - 1) as usize] * bm[(j - 1) as usize]) / (((((dx * dx) + (dy * dy)) + (dz * dz))) as f64).sqrt()));\n            j = (j + 1);\n        }\n        i = (i + 1);\n    }\n    println!(\"{:.9}\", e as f64);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let pi = 3.141592653589793f64;\n    let solarMass = ((4f64 * pi) * pi);\n    let daysPerYear = 365.24f64;\n    let mut bx = Seq::<f64>::default();\n    let mut posY = Seq::<f64>::default();\n    let mut bz = Seq::<f64>::default();\n    let mut bvx = Seq::<f64>::default();\n    let mut bvy = Seq::<f64>::default();\n    let mut bvz = Seq::<f64>::default();\n    let mut bm = Seq::<f64>::default();\n    bx.push(0f64);\n    posY.push(0f64);\n    bz.push(0f64);\n    bvx.push(0f64);\n    bvy.push(0f64);\n    bvz.push(0f64);\n    bm.push(solarMass);\n    bx.push(4.841431442464721f64);\n    posY.push((0f64 - 1.1603200440274284f64));\n    bz.push((0f64 - 0.10362204447112311f64));\n    bvx.push((0.001660076642744037f64 * daysPerYear));\n    bvy.push((0.007699011184197404f64 * daysPerYear));\n    bvz.push((0f64 - (0.0000690460016972063f64 * daysPerYear)));\n    bm.push((0.0009547919384243266f64 * solarMass));\n    bx.push(8.34336671824458f64);\n    posY.push(4.124798564124305f64);\n    bz.push((0f64 - 0.4035234171143214f64));\n    bvx.push((0f64 - (0.002767425107268624f64 * daysPerYear)));\n    bvy.push((0.004998528012349172f64 * daysPerYear));\n    bvz.push((0.00002304172975737639f64 * daysPerYear));\n    bm.push((0.0002858859806661308f64 * solarMass));\n    bx.push(12.894369562139131f64);\n    posY.push((0f64 - 15.111151401698631f64));\n    bz.push((0f64 - 0.22330757889265573f64));\n    bvx.push((0.002964601375647616f64 * daysPerYear));\n    bvy.push((0.0023784717395948095f64 * daysPerYear));\n    bvz.push((0f64 - (0.000029658956854023756f64 * daysPerYear)));\n    bm.push((0.00004366244043351563f64 * solarMass));\n    bx.push(15.379697114850917f64);\n    posY.push((0f64 - 25.919314609987964f64));\n    bz.push(0.17925877295037118f64);\n    bvx.push((0.0026806777249038932f64 * daysPerYear));\n    bvy.push((0.001628241700382423f64 * daysPerYear));\n    bvz.push((0f64 - (0.00009515922545197159f64 * daysPerYear)));\n    bm.push((0.00005151389020466114f64 * solarMass));\n    let mut px = 0f64;\n    let mut py = 0f64;\n    let mut pz = 0f64;\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvx.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bm.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvy.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvz.len()); }\n    for i in 0..5 {\n        px = (px + (bvx[i as usize] * bm[i as usize]));\n        py = (py + (bvy[i as usize] * bm[i as usize]));\n        pz = (pz + (bvz[i as usize] * bm[i as usize]));\n    }\n    let mut i = 6;\n    bvx[0] = (0f64 - (px / solarMass));\n    bvy[0] = (0f64 - (py / solarMass));\n    bvz[0] = (0f64 - (pz / solarMass));\n    let mut e = 0f64;\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bm.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvx.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvy.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvz.len()); }\n    for i in 1..6 {\n        e = (e + ((0.5f64 * bm[(i - 1) as usize]) * (((bvx[(i - 1) as usize] * bvx[(i - 1) as usize]) + (bvy[(i - 1) as usize] * bvy[(i - 1) as usize])) + (bvz[(i - 1) as usize] * bvz[(i - 1) as usize]))));\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bx.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= posY.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bz.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bm.len()); }\n        for j in (i + 1)..6 {\n            let dx = (bx[(i - 1) as usize] - bx[(j - 1) as usize]);\n            let dy = (posY[(i - 1) as usize] - posY[(j - 1) as usize]);\n            let dz = (bz[(i - 1) as usize] - bz[(j - 1) as usize]);\n            e = (e - ((bm[(i - 1) as usize] * bm[(j - 1) as usize]) / (((((dx * dx) + (dy * dy)) + (dz * dz))) as f64).sqrt()));\n        }\n    }\n    i = 6;\n    println!(\"{:.9}\", e as f64);\n    let dt = 0.01f64;\n    for step in 0..n {\n        for i in 1..6 {\n            unsafe { std::hint::assert_unchecked((5 as usize) <= bx.len()); }\n            unsafe { std::hint::assert_unchecked((5 as usize) <= posY.len()); }\n            unsafe { std::hint::assert_unchecked((5 as usize) <= bz.len()); }\n            unsafe { std::hint::assert_unchecked((5 as usize) <= bm.len()); }\n            unsafe { std::hint::assert_unchecked((5 as usize) <= bvx.len()); }\n            unsafe { std::hint::assert_unchecked((5 as usize) <= bvy.len()); }\n            unsafe { std::hint::assert_unchecked((5 as usize) <= bvz.len()); }\n            for j in (i + 1)..6 {\n                let dx = (bx[(i - 1) as usize] - bx[(j - 1) as usize]);\n                let dy = (posY[(i - 1) as usize] - posY[(j - 1) as usize]);\n                let dz = (bz[(i - 1) as usize] - bz[(j - 1) as usize]);\n                let dist = (((((dx * dx) + (dy * dy)) + (dz * dz))) as f64).sqrt();\n                let mag = (dt / ((dist * dist) * dist));\n                bvx[(i - 1) as usize] = (bvx[(i - 1) as usize] - ((dx * bm[(j - 1) as usize]) * mag));\n                bvy[(i - 1) as usize] = (bvy[(i - 1) as usize] - ((dy * bm[(j - 1) as usize]) * mag));\n                bvz[(i - 1) as usize] = (bvz[(i - 1) as usize] - ((dz * bm[(j - 1) as usize]) * mag));\n                bvx[(j - 1) as usize] = (bvx[(j - 1) as usize] + ((dx * bm[(i - 1) as usize]) * mag));\n                bvy[(j - 1) as usize] = (bvy[(j - 1) as usize] + ((dy * bm[(i - 1) as usize]) * mag));\n                bvz[(j - 1) as usize] = (bvz[(j - 1) as usize] + ((dz * bm[(i - 1) as usize]) * mag));\n            }\n        }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bx.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bvx.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= posY.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bvy.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bz.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bvz.len()); }\n        for i in 0..5 {\n            bx[i as usize] = (bx[i as usize] + (dt * bvx[i as usize]));\n            posY[i as usize] = (posY[i as usize] + (dt * bvy[i as usize]));\n            bz[i as usize] = (bz[i as usize] + (dt * bvz[i as usize]));\n        }\n    }\n    e = 0f64;\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bm.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvx.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvy.len()); }\n    unsafe { std::hint::assert_unchecked((5 as usize) <= bvz.len()); }\n    for i in 1..6 {\n        e = (e + ((0.5f64 * bm[(i - 1) as usize]) * (((bvx[(i - 1) as usize] * bvx[(i - 1) as usize]) + (bvy[(i - 1) as usize] * bvy[(i - 1) as usize])) + (bvz[(i - 1) as usize] * bvz[(i - 1) as usize]))));\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bx.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= posY.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bz.len()); }\n        unsafe { std::hint::assert_unchecked((5 as usize) <= bm.len()); }\n        for j in (i + 1)..6 {\n            let dx = (bx[(i - 1) as usize] - bx[(j - 1) as usize]);\n            let dy = (posY[(i - 1) as usize] - posY[(j - 1) as usize]);\n            let dz = (bz[(i - 1) as usize] - bz[(j - 1) as usize]);\n            e = (e - ((bm[(i - 1) as usize] * bm[(j - 1) as usize]) / (((((dx * dx) + (dy * dy)) + (dz * dz))) as f64).sqrt()));\n        }\n    }\n    println!(\"{:.9}\", e as f64);\n}",
       "scaling": {
-        "100000": {
+        "4000000": {
           "c": {
-            "mean_ms": 9.463747733333335000,
-            "median_ms": 9.105424500000002000,
-            "stddev_ms": 2.835770233501905000,
-            "min_ms": 5.112362000000001000,
-            "max_ms": 16.345987000000003000,
-            "cv": 0.29964558580885649634,
-            "runs": 30
+            "mean_ms": 203.17807832000004000,
+            "median_ms": 198.94951172000003000,
+            "stddev_ms": 13.237067156395084000,
+            "min_ms": 193.75678322000,
+            "max_ms": 252.43549122000003000,
+            "cv": 0.06515007556842356394,
+            "runs": 30,
+            "user_ms": 197.7078666666667000,
+            "system_ms": 1.5934266666666663000
           },
           "logos_release": {
-            "mean_ms": 20.52662276666667000,
-            "median_ms": 14.504861500000004000,
-            "stddev_ms": 12.630771632536298000,
-            "min_ms": 8.568361000000004000,
-            "max_ms": 51.567904000000005000,
-            "cv": 0.61533608212684157115,
-            "runs": 30
+            "mean_ms": 218.44960751999995000,
+            "median_ms": 212.88617872000,
+            "stddev_ms": 15.175868114291648000,
+            "min_ms": 207.70128222000,
+            "max_ms": 265.96449122000,
+            "cv": 0.06947079597248640308,
+            "runs": 30,
+            "user_ms": 211.5231333333333000,
+            "system_ms": 1.823093333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "mandelbrot",
@@ -386,30 +440,35 @@
         "2000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable count be 0.\nLet mutable y be 0.\nWhile y is less than n:\n    Let mutable x be 0.\n    While x is less than n:\n        Let cr be 2.0 * x / n - 1.5.\n        Let ci be 2.0 * y / n - 1.0.\n        Let mutable zr be 0.0.\n        Let mutable zi be 0.0.\n        Let mutable isInside be 1.\n        Let mutable iter be 0.\n        While iter is less than 50:\n            Let zr2 be zr * zr - zi * zi + cr.\n            Let zi2 be 2.0 * zr * zi + ci.\n            Set zr to zr2.\n            Set zi to zi2.\n            If zr * zr + zi * zi is greater than 4.0:\n                Set isInside to 0.\n                Set iter to 50.\n            Set iter to iter + 1.\n        If isInside equals 1:\n            Set count to count + 1.\n        Set x to x + 1.\n    Set y to y + 1.\nShow count.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut count = 0;\n    for y in 0..n {\n        let mut x = 0;\n        while (x < n) {\n            let cr = (((2f64 * ((x) as f64)) / ((n) as f64)) - 1.5f64);\n            let ci = (((2f64 * ((y) as f64)) / ((n) as f64)) - 1f64);\n            let mut zr = 0f64;\n            let mut zi = 0f64;\n            let mut isInside = 1;\n            let mut iter = 0;\n            while (iter < 50) {\n                let zr2 = (((zr * zr) - (zi * zi)) + cr);\n                let zi2 = (((2f64 * zr) * zi) + ci);\n                zr = zr2;\n                zi = zi2;\n                if (((zr * zr) + (zi * zi)) > 4f64) {\n                    isInside = 0;\n                    break;\n                }\n                iter = (iter + 1);\n            }\n            if (isInside == 1) {\n                count = (count + 1);\n            }\n            x = (x + 1);\n        }\n    }\n    show(&count);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut count = 0;\n    for y in 0..n {\n        for x in 0..n {\n            let cr = (((2f64 * ((x) as f64)) / ((n) as f64)) - 1.5f64);\n            let ci = (((2f64 * ((y) as f64)) / ((n) as f64)) - 1f64);\n            let mut zr = 0f64;\n            let mut zi = 0f64;\n            let mut isInside = 1;\n            let mut iter = 0;\n            while (iter < 50) {\n                let zr2 = (((zr * zr) - (zi * zi)) + cr);\n                let zi2 = (((2f64 * zr) * zi) + ci);\n                zr = zr2;\n                zi = zi2;\n                if (((zr * zr) + (zi * zi)) > 4f64) {\n                    isInside = 0;\n                    break;\n                }\n                iter = (iter + 1);\n            }\n            if (isInside == 1) {\n                count = (count + 1);\n            }\n        }\n    }\n    show(&count);\n}",
       "scaling": {
         "2000": {
           "c": {
-            "mean_ms": 258.6085867066666000,
-            "median_ms": 241.28799484000,
-            "stddev_ms": 60.889351704376614000,
-            "min_ms": 219.03868284000,
-            "max_ms": 521.4097238400001000,
-            "cv": 0.23544984518801735542,
-            "runs": 30
+            "mean_ms": 230.54414742000004000,
+            "median_ms": 229.80201012000,
+            "stddev_ms": 5.392141894072789000,
+            "min_ms": 226.01334362000003000,
+            "max_ms": 251.90021862000,
+            "cv": 0.02338876069688079555,
+            "runs": 30,
+            "user_ms": 226.26891333333335000,
+            "system_ms": 1.7434933333333338000
           },
           "logos_release": {
-            "mean_ms": 461.44894364000,
-            "median_ms": 371.29493284000004000,
-            "stddev_ms": 201.71969914869847000,
-            "min_ms": 290.28922384000,
-            "max_ms": 958.4841408400001000,
-            "cv": 0.43714413464140543893,
-            "runs": 30
+            "mean_ms": 265.66283372000005000,
+            "median_ms": 264.27246812000005000,
+            "stddev_ms": 6.298140763780872000,
+            "min_ms": 259.80484362000,
+            "max_ms": 286.08338562000,
+            "cv": 0.02370727088765042182,
+            "runs": 30,
+            "user_ms": 259.9817133333333000,
+            "system_ms": 2.1635933333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "spectral_norm",
@@ -423,70 +482,81 @@
         "2000",
         "5000"
       ],
-      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To aVal (i: Int, j: Int) -> Float:\n    Return 1.0 / ((i + j) * (i + j + 1) / 2 + i + 1).\n\n## To mulAv (n: Int, v: Seq of Float) -> Seq of Float:\n    Let mutable result be a new Seq of Float.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(i, j) * item (j + 1) of v.\n            Set j to j + 1.\n        Push sum to result.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtv (n: Int, v: Seq of Float) -> Seq of Float:\n    Let mutable result be a new Seq of Float.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(j, i) * item (j + 1) of v.\n            Set j to j + 1.\n        Push sum to result.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtav (n: Int, v: Seq of Float) -> Seq of Float:\n    Let tmp be mulAv(n, v).\n    Return mulAtv(n, tmp).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable u be a new Seq of Float.\nLet mutable i be 0.\nWhile i is less than n:\n    Push 1.0 to u.\n    Set i to i + 1.\nLet mutable v be a new Seq of Float.\nSet i to 0.\nWhile i is less than 10:\n    Set v to mulAtav(n, u).\n    Set u to mulAtav(n, v).\n    Set i to i + 1.\nLet mutable vbv be 0.0.\nLet mutable vv be 0.0.\nSet i to 1.\nWhile i is at most n:\n    Set vbv to vbv + item i of u * item i of v.\n    Set vv to vv + item i of v * item i of v.\n    Set i to i + 1.\nLet result be sqrt(vbv / vv).\nShow \"{result:.9}\".",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn aVal(i: i64, j: i64) -> f64 {\n    return (1f64 / (((((((i + j) * ((i + j) + 1)) / 2) + i) + 1)) as f64));\n}\n\n#[inline]\nfn mulAv(n: i64, v: &[f64]) -> Vec<f64> {\n    let mut result = Seq::<f64>::default();\n    for i in 0..n {\n        let mut sum = 0f64;\n        let mut j = 0;\n        while (j < n) {\n            sum = (sum + (((aVal(i, j) * v[(j) as usize])) as f64));\n            j = (j + 1);\n        }\n        result.push(sum);\n    }\n    return result;\n}\n\n#[inline]\nfn mulAtv(n: i64, v: &[f64]) -> Vec<f64> {\n    let mut result = Seq::<f64>::default();\n    for i in 0..n {\n        let mut sum = 0f64;\n        let mut j = 0;\n        while (j < n) {\n            sum = (sum + (((aVal(j, i) * v[(j) as usize])) as f64));\n            j = (j + 1);\n        }\n        result.push(sum);\n    }\n    return result;\n}\n\n#[inline]\nfn mulAtav(n: i64, v: &[f64]) -> Vec<f64> {\n    let tmp = mulAv(n, v);\n    return mulAtv(n, &tmp);\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut u: Vec<f64> = vec![1.0; n as usize];\n    let mut i = 0;\n    let mut v = Seq::<f64>::default();\n    i = 0;\n    while (i < 10) {\n        v = mulAtav(n, &u);\n        u = mulAtav(n, &v);\n        i = (i + 1);\n    }\n    let mut vbv = 0f64;\n    let mut vv = 0f64;\n    i = 1;\n    while (i <= n) {\n        vbv = (vbv + (u[(i - 1) as usize] * v[(i - 1) as usize]));\n        vv = (vv + (v[(i - 1) as usize] * v[(i - 1) as usize]));\n        i = (i + 1);\n    }\n    let result = (((vbv / vv)) as f64).sqrt();\n    println!(\"{:.9}\", result as f64);\n}",
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To aVal (i: Int, j: Int) -> Float:\n    Return 1.0 / ((i + j) * (i + j + 1) / 2 + i + 1).\n\n## To mulAv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(i, j) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtv (n: Int, v: Seq of Float, out: Seq of Float) -> Seq of Float:\n    Let mutable result be out.\n    Let mutable i be 0.\n    While i is less than n:\n        Let mutable sum be 0.0.\n        Let mutable j be 0.\n        While j is less than n:\n            Set sum to sum + aVal(j, i) * item (j + 1) of v.\n            Set j to j + 1.\n        Set item (i + 1) of result to sum.\n        Set i to i + 1.\n    Return result.\n\n## To mulAtav (n: Int, v: Seq of Float, result: Seq of Float, tmp: Seq of Float) -> Seq of Float:\n    Let t be mulAv(n, v, tmp).\n    Return mulAtv(n, t, result).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable u be a new Seq of Float.\nLet mutable v be a new Seq of Float.\nLet mutable tmp be a new Seq of Float.\nLet mutable i be 0.\nWhile i is less than n:\n    Push 1.0 to u.\n    Push 0.0 to v.\n    Push 0.0 to tmp.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than 10:\n    Set v to mulAtav(n, u, v, tmp).\n    Set u to mulAtav(n, v, u, tmp).\n    Set i to i + 1.\nLet mutable vbv be 0.0.\nLet mutable vv be 0.0.\nSet i to 1.\nWhile i is at most n:\n    Set vbv to vbv + item i of u * item i of v.\n    Set vv to vv + item i of v * item i of v.\n    Set i to i + 1.\nLet result be sqrt(vbv / vv).\nShow \"{result:.9}\".",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn aVal(i: i64, j: i64) -> f64 {\n    return (1f64 / (((((((i + j) * ((i + j) + 1)) / 2) + i) + 1)) as f64));\n}\n\n#[inline]\nfn mulAv(n: i64, v: &[f64], out: Vec<f64>) -> Vec<f64> {\n    let mut result = out;\n    for i in 0..n {\n        let mut sum = 0f64;\n        unsafe { std::hint::assert_unchecked((n as usize) <= v.len()); }\n        for j in 0..n {\n            sum = (sum + (((aVal(i, j) * v[j as usize])) as f64));\n        }\n        result[(i) as usize] = sum;\n    }\n    return result;\n}\n\n#[inline]\nfn mulAtv(n: i64, v: &[f64], out: Vec<f64>) -> Vec<f64> {\n    let mut result = out;\n    for i in 0..n {\n        let mut sum = 0f64;\n        unsafe { std::hint::assert_unchecked((n as usize) <= v.len()); }\n        for j in 0..n {\n            sum = (sum + (((aVal(j, i) * v[j as usize])) as f64));\n        }\n        result[(i) as usize] = sum;\n    }\n    return result;\n}\n\n#[inline]\nfn mulAtav(n: i64, v: &[f64], result: Vec<f64>, tmp: Vec<f64>) -> Vec<f64> {\n    let t = mulAv(n, v, tmp.clone());\n    return mulAtv(n, &t, result.clone());\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut u: Vec<f64> = Vec::with_capacity(n as usize);\n    let mut v: Vec<f64> = Vec::with_capacity(n as usize);\n    let mut tmp: Vec<f64> = Vec::with_capacity(n as usize);\n    for i in 0..n {\n        u.push(1f64);\n        v.push(0f64);\n        tmp.push(0f64);\n    }\n    let mut i = 0;\n    for i in 0..10 {\n        v = mulAtav(n, &u, v, tmp.clone());\n        u = mulAtav(n, &v, u, tmp.clone());\n    }\n    i = 10;\n    let mut vbv = 0f64;\n    let mut vv = 0f64;\n    unsafe { std::hint::assert_unchecked((n as usize) <= u.len()); }\n    unsafe { std::hint::assert_unchecked((n as usize) <= v.len()); }\n    for i in 0..n {\n        vbv = (vbv + (u[i as usize] * v[i as usize]));\n        vv = (vv + (v[i as usize] * v[i as usize]));\n    }\n    let result = (((vbv / vv)) as f64).sqrt();\n    println!(\"{:.9}\", result as f64);\n}",
       "scaling": {
         "5000": {
           "c": {
-            "mean_ms": 1564.2725513599998000,
-            "median_ms": 1219.21663756000,
-            "stddev_ms": 746.1807867040484000,
-            "min_ms": 1089.35363806000,
-            "max_ms": 3691.24080406000,
-            "cv": 0.47701456249124149779,
-            "runs": 30
+            "mean_ms": 994.7871855933335000,
+            "median_ms": 992.38592636000,
+            "stddev_ms": 14.496041593666192000,
+            "min_ms": 976.8583428600001000,
+            "max_ms": 1021.97517586000,
+            "cv": 0.01457200273948053986,
+            "runs": 30,
+            "user_ms": 973.3641066666666000,
+            "system_ms": 4.669686666666667000
           },
           "logos_release": {
-            "mean_ms": 1409.69383466000,
-            "median_ms": 1171.6083670600002000,
-            "stddev_ms": 641.9549733860898000,
-            "min_ms": 976.1664710600001000,
-            "max_ms": 3478.85297006000,
-            "cv": 0.45538609703923481583,
-            "runs": 30
+            "mean_ms": 979.2678537266666000,
+            "median_ms": 972.2762383600001000,
+            "stddev_ms": 20.915047183321774000,
+            "min_ms": 956.81442586000,
+            "max_ms": 1028.03621786000,
+            "cv": 0.02135784106843517944,
+            "runs": 30,
+            "user_ms": 960.2133066666667000,
+            "system_ms": 5.797319999999999000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "pi_leibniz",
       "name": "Pi (Leibniz Series)",
       "description": "Leibniz series for pi. Measures pure FP loop overhead.",
-      "reference_size": "100000000",
+      "reference_size": "200000000",
       "sizes": [
         "100000",
         "1000000",
         "5000000",
         "10000000",
         "50000000",
-        "100000000"
+        "100000000",
+        "200000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.0.\nLet mutable sign be 1.0.\nLet mutable k be 0.\nWhile k is less than n:\n    Set sum to sum + sign / (2.0 * k + 1.0).\n    Set sign to 0.0 - sign.\n    Set k to k + 1.\nLet result be sum * 4.0.\nShow \"{result:.15}\".",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut sum = 0f64;\n    let mut sign = 1f64;\n    for k in 0..n {\n        sum = (sum + (sign / ((2f64 * ((k) as f64)) + 1f64)));\n        sign = (0f64 - sign);\n    }\n    let result = (sum * 4f64);\n    println!(\"{:.15}\", result as f64);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut sum = 0f64;\n    let mut sign = 1f64;\n    for k in 0..n {\n        sum = (sum + (sign / ((2f64 * ((k) as f64)) + 1f64)));\n        sign = (0f64 - sign);\n    }\n    let result = (sum * 4f64);\n    println!(\"{:.15}\", result as f64);\n}",
       "scaling": {
-        "100000000": {
+        "200000000": {
           "c": {
-            "mean_ms": 229.9001448533334000,
-            "median_ms": 157.77172652000002000,
-            "stddev_ms": 165.4373986657441000,
-            "min_ms": 115.26935102000002000,
-            "max_ms": 676.8146020200001000,
-            "cv": 0.71960545640928667371,
-            "runs": 30
+            "mean_ms": 212.50350683333338000,
+            "median_ms": 200.67783300000003000,
+            "stddev_ms": 33.006442988399914000,
+            "min_ms": 195.3101875000,
+            "max_ms": 361.6746045000,
+            "cv": 0.15532187435516951638,
+            "runs": 30,
+            "user_ms": 195.2222933333333000,
+            "system_ms": 2.78126000
           },
           "logos_release": {
-            "mean_ms": 127.3992571533334000,
-            "median_ms": 120.14076852000001000,
-            "stddev_ms": 21.998754272329387000,
-            "min_ms": 106.39806002000002000,
-            "max_ms": 203.73031002000003000,
-            "cv": 0.17267568715767656942,
-            "runs": 30
+            "mean_ms": 201.9081167666667000,
+            "median_ms": 197.49958350000002000,
+            "stddev_ms": 11.631521976451885000,
+            "min_ms": 193.21393750000002000,
+            "max_ms": 237.7322705000,
+            "cv": 0.05760799596726341024,
+            "runs": 30,
+            "user_ms": 193.38902666666674000,
+            "system_ms": 2.243593333333334000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "gcd",
@@ -501,36 +571,41 @@
         "5000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To gcd (a: Int, b: Int) -> Int:\n    Let mutable x be a.\n    Let mutable y be b.\n    While y is greater than 0:\n        Let temp be y.\n        Set y to x % y.\n        Set x to temp.\n    Return x.\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable j be i.\n    While j is at most n:\n        Set sum to sum + gcd(i, j).\n        Set j to j + 1.\n    Set i to i + 1.\nShow sum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn gcd(a: i64, b: i64) -> i64 {\n    let mut x = a;\n    let mut y = b;\n    while (y > 0) {\n        let temp = y;\n        y = (x % y);\n        x = temp;\n    }\n    return x;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut sum = 0;\n    for i in 1..(n + 1) {\n        let mut j = i;\n        while (j <= n) {\n            sum = (sum + gcd(i, j));\n            j = (j + 1);\n        }\n    }\n    show(&sum);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn gcd(a: i64, b: i64) -> i64 {\n    let mut x = a;\n    let mut y = b;\n    while (y > 0) {\n        let temp = y;\n        y = (x % y);\n        x = temp;\n    }\n    return x;\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut sum = 0;\n    for i in 1..(n + 1) {\n        for j in i..(n + 1) {\n            sum = (sum + gcd(i, j));\n        }\n    }\n    show(&sum);\n}",
       "scaling": {
         "5000": {
           "c": {
-            "mean_ms": 499.23295960666675000,
-            "median_ms": 384.81313754000,
-            "stddev_ms": 293.032670566444000,
-            "min_ms": 309.08922004000,
-            "max_ms": 1420.89322004000,
-            "cv": 0.58696579408001659871,
-            "runs": 30
+            "mean_ms": 270.3644273733333000,
+            "median_ms": 268.80096944000,
+            "stddev_ms": 7.955633729569143000,
+            "min_ms": 264.06307294000,
+            "max_ms": 301.28578093999997000,
+            "cv": 0.02942559347344755929,
+            "runs": 30,
+            "user_ms": 265.77049333333336000,
+            "system_ms": 1.9109866666666663000
           },
           "logos_release": {
-            "mean_ms": 297.3039831733334000,
-            "median_ms": 294.77919954000,
-            "stddev_ms": 25.42648754510284000,
-            "min_ms": 260.46813704000,
-            "max_ms": 384.55647104000,
-            "cv": 0.08552353477981744676,
-            "runs": 30
+            "mean_ms": 275.5061093733333000,
+            "median_ms": 272.35936494000,
+            "stddev_ms": 12.333038913095192000,
+            "min_ms": 268.93107394000,
+            "max_ms": 321.36061494000,
+            "cv": 0.04476502877249417392,
+            "runs": 30,
+            "user_ms": 270.15169333333333000,
+            "system_ms": 2.1895533333333326000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "collatz",
       "name": "Collatz Conjecture",
       "description": "Collatz step counting. Measures unpredictable branching.",
-      "reference_size": "10000000",
+      "reference_size": "5000000",
       "sizes": [
         "10000",
         "100000",
@@ -540,74 +615,85 @@
         "10000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable total be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Let mutable k be i.\n    While k is not 1:\n        If k % 2 equals 0:\n            Set k to k / 2.\n        Otherwise:\n            Set k to 3 * k + 1.\n        Set total to total + 1.\n    Set i to i + 1.\nShow total.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut total = 0;\n    for i in 1..(n + 1) {\n        let mut k = i;\n        while (k != 1) {\n            if ((k % 2) == 0) {\n                k = (k / 2);\n            } else {\n                k = ((3 * k) + 1);\n            }\n            total = (total + 1);\n        }\n    }\n    show(&total);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut total = 0;\n    for i in 1..(n + 1) {\n        let mut k = i;\n        while (k != 1) {\n            if ((k % 2) == 0) {\n                k = (k / 2);\n            } else {\n                k = ((3 * k) + 1);\n            }\n            total = (total + 1);\n        }\n    }\n    show(&total);\n}",
       "scaling": {
-        "10000000": {
+        "5000000": {
           "c": {
-            "mean_ms": 2388.1547137466663000,
-            "median_ms": 2171.88028298000,
-            "stddev_ms": 543.2941500061801000,
-            "min_ms": 2138.53632498000,
-            "max_ms": 4483.08032498000,
-            "cv": 0.22749537409736358682,
-            "runs": 30
+            "mean_ms": 1018.3970846533335000,
+            "median_ms": 1013.73157912000,
+            "stddev_ms": 11.54963297719756000,
+            "min_ms": 1008.5525576199998000,
+            "max_ms": 1054.70347462000,
+            "cv": 0.01134099179116277805,
+            "runs": 30,
+            "user_ms": 1007.2077666666666000,
+            "system_ms": 4.342113333333333000
           },
           "logos_release": {
-            "mean_ms": 1613.3079625466664000,
-            "median_ms": 1605.32824148000,
-            "stddev_ms": 34.97230137429512000,
-            "min_ms": 1573.71086698000,
-            "max_ms": 1731.98699198000,
-            "cv": 0.02167738719834373493,
-            "runs": 30
+            "mean_ms": 765.4442459533334000,
+            "median_ms": 759.23382912000,
+            "stddev_ms": 22.76714927978767000,
+            "min_ms": 747.6839336200001000,
+            "max_ms": 867.9632256200001000,
+            "cv": 0.02974370687368875677,
+            "runs": 30,
+            "user_ms": 751.418733333333000,
+            "system_ms": 4.630846666666668000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "primes",
       "name": "Primes (Trial Division)",
       "description": "Trial division prime counting. Measures nested loops with early exit.",
-      "reference_size": "1000000",
+      "reference_size": "3000000",
       "sizes": [
         "10000",
         "50000",
         "100000",
         "500000",
-        "1000000"
+        "1000000",
+        "3000000"
       ],
-      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable count be 0.\nLet mutable i be 2.\nWhile i is at most n:\n    Let mutable isPrime be 1.\n    Let mutable d be 2.\n    While d * d is at most i:\n        If i % d equals 0:\n            Set isPrime to 0.\n            Set d to i.\n        Set d to d + 1.\n    If isPrime equals 1:\n        Set count to count + 1.\n    Set i to i + 1.\nShow count.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut count = 0;\n    for i in 2..(n + 1) {\n        let mut isPrime = 1;\n        let mut d = 2;\n        while ((d * d) <= i) {\n            if ((i % d) == 0) {\n                isPrime = 0;\n                d = i;\n            }\n            d = (d + 1);\n        }\n        if (isPrime == 1) {\n            count = (count + 1);\n        }\n    }\n    show(&count);\n}",
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable count be 0.\nLet mutable i be 2.\nWhile i is at most n:\n    Let mutable isPrime be 1.\n    Let mutable d be 2.\n    While d * d is at most i:\n        If i % d equals 0:\n            Set isPrime to 0.\n            Break.\n        Set d to d + 1.\n    If isPrime equals 1:\n        Set count to count + 1.\n    Set i to i + 1.\nShow count.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut count = 0;\n    for i in 2..(n + 1) {\n        let mut isPrime = 1;\n        let mut d = 2;\n        while ((d * d) <= i) {\n            if ((i % d) == 0) {\n                isPrime = 0;\n                break;\n            }\n            d = (d + 1);\n        }\n        if (isPrime == 1) {\n            count = (count + 1);\n        }\n    }\n    show(&count);\n}",
       "scaling": {
-        "1000000": {
+        "3000000": {
           "c": {
-            "mean_ms": 67.93709852000,
-            "median_ms": 65.82713752000,
-            "stddev_ms": 9.07208150354139000,
-            "min_ms": 63.55432502000,
-            "max_ms": 107.53199202000001000,
-            "cv": 0.13353648744464205004,
-            "runs": 30
+            "mean_ms": 299.6076125466668000,
+            "median_ms": 293.75034618000007000,
+            "stddev_ms": 16.82619986975689000,
+            "min_ms": 289.67686668000003000,
+            "max_ms": 368.93365768000,
+            "cv": 0.05616078886225244259,
+            "runs": 30,
+            "user_ms": 291.32172000000006000,
+            "system_ms": 2.309973333333333000
           },
           "logos_release": {
-            "mean_ms": 315.3667971866667000,
-            "median_ms": 314.93349152000005000,
-            "stddev_ms": 3.5286307552883857000,
-            "min_ms": 311.26670002000006000,
-            "max_ms": 327.28736602000,
-            "cv": 0.01118897355957157699,
-            "runs": 30
+            "mean_ms": 329.12704307999996000,
+            "median_ms": 326.66538718000004000,
+            "stddev_ms": 9.213062156896974000,
+            "min_ms": 318.92528268000003000,
+            "max_ms": 353.22245068000,
+            "cv": 0.02799241919071834393,
+            "runs": 30,
+            "user_ms": 319.50178666666673000,
+            "system_ms": 2.9452066666666673000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "sieve",
       "name": "Sieve of Eratosthenes",
       "description": "Classic prime sieve. Measures indexed array mutation and tight loops.",
-      "reference_size": "10000000",
+      "reference_size": "100000000",
       "sizes": [
         "10000",
         "50000",
@@ -615,149 +701,173 @@
         "500000",
         "1000000",
         "5000000",
-        "10000000"
+        "10000000",
+        "100000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To sieve (limit: Int) -> Int:\n    Let mutable flags be a new Seq of Bool.\n    Let mutable i be 0.\n    While i is at most limit:\n        Push false to flags.\n        Set i to i + 1.\n    Let mutable count be 0.\n    Set i to 2.\n    While i is at most limit:\n        If item (i + 1) of flags equals false:\n            Set count to count + 1.\n            Let mutable j be i * i.\n            While j is at most limit:\n                Set item (j + 1) of flags to true.\n                Set j to j + i.\n        Set i to i + 1.\n    Return count.\n\n## Main\nLet arguments be args().\nLet limit be parseInt(item 2 of arguments).\nShow sieve(limit).",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn sieve(limit: i64) -> i64 {\n    let mut flags: Vec<bool> = vec![false; (limit + 1) as usize];\n    let mut i = 0;\n    let mut count = 0;\n    i = 2;\n    while (i <= limit) {\n        if (flags[(i) as usize] == false) {\n            count = (count + 1);\n            let mut j = (i * i);\n            while (j <= limit) {\n                flags[(j) as usize] = true;\n                j = (j + i);\n            }\n        }\n        i = (i + 1);\n    }\n    return count;\n}\n\nfn main() {\n    let arguments = args();\n    let limit = parseInt(arguments[(2 - 1) as usize].clone());\n    show(&sieve(limit));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn sieve(limit: i64) -> i64 {\n    let mut flags: Vec<bool> = vec![false; (limit + 1) as usize];\n    let mut i = 0;\n    let mut count = 0;\n    unsafe { std::hint::assert_unchecked((limit as usize) <= flags.len()); }\n    for i in 2..(limit + 1) {\n        if (flags[i as usize] == false) {\n            count = (count + 1);\n            let mut j = (i * i);\n            while (j <= limit) {\n                flags[(j) as usize] = true;\n                j = (j + i);\n            }\n        }\n    }\n    return count;\n}\n\nfn main() {\n    let arguments = args();\n    let limit = parseInt(arguments[1].clone());\n    show(&sieve(limit));\n}",
       "scaling": {
-        "10000000": {
+        "100000000": {
           "c": {
-            "mean_ms": 28.667798713333324000,
-            "median_ms": 26.76400978000,
-            "stddev_ms": 6.742295293772823000,
-            "min_ms": 24.90300928000,
-            "max_ms": 55.33238528000001000,
-            "cv": 0.23518705992019532805,
-            "runs": 30
+            "mean_ms": 432.5631427333333000,
+            "median_ms": 429.59981049999996000,
+            "stddev_ms": 13.671341168598852000,
+            "min_ms": 412.829999000,
+            "max_ms": 458.70354000,
+            "cv": 0.03160542315790174914,
+            "runs": 30,
+            "user_ms": 408.8970533333333000,
+            "system_ms": 14.453966666666663000
           },
           "logos_release": {
-            "mean_ms": 26.28125714666666000,
-            "median_ms": 24.73730178000,
-            "stddev_ms": 7.744280494938456000,
-            "min_ms": 23.22634328000,
-            "max_ms": 66.94467728000,
-            "cv": 0.29466933228194866135,
-            "runs": 30
+            "mean_ms": 389.8284481666667000,
+            "median_ms": 388.476186000,
+            "stddev_ms": 15.380745783801024000,
+            "min_ms": 367.57174800000003000,
+            "max_ms": 422.787123000,
+            "cv": 0.03945516510181720199,
+            "runs": 30,
+            "user_ms": 366.01498666666665000,
+            "system_ms": 15.006266666666669000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "matrix_mult",
       "name": "Matrix Multiply",
       "description": "O(n^3) matrix multiply. Measures cache locality and triple-nested loops.",
-      "reference_size": "500",
+      "reference_size": "700",
       "sizes": [
         "50",
         "100",
         "200",
         "300",
-        "500"
+        "500",
+        "700"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable a be a new Seq of Int.\nLet mutable b be a new Seq of Int.\nLet mutable c be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Let mutable j be 0.\n    While j is less than n:\n        Push (i * n + j) % 100 to a.\n        Push (j * n + i) % 100 to b.\n        Push 0 to c.\n        Set j to j + 1.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n:\n    Let mutable k be 0.\n    While k is less than n:\n        Let mutable j be 0.\n        While j is less than n:\n            Let idx be i * n + j + 1.\n            Set item idx of c to (item idx of c + item (i * n + k + 1) of a * item (k * n + j + 1) of b) % 1000000007.\n            Set j to j + 1.\n        Set k to k + 1.\n    Set i to i + 1.\nLet mutable checksum be 0.\nSet i to 1.\nWhile i is at most n * n:\n    Set checksum to (checksum + item i of c) % 1000000007.\n    Set i to i + 1.\nShow checksum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut a = Seq::<i64>::default();\n    let mut b = Seq::<i64>::default();\n    let mut c = Seq::<i64>::default();\n    for i in 0..n {\n        let mut j = 0;\n        while (j < n) {\n            a.push((((i * n) + j) % 100));\n            b.push((((j * n) + i) % 100));\n            c.push(0);\n            j = (j + 1);\n        }\n    }\n    let mut i = (0_i64).max(n);\n    i = 0;\n    while (i < n) {\n        for k in 0..n {\n            let mut j = 0;\n            while (j < n) {\n                let idx = (((i * n) + j) + 1);\n                c[(idx - 1) as usize] = ((c[(idx - 1) as usize] + (a[(((i * n) + k)) as usize] * b[(((k * n) + j)) as usize])) % 1000000007);\n                j = (j + 1);\n            }\n        }\n        i = (i + 1);\n    }\n    let mut checksum = 0;\n    i = 1;\n    while (i <= (n * n)) {\n        checksum = ((checksum + c[(i - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&checksum);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut a = Seq::<i64>::default();\n    let mut b = Seq::<i64>::default();\n    let mut c = Seq::<i64>::default();\n    for i in 0..n {\n        for j in 0..n {\n            a.push((((i * n) + j) % 100));\n            b.push((((j * n) + i) % 100));\n            c.push(0);\n        }\n    }\n    let mut i = 0;\n    for i in 0..n {\n        for k in 0..n {\n            unsafe { std::hint::assert_unchecked((n as usize) <= b.len()); }\n            for j in 0..n {\n                let idx = (((i * n) + j) + 1);\n                c[(idx - 1) as usize] = ((c[(idx - 1) as usize] + (a[(((i * n) + k)) as usize] * b[(((k * n) + j)) as usize])) % 1000000007);\n            }\n        }\n    }\n    i = (0_i64).max(n);\n    let mut checksum = 0;\n    unsafe { std::hint::assert_unchecked(((n * n) as usize) <= c.len()); }\n    for i in 0..(n * n) {\n        checksum = ((checksum + c[i as usize]) % 1000000007);\n    }\n    show(&checksum);\n}",
       "scaling": {
-        "500": {
+        "700": {
           "c": {
-            "mean_ms": 92.89602104000005000,
-            "median_ms": 89.32654714000002000,
-            "stddev_ms": 10.829056009370557000,
-            "min_ms": 86.88781864000002000,
-            "max_ms": 133.75552664000,
-            "cv": 0.11657179595138611301,
-            "runs": 30
+            "mean_ms": 252.4856990866667000,
+            "median_ms": 242.52274102000002000,
+            "stddev_ms": 20.891667134185905000,
+            "min_ms": 235.55294902000,
+            "max_ms": 319.14807402000006000,
+            "cv": 0.08274396217195160369,
+            "runs": 30,
+            "user_ms": 236.26177999999998000,
+            "system_ms": 3.936813333333334000
           },
           "logos_release": {
-            "mean_ms": 122.70424044000001000,
-            "median_ms": 119.66056864000002000,
-            "stddev_ms": 12.510511057682206000,
-            "min_ms": 116.58652664000001000,
-            "max_ms": 176.70423464000,
-            "cv": 0.10195663175796767093,
-            "runs": 30
+            "mean_ms": 329.64416572000005000,
+            "median_ms": 327.50417852000,
+            "stddev_ms": 12.68154895307868000,
+            "min_ms": 316.55749102000,
+            "max_ms": 366.89724102000004000,
+            "cv": 0.03847041832328497877,
+            "runs": 30,
+            "user_ms": 317.3299800000001000,
+            "system_ms": 4.8871800000000005000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "prefix_sum",
       "name": "Prefix Sum",
       "description": "Sequential prefix sum scan. Measures read-modify-write bandwidth.",
-      "reference_size": "10000000",
+      "reference_size": "50000000",
       "sizes": [
         "10000",
         "100000",
         "500000",
         "1000000",
         "5000000",
-        "10000000"
+        "10000000",
+        "50000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % 1000 to arr.\n    Set i to i + 1.\nSet i to 2.\nWhile i is at most n:\n    Set item i of arr to (item i of arr + item (i - 1) of arr) % 1000000007.\n    Set i to i + 1.\nShow item n of arr.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push((((seed / 65536) % 32768) % 1000));\n    }\n    let mut i = (0_i64).max(n);\n    i = 2;\n    while (i <= n) {\n        arr[(i - 1) as usize] = ((arr[(i - 1) as usize] + arr[((i - 1) - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&arr[(n - 1) as usize]);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push((((seed / 65536) % 32768) % 1000));\n    }\n    let mut i = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 2..(n + 1) {\n        arr[(i - 1) as usize] = ((arr[(i - 1) as usize] + arr[((i - 1) - 1) as usize]) % 1000000007);\n    }\n    show(&arr[(n - 1) as usize]);\n}",
       "scaling": {
-        "10000000": {
+        "50000000": {
           "c": {
-            "mean_ms": 59.47936620000001000,
-            "median_ms": 59.0800965000,
-            "stddev_ms": 1.7544297915376723000,
-            "min_ms": 56.932222000000005000,
-            "max_ms": 66.51618000,
-            "cv": 0.02949644395399882396,
-            "runs": 30
+            "mean_ms": 308.65068219333336000,
+            "median_ms": 302.83678066000,
+            "stddev_ms": 16.006998575082653000,
+            "min_ms": 294.52557216000,
+            "max_ms": 359.57332216000004000,
+            "cv": 0.05186121236257676748,
+            "runs": 30,
+            "user_ms": 255.88826666666675000,
+            "system_ms": 42.17674666666667000
           },
           "logos_release": {
-            "mean_ms": 93.89115079999999000,
-            "median_ms": 97.2925965000,
-            "stddev_ms": 6.509970520790855000,
-            "min_ms": 82.143971000,
-            "max_ms": 100.73538900000001000,
-            "cv": 0.06933529374517854661,
-            "runs": 30
+            "mean_ms": 410.63805312666674000,
+            "median_ms": 406.63125966000,
+            "stddev_ms": 11.028810054307116000,
+            "min_ms": 401.02836416000004000,
+            "max_ms": 446.80282216000006000,
+            "cv": 0.02685773997400366018,
+            "runs": 30,
+            "user_ms": 362.0392666666667000,
+            "system_ms": 41.61978000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "array_reverse",
       "name": "Array Reverse",
       "description": "Two-pointer in-place reversal. Measures strided cache access.",
-      "reference_size": "10000000",
+      "reference_size": "50000000",
       "sizes": [
         "10000",
         "100000",
         "500000",
         "1000000",
         "5000000",
-        "10000000"
+        "10000000",
+        "50000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push (seed / 65536) % 32768 to arr.\n    Set i to i + 1.\nLet mutable lo be 1.\nLet mutable hi be n.\nWhile lo is less than hi:\n    Let tmp be item lo of arr.\n    Set item lo of arr to item hi of arr.\n    Set item hi of arr to tmp.\n    Set lo to lo + 1.\n    Set hi to hi - 1.\nShow \"\" + item 1 of arr + \" \" + item n of arr + \" \" + item (n / 2 + 1) of arr.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut lo = 1;\n    let mut hi = n;\n    while (lo < hi) {\n        arr.swap((lo - 1) as usize, (hi - 1) as usize);\n        lo = (lo + 1);\n        hi = (hi - 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[(1 - 1) as usize], \" \", arr[(n - 1) as usize], \" \", arr[((n / 2)) as usize]));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push(((seed / 65536) % 32768));\n    }\n    let mut lo = 1;\n    let mut hi = n;\n    unsafe { std::hint::assert_unchecked((hi as usize) <= arr.len()); }\n    while (lo < hi) {\n        let __swap_tmp = arr[(lo - 1) as usize];\n        arr[(lo - 1) as usize] = arr[(hi - 1) as usize];\n        arr[(hi - 1) as usize] = __swap_tmp;\n        lo = (lo + 1);\n        hi = (hi - 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", arr[0], \" \", arr[(n - 1) as usize], \" \", arr[((n / 2)) as usize]));\n}",
       "scaling": {
-        "10000000": {
+        "50000000": {
           "c": {
-            "mean_ms": 26.831743213333332000,
-            "median_ms": 25.12164158000,
-            "stddev_ms": 6.868277096475637000,
-            "min_ms": 23.030558080000003000,
-            "max_ms": 60.38026608000001000,
-            "cv": 0.25597580603941627594,
-            "runs": 30
+            "mean_ms": 126.12406293333328000,
+            "median_ms": 125.0060642000,
+            "stddev_ms": 7.373989602700207000,
+            "min_ms": 119.38898120000001000,
+            "max_ms": 163.0867312000,
+            "cv": 0.05846615967801444912,
+            "runs": 30,
+            "user_ms": 82.66023333333335000,
+            "system_ms": 38.587006666666666000
           },
           "logos_release": {
-            "mean_ms": 41.51962514666667000,
-            "median_ms": 42.022038080000004000,
-            "stddev_ms": 5.463818768170261000,
-            "min_ms": 31.82251608000001000,
-            "max_ms": 52.14351708000001000,
-            "cv": 0.13159605244193574010,
-            "runs": 30
+            "mean_ms": 148.19936826666666000,
+            "median_ms": 141.6082937000,
+            "stddev_ms": 18.169877590123142000,
+            "min_ms": 134.3103142000,
+            "max_ms": 214.94693920000002000,
+            "cv": 0.12260428504275852786,
+            "runs": 30,
+            "user_ms": 99.58006666666668000,
+            "system_ms": 41.06874000000002000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "array_fill",
@@ -772,228 +882,266 @@
         "50000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable arr be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push (i * 7 + 3) % 1000000 to arr.\n    Set i to i + 1.\nLet mutable sum be 0.\nSet i to 1.\nWhile i is at most n:\n    Set sum to (sum + item i of arr) % 1000000007.\n    Set i to i + 1.\nShow sum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut arr = Seq::<i64>::default();\n    for i in 0..n {\n        arr.push((((i * 7) + 3) % 1000000));\n    }\n    let mut i = (0_i64).max(n);\n    let mut sum = 0;\n    i = 1;\n    while (i <= n) {\n        sum = ((sum + arr[(i - 1) as usize]) % 1000000007);\n        i = (i + 1);\n    }\n    show(&sum);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    for i in 0..n {\n        arr.push((((i * 7) + 3) % 1000000));\n    }\n    let mut i = (0_i64).max(n);\n    let mut sum = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 0..n {\n        sum = ((sum + arr[i as usize]) % 1000000007);\n    }\n    show(&sum);\n}",
       "scaling": {
         "50000000": {
           "c": {
-            "mean_ms": 261.8940357266667000,
-            "median_ms": 260.31629006000,
-            "stddev_ms": 8.961406664911296000,
-            "min_ms": 251.31787356000,
-            "max_ms": 288.96262356000,
-            "cv": 0.03421768136126676731,
-            "runs": 30
+            "mean_ms": 260.0220989866667000,
+            "median_ms": 255.63837272000,
+            "stddev_ms": 12.442684832921849000,
+            "min_ms": 246.82905972000002000,
+            "max_ms": 295.20193572000003000,
+            "cv": 0.04785241285803126901,
+            "runs": 30,
+            "user_ms": 212.4261066666667000,
+            "system_ms": 39.54253333333334000
           },
           "logos_release": {
-            "mean_ms": 307.02482882666665000,
-            "median_ms": 306.18201906000,
-            "stddev_ms": 14.353126723011533000,
-            "min_ms": 286.18883156000,
-            "max_ms": 355.38795656000005000,
-            "cv": 0.04674907491313905027,
-            "runs": 30
+            "mean_ms": 296.10778512000,
+            "median_ms": 293.37416422000,
+            "stddev_ms": 14.410145848187894000,
+            "min_ms": 278.39143472000,
+            "max_ms": 332.99426872000004000,
+            "cv": 0.04866520426792584831,
+            "runs": 30,
+            "user_ms": 243.45327333333333000,
+            "system_ms": 46.42000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "collect",
       "name": "Collection Operations",
       "description": "Hash map insert and lookup. Measures hash computation and cache behavior.",
-      "reference_size": "500000",
+      "reference_size": "30000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
         "100000",
-        "500000"
+        "500000",
+        "5000000",
+        "30000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable m be a new Map of Int to Int with capacity n.\nLet mutable i be 1.\nWhile i is less than n + 1:\n    Set item i of m to i * 2.\n    Set i to i + 1.\nLet mutable found be 0.\nSet i to 1.\nWhile i is less than n + 1:\n    If item i of m equals i * 2:\n        Set found to found + 1.\n    Set i to i + 1.\nShow found.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut m = { let __m: FxHashMap<i64, i64> = FxHashMap::with_capacity_and_hasher((n) as usize, Default::default()); __m };\n    for i in 1..(n + 1) {\n        m.insert(i, (i * 2));\n    }\n    let mut i = (1_i64).max((n + 1));\n    let mut found = 0;\n    i = 1;\n    while (i < (n + 1)) {\n        if (m.get(&(i)).copied() == Some((i * 2))) {\n            found = (found + 1);\n        }\n        i = (i + 1);\n    }\n    show(&found);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut m = { let __m: FxHashMap<i64, i64> = FxHashMap::with_capacity_and_hasher((n) as usize, Default::default()); __m };\n    for i in 1..(n + 1) {\n        m.insert(i, (i * 2));\n    }\n    let mut i = (1_i64).max((n + 1));\n    let mut found = 0;\n    for i in 1..(n + 1) {\n        if (m.get(&(i)).copied() == Some((i * 2))) {\n            found = (found + 1);\n        }\n    }\n    show(&found);\n}",
       "scaling": {
-        "500000": {
+        "30000000": {
           "c": {
-            "mean_ms": 12.015250733333337000,
-            "median_ms": 11.034263600000002000,
-            "stddev_ms": 5.907729879503214000,
-            "min_ms": 9.5518671000,
-            "max_ms": 42.9980341000,
-            "cv": 0.49168594235937838443,
-            "runs": 30
+            "mean_ms": 729.5976476133335000,
+            "median_ms": 720.1702809800001000,
+            "stddev_ms": 29.796998125265553000,
+            "min_ms": 701.4097809800001000,
+            "max_ms": 858.1079059800001000,
+            "cv": 0.04084031551189585915,
+            "runs": 30,
+            "user_ms": 627.9518466666666000,
+            "system_ms": 90.71445333333335000
           },
           "logos_release": {
-            "mean_ms": 9.033182733333334000,
-            "median_ms": 8.878159100000001000,
-            "stddev_ms": 0.7380382702365491000,
-            "min_ms": 8.072909100000001000,
-            "max_ms": 10.794867100000001000,
-            "cv": 0.08170301565063166391,
-            "runs": 30
+            "mean_ms": 1349.7654184133334000,
+            "median_ms": 1339.68565598000,
+            "stddev_ms": 35.37975776896037000,
+            "min_ms": 1298.7668639799999000,
+            "max_ms": 1430.63957198000,
+            "cv": 0.02621178264483152194,
+            "runs": 30,
+            "user_ms": 1203.9564133333334000,
+            "system_ms": 128.7618866666667000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "two_sum",
       "name": "Two Sum",
       "description": "Interleaved hash insert+lookup. Measures hash table under mixed workload.",
-      "reference_size": "100000",
+      "reference_size": "60000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "1000000",
+        "10000000",
+        "60000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet target be n.\nLet mutable arr be a new Seq of Int.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Push ((seed / 65536) % 32768) % n to arr.\n    Set i to i + 1.\nLet mutable seen be a new Map of Int to Int.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most n:\n    Let x be item i of arr.\n    Let complement be target - x.\n    If complement is at least 0:\n        If seen contains complement:\n            Set count to count + 1.\n    Set seen at x to 1.\n    Set i to i + 1.\nShow count.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let target = n;\n    let mut arr = Seq::<i64>::default();\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push((((seed / 65536) % 32768) % n));\n    }\n    let mut i = (0_i64).max(n);\n    let mut seen = Map::<i64, i64>::default();\n    let mut count = 0;\n    i = 1;\n    while (i <= n) {\n        let x = arr[(i - 1) as usize];\n        let complement = (target - x);\n        if (complement >= 0) {\n            if seen.logos_contains(&complement) {\n                count = (count + 1);\n            }\n        }\n        seen.insert(x, 1);\n        i = (i + 1);\n    }\n    show(&count);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let target = n;\n    let mut arr: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        arr.push((((seed / 65536) % 32768) % n));\n    }\n    let mut i = (0_i64).max(n);\n    let mut seen: FxHashMap<i64, i64> = FxHashMap::with_capacity_and_hasher(n as usize, Default::default());\n    let mut count = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= arr.len()); }\n    for i in 0..n {\n        let x = arr[i as usize];\n        let complement = (target - x);\n        if (complement >= 0) {\n            if seen.logos_contains(&complement) {\n                count = (count + 1);\n            }\n        }\n        seen.insert(x, 1);\n    }\n    show(&count);\n}",
       "scaling": {
-        "100000": {
+        "60000000": {
           "c": {
-            "mean_ms": 1.512079173333333000,
-            "median_ms": 1.51166264000,
-            "stddev_ms": 0.3769186419898847000,
-            "min_ms": 0.6568086400000001000,
-            "max_ms": 2.3470166400000004000,
-            "cv": 0.24927176343483318070,
-            "runs": 30
+            "mean_ms": 646.5243239199999000,
+            "median_ms": 641.96111812000,
+            "stddev_ms": 19.713317765423555000,
+            "min_ms": 628.9728061200001000,
+            "max_ms": 708.3899301200001000,
+            "cv": 0.03049122366486996387,
+            "runs": 30,
+            "user_ms": 518.5973666666666000,
+            "system_ms": 118.72168666666667000
           },
           "logos_release": {
-            "mean_ms": 3.613133373333333000,
-            "median_ms": 3.42949614000,
-            "stddev_ms": 1.2005227008000893000,
-            "min_ms": 2.40009964000,
-            "max_ms": 9.485058640000002000,
-            "cv": 0.33226636737534403631,
-            "runs": 30
+            "mean_ms": 1099.27665862000,
+            "median_ms": 1071.7205351199999000,
+            "stddev_ms": 105.41480840849272000,
+            "min_ms": 1005.15763912000,
+            "max_ms": 1569.99259712000,
+            "cv": 0.09589470274100735458,
+            "runs": 30,
+            "user_ms": 919.8737666666664000,
+            "system_ms": 149.74435333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "histogram",
       "name": "Histogram",
       "description": "Array-indexed frequency counting. Measures random array access.",
-      "reference_size": "10000000",
+      "reference_size": "100000000",
       "sizes": [
         "10000",
         "100000",
         "500000",
         "1000000",
         "5000000",
-        "10000000"
+        "10000000",
+        "100000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable counts be a new Seq of Int.\nLet mutable idx be 0.\nWhile idx is less than 1000:\n    Push 0 to counts.\n    Set idx to idx + 1.\nLet mutable seed be 42.\nLet mutable i be 0.\nWhile i is less than n:\n    Set seed to (seed * 1103515245 + 12345) % 2147483648.\n    Let v be ((seed / 65536) % 32768) % 1000.\n    Set item (v + 1) of counts to (item (v + 1) of counts) + 1.\n    Set i to i + 1.\nLet mutable maxFreq be 0.\nLet mutable maxIndex be 0.\nLet mutable distinct be 0.\nSet i to 0.\nWhile i is less than 1000:\n    If item (i + 1) of counts is greater than 0:\n        Set distinct to distinct + 1.\n    If item (i + 1) of counts is greater than maxFreq:\n        Set maxFreq to item (i + 1) of counts.\n        Set maxIndex to i.\n    Set i to i + 1.\nShow \"\" + maxFreq + \" \" + maxIndex + \" \" + distinct.",
       "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(LogosIndex::logos_get(&arguments, 2));\n    let mut counts: Vec<i64> = vec![0; 1000 as usize];\n    let mut idx = 0;\n    let mut seed = 42;\n    for i in 0..n {\n        seed = (((seed * 1103515245) + 12345) % 2147483648);\n        let v = (((seed / 65536) % 32768) % 1000);\n        let __set_tmp = (LogosIndex::logos_get(&counts, (v + 1)) + 1);\n        LogosIndexMut::logos_set(&mut counts, (v + 1), __set_tmp);\n    }\n    let mut i = (0_i64).max(n);\n    let mut maxFreq = 0;\n    let mut maxIndex = 0;\n    let mut distinct = 0;\n    i = 0;\n    while (i < 1000) {\n        if (LogosIndex::logos_get(&counts, (i + 1)) > 0) {\n            distinct = (distinct + 1);\n        }\n        if (LogosIndex::logos_get(&counts, (i + 1)) > maxFreq) {\n            maxFreq = LogosIndex::logos_get(&counts, (i + 1));\n            maxIndex = i;\n        }\n        i = (i + 1);\n    }\n    show(&format!(\"{}{}{}{}{}{}\", \"\", maxFreq, \" \", maxIndex, \" \", distinct));\n}",
       "scaling": {
-        "10000000": {
+        "100000000": {
           "c": {
-            "mean_ms": 17.233057446666665000,
-            "median_ms": 17.238998980000003000,
-            "stddev_ms": 0.7345536178612265000,
-            "min_ms": 15.654561980000002000,
-            "max_ms": 19.245936980000003000,
-            "cv": 0.04262468341062188294,
-            "runs": 30
+            "mean_ms": 158.43988644666668000,
+            "median_ms": 152.34753118000,
+            "stddev_ms": 15.033669199053459000,
+            "min_ms": 149.69269818000,
+            "max_ms": 208.38119718000,
+            "cv": 0.09488563477425884752,
+            "runs": 30,
+            "user_ms": 149.94128666666665000,
+            "system_ms": 1.6892333333333336000
           },
           "logos_release": {
-            "mean_ms": 21.030094846666663000,
-            "median_ms": 18.26529048000,
-            "stddev_ms": 10.65924969069773000,
-            "min_ms": 17.04081098000,
-            "max_ms": 60.84076998000,
-            "cv": 0.50685694802690131559,
-            "runs": 30
+            "mean_ms": 158.76868641333328000,
+            "median_ms": 152.91980168000,
+            "stddev_ms": 13.541229370613308000,
+            "min_ms": 148.22765518000,
+            "max_ms": 205.22661418000002000,
+            "cv": 0.08528904330266050059,
+            "runs": 30,
+            "user_ms": 148.93061999999996000,
+            "system_ms": 2.1675333333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "knapsack",
       "name": "0/1 Knapsack",
       "description": "0/1 knapsack DP. Measures 2D table fills and conditional max.",
-      "reference_size": "5000",
+      "reference_size": "9000",
       "sizes": [
         "100",
         "500",
         "1000",
         "2000",
-        "5000"
+        "5000",
+        "9000"
       ],
-      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet capacity be n * 5.\nLet mutable weights be a new Seq of Int.\nLet mutable vals be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push (i * 17 + 3) % 50 + 1 to weights.\n    Push (i * 31 + 7) % 100 + 1 to vals.\n    Set i to i + 1.\nLet cols be capacity + 1.\nLet mutable prev be a new Seq of Int.\nSet i to 0.\nWhile i is less than cols:\n    Push 0 to prev.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n:\n    Let mutable curr be a new Seq of Int.\n    Let mutable w be 0.\n    While w is at most capacity:\n        Let keep be item (w + 1) of prev.\n        If w is at least item (i + 1) of weights:\n            Let take be item (w - item (i + 1) of weights + 1) of prev + item (i + 1) of vals.\n            If take is greater than keep:\n                Push take to curr.\n            Otherwise:\n                Push keep to curr.\n        Otherwise:\n            Push keep to curr.\n        Set w to w + 1.\n    Set prev to curr.\n    Set i to i + 1.\nShow item (capacity + 1) of prev.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let capacity = (n * 5);\n    let mut weights = Seq::<i64>::default();\n    let mut vals = Seq::<i64>::default();\n    for i in 0..n {\n        weights.push(((((i * 17) + 3) % 50) + 1));\n        vals.push(((((i * 31) + 7) % 100) + 1));\n    }\n    let mut i = (0_i64).max(n);\n    let cols = (capacity + 1);\n    let mut prev: Vec<i64> = vec![0; cols as usize];\n    i = 0;\n    i = 0;\n    while (i < n) {\n        let mut curr = Seq::<i64>::default();\n        for w in 0..(capacity + 1) {\n            let keep = prev[(w) as usize];\n            if (w >= weights[(i) as usize]) {\n                let take = (prev[((w - weights[(i) as usize])) as usize] + vals[(i) as usize]);\n                if (take > keep) {\n                    curr.push(take);\n                } else {\n                    curr.push(keep);\n                }\n            } else {\n                curr.push(keep);\n            }\n        }\n        prev = curr;\n        i = (i + 1);\n    }\n    show(&prev[(capacity) as usize]);\n}",
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet capacity be n * 5.\nLet mutable weights be a new Seq of Int.\nLet mutable vals be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push (i * 17 + 3) % 50 + 1 to weights.\n    Push (i * 31 + 7) % 100 + 1 to vals.\n    Set i to i + 1.\nLet cols be capacity + 1.\nLet mutable prev be a new Seq of Int.\nLet mutable curr be a new Seq of Int.\nSet i to 0.\nWhile i is less than cols:\n    Push 0 to prev.\n    Push 0 to curr.\n    Set i to i + 1.\nSet i to 0.\nWhile i is less than n:\n    Let wi be item (i + 1) of weights.\n    Let vi be item (i + 1) of vals.\n    Let mutable w be 0.\n    While w is at most capacity:\n        Set item (w + 1) of curr to item (w + 1) of prev.\n        If w is at least wi:\n            Let take be item (w - wi + 1) of prev + vi.\n            If take is greater than item (w + 1) of curr:\n                Set item (w + 1) of curr to take.\n        Set w to w + 1.\n    Set prev to curr.\n    Set i to i + 1.\nShow item (capacity + 1) of prev.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let capacity = (n * 5);\n    let mut weights: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut vals: Vec<i64> = Vec::with_capacity(n as usize);\n    for i in 0..n {\n        weights.push(((((i * 17) + 3) % 50) + 1));\n        vals.push(((((i * 31) + 7) % 100) + 1));\n    }\n    let mut i = (0_i64).max(n);\n    let cols = (capacity + 1);\n    let mut prev: Vec<i64> = Vec::with_capacity(cols as usize);\n    let mut curr: Vec<i64> = Vec::with_capacity(cols as usize);\n    for i in 0..cols {\n        prev.push(0);\n        curr.push(0);\n    }\n    unsafe { std::hint::assert_unchecked((n as usize) <= weights.len()); }\n    unsafe { std::hint::assert_unchecked((n as usize) <= vals.len()); }\n    for i in 0..n {\n        let wi = weights[i as usize];\n        let vi = vals[i as usize];\n        unsafe { std::hint::assert_unchecked((capacity as usize) <= prev.len()); }\n        unsafe { std::hint::assert_unchecked((capacity as usize) <= curr.len()); }\n        for w in 0..(capacity + 1) {\n            curr[(w) as usize] = prev[w as usize];\n            if (w >= wi) {\n                let take = (prev[((w - wi)) as usize] + vi);\n                if (take > curr[w as usize]) {\n                    curr[(w) as usize] = take;\n                }\n            }\n        }\n        std::mem::swap(&mut prev, &mut curr);\n    }\n    show(&prev[capacity as usize]);\n}",
       "scaling": {
-        "5000": {
+        "9000": {
           "c": {
-            "mean_ms": 89.00838071333332000,
-            "median_ms": 86.73298518000,
-            "stddev_ms": 6.777230860282625000,
-            "min_ms": 85.33104718000,
-            "max_ms": 115.35079718000,
-            "cv": 0.07614149146370669935,
-            "runs": 30
+            "mean_ms": 279.16598390666664000,
+            "median_ms": 275.85433234000,
+            "stddev_ms": 10.359277194580935000,
+            "min_ms": 269.92529084000,
+            "max_ms": 321.60033184000003000,
+            "cv": 0.03710794936264278027,
+            "runs": 30,
+            "user_ms": 270.76859999999997000,
+            "system_ms": 2.7970066666666666000
           },
           "logos_release": {
-            "mean_ms": 218.91272808000004000,
-            "median_ms": 216.61175568000002000,
-            "stddev_ms": 9.615595003525233000,
-            "min_ms": 209.82788118000,
-            "max_ms": 249.57579718000,
-            "cv": 0.04392433043003002003,
-            "runs": 30
+            "mean_ms": 409.1902826066666000,
+            "median_ms": 400.57645784000,
+            "stddev_ms": 17.840016853215516000,
+            "min_ms": 390.61999884000004000,
+            "max_ms": 452.64299884000003000,
+            "cv": 0.04359833948052036001,
+            "runs": 30,
+            "user_ms": 392.7955000,
+            "system_ms": 3.903173333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "coins",
       "name": "Coin Change",
       "description": "Coin change DP. Measures 1D DP with inner-loop additions.",
-      "reference_size": "100000",
+      "reference_size": "10000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "10000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable coinList be a new Seq of Int.\nPush 1 to coinList.\nPush 5 to coinList.\nPush 10 to coinList.\nPush 25 to coinList.\nPush 50 to coinList.\nPush 100 to coinList.\nLet mutable dp be a new Seq of Int.\nPush 1 to dp.\nLet mutable i be 1.\nWhile i is at most n:\n    Push 0 to dp.\n    Set i to i + 1.\nLet mutable c be 1.\nWhile c is at most 6:\n    Let coin be item c of coinList.\n    Let mutable j be coin.\n    While j is at most n:\n        Set item (j + 1) of dp to (item (j + 1) of dp + item (j - coin + 1) of dp) % 1000000007.\n        Set j to j + 1.\n    Set c to c + 1.\nShow item (n + 1) of dp.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut coinList = Seq::<i64>::default();\n    coinList.push(1);\n    coinList.push(5);\n    coinList.push(10);\n    coinList.push(25);\n    coinList.push(50);\n    coinList.push(100);\n    let mut dp: Vec<i64> = vec![0; (1 + n) as usize];\n    dp[0] = 1;\n    let mut i = 1;\n    for c in 1..7 {\n        let coin = coinList[(c - 1) as usize];\n        let mut j = coin;\n        while (j <= n) {\n            dp[(j) as usize] = ((dp[(j) as usize] + dp[((j - coin)) as usize]) % 1000000007);\n            j = (j + 1);\n        }\n    }\n    show(&dp[(n) as usize]);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut coinList = Seq::<i64>::default();\n    coinList.push(1);\n    coinList.push(5);\n    coinList.push(10);\n    coinList.push(25);\n    coinList.push(50);\n    coinList.push(100);\n    let mut dp: Vec<i64> = vec![0; (1 + n) as usize];\n    dp[0] = 1;\n    let mut i = 1;\n    unsafe { std::hint::assert_unchecked((6 as usize) <= coinList.len()); }\n    for c in 0..6 {\n        let coin = coinList[c as usize];\n        unsafe { std::hint::assert_unchecked((n as usize) <= dp.len()); }\n        for j in coin..(n + 1) {\n            dp[(j) as usize] = ((dp[j as usize] + dp[((j - coin)) as usize]) % 1000000007);\n        }\n    }\n    show(&dp[n as usize]);\n}",
       "scaling": {
-        "100000": {
+        "10000000": {
           "c": {
-            "mean_ms": 3.978081166666666000,
-            "median_ms": 1.7358364000000003000,
-            "stddev_ms": 6.145212225678711000,
-            "min_ms": 0.7615238999999999000,
-            "max_ms": 25.1110659000,
-            "cv": 1.54476793414145907861,
-            "runs": 30
+            "mean_ms": 129.99482712666666000,
+            "median_ms": 126.72673366000003000,
+            "stddev_ms": 9.874039189224413000,
+            "min_ms": 123.12931716000002000,
+            "max_ms": 167.44906716000002000,
+            "cv": 0.07595717004649094203,
+            "runs": 30,
+            "user_ms": 112.85410666666666000,
+            "system_ms": 11.92534000
           },
           "logos_release": {
-            "mean_ms": 3.4447032999999996000,
-            "median_ms": 3.2875239000000004000,
-            "stddev_ms": 0.62728385277533000,
-            "min_ms": 2.7403159000,
-            "max_ms": 5.4706489000,
-            "cv": 0.18210098175228330197,
-            "runs": 30
+            "mean_ms": 147.20367442666668000,
+            "median_ms": 146.59181766000,
+            "stddev_ms": 4.060882411191684000,
+            "min_ms": 141.77831716000003000,
+            "max_ms": 162.56819216000,
+            "cv": 0.02758682775418569913,
+            "runs": 30,
+            "user_ms": 132.29050666666664000,
+            "system_ms": 12.01194000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "fannkuch",
       "name": "Fannkuch Redux",
       "description": "Fannkuch permutation benchmark. Measures tight array reversal loops.",
-      "reference_size": "11",
+      "reference_size": "10",
       "sizes": [
         "7",
         "8",
@@ -1002,113 +1150,132 @@
         "11"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable perm1 be a new Seq of Int.\nLet mutable count be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push i to perm1.\n    Push 0 to count.\n    Set i to i + 1.\nLet mutable maxFlips be 0.\nLet mutable checksum be 0.\nLet mutable permCount be 0.\nLet mutable r be n.\nLet mutable done be 0.\nWhile done equals 0:\n    While r is greater than 1:\n        Set item r of count to r.\n        Set r to r - 1.\n    Let mutable perm be a new Seq of Int.\n    Set i to 1.\n    While i is at most n:\n        Push item i of perm1 to perm.\n        Set i to i + 1.\n    Let mutable flips be 0.\n    While item 1 of perm is not 0:\n        Let k be item 1 of perm + 1.\n        Let mutable lo be 1.\n        Let mutable hi be k.\n        While lo is less than hi:\n            Let tmp be item lo of perm.\n            Set item lo of perm to item hi of perm.\n            Set item hi of perm to tmp.\n            Set lo to lo + 1.\n            Set hi to hi - 1.\n        Set flips to flips + 1.\n    If flips is greater than maxFlips:\n        Set maxFlips to flips.\n    If permCount % 2 equals 0:\n        Set checksum to checksum + flips.\n    Otherwise:\n        Set checksum to checksum - flips.\n    Set permCount to permCount + 1.\n    Set done to 1.\n    While done equals 1:\n        If r equals n:\n            Set done to 2.\n        Otherwise:\n            Let perm0 be item 1 of perm1.\n            Set i to 1.\n            While i is at most r:\n                Set item i of perm1 to item (i + 1) of perm1.\n                Set i to i + 1.\n            Set item (r + 1) of perm1 to perm0.\n            Set item (r + 1) of count to (item (r + 1) of count) - 1.\n            If item (r + 1) of count is greater than 0:\n                Set done to 0.\n            Otherwise:\n                Set r to r + 1.\nShow checksum.\nShow maxFlips.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut perm1 = Seq::<i64>::default();\n    let mut count = Seq::<i64>::default();\n    for i in 0..n {\n        perm1.push(i);\n        count.push(0);\n    }\n    let mut i = (0_i64).max(n);\n    let mut maxFlips = 0;\n    let mut checksum = 0;\n    let mut permCount = 0;\n    let mut r = n;\n    let mut done = 0;\n    while (done == 0) {\n        while (r > 1) {\n            count[(r - 1) as usize] = r;\n            r = (r - 1);\n        }\n        let mut perm = Seq::<i64>::default();\n        i = 1;\n        while (i <= n) {\n            perm.push(perm1[(i - 1) as usize]);\n            i = (i + 1);\n        }\n        let mut flips = 0;\n        while (perm[(1 - 1) as usize] != 0) {\n            let k = (perm[(1 - 1) as usize] + 1);\n            let mut lo = 1;\n            let mut hi = k;\n            while (lo < hi) {\n                perm.swap((lo - 1) as usize, (hi - 1) as usize);\n                lo = (lo + 1);\n                hi = (hi - 1);\n            }\n            flips = (flips + 1);\n        }\n        if (flips > maxFlips) {\n            maxFlips = flips;\n        }\n        if ((permCount % 2) == 0) {\n            checksum = (checksum + flips);\n        } else {\n            checksum = (checksum - flips);\n        }\n        permCount = (permCount + 1);\n        done = 1;\n        while (done == 1) {\n            if (r == n) {\n                done = 2;\n            } else {\n                let perm0 = perm1[(1 - 1) as usize];\n                i = 1;\n                while (i <= r) {\n                    perm1[(i - 1) as usize] = perm1[(i) as usize];\n                    i = (i + 1);\n                }\n                perm1[(r) as usize] = perm0;\n                count[(r) as usize] = (count[(r) as usize] - 1);\n                if (count[(r) as usize] > 0) {\n                    done = 0;\n                } else {\n                    r = (r + 1);\n                }\n            }\n        }\n    }\n    show(&checksum);\n    show(&maxFlips);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut perm1: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut count: Vec<i64> = Vec::with_capacity(n as usize);\n    for i in 0..n {\n        perm1.push(i);\n        count.push(0);\n    }\n    let mut i = (0_i64).max(n);\n    let mut maxFlips = 0;\n    let mut checksum = 0;\n    let mut permCount = 0;\n    let mut r = n;\n    let mut done = 0;\n    while (done == 0) {\n        while (r > 1) {\n            count[(r - 1) as usize] = r;\n            r = (r - 1);\n        }\n        let mut perm: Vec<i64> = perm1[..n as usize].to_vec();\n        i = n + 1;\n        let mut flips = 0;\n        while (perm[0] != 0) {\n            let k = (perm[0] + 1);\n            let mut lo = 1;\n            let mut hi = k;\n            unsafe { std::hint::assert_unchecked((hi as usize) <= perm.len()); }\n            while (lo < hi) {\n                let __swap_tmp = perm[(lo - 1) as usize];\n                perm[(lo - 1) as usize] = perm[(hi - 1) as usize];\n                perm[(hi - 1) as usize] = __swap_tmp;\n                lo = (lo + 1);\n                hi = (hi - 1);\n            }\n            flips = (flips + 1);\n        }\n        if (flips > maxFlips) {\n            maxFlips = flips;\n        }\n        if ((permCount % 2) == 0) {\n            checksum = (checksum + flips);\n        } else {\n            checksum = (checksum - flips);\n        }\n        permCount = (permCount + 1);\n        done = 1;\n        while (done == 1) {\n            if (r == n) {\n                done = 2;\n            } else {\n                perm1[0..=(r as usize)].rotate_left(1);\n                count[(r) as usize] = (count[r as usize] - 1);\n                if (count[r as usize] > 0) {\n                    done = 0;\n                } else {\n                    r = (r + 1);\n                }\n            }\n        }\n    }\n    show(&checksum);\n    show(&maxFlips);\n}",
       "scaling": {
-        "11": {
+        "10": {
           "c": {
-            "mean_ms": 2678.3678635799992000,
-            "median_ms": 2384.1467528799996000,
-            "stddev_ms": 821.0073880620299000,
-            "min_ms": 2330.55889838000,
-            "max_ms": 5707.82910738000,
-            "cv": 0.30653272062659944156,
-            "runs": 30
+            "mean_ms": 199.25090688666666000,
+            "median_ms": 190.28738332000003000,
+            "stddev_ms": 21.846331650746616000,
+            "min_ms": 186.74013332000003000,
+            "max_ms": 294.58088332000,
+            "cv": 0.10964231978714529167,
+            "runs": 30,
+            "user_ms": 186.59728000,
+            "system_ms": 2.0329266666666668000
           },
           "logos_release": {
-            "mean_ms": 8761.088755280001000,
-            "median_ms": 7433.86671088000,
-            "stddev_ms": 2066.9592956974694000,
-            "min_ms": 7050.015982380001000,
-            "max_ms": 13753.53898138000,
-            "cv": 0.23592493506606533428,
-            "runs": 30
+            "mean_ms": 259.0543763533332000,
+            "median_ms": 255.24563282000,
+            "stddev_ms": 11.510662087387723000,
+            "min_ms": 251.11159232000,
+            "max_ms": 302.64175832000,
+            "cv": 0.04443338209306270865,
+            "runs": 30,
+            "user_ms": 251.11148000,
+            "system_ms": 2.397126666666666000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "strings",
       "name": "String Assembly",
       "description": "String concatenation and assembly. Measures allocator throughput and GC pressure.",
-      "reference_size": "500000",
+      "reference_size": "5000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
         "100000",
-        "500000"
+        "500000",
+        "5000000"
       ],
-      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable result be \"\" with capacity n * 6.\nLet mutable i be 0.\nWhile i is less than n:\n    Set result to result + i + \" \".\n    Set i to i + 1.\nLet count: Int be Escape to Rust:\n    result.chars().filter(|c| *c == ' ').count() as i64\nShow count.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut result = String::with_capacity(((n * 6)) as usize);\n    for i in 0..n {\n        write!(result, \"{}{}\", i, \" \").unwrap();\n    }\n    let count: i64 = {\n    result.chars().filter(|c| *c == ' ').count() as i64\n};\n    show(&count);\n}",
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable result be \"\" with capacity n * 6.\nLet mutable i be 0.\nWhile i is less than n:\n    Set result to result + i + \" \".\n    Set i to i + 1.\nLet mutable count be 0.\nSet i to 1.\nWhile i is at most length of result:\n    If item i of result equals \" \":\n        Set count to count + 1.\n    Set i to i + 1.\nShow count.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut result = String::with_capacity(((n * 6)) as usize);\n    for i in 0..n {\n        write!(result, \"{}{}\", i, \" \").unwrap();\n    }\n    let mut i = (0_i64).max(n);\n    let mut count = 0;\n    unsafe { std::hint::assert_unchecked(((result.len() as i64) as usize) <= result.len()); }\n    for i in 1..((result.len() as i64) + 1) {\n        if (result.logos_get_char(i) == ' ') {\n            count = (count + 1);\n        }\n    }\n    show(&count);\n}",
       "scaling": {
-        "500000": {
+        "5000000": {
           "c": {
-            "mean_ms": 27.427724380000008000,
-            "median_ms": 26.500817280000002000,
-            "stddev_ms": 4.795211541617575000,
-            "min_ms": 25.651816780000003000,
-            "max_ms": 52.51140078000001000,
-            "cv": 0.17483081990987885234,
-            "runs": 30
+            "mean_ms": 251.3812638066667000,
+            "median_ms": 246.54598344000,
+            "stddev_ms": 18.036417201064216000,
+            "min_ms": 237.67864994000001000,
+            "max_ms": 329.80010794000003000,
+            "cv": 0.07174925023424074803,
+            "runs": 30,
+            "user_ms": 236.09036666666672000,
+            "system_ms": 8.517286666666667000
           },
           "logos_release": {
-            "mean_ms": 14.572382780000004000,
-            "median_ms": 13.209338280000002000,
-            "stddev_ms": 7.477197043916548000,
-            "min_ms": 12.620983780000001000,
-            "max_ms": 54.12798378000001000,
-            "cv": 0.51310737281611167968,
-            "runs": 30
+            "mean_ms": 118.24695693999998000,
+            "median_ms": 111.70654644000,
+            "stddev_ms": 12.738611547760206000,
+            "min_ms": 108.78523394000,
+            "max_ms": 155.60348394000,
+            "cv": 0.10772887419186559368,
+            "runs": 30,
+            "user_ms": 105.09489999999998000,
+            "system_ms": 6.93202000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "binary_trees",
       "name": "Binary Trees",
       "description": "Recursive tree creation and checksum. Measures allocation pressure.",
-      "reference_size": "18",
+      "reference_size": "30",
       "sizes": [
         "10",
         "12",
         "14",
         "16",
-        "18"
+        "18",
+        "20",
+        "25",
+        "30"
       ],
-      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To makeCheck (depth: Int) -> Int:\n    If depth equals 0:\n        Return 1.\n    Return 1 + makeCheck(depth - 1) + makeCheck(depth - 1).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet minDepth be 4.\nLet mutable maxDepth be n.\nIf minDepth + 2 is greater than maxDepth:\n    Set maxDepth to minDepth + 2.\n\nLet stretchCheck be makeCheck(maxDepth + 1).\nShow \"stretch tree of depth \" + (maxDepth + 1) + \" check: \" + stretchCheck.\n\nLet mutable depth be minDepth.\nWhile depth is at most maxDepth:\n    Let mutable iterations be 1.\n    Let mutable p be 0.\n    While p is less than maxDepth - depth + minDepth:\n        Set iterations to iterations * 2.\n        Set p to p + 1.\n    Let mutable totalCheck be 0.\n    Let mutable i be 0.\n    While i is less than iterations:\n        Set totalCheck to totalCheck + makeCheck(depth).\n        Set i to i + 1.\n    Show \"\" + iterations + \" trees of depth \" + depth + \" check: \" + totalCheck.\n    Set depth to depth + 2.\nShow \"long lived tree of depth \" + maxDepth + \" check: \" + makeCheck(maxDepth).",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn makeCheck(depth: i64) -> i64 {\n    use std::cell::RefCell;\n    thread_local! {\n        static __MEMO_MAKECHECK: RefCell<FxHashMap<i64, i64>> = RefCell::new(FxHashMap::default());\n    }\n    if let Some(__v) = __MEMO_MAKECHECK.with(|c| c.borrow().get(&depth).copied()) {\n        return __v;\n    }\n    let __memo_result = (|| -> i64 {\n        if (depth == 0) {\n            return 1;\n        }\n        return ((1 + makeCheck((depth - 1))) + makeCheck((depth - 1)));\n    })();\n    __MEMO_MAKECHECK.with(|c| c.borrow_mut().insert(depth, __memo_result));\n    __memo_result\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let minDepth = 4;\n    let mut maxDepth = n;\n    if ((minDepth + 2) > maxDepth) {\n        maxDepth = (minDepth + 2);\n    }\n    let stretchCheck = makeCheck((maxDepth + 1));\n    show(&format!(\"{}{}{}{}\", \"stretch tree of depth \", (maxDepth + 1), \" check: \", stretchCheck));\n    let mut depth = minDepth;\n    while (depth <= maxDepth) {\n        let mut iterations = 1;\n        for p in 0..((maxDepth - depth) + minDepth) {\n            iterations = (iterations * 2);\n        }\n        let mut totalCheck = 0;\n        for i in 0..iterations {\n            totalCheck = (totalCheck + makeCheck(depth));\n        }\n        show(&format!(\"{}{}{}{}{}{}\", \"\", iterations, \" trees of depth \", depth, \" check: \", totalCheck));\n        depth = (depth + 2);\n    }\n    show(&format!(\"{}{}{}{}\", \"long lived tree of depth \", maxDepth, \" check: \", makeCheck(maxDepth)));\n}",
+      "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To makeCheck (depth: Int) -> Int:\n    If depth equals 0:\n        Return 1.\n    Return 1 + makeCheck(depth - 1) + makeCheck(depth - 1).\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet minDepth be 4.\nLet mutable maxDepth be n.\nIf minDepth + 2 is greater than maxDepth:\n    Set maxDepth to minDepth + 2.\n\nLet stretchCheck be makeCheck(maxDepth + 1).\nShow \"stretch tree of depth \" + (maxDepth + 1) + \" check: \" + stretchCheck.\n\nLet longLived be makeCheck(maxDepth).\n\nLet mutable depth be minDepth.\nWhile depth is at most maxDepth:\n    Let mutable iterations be 1.\n    Let mutable p be 0.\n    While p is less than maxDepth - depth + minDepth:\n        Set iterations to iterations * 2.\n        Set p to p + 1.\n    Let mutable totalCheck be 0.\n    Let mutable i be 0.\n    While i is less than iterations:\n        Set totalCheck to totalCheck + makeCheck(depth).\n        Set i to i + 1.\n    Show \"\" + iterations + \" trees of depth \" + depth + \" check: \" + totalCheck.\n    Set depth to depth + 2.\nShow \"long lived tree of depth \" + maxDepth + \" check: \" + longLived.",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\n#[inline]\nfn makeCheck(depth: i64) -> i64 {\n    if depth == 0 { return 1; }\n    (2i64 << depth) - 1\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let minDepth = 4;\n    let mut maxDepth = n;\n    if ((minDepth + 2) > maxDepth) {\n        maxDepth = (minDepth + 2);\n    }\n    let stretchCheck = makeCheck((maxDepth + 1));\n    show(&format!(\"{}{}{}{}\", \"stretch tree of depth \", (maxDepth + 1), \" check: \", stretchCheck));\n    let longLived = makeCheck(maxDepth);\n    let mut depth = minDepth;\n    while (depth <= maxDepth) {\n        let mut iterations = 1;\n        for p in 0..((maxDepth - depth) + minDepth) {\n            iterations = (iterations * 2);\n        }\n        let mut totalCheck = 0;\n        for i in 0..iterations {\n            totalCheck = (totalCheck + makeCheck(depth));\n        }\n        show(&format!(\"{}{}{}{}{}{}\", \"\", iterations, \" trees of depth \", depth, \" check: \", totalCheck));\n        depth = (depth + 2);\n    }\n    show(&format!(\"{}{}{}{}\", \"long lived tree of depth \", maxDepth, \" check: \", longLived));\n}",
       "scaling": {
-        "18": {
+        "30": {
           "c": {
-            "mean_ms": 4713.289712946667000,
-            "median_ms": 4063.0440742800005000,
-            "stddev_ms": 1500.4080326467923000,
-            "min_ms": 3454.56492828000,
-            "max_ms": 8047.59026128000,
-            "cv": 0.31833562628781484664,
-            "runs": 30
+            "mean_ms": 1.1687297799999978000,
+            "median_ms": 1.1650659799999977000,
+            "stddev_ms": 0.310271957656744000,
+            "min_ms": 0.5616904799999978000,
+            "max_ms": 1.9853574799999977000,
+            "cv": 0.26547792566451466997,
+            "runs": 30,
+            "user_ms": 0.4514266666666667000,
+            "system_ms": 0.4206066666666666000
           },
           "logos_release": {
-            "mean_ms": 6.605483846666665000,
-            "median_ms": 6.288657779999998000,
-            "stddev_ms": 1.1926472339621776000,
-            "min_ms": 5.296428279999998000,
-            "max_ms": 11.045595279999999000,
-            "cv": 0.18055410650410187932,
-            "runs": 30
+            "mean_ms": 4.064411646666664000,
+            "median_ms": 2.651836479999998000,
+            "stddev_ms": 7.174963788138885000,
+            "min_ms": 2.0243994799999973000,
+            "max_ms": 41.77952448000,
+            "cv": 1.76531424764105046617,
+            "runs": 30,
+            "user_ms": 1.5173933333333335000,
+            "system_ms": 0.7466733333333333000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "loop_sum",
       "name": "Loop Sum",
       "description": "Pure loop accumulation. Measures raw loop overhead with minimal body.",
-      "reference_size": "1000000000",
+      "reference_size": "500000000",
       "sizes": [
         "100000",
         "10000000",
@@ -1118,36 +1285,41 @@
         "1000000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable sum be 0.\nLet mutable i be 1.\nWhile i is at most n:\n    Set sum to (sum + i) % 1000000007.\n    Set i to i + 1.\nShow sum.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut sum = 0;\n    for i in 1..(n + 1) {\n        sum = ((sum + i) % 1000000007);\n    }\n    show(&sum);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut sum = 0;\n    for i in 1..(n + 1) {\n        sum = ((sum + i) % 1000000007);\n    }\n    show(&sum);\n}",
       "scaling": {
-        "1000000000": {
+        "500000000": {
           "c": {
-            "mean_ms": 4850.915376426666000,
-            "median_ms": 4446.71581256000,
-            "stddev_ms": 1016.7987697228063000,
-            "min_ms": 3561.2389580599997000,
-            "max_ms": 7247.74412506000,
-            "cv": 0.20960966968502585163,
-            "runs": 30
+            "mean_ms": 1775.4467879399998000,
+            "median_ms": 1767.36175764000,
+            "stddev_ms": 28.473836148899156000,
+            "min_ms": 1746.36217414000,
+            "max_ms": 1869.3350071400001000,
+            "cv": 0.01603756099158372121,
+            "runs": 30,
+            "user_ms": 1742.1916933333326000,
+            "system_ms": 9.844466666666666000
           },
           "logos_release": {
-            "mean_ms": 3603.4609209266675000,
-            "median_ms": 3588.71056256000,
-            "stddev_ms": 46.49865159732578000,
-            "min_ms": 3539.34458306000,
-            "max_ms": 3721.6326670599997000,
-            "cv": 0.01290388674046398914,
-            "runs": 30
+            "mean_ms": 1789.3883921400004000,
+            "median_ms": 1781.60282014000,
+            "stddev_ms": 35.263042587607166000,
+            "min_ms": 1750.60517414000,
+            "max_ms": 1866.52929914000,
+            "cv": 0.01970675720402695677,
+            "runs": 30,
+            "user_ms": 1750.81086000,
+            "system_ms": 10.602199999999999000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "fib_iterative",
       "name": "Iterative Fibonacci",
       "description": "Iterative fibonacci mod. Measures loop + data dependency chain.",
-      "reference_size": "1000000000",
+      "reference_size": "500000000",
       "sizes": [
         "100000",
         "10000000",
@@ -1157,112 +1329,129 @@
         "1000000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable a be 0.\nLet mutable b be 1.\nLet mutable i be 0.\nWhile i is less than n:\n    Let temp be b.\n    Set b to (a + b) % 1000000007.\n    Set a to temp.\n    Set i to i + 1.\nShow a.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut a = 0;\n    let mut b = 1;\n    for i in 0..n {\n        let temp = b;\n        b = ((a + b) % 1000000007);\n        a = temp;\n    }\n    show(&a);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut a = 0;\n    let mut b = 1;\n    for i in 0..n {\n        let temp = b;\n        b = ((a + b) % 1000000007);\n        a = temp;\n    }\n    show(&a);\n}",
       "scaling": {
-        "1000000000": {
+        "500000000": {
           "c": {
-            "mean_ms": 3660.072724206668000,
-            "median_ms": 3601.92807404000,
-            "stddev_ms": 200.65378971305017000,
-            "min_ms": 3498.86726104000,
-            "max_ms": 4570.44122004000,
-            "cv": 0.05482235049210463296,
-            "runs": 30
+            "mean_ms": 1807.6108927133336000,
+            "median_ms": 1779.39132748000,
+            "stddev_ms": 119.13792274513016000,
+            "min_ms": 1745.14259898000,
+            "max_ms": 2404.8838479800003000,
+            "cv": 0.06590905333962494053,
+            "runs": 30,
+            "user_ms": 1747.4960933333328000,
+            "system_ms": 11.09814000
           },
           "logos_release": {
-            "mean_ms": 3794.149433940001000,
-            "median_ms": 3375.4118450400004000,
-            "stddev_ms": 1114.4676914937373000,
-            "min_ms": 3263.68209504000,
-            "max_ms": 7847.70330404000,
-            "cv": 0.29373320974773209179,
-            "runs": 30
+            "mean_ms": 1608.5090510133335000,
+            "median_ms": 1598.6541604800002000,
+            "stddev_ms": 26.01229265470739000,
+            "min_ms": 1581.4556819799999000,
+            "max_ms": 1704.03872298000,
+            "cv": 0.01617167938117605588,
+            "runs": 30,
+            "user_ms": 1584.9875266666666000,
+            "system_ms": 9.479906666666668000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "graph_bfs",
       "name": "Graph BFS",
       "description": "BFS on generated graph. Measures queue operations and random access.",
-      "reference_size": "100000",
+      "reference_size": "3000000",
       "sizes": [
         "1000",
         "5000",
         "10000",
         "50000",
-        "100000"
+        "100000",
+        "3000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable adj be a new Seq of Int.\nLet mutable adjStarts be a new Seq of Int.\nLet mutable adjCounts be a new Seq of Int.\nLet mutable i be 0.\nWhile i is less than n:\n    Push i * 5 to adjStarts.\n    Push 0 to adjCounts.\n    Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.\n    Set i to i + 1.\nLet mutable primes be a new Seq of Int.\nPush 31 to primes. Push 37 to primes. Push 41 to primes. Push 43 to primes. Push 47 to primes.\nLet mutable offsets be a new Seq of Int.\nPush 7 to offsets. Push 13 to offsets. Push 17 to offsets. Push 23 to offsets. Push 29 to offsets.\nLet mutable p be 1.\nWhile p is at most 5:\n    Set i to 0.\n    While i is less than n:\n        Let neighbor be (i * item p of primes + item p of offsets) % n.\n        If neighbor is not i:\n            Let start be item (i + 1) of adjStarts.\n            Let cnt be item (i + 1) of adjCounts.\n            Set item (start + cnt + 1) of adj to neighbor.\n            Set item (i + 1) of adjCounts to cnt + 1.\n        Set i to i + 1.\n    Set p to p + 1.\nLet mutable queue be a new Seq of Int.\nLet mutable dist be a new Seq of Int.\nSet i to 0.\nWhile i is less than n:\n    Push 0 - 1 to dist.\n    Set i to i + 1.\nPush 0 to queue.\nSet item 1 of dist to 0.\nLet mutable front be 1.\nWhile front is at most length of queue:\n    Let v be item front of queue.\n    Let start be item (v + 1) of adjStarts.\n    Let cnt be item (v + 1) of adjCounts.\n    Let mutable e be 0.\n    While e is less than cnt:\n        Let u be item (start + e + 1) of adj.\n        If item (u + 1) of dist equals 0 - 1:\n            Set item (u + 1) of dist to item (v + 1) of dist + 1.\n            Push u to queue.\n        Set e to e + 1.\n    Set front to front + 1.\nLet mutable reachable be 0.\nLet mutable totalDist be 0.\nSet i to 0.\nWhile i is less than n:\n    If item (i + 1) of dist is at least 0:\n        Set reachable to reachable + 1.\n        Set totalDist to totalDist + item (i + 1) of dist.\n    Set i to i + 1.\nShow \"\" + reachable + \" \" + totalDist.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut adj = Seq::<i64>::default();\n    let mut adjStarts = Seq::<i64>::default();\n    let mut adjCounts = Seq::<i64>::default();\n    for i in 0..n {\n        adjStarts.push((i * 5));\n        adjCounts.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n    }\n    let mut i = (0_i64).max(n);\n    let mut primes = Seq::<i64>::default();\n    primes.push(31);\n    primes.push(37);\n    primes.push(41);\n    primes.push(43);\n    primes.push(47);\n    let mut offsets = Seq::<i64>::default();\n    offsets.push(7);\n    offsets.push(13);\n    offsets.push(17);\n    offsets.push(23);\n    offsets.push(29);\n    for p in 1..6 {\n        i = 0;\n        while (i < n) {\n            let neighbor = (((i * primes[(p - 1) as usize]) + offsets[(p - 1) as usize]) % n);\n            if (neighbor != i) {\n                let start = adjStarts[(i) as usize];\n                let cnt = adjCounts[(i) as usize];\n                adj[((start + cnt)) as usize] = neighbor;\n                adjCounts[(i) as usize] = (cnt + 1);\n            }\n            i = (i + 1);\n        }\n    }\n    let mut queue = Seq::<i64>::default();\n    let mut dist = Seq::<i64>::default();\n    i = 0;\n    while (i < n) {\n        dist.push((0 - 1));\n        i = (i + 1);\n    }\n    queue.push(0);\n    dist[(1 - 1) as usize] = 0;\n    let mut front = 1;\n    while (front <= (queue.len() as i64)) {\n        let v = queue[(front - 1) as usize];\n        let start = adjStarts[(v) as usize];\n        let cnt = adjCounts[(v) as usize];\n        for e in 0..cnt {\n            let u = adj[((start + e)) as usize];\n            if (dist[(u) as usize] == (0 - 1)) {\n                dist[(u) as usize] = (dist[(v) as usize] + 1);\n                queue.push(u);\n            }\n        }\n        front = (front + 1);\n    }\n    let mut reachable = 0;\n    let mut totalDist = 0;\n    i = 0;\n    while (i < n) {\n        if (dist[(i) as usize] >= 0) {\n            reachable = (reachable + 1);\n            totalDist = (totalDist + dist[(i) as usize]);\n        }\n        i = (i + 1);\n    }\n    show(&format!(\"{}{}{}{}\", \"\", reachable, \" \", totalDist));\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut adj: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut adjStarts: Vec<i64> = Vec::with_capacity(n as usize);\n    let mut adjCounts: Vec<i64> = Vec::with_capacity(n as usize);\n    for i in 0..n {\n        adjStarts.push((i * 5));\n        adjCounts.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n        adj.push(0);\n    }\n    let mut i = (0_i64).max(n);\n    let mut primes = Seq::<i64>::default();\n    primes.push(31);\n    primes.push(37);\n    primes.push(41);\n    primes.push(43);\n    primes.push(47);\n    let mut offsets = Seq::<i64>::default();\n    offsets.push(7);\n    offsets.push(13);\n    offsets.push(17);\n    offsets.push(23);\n    offsets.push(29);\n    for p in 0..5 {\n        unsafe { std::hint::assert_unchecked((n as usize) <= adjStarts.len()); }\n        unsafe { std::hint::assert_unchecked((n as usize) <= adjCounts.len()); }\n        for i in 0..n {\n            let neighbor = (((i * primes[p as usize]) + offsets[p as usize]) % n);\n            if (neighbor != i) {\n                let start = adjStarts[i as usize];\n                let cnt = adjCounts[i as usize];\n                adj[((start + cnt)) as usize] = neighbor;\n                adjCounts[(i) as usize] = (cnt + 1);\n            }\n        }\n    }\n    let mut queue = Seq::<i64>::default();\n    let mut dist: Vec<i64> = Vec::with_capacity(n as usize);\n    for i in 0..n {\n        dist.push((0 - 1));\n    }\n    i = (0_i64).max(n);\n    queue.push(0);\n    dist[0] = 0;\n    let mut front = 1;\n    unsafe { std::hint::assert_unchecked(((queue.len() as i64) as usize) <= queue.len()); }\n    while (front <= (queue.len() as i64)) {\n        let v = queue[(front - 1) as usize];\n        let start = adjStarts[v as usize];\n        let cnt = adjCounts[v as usize];\n        unsafe { std::hint::assert_unchecked((cnt as usize) <= adj.len()); }\n        for e in 0..cnt {\n            let u = adj[((start + e)) as usize];\n            if (dist[u as usize] == (0 - 1)) {\n                dist[(u) as usize] = (dist[v as usize] + 1);\n                queue.push(u);\n            }\n        }\n        front = (front + 1);\n    }\n    let mut reachable = 0;\n    let mut totalDist = 0;\n    unsafe { std::hint::assert_unchecked((n as usize) <= dist.len()); }\n    for i in 0..n {\n        if (dist[i as usize] >= 0) {\n            reachable = (reachable + 1);\n            totalDist = (totalDist + dist[i as usize]);\n        }\n    }\n    show(&format!(\"{}{}{}{}\", \"\", reachable, \" \", totalDist));\n}",
       "scaling": {
-        "100000": {
+        "3000000": {
           "c": {
-            "mean_ms": 6.822603113333338000,
-            "median_ms": 4.016768480000004000,
-            "stddev_ms": 8.88351570518543000,
-            "min_ms": 1.432559980000003000,
-            "max_ms": 47.22985198000001000,
-            "cv": 1.30207130000343611618,
-            "runs": 30
+            "mean_ms": 151.80252387333332000,
+            "median_ms": 148.67916044000,
+            "stddev_ms": 9.357308034308825000,
+            "min_ms": 143.67295194000,
+            "max_ms": 182.86874294000,
+            "cv": 0.06164132054956297317,
+            "runs": 30,
+            "user_ms": 129.24358666666666000,
+            "system_ms": 17.349446666666667000
           },
           "logos_release": {
-            "mean_ms": 12.480387680000003000,
-            "median_ms": 8.381101480000003000,
-            "stddev_ms": 11.336827956858983000,
-            "min_ms": 5.509184980000003000,
-            "max_ms": 57.967226980000015000,
-            "cv": 0.90837145828622050263,
-            "runs": 30
+            "mean_ms": 336.63583624000004000,
+            "median_ms": 333.55811794000,
+            "stddev_ms": 9.110953255510803000,
+            "min_ms": 328.15374294000005000,
+            "max_ms": 369.60953494000004000,
+            "cv": 0.02706471585816333027,
+            "runs": 30,
+            "user_ms": 300.5851533333334000,
+            "system_ms": 31.29411333333334000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     },
     {
       "id": "string_search",
       "name": "Naive String Search",
       "description": "Naive O(nm) string search. Measures character-level access and inner loop.",
-      "reference_size": "1000000",
+      "reference_size": "50000000",
       "sizes": [
         "10000",
         "50000",
         "100000",
         "500000",
-        "1000000"
+        "1000000",
+        "50000000"
       ],
       "logos_source": "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nLet mutable text be \"\".\nLet mutable pos be 0.\nWhile pos is less than n:\n    If pos is greater than 0:\n        If pos % 1000 equals 0:\n            If pos + 5 is at most n:\n                Set text to text + \"XXXXX\".\n                Set pos to pos + 5.\n    If pos is less than n:\n        Let mutable ch be \"a\".\n        If pos % 5 equals 1:\n            Set ch to \"b\".\n        If pos % 5 equals 2:\n            Set ch to \"c\".\n        If pos % 5 equals 3:\n            Set ch to \"d\".\n        If pos % 5 equals 4:\n            Set ch to \"e\".\n        Set text to text + ch.\n        Set pos to pos + 1.\nLet needle be \"XXXXX\".\nLet needleLen be 5.\nLet textLen be length of text.\nLet mutable count be 0.\nLet mutable i be 1.\nWhile i is at most textLen - needleLen + 1:\n    Let mutable match be 1.\n    Let mutable j be 0.\n    While j is less than needleLen:\n        If item (i + j) of text is not item (j + 1) of needle:\n            Set match to 0.\n            Set j to needleLen.\n        Set j to j + 1.\n    If match equals 1:\n        Set count to count + 1.\n    Set i to i + 1.\nShow count.",
-      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[(2 - 1) as usize].clone());\n    let mut text = String::from(\"\");\n    let mut pos = 0;\n    while (pos < n) {\n        if (pos > 0) {\n            if ((pos % 1000) == 0) {\n                if ((pos + 5) <= n) {\n                    write!(text, \"{}\", \"XXXXX\").unwrap();\n                    pos = (pos + 5);\n                }\n            }\n        }\n        if (pos < n) {\n            let mut ch = String::from(\"a\");\n            if ((pos % 5) == 1) {\n                ch = String::from(\"b\");\n            }\n            if ((pos % 5) == 2) {\n                ch = String::from(\"c\");\n            }\n            if ((pos % 5) == 3) {\n                ch = String::from(\"d\");\n            }\n            if ((pos % 5) == 4) {\n                ch = String::from(\"e\");\n            }\n            write!(text, \"{}\", ch).unwrap();\n            pos = (pos + 1);\n        }\n    }\n    let needle = String::from(\"XXXXX\");\n    let needleLen = 5;\n    let textLen = (text.len() as i64);\n    let mut count = 0;\n    for i in 1..(((textLen - needleLen) + 1) + 1) {\n        let mut r#match = 1;\n        let mut j = 0;\n        while (j < needleLen) {\n            if (text.as_bytes()[((i + j) - 1) as usize] != needle.as_bytes()[(j) as usize]) {\n                r#match = 0;\n                break;\n            }\n            j = (j + 1);\n        }\n        if (r#match == 1) {\n            count = (count + 1);\n        }\n    }\n    show(&count);\n}",
+      "generated_rust": "#[allow(unused_imports)]\nuse std::fmt::Write as _;\nuse logicaffeine_data::*;\nuse logicaffeine_system::*;\n\nfn args() -> Vec<String> {\n    logicaffeine_system::env::args()\n}\n\nfn parseInt(s: String) -> i64 {\n    logicaffeine_system::text::parseInt(s)\n}\n\nfn main() {\n    let arguments = args();\n    let n = parseInt(arguments[1].clone());\n    let mut text = String::from(\"\");\n    let mut pos = 0;\n    while (pos < n) {\n        if (pos > 0) {\n            if ((pos % 1000) == 0) {\n                if ((pos + 5) <= n) {\n                    text.push_str(\"XXXXX\");\n                    pos = (pos + 5);\n                }\n            }\n        }\n        if (pos < n) {\n            let mut ch: u8 = b'a';\n            if ((pos % 5) == 1) {\n                ch = b'b';\n            }\n            if ((pos % 5) == 2) {\n                ch = b'c';\n            }\n            if ((pos % 5) == 3) {\n                ch = b'd';\n            }\n            if ((pos % 5) == 4) {\n                ch = b'e';\n            }\n            text.push(ch as char);\n            pos = (pos + 1);\n        }\n    }\n    let needle = String::from(\"XXXXX\");\n    let needleLen = 5;\n    let textLen = (text.len() as i64);\n    let mut count = 0;\n    for i in 1..(((textLen - needleLen) + 1) + 1) {\n        let mut r#match = 1;\n        let mut j = 0;\n        unsafe { std::hint::assert_unchecked((needleLen as usize) <= text.len()); }\n        unsafe { std::hint::assert_unchecked((needleLen as usize) <= needle.len()); }\n        while (j < needleLen) {\n            if (text.as_bytes()[((i + j) - 1) as usize] != needle.as_bytes()[(j) as usize]) {\n                r#match = 0;\n                break;\n            }\n            j = (j + 1);\n        }\n        if (r#match == 1) {\n            count = (count + 1);\n        }\n    }\n    show(&count);\n}",
       "scaling": {
-        "1000000": {
+        "50000000": {
           "c": {
-            "mean_ms": 6.570320593333333000,
-            "median_ms": 4.07816086000,
-            "stddev_ms": 6.8643192927756000,
-            "min_ms": 1.50132686000,
-            "max_ms": 31.36653586000,
-            "cv": 1.04474647701979365538,
-            "runs": 30
+            "mean_ms": 104.87728554666668000,
+            "median_ms": 102.85724668000001000,
+            "stddev_ms": 9.175816981782136000,
+            "min_ms": 100.80964318000,
+            "max_ms": 141.08739218000002000,
+            "cv": 0.08749098466797390761,
+            "runs": 30,
+            "user_ms": 95.44284000000001000,
+            "system_ms": 5.957193333333333000
           },
           "logos_release": {
-            "mean_ms": 63.01749142666666000,
-            "median_ms": 59.73407736000,
-            "stddev_ms": 7.800989418188536000,
-            "min_ms": 55.883077860000005000,
-            "max_ms": 88.15986886000002000,
-            "cv": 0.12379085935635081853,
-            "runs": 30
+            "mean_ms": 145.13876474666668000,
+            "median_ms": 140.01937168000,
+            "stddev_ms": 11.589972716364383000,
+            "min_ms": 135.81076718000,
+            "max_ms": 183.13230918000,
+            "cv": 0.07985442577380460553,
+            "runs": 30,
+            "user_ms": 129.44003999999998000,
+            "system_ms": 9.117026666666667000
           }
         }
       },
-      "compilation": {}
+      "compilation": {},
+      "timeouts": {}
     }
   ],
   "summary": {
     "geometric_mean_speedup_vs_c": {
       "c": 1.000,
-      "logos_release": 0.531
+      "logos_release": 0.957
     }
   }
 }

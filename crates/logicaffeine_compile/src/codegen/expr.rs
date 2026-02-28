@@ -285,48 +285,123 @@ fn codegen_expr_boxed_internal(
                     }
                 }
 
-                // String byte comparison: item X of str1 == item Y of str2
-                // Emits as_bytes() comparison instead of allocating String per character
+                // Optimize string-index-vs-string-index comparison to use direct
+                // byte comparison via as_bytes() instead of logos_get_char().
+                // Byte equality is correct for UTF-8: two characters are equal
+                // iff their byte representations are equal, and the logos_get_char
+                // function already uses byte-level indexing for the ASCII fast path.
                 if let (Expr::Index { collection: left_coll, index: left_idx },
                         Expr::Index { collection: right_coll, index: right_idx }) = (left, right) {
                     let left_is_string = if let Expr::Identifier(sym) = left_coll {
-                        string_vars.contains(sym)
-                            || variable_types.get(sym).map(|t| t == "String").unwrap_or(false)
+                        string_vars.contains(sym) || variable_types.get(sym).map_or(false, |t| t == "String")
                     } else { false };
                     let right_is_string = if let Expr::Identifier(sym) = right_coll {
-                        string_vars.contains(sym)
-                            || variable_types.get(sym).map(|t| t == "String").unwrap_or(false)
+                        string_vars.contains(sym) || variable_types.get(sym).map_or(false, |t| t == "String")
                     } else { false };
                     if left_is_string && right_is_string {
                         let cmp = if neg { "!=" } else { "==" };
                         let left_coll_str = recurse!(left_coll);
                         let right_coll_str = recurse!(right_coll);
-                        // 1-based → 0-based index with peephole: (x+1)-1 → x
-                        let left_idx_str = if let Expr::BinaryOp { op: BinaryOpKind::Add, left: l, right: r } = left_idx {
-                            if matches!(r, Expr::Literal(Literal::Number(1))) {
-                                format!("({}) as usize", recurse!(l))
-                            } else if matches!(l, Expr::Literal(Literal::Number(1))) {
-                                format!("({}) as usize", recurse!(r))
-                            } else {
-                                format!("({} - 1) as usize", recurse!(left_idx))
-                            }
-                        } else {
-                            format!("({} - 1) as usize", recurse!(left_idx))
-                        };
-                        let right_idx_str = if let Expr::BinaryOp { op: BinaryOpKind::Add, left: l, right: r } = right_idx {
-                            if matches!(r, Expr::Literal(Literal::Number(1))) {
-                                format!("({}) as usize", recurse!(l))
-                            } else if matches!(l, Expr::Literal(Literal::Number(1))) {
-                                format!("({}) as usize", recurse!(r))
-                            } else {
-                                format!("({} - 1) as usize", recurse!(right_idx))
-                            }
-                        } else {
-                            format!("({} - 1) as usize", recurse!(right_idx))
-                        };
+                        let left_idx_simplified = super::peephole::simplify_1based_index(left_idx, interner, true);
+                        let right_idx_simplified = super::peephole::simplify_1based_index(right_idx, interner, true);
                         return format!("({}.as_bytes()[{}] {} {}.as_bytes()[{}])",
-                            left_coll_str, left_idx_str, cmp, right_coll_str, right_idx_str);
+                            left_coll_str, left_idx_simplified, cmp, right_coll_str, right_idx_simplified);
                     }
+                }
+
+                // Optimize string-index-vs-single-char-literal comparison to use
+                // logos_get_char() == 'c' instead of LogosIndex::logos_get() == String::from("c").
+                // Avoids two heap allocations per comparison in hot loops.
+                let is_string_index = |expr: &Expr| -> bool {
+                    if let Expr::Index { collection, .. } = expr {
+                        if let Expr::Identifier(sym) = collection {
+                            return string_vars.contains(sym) || variable_types.get(sym).map_or(false, |t| t == "String");
+                        }
+                    }
+                    false
+                };
+                let single_char_literal = |expr: &Expr| -> Option<char> {
+                    if let Expr::Literal(Literal::Text(sym)) = expr {
+                        let s = interner.resolve(*sym);
+                        let mut chars = s.chars();
+                        if let Some(c) = chars.next() {
+                            if chars.next().is_none() {
+                                return Some(c);
+                            }
+                        }
+                    }
+                    None
+                };
+
+                // Left is string index, right is single-char literal
+                if is_string_index(left) {
+                    if let Some(ch) = single_char_literal(right) {
+                        if let Expr::Index { collection, index } = left {
+                            let coll_str = recurse!(collection);
+                            let idx_str = recurse!(index);
+                            let cmp = if neg { "!=" } else { "==" };
+                            let ch_escaped = match ch {
+                                '\'' => "\\'".to_string(),
+                                '\\' => "\\\\".to_string(),
+                                '\n' => "\\n".to_string(),
+                                '\t' => "\\t".to_string(),
+                                '\r' => "\\r".to_string(),
+                                _ => ch.to_string(),
+                            };
+                            return format!("({}.logos_get_char({}) {} '{}')",
+                                coll_str, idx_str, cmp, ch_escaped);
+                        }
+                    }
+                }
+                // Right is string index, left is single-char literal
+                if is_string_index(right) {
+                    if let Some(ch) = single_char_literal(left) {
+                        if let Expr::Index { collection, index } = right {
+                            let coll_str = recurse!(collection);
+                            let idx_str = recurse!(index);
+                            let cmp = if neg { "!=" } else { "==" };
+                            let ch_escaped = match ch {
+                                '\'' => "\\'".to_string(),
+                                '\\' => "\\\\".to_string(),
+                                '\n' => "\\n".to_string(),
+                                '\t' => "\\t".to_string(),
+                                '\r' => "\\r".to_string(),
+                                _ => ch.to_string(),
+                            };
+                            return format!("('{}' {} {}.logos_get_char({}))",
+                                ch_escaped, cmp, coll_str, idx_str);
+                        }
+                    }
+                }
+            }
+
+            // OPT-8b: Zero-based counter in comparison.
+            // When a __zero_based_i64 counter appears as a bare operand in a comparison,
+            // emit (counter + 1) to compensate for the 0-based range shift.
+            // E.g., `If i > 3` with 0-based `i` becomes `if (i + 1) > 3`.
+            if matches!(op, BinaryOpKind::Lt | BinaryOpKind::LtEq | BinaryOpKind::Gt
+                | BinaryOpKind::GtEq | BinaryOpKind::Eq | BinaryOpKind::NotEq)
+            {
+                let left_zb = if let Expr::Identifier(sym) = left {
+                    variable_types.get(sym).map_or(false, |t| t == "__zero_based_i64")
+                } else { false };
+                let right_zb = if let Expr::Identifier(sym) = right {
+                    variable_types.get(sym).map_or(false, |t| t == "__zero_based_i64")
+                } else { false };
+                if left_zb || right_zb {
+                    let left_str = if left_zb {
+                        format!("({} + 1)", recurse!(left))
+                    } else { recurse!(left) };
+                    let right_str = if right_zb {
+                        format!("({} + 1)", recurse!(right))
+                    } else { recurse!(right) };
+                    let op_str = match op {
+                        BinaryOpKind::Lt => "<", BinaryOpKind::LtEq => "<=",
+                        BinaryOpKind::Gt => ">", BinaryOpKind::GtEq => ">=",
+                        BinaryOpKind::Eq => "==", BinaryOpKind::NotEq => "!=",
+                        _ => unreachable!(),
+                    };
+                    return format!("({} {} {})", left_str, op_str, right_str);
                 }
             }
 
@@ -461,63 +536,129 @@ fn codegen_expr_boxed_internal(
         Expr::Index { collection, index } => {
             let coll_str = recurse!(collection);
             // Direct indexing for known collection types (avoids trait dispatch)
+            // Strip |__hl: hoisting suffix so type parsing (strip_suffix, etc.) works correctly.
             let known_type = if let Expr::Identifier(sym) = collection {
-                variable_types.get(sym).map(|s| s.as_str())
+                variable_types.get(sym).map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
             } else {
                 None
             };
             match known_type {
                 Some(t) if t.starts_with("Vec") => {
                     let suffix = if has_copy_element_type(t) { "" } else { ".clone()" };
-                    // Peephole: simplify (x + 1) - 1 → x for 1-based indexing
-                    let simplified = if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = index {
-                        if matches!(right, Expr::Literal(Literal::Number(1))) {
-                            Some(recurse!(left))
-                        } else if matches!(left, Expr::Literal(Literal::Number(1))) {
-                            Some(recurse!(right))
-                        } else {
-                            None
-                        }
+                    // OPT-8: Check if index is a zero-based counter (already 0-based, no -1 needed)
+                    let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
+                        variable_types.get(idx_sym).map_or(false, |t| t == "__zero_based_i64")
                     } else {
-                        None
+                        false
                     };
-                    if let Some(inner_str) = simplified {
-                        format!("{}[({}) as usize]{}", coll_str, inner_str, suffix)
-                    } else {
-                        let index_str = recurse!(index);
-                        format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
-                    }
+                    let index_part = if is_zero_based_counter {
+                        let idx_name = recurse!(index);
+                        format!("{} as usize", idx_name)
+                    } else { match index {
+                        // Literal(1) → 0
+                        Expr::Literal(Literal::Number(1)) => "0".to_string(),
+                        // Literal(N) → N-1
+                        Expr::Literal(Literal::Number(n)) => format!("{}", n - 1),
+                        // (X + K) patterns: +1 cancels the -1 from 1-based indexing
+                        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                            match (left, right) {
+                                (_, Expr::Literal(Literal::Number(1))) => {
+                                    let left_str = recurse!(left);
+                                    if matches!(left, Expr::Identifier(_)) {
+                                        format!("{} as usize", left_str)
+                                    } else {
+                                        format!("({}) as usize", left_str)
+                                    }
+                                }
+                                (Expr::Literal(Literal::Number(1)), _) => {
+                                    let right_str = recurse!(right);
+                                    if matches!(right, Expr::Identifier(_)) {
+                                        format!("{} as usize", right_str)
+                                    } else {
+                                        format!("({}) as usize", right_str)
+                                    }
+                                }
+                                (_, Expr::Literal(Literal::Number(k))) if *k > 1 => {
+                                    format!("({} + {}) as usize", recurse!(left), k - 1)
+                                }
+                                (Expr::Literal(Literal::Number(k)), _) if *k > 1 => {
+                                    format!("({} + {}) as usize", recurse!(right), k - 1)
+                                }
+                                _ => {
+                                    format!("({} - 1) as usize", recurse!(index))
+                                }
+                            }
+                        }
+                        _ => {
+                            format!("({} - 1) as usize", recurse!(index))
+                        }
+                    } };
+                    format!("{}[{}]{}", coll_str, index_part, suffix)
                 }
-                Some(t) if t.starts_with("&[") => {
-                    // Slice type — direct indexing works the same as Vec
-                    let elem = t.strip_prefix("&[").and_then(|s| s.strip_suffix(']')).unwrap_or("_");
+                Some(t) if t.starts_with("&[") || t.starts_with("&mut [") => {
+                    let elem = t.strip_prefix("&mut [")
+                        .or_else(|| t.strip_prefix("&["))
+                        .and_then(|s| s.strip_suffix(']'))
+                        .unwrap_or("_");
                     let suffix = if is_copy_type(elem) { "" } else { ".clone()" };
-                    let simplified = if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = index {
-                        if matches!(right, Expr::Literal(Literal::Number(1))) {
-                            Some(recurse!(left))
-                        } else if matches!(left, Expr::Literal(Literal::Number(1))) {
-                            Some(recurse!(right))
-                        } else {
-                            None
-                        }
+                    // OPT-8: Check if index is a zero-based counter
+                    let is_zero_based_counter = if let Expr::Identifier(idx_sym) = index {
+                        variable_types.get(idx_sym).map_or(false, |t| t == "__zero_based_i64")
                     } else {
-                        None
+                        false
                     };
-                    if let Some(inner_str) = simplified {
-                        format!("{}[({}) as usize]{}", coll_str, inner_str, suffix)
-                    } else {
-                        let index_str = recurse!(index);
-                        format!("{}[({} - 1) as usize]{}", coll_str, index_str, suffix)
-                    }
+                    let index_part = if is_zero_based_counter {
+                        let idx_name = recurse!(index);
+                        format!("{} as usize", idx_name)
+                    } else { match index {
+                        Expr::Literal(Literal::Number(1)) => "0".to_string(),
+                        Expr::Literal(Literal::Number(n)) => format!("{}", n - 1),
+                        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                            match (left, right) {
+                                (_, Expr::Literal(Literal::Number(1))) => {
+                                    let left_str = recurse!(left);
+                                    if matches!(left, Expr::Identifier(_)) {
+                                        format!("{} as usize", left_str)
+                                    } else {
+                                        format!("({}) as usize", left_str)
+                                    }
+                                }
+                                (Expr::Literal(Literal::Number(1)), _) => {
+                                    let right_str = recurse!(right);
+                                    if matches!(right, Expr::Identifier(_)) {
+                                        format!("{} as usize", right_str)
+                                    } else {
+                                        format!("({}) as usize", right_str)
+                                    }
+                                }
+                                (_, Expr::Literal(Literal::Number(k))) if *k > 1 => {
+                                    format!("({} + {}) as usize", recurse!(left), k - 1)
+                                }
+                                (Expr::Literal(Literal::Number(k)), _) if *k > 1 => {
+                                    format!("({} + {}) as usize", recurse!(right), k - 1)
+                                }
+                                _ => {
+                                    format!("({} - 1) as usize", recurse!(index))
+                                }
+                            }
+                        }
+                        _ => {
+                            format!("({} - 1) as usize", recurse!(index))
+                        }
+                    } };
+                    format!("{}[{}]{}", coll_str, index_part, suffix)
                 }
                 Some(t) if t.starts_with("std::collections::HashMap") || t.starts_with("HashMap") || t.starts_with("rustc_hash::FxHashMap") || t.starts_with("FxHashMap") => {
                     let index_str = recurse!(index);
                     let suffix = if has_copy_value_type(t) { "" } else { ".clone()" };
                     format!("{}[&({})]{}", coll_str, index_str, suffix)
                 }
+                Some("String") => {
+                    let index_str = recurse!(index);
+                    format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
+                }
                 _ => {
                     let index_str = recurse!(index);
-                    // Fallback: polymorphic indexing via trait
                     format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
                 }
             }
@@ -556,6 +697,13 @@ fn codegen_expr_boxed_internal(
         }
 
         Expr::Length { collection } => {
+            if let Expr::Identifier(sym) = collection {
+                if let Some(t) = variable_types.get(sym) {
+                    if let Some(pos) = t.find("|__hl:") {
+                        return t[pos + "|__hl:".len()..].to_string();
+                    }
+                }
+            }
             let coll_str = recurse!(collection);
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)

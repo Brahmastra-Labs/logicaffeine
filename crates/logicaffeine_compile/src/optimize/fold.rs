@@ -60,7 +60,7 @@ fn fold_stmt<'a>(
             iterable: fold_expr(iterable, expr_arena, stmt_arena, interner),
             body: fold_block(body, expr_arena, stmt_arena, interner),
         },
-        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target } => Stmt::FunctionDef {
+        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => Stmt::FunctionDef {
             name,
             params,
             generics,
@@ -70,6 +70,7 @@ fn fold_stmt<'a>(
             native_path,
             is_exported,
             export_target,
+            opt_flags,
         },
         Stmt::Show { object, recipient } => Stmt::Show {
             object: fold_expr(object, expr_arena, stmt_arena, interner),

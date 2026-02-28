@@ -19,6 +19,7 @@ PROGRAMS_DIR="$SCRIPT_DIR/programs"
 RESULTS_DIR="$SCRIPT_DIR/results"
 RAW_DIR="$RESULTS_DIR/raw-logos-vs-c"
 GENERATED_DIR="$SCRIPT_DIR/generated"
+ASM_DIR="$SCRIPT_DIR/asm"
 
 BENCHMARKS=(
     fib ackermann nqueens
@@ -37,8 +38,9 @@ WARMUP=5
 RUNS=30
 TIMEOUT=180
 BUILD_TIMEOUT=60
+HYPERFINE_TIMEOUT=600  # 10 min per hyperfine invocation
 
-mkdir -p "$BIN_DIR" "$RAW_DIR" "$RESULTS_DIR/history" "$GENERATED_DIR"
+mkdir -p "$BIN_DIR" "$RAW_DIR" "$RESULTS_DIR/history" "$GENERATED_DIR" "$ASM_DIR"
 rm -rf "$RAW_DIR"/*
 
 export LOGOS_WORKSPACE="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -84,46 +86,47 @@ max_size() {
     echo "$sizes" | tr ' ' '\n' | tail -1
 }
 
-# Calibrated benchmark size targeting 30–150ms C runtime.
+# Calibrated benchmark size targeting 100–2000ms C runtime.
 # Eliminates process-startup noise that dominates at very small sizes.
 # Falls back to max_size() for any unknown benchmark.
-# Note: mergesort/quicksort/heap_sort (500000) and counting_sort (5000000)
-# are not yet in sizes.txt; using current max until sizes.txt is extended.
 bench_size() {
     local bench="$1"
     case "$bench" in
-        fib)             echo 35 ;;
-        ackermann)       echo 11 ;;
-        nqueens)         echo 12 ;;
-        bubble_sort)     echo 5000 ;;
-        mergesort)       echo 100000 ;;
-        quicksort)       echo 100000 ;;
-        counting_sort)   echo 1000000 ;;
-        heap_sort)       echo 100000 ;;
-        nbody)           echo 50000 ;;
-        mandelbrot)      echo 1000 ;;
-        spectral_norm)   echo 2000 ;;
-        pi_leibniz)      echo 50000000 ;;
-        gcd)             echo 3000 ;;
-        collatz)         echo 5000000 ;;
-        primes)          echo 1000000 ;;
-        sieve)           echo 10000000 ;;
-        matrix_mult)     echo 300 ;;
-        prefix_sum)      echo 10000000 ;;
-        array_reverse)   echo 5000000 ;;
-        array_fill)      echo 10000000 ;;
-        collect)         echo 500000 ;;
-        two_sum)         echo 50000 ;;
-        histogram)       echo 10000000 ;;
-        knapsack)        echo 2000 ;;
-        coins)           echo 50000 ;;
-        fannkuch)        echo 10 ;;
-        strings)         echo 100000 ;;
-        binary_trees)    echo 16 ;;
-        loop_sum)        echo 500000000 ;;
-        fib_iterative)   echo 500000000 ;;
-        graph_bfs)       echo 50000 ;;
-        string_search)   echo 500000 ;;
+        # Verified C medians in parentheses (measured on Apple Silicon)
+        fib)             echo 40 ;;          # ~1271ms (exponential)
+        ackermann)       echo 11 ;;          # ~570ms  (exponential)
+        nqueens)         echo 14 ;;          # ~498ms  (super-exponential)
+        bubble_sort)     echo 30000 ;;       # ~969ms  (O(n²))
+        mergesort)       echo 3000000 ;;     # ~509ms  (O(n log n))
+        quicksort)       echo 3000000 ;;     # ~577ms  (O(n log n))
+        counting_sort)   echo 40000000 ;;    # ~675ms  (O(n))
+        heap_sort)       echo 2500000 ;;     # ~726ms  (O(n log n))
+        nbody)           echo 4000000 ;;     # ~521ms  (O(n))
+        mandelbrot)      echo 2000 ;;        # ~558ms  (O(n²))
+        spectral_norm)   echo 5000 ;;        # ~1445ms (O(n²))
+        pi_leibniz)      echo 200000000 ;;   # ~200ms  (O(n))
+        gcd)             echo 5000 ;;        # ~599ms  (O(n²))
+        collatz)         echo 5000000 ;;     # ~1033ms (O(n))
+        primes)          echo 3000000 ;;     # ~622ms  (O(n√n))
+        sieve)           echo 100000000 ;;   # ~790ms  (O(n))
+        matrix_mult)     echo 700 ;;         # ~613ms  (O(n³))
+        prefix_sum)      echo 50000000 ;;    # ~718ms  (O(n))
+        array_reverse)   echo 50000000 ;;    # ~483ms  (O(n))
+        array_fill)      echo 50000000 ;;    # ~587ms  (O(n))
+        histogram)       echo 100000000 ;;   # ~163ms  (O(n))
+        knapsack)        echo 9000 ;;        # ~648ms  (O(n²))
+        fannkuch)        echo 10 ;;          # ~191ms  (O(n·n!))
+        binary_trees)    echo 30 ;;          # ~2ms (closed-form O(n))
+        loop_sum)        echo 500000000 ;;   # ~1802ms (O(n))
+        fib_iterative)   echo 500000000 ;;   # ~1881ms (O(n))
+        # Hash-heavy: dynamic C hash tables scale with n
+        collect)         echo 30000000 ;;    # ~620ms (O(n) hash insert+lookup)
+        two_sum)         echo 60000000 ;;    # ~540ms (O(n) hash insert+lookup)
+        # String/graph-heavy
+        coins)           echo 10000000 ;;    # ~150ms (O(6n) DP)
+        strings)         echo 5000000 ;;     # ~350ms (O(n) string concat)
+        graph_bfs)       echo 3000000 ;;     # ~280ms (O(V+E) BFS)
+        string_search)   echo 50000000 ;;    # ~145ms (O(5n) naive search)
         *)               max_size "$bench" ;;
     esac
 }
@@ -158,6 +161,16 @@ for bench in "${BENCHMARKS[@]}"; do
         gcc -O2 -o "$BIN_DIR/${bench}_c" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
         ok "  C" || true
 
+    # Assembly + LLVM IR dumps for C (requires clang)
+    if [ -f "$PROGRAMS_DIR/$bench/main.c" ] && command -v clang &>/dev/null; then
+        clang -S -O2 -fno-asynchronous-unwind-tables \
+            -o "$ASM_DIR/${bench}_c.s" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
+            ok "  C asm" || true
+        clang -S -emit-llvm -O2 \
+            -o "$ASM_DIR/${bench}_c.ll" "$PROGRAMS_DIR/$bench/main.c" -lm 2>/dev/null && \
+            ok "  C llvm-ir" || true
+    fi
+
     if [ -f "$PROGRAMS_DIR/$bench/main.lg" ]; then
         LOGOS_TMP=$(mktemp -d)
         mkdir -p "$LOGOS_TMP/src"
@@ -177,9 +190,37 @@ TOML
             else
                 LOGOS_BIN=$(find "$LOGOS_TMP/target/release" -type f -executable -name "bench" 2>/dev/null | head -1)
             fi
-            [ -n "$LOGOS_BIN" ] && cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_release" && ok "  LOGOS (release)" || true
+            [ -n "$LOGOS_BIN" ] && rm -f "$BIN_DIR/${bench}_logos_release" && cp "$LOGOS_BIN" "$BIN_DIR/${bench}_logos_release" && ok "  LOGOS (release)" || true
             GENERATED_RS=$(find "$LOGOS_TMP" -name "main.rs" -path "*/build/src/*" 2>/dev/null | head -1)
             [ -n "$GENERATED_RS" ] && cp "$GENERATED_RS" "$GENERATED_DIR/$bench.rs" 2>/dev/null || true
+
+            # Assembly + LLVM IR dumps for Logos/Rust
+            RUST_PROJECT=$(find "$LOGOS_TMP" -name "Cargo.toml" -path "*/build/Cargo.toml" 2>/dev/null | head -1)
+            if [ -n "$RUST_PROJECT" ]; then
+                RUST_PROJECT_DIR=$(dirname "$RUST_PROJECT")
+                # Disable strip so symbols appear in assembly
+                sed -i.bak 's/strip = true/strip = false/' "$RUST_PROJECT" 2>/dev/null || true
+
+                # Emit assembly
+                (cd "$RUST_PROJECT_DIR" && \
+                    cargo rustc --release -- --emit=asm 2>/dev/null) && {
+                    ASM_FILE=$(find "$RUST_PROJECT_DIR/target/release/deps" -name "bench-*.s" 2>/dev/null | head -1)
+                    if [ -z "$ASM_FILE" ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
+                        ASM_FILE=$(find "$CARGO_TARGET_DIR/release/deps" -name "bench-*.s" 2>/dev/null | head -1)
+                    fi
+                    [ -n "$ASM_FILE" ] && cp "$ASM_FILE" "$ASM_DIR/${bench}_logos.s" && ok "  LOGOS asm" || true
+                } || true
+
+                # Emit LLVM IR
+                (cd "$RUST_PROJECT_DIR" && \
+                    cargo rustc --release -- --emit=llvm-ir 2>/dev/null) && {
+                    LL_FILE=$(find "$RUST_PROJECT_DIR/target/release/deps" -name "bench-*.ll" 2>/dev/null | head -1)
+                    if [ -z "$LL_FILE" ] && [ -n "${CARGO_TARGET_DIR:-}" ]; then
+                        LL_FILE=$(find "$CARGO_TARGET_DIR/release/deps" -name "bench-*.ll" 2>/dev/null | head -1)
+                    fi
+                    [ -n "$LL_FILE" ] && cp "$LL_FILE" "$ASM_DIR/${bench}_logos.ll" && ok "  LOGOS llvm-ir" || true
+                } || true
+            fi
         } || true
         rm -rf "$LOGOS_TMP"
     fi
@@ -246,6 +287,7 @@ for bench in "${BENCHMARKS[@]}"; do
     HYPERFINE_ARGS=(
         --warmup "$WARMUP"
         --runs "$RUNS"
+        --timeout "$TIMEOUT"
         --export-json "$RAW_DIR/${bench}_${size}.json"
         --time-unit millisecond
     )
@@ -253,7 +295,23 @@ for bench in "${BENCHMARKS[@]}"; do
     [ -f "$BIN_DIR/${bench}_c" ]             && HYPERFINE_ARGS+=(-n "C" "$BIN_DIR/${bench}_c $size")
     [ -f "$BIN_DIR/${bench}_logos_release" ] && HYPERFINE_ARGS+=(-n "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size")
 
-    hyperfine "${HYPERFINE_ARGS[@]}" || warn "hyperfine failed for $bench at $size"
+    rc=0
+    run_timeout "$HYPERFINE_TIMEOUT" hyperfine "${HYPERFINE_ARGS[@]}" || rc=$?
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+        warn "hyperfine timed out for $bench at $size (>${HYPERFINE_TIMEOUT}s)"
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
+    elif [ "$rc" -ne 0 ]; then
+        warn "hyperfine failed for $bench at $size"
+    fi
+
+    # Detect per-command timeouts (hyperfine --timeout killed individual commands)
+    if [ -f "$RAW_DIR/${bench}_${size}.json" ] && \
+       jq -e '[.results[] | select(.mean == null)] | length > 0' "$RAW_DIR/${bench}_${size}.json" &>/dev/null; then
+        warn "per-command timeout detected for $bench at $size"
+        [ ! -f "$RAW_DIR/${bench}_${size}.timeout" ] && echo "$TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
+        jq '.results = [.results[] | select(.mean != null)]' "$RAW_DIR/${bench}_${size}.json" > "$RAW_DIR/${bench}_${size}.json.tmp" && \
+            mv "$RAW_DIR/${bench}_${size}.json.tmp" "$RAW_DIR/${bench}_${size}.json"
+    fi
 done
 
 ok "Phase 3 complete"
@@ -310,7 +368,7 @@ VERSIONS=$(jq -n \
 
 LANGUAGES='[
   {"id":"c","label":"C","color":"#555555","tier":"systems"},
-  {"id":"logos_release","label":"LOGOS (release)","color":"#00d4ff","tier":"logos"}
+  {"id":"logos_release","label":"LOGOS","color":"#00d4ff","tier":"systems"}
 ]'
 
 lang_id() {
@@ -397,7 +455,7 @@ assemble_benchmark() {
         results=$(jq -c '.results[]' "$raw_file" 2>/dev/null) || true
         while IFS= read -r result; do
             [ -z "$result" ] && continue
-            local name lid mean_s median_s stddev_s min_s max_s
+            local name lid mean_s median_s stddev_s min_s max_s user_s system_s
             name=$(extract_name "$result")
             lid=$(lang_id "$name")
             mean_s=$(echo "$result" | jq '.mean')
@@ -405,12 +463,24 @@ assemble_benchmark() {
             stddev_s=$(echo "$result" | jq '.stddev')
             min_s=$(echo "$result" | jq '.min')
             max_s=$(echo "$result" | jq '.max')
-            local mean_ms median_ms stddev_ms min_ms max_ms cv
+            user_s=$(echo "$result" | jq '.user // null')
+            system_s=$(echo "$result" | jq '.system // null')
+            local mean_ms median_ms stddev_ms min_ms max_ms cv user_ms system_ms
             mean_ms=$(echo "$mean_s * 1000" | bc -l 2>/dev/null || echo "0")
             median_ms=$(echo "$median_s * 1000" | bc -l 2>/dev/null || echo "0")
             stddev_ms=$(echo "$stddev_s * 1000" | bc -l 2>/dev/null || echo "0")
             min_ms=$(echo "$min_s * 1000" | bc -l 2>/dev/null || echo "0")
             max_ms=$(echo "$max_s * 1000" | bc -l 2>/dev/null || echo "0")
+            if [ "$user_s" != "null" ] && [ -n "$user_s" ]; then
+                user_ms=$(echo "$user_s * 1000" | bc -l 2>/dev/null || echo "null")
+            else
+                user_ms="null"
+            fi
+            if [ "$system_s" != "null" ] && [ -n "$system_s" ]; then
+                system_ms=$(echo "$system_s * 1000" | bc -l 2>/dev/null || echo "null")
+            else
+                system_ms="null"
+            fi
             if [ "$(echo "$mean_ms > 0" | bc -l 2>/dev/null)" = "1" ]; then
                 cv=$(echo "$stddev_ms / $mean_ms" | bc -l 2>/dev/null || echo "0")
             else
@@ -425,9 +495,21 @@ assemble_benchmark() {
                 --argjson max "$max_ms" \
                 --argjson cv "$cv" \
                 --argjson runs "$RUNS" \
-                '.[$lid] = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs}')
+                --argjson user "$user_ms" \
+                --argjson sys "$system_ms" \
+                '.[$lid] = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs, user_ms: $user, system_ms: $sys}')
         done <<< "$results"
         scaling=$(echo "$scaling" | jq --arg size "$size" --argjson data "$size_data" '.[$size] = $data')
+    fi
+
+    # Collect timeout markers
+    local timeouts="{}"
+    if [ -f "$RAW_DIR/${bench}_${size}.timeout" ]; then
+        local timeout_secs
+        timeout_secs=$(cat "$RAW_DIR/${bench}_${size}.timeout")
+        local timeout_ms
+        timeout_ms=$(echo "$timeout_secs * 1000" | bc -l 2>/dev/null || echo "600000")
+        timeouts=$(echo "$timeouts" | jq --arg size "$size" --argjson ms "$timeout_ms" '.[$size] = $ms')
     fi
 
     jq -n \
@@ -439,6 +521,7 @@ assemble_benchmark() {
         --arg gen_rust "$gen_rust" \
         --arg sizes_str "$(cat "$PROGRAMS_DIR/$bench/sizes.txt")" \
         --argjson scaling "$scaling" \
+        --argjson timeouts "$timeouts" \
         '{
             id: $id,
             name: $name,
@@ -448,7 +531,8 @@ assemble_benchmark() {
             logos_source: $logos_src,
             generated_rust: $gen_rust,
             scaling: $scaling,
-            compilation: {}
+            compilation: {},
+            timeouts: $timeouts
         }'
 }
 
@@ -510,6 +594,8 @@ jq -n \
     --arg cpu "$CPU" \
     --arg os "$OS" \
     --arg logos_version "$LOGOS_VER" \
+    --argjson warmup "$WARMUP" \
+    --argjson runs "$RUNS" \
     --argjson versions "$VERSIONS" \
     --argjson languages "$LANGUAGES" \
     --slurpfile benchmarks "$BENCHMARKS_JSON_FILE" \
@@ -522,6 +608,8 @@ jq -n \
             logos_version: $logos_version,
             cpu: $cpu,
             os: $os,
+            warmup: $warmup,
+            runs: $runs,
             versions: $versions
         },
         languages: $languages,

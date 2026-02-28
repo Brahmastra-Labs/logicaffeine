@@ -3032,3 +3032,35 @@ Repeat for (k, v) in m:
 Show total."#;
     common::assert_c_output(source, "99");
 }
+
+// =============================================================================
+// C Backend String Append Optimization
+// =============================================================================
+
+#[test]
+fn codegen_c_self_append_uses_str_append() {
+    let source = r#"## Main
+Let mutable text be "hello".
+Set text to text + " world".
+Show text."#;
+    let c_code = compile_to_c(source).unwrap();
+    assert!(c_code.contains("str_append"),
+        "Self-append should use str_append, got:\n{}", c_code);
+    assert!(!c_code.contains("str_concat(text"),
+        "Self-append should NOT use str_concat for the target variable, got:\n{}", c_code);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_c_string_self_append_loop() {
+    common::assert_c_output(
+        r#"## Main
+Let mutable text be "".
+Let mutable i be 1.
+While i is at most 100:
+    Set text to text + "a".
+    Set i to i + 1.
+Show length of text."#,
+        "100",
+    );
+}

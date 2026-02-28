@@ -38,6 +38,7 @@ WARMUP=3
 RUNS=10
 TIMEOUT=120
 BUILD_TIMEOUT=60
+HYPERFINE_TIMEOUT=300  # 5 min safety net per hyperfine invocation (quick mode)
 SKIP_LANGS="${SKIP_LANGS:-}"
 
 skip_lang() {
@@ -101,25 +102,6 @@ quick_size() {
         strings) echo 10000 ;; binary_trees) echo 14 ;;
         loop_sum) echo 10000000 ;; fib_iterative) echo 10000000 ;;
         graph_bfs) echo 5000 ;; string_search) echo 50000 ;;
-    esac
-}
-
-# Interpreter size: same as interp.lg hardcoded size (smallest practical)
-interp_size() {
-    case "$1" in
-        fib) echo 35 ;; ackermann) echo 3 ;; nqueens) echo 8 ;;
-        bubble_sort) echo 1000 ;; mergesort) echo 1000 ;; quicksort) echo 1000 ;;
-        counting_sort) echo 10000 ;; heap_sort) echo 1000 ;;
-        nbody) echo 1000 ;; mandelbrot) echo 100 ;; spectral_norm) echo 100 ;; pi_leibniz) echo 100000 ;;
-        gcd) echo 500 ;; collatz) echo 10000 ;; primes) echo 10000 ;;
-        sieve) echo 10000 ;; matrix_mult) echo 50 ;; prefix_sum) echo 10000 ;;
-        array_reverse) echo 10000 ;; array_fill) echo 100000 ;;
-        collect) echo 1000 ;; two_sum) echo 1000 ;; histogram) echo 10000 ;;
-        knapsack) echo 100 ;; coins) echo 1000 ;;
-        fannkuch) echo 7 ;;
-        strings) echo 1000 ;; binary_trees) echo 10 ;;
-        loop_sum) echo 100000 ;; fib_iterative) echo 100000 ;;
-        graph_bfs) echo 1000 ;; string_search) echo 10000 ;;
     esac
 }
 
@@ -269,6 +251,7 @@ for bench in "${BENCHMARKS[@]}"; do
     HYPERFINE_ARGS=(
         --warmup "$WARMUP"
         --runs "$RUNS"
+        --timeout "$TIMEOUT"
         --export-json "$RAW_DIR/${bench}_${size}.json"
         --time-unit millisecond
     )
@@ -285,30 +268,22 @@ for bench in "${BENCHMARKS[@]}"; do
     [ -f "$BIN_DIR/${bench}_nim" ] && HYPERFINE_ARGS+=(-n "Nim" "$BIN_DIR/${bench}_nim $size")
     [ -f "$BIN_DIR/${bench}_logos_release" ] && HYPERFINE_ARGS+=(-n "LOGOS (release)" "$BIN_DIR/${bench}_logos_release $size")
 
-    hyperfine "${HYPERFINE_ARGS[@]}" || warn "hyperfine failed for $bench at $size"
+    rc=0
+    run_timeout "$HYPERFINE_TIMEOUT" hyperfine "${HYPERFINE_ARGS[@]}" || rc=$?
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 143 ]; then
+        warn "hyperfine timed out for $bench at $size (>${HYPERFINE_TIMEOUT}s)"
+        echo "$HYPERFINE_TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
+    elif [ "$rc" -ne 0 ]; then
+        warn "hyperfine failed for $bench at $size"
+    fi
 
-    # Interpreter benchmark
-    if [ -f "$PROGRAMS_DIR/$bench/interp.lg" ]; then
-        isize="$(interp_size "$bench")"
-        info "Benchmarking $bench interpreter at n=$isize..."
-        INTERP_TMP=$(mktemp -d)
-        mkdir -p "$INTERP_TMP/src"
-        cp "$PROGRAMS_DIR/$bench/interp.lg" "$INTERP_TMP/src/main.lg"
-        cat > "$INTERP_TMP/Largo.toml" << 'TOML'
-[package]
-name = "bench_interp"
-version = "0.1.0"
-entry = "src/main.lg"
-TOML
-        hyperfine \
-            --warmup "$WARMUP" \
-            --runs "$RUNS" \
-            --export-json "$RAW_DIR/${bench}_interp.json" \
-            --time-unit millisecond \
-            -n "LOGOS (interpreted)" \
-            "cd '$INTERP_TMP' && '$LARGO' run --interpret" \
-            || warn "interpreter benchmark failed for $bench"
-        rm -rf "$INTERP_TMP"
+    # Detect per-command timeouts (hyperfine --timeout killed individual commands)
+    if [ -f "$RAW_DIR/${bench}_${size}.json" ] && \
+       jq -e '[.results[] | select(.mean == null)] | length > 0' "$RAW_DIR/${bench}_${size}.json" &>/dev/null; then
+        warn "per-command timeout detected for $bench at $size"
+        [ ! -f "$RAW_DIR/${bench}_${size}.timeout" ] && echo "$TIMEOUT" > "$RAW_DIR/${bench}_${size}.timeout"
+        jq '.results = [.results[] | select(.mean != null)]' "$RAW_DIR/${bench}_${size}.json" > "$RAW_DIR/${bench}_${size}.json.tmp" && \
+            mv "$RAW_DIR/${bench}_${size}.json.tmp" "$RAW_DIR/${bench}_${size}.json"
     fi
 done
 
@@ -393,15 +368,13 @@ LANGUAGES='[
   {"id":"cpp","label":"C++","color":"#f34b7d","tier":"systems"},
   {"id":"rust","label":"Rust","color":"#dea584","tier":"systems"},
   {"id":"zig","label":"Zig","color":"#f7a41d","tier":"systems"},
+  {"id":"logos_release","label":"LOGOS","color":"#00d4ff","tier":"systems"},
   {"id":"go","label":"Go","color":"#00ADD8","tier":"managed"},
   {"id":"java","label":"Java","color":"#b07219","tier":"managed"},
   {"id":"js","label":"JavaScript","color":"#f7df1e","tier":"managed"},
   {"id":"python","label":"Python","color":"#3776ab","tier":"interpreted"},
   {"id":"ruby","label":"Ruby","color":"#cc342d","tier":"interpreted"},
-  {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"},
-  {"id":"logos_release","label":"LOGOS (release)","color":"#00d4ff","tier":"logos"},
-  {"id":"logos_debug","label":"LOGOS (debug)","color":"#818cf8","tier":"logos"},
-  {"id":"logos_interp","label":"LOGOS (interpreted)","color":"#c084fc","tier":"logos"}
+  {"id":"nim","label":"Nim","color":"#ffe953","tier":"transpiled"}
 ]'
 
 lang_id() {
@@ -409,8 +382,7 @@ lang_id() {
         "C") echo c ;; "C++") echo cpp ;; "Rust") echo rust ;; "Zig") echo zig ;;
         "Go") echo go ;; "Java") echo java ;; "JavaScript") echo js ;;
         "Python") echo python ;; "Ruby") echo ruby ;; "Nim") echo nim ;;
-        "LOGOS (release)") echo logos_release ;; "LOGOS (debug)") echo logos_debug ;;
-        "LOGOS (interpreted)") echo logos_interp ;;
+        "LOGOS (release)") echo logos_release ;;
         *) echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' ;;
     esac
 }
@@ -492,7 +464,7 @@ assemble_benchmark() {
         results=$(jq -c '.results[]' "$raw_file" 2>/dev/null) || true
         while IFS= read -r result; do
             [ -z "$result" ] && continue
-            local name lid mean_s median_s stddev_s min_s max_s
+            local name lid mean_s median_s stddev_s min_s max_s user_s system_s
             name=$(extract_name "$result")
             lid=$(lang_id "$name")
             mean_s=$(echo "$result" | jq '.mean')
@@ -500,12 +472,24 @@ assemble_benchmark() {
             stddev_s=$(echo "$result" | jq '.stddev')
             min_s=$(echo "$result" | jq '.min')
             max_s=$(echo "$result" | jq '.max')
-            local mean_ms median_ms stddev_ms min_ms max_ms cv
+            user_s=$(echo "$result" | jq '.user // null')
+            system_s=$(echo "$result" | jq '.system // null')
+            local mean_ms median_ms stddev_ms min_ms max_ms cv user_ms system_ms
             mean_ms=$(echo "$mean_s * 1000" | bc -l 2>/dev/null || echo "0")
             median_ms=$(echo "$median_s * 1000" | bc -l 2>/dev/null || echo "0")
             stddev_ms=$(echo "$stddev_s * 1000" | bc -l 2>/dev/null || echo "0")
             min_ms=$(echo "$min_s * 1000" | bc -l 2>/dev/null || echo "0")
             max_ms=$(echo "$max_s * 1000" | bc -l 2>/dev/null || echo "0")
+            if [ "$user_s" != "null" ] && [ -n "$user_s" ]; then
+                user_ms=$(echo "$user_s * 1000" | bc -l 2>/dev/null || echo "null")
+            else
+                user_ms="null"
+            fi
+            if [ "$system_s" != "null" ] && [ -n "$system_s" ]; then
+                system_ms=$(echo "$system_s * 1000" | bc -l 2>/dev/null || echo "null")
+            else
+                system_ms="null"
+            fi
             if [ "$(echo "$mean_ms > 0" | bc -l 2>/dev/null)" = "1" ]; then
                 cv=$(echo "$stddev_ms / $mean_ms" | bc -l 2>/dev/null || echo "0")
             else
@@ -520,49 +504,21 @@ assemble_benchmark() {
                 --argjson max "$max_ms" \
                 --argjson cv "$cv" \
                 --argjson runs "$RUNS" \
-                '.[$lid] = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs}')
+                --argjson user "$user_ms" \
+                --argjson sys "$system_ms" \
+                '.[$lid] = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs, user_ms: $user, system_ms: $sys}')
         done <<< "$results"
         scaling=$(echo "$scaling" | jq --arg size "$size" --argjson data "$size_data" '.[$size] = $data')
     fi
 
-    # Merge interpreter results
-    local interp_file="$RAW_DIR/${bench}_interp.json"
-    if [ -f "$interp_file" ]; then
-        local isize="$(interp_size "$bench")"
-        local results
-        results=$(jq -c '.results[]' "$interp_file" 2>/dev/null) || true
-        while IFS= read -r result; do
-            [ -z "$result" ] && continue
-            local mean_s median_s stddev_s min_s max_s
-            mean_s=$(echo "$result" | jq '.mean')
-            median_s=$(echo "$result" | jq '.median')
-            stddev_s=$(echo "$result" | jq '.stddev')
-            min_s=$(echo "$result" | jq '.min')
-            max_s=$(echo "$result" | jq '.max')
-            local mean_ms median_ms stddev_ms min_ms max_ms cv
-            mean_ms=$(echo "$mean_s * 1000" | bc -l 2>/dev/null || echo "0")
-            median_ms=$(echo "$median_s * 1000" | bc -l 2>/dev/null || echo "0")
-            stddev_ms=$(echo "$stddev_s * 1000" | bc -l 2>/dev/null || echo "0")
-            min_ms=$(echo "$min_s * 1000" | bc -l 2>/dev/null || echo "0")
-            max_ms=$(echo "$max_s * 1000" | bc -l 2>/dev/null || echo "0")
-            if [ "$(echo "$mean_ms > 0" | bc -l 2>/dev/null)" = "1" ]; then
-                cv=$(echo "$stddev_ms / $mean_ms" | bc -l 2>/dev/null || echo "0")
-            else
-                cv="0"
-            fi
-            local existing_data
-            existing_data=$(echo "$scaling" | jq --arg size "$isize" '.[$size] // {}')
-            existing_data=$(echo "$existing_data" | jq \
-                --argjson mean "$mean_ms" \
-                --argjson median "$median_ms" \
-                --argjson stddev "$stddev_ms" \
-                --argjson min "$min_ms" \
-                --argjson max "$max_ms" \
-                --argjson cv "$cv" \
-                --argjson runs "$RUNS" \
-                '.logos_interp = {mean_ms: $mean, median_ms: $median, stddev_ms: $stddev, min_ms: $min, max_ms: $max, cv: $cv, runs: $runs}')
-            scaling=$(echo "$scaling" | jq --arg size "$isize" --argjson data "$existing_data" '.[$size] = $data')
-        done <<< "$results"
+    # Collect timeout markers
+    local timeouts="{}"
+    if [ -f "$RAW_DIR/${bench}_${size}.timeout" ]; then
+        local timeout_secs
+        timeout_secs=$(cat "$RAW_DIR/${bench}_${size}.timeout")
+        local timeout_ms
+        timeout_ms=$(echo "$timeout_secs * 1000" | bc -l 2>/dev/null || echo "600000")
+        timeouts=$(echo "$timeouts" | jq --arg size "$size" --argjson ms "$timeout_ms" '.[$size] = $ms')
     fi
 
     jq -n \
@@ -574,6 +530,7 @@ assemble_benchmark() {
         --arg gen_rust "$gen_rust" \
         --arg sizes_str "$(cat "$PROGRAMS_DIR/$bench/sizes.txt")" \
         --argjson scaling "$scaling" \
+        --argjson timeouts "$timeouts" \
         '{
             id: $id,
             name: $name,
@@ -583,7 +540,8 @@ assemble_benchmark() {
             logos_source: $logos_src,
             generated_rust: $gen_rust,
             scaling: $scaling,
-            compilation: {}
+            compilation: {},
+            timeouts: $timeouts
         }'
 }
 
@@ -645,6 +603,8 @@ jq -n \
     --arg cpu "$CPU" \
     --arg os "$OS" \
     --arg logos_version "$LOGOS_VER" \
+    --argjson warmup "$WARMUP" \
+    --argjson runs "$RUNS" \
     --argjson versions "$VERSIONS" \
     --argjson languages "$LANGUAGES" \
     --slurpfile benchmarks "$BENCHMARKS_JSON_FILE" \
@@ -657,6 +617,8 @@ jq -n \
             logos_version: $logos_version,
             cpu: $cpu,
             os: $os,
+            warmup: $warmup,
+            runs: $runs,
             versions: $versions
         },
         languages: $languages,

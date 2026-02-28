@@ -213,6 +213,218 @@ pub(super) fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbo
     }
 }
 
+/// Detect mutable Text variables that are only ever assigned single-character
+/// string literals. These can be emitted as `u8` (byte) instead of `String`,
+/// eliminating heap allocations for temporary character variables.
+///
+/// Returns a set of symbols that qualify for the u8 optimization.
+///
+/// A variable qualifies if:
+/// 1. It is declared with `Let mutable ch be "x"` (single-char text literal)
+/// 2. Every `Set ch to "y"` assigns a single-char text literal
+/// 3. It is never used in a context that requires String (e.g., function call args,
+///    Return, field access) — only push_str (→ push), Show, or comparison
+pub(super) fn collect_single_char_text_vars(stmts: &[Stmt], interner: &Interner) -> HashSet<Symbol> {
+    let mut candidates: HashSet<Symbol> = HashSet::new();
+    let mut disqualified: HashSet<Symbol> = HashSet::new();
+
+    // Pass 1: Find candidates (Let mutable with single-char text literal)
+    // and check all Set assignments are also single-char.
+    scan_single_char_candidates(stmts, interner, &mut candidates, &mut disqualified);
+
+    // Remove disqualified
+    for sym in &disqualified {
+        candidates.remove(sym);
+    }
+
+    // Pass 2: Check usage contexts. If any use requires a String, disqualify.
+    let mut usage_disqualified: HashSet<Symbol> = HashSet::new();
+    check_single_char_usage(stmts, &candidates, &mut usage_disqualified);
+
+    for sym in &usage_disqualified {
+        candidates.remove(sym);
+    }
+
+    candidates
+}
+
+fn is_single_char_text_literal<'a>(expr: &Expr<'a>, interner: &Interner) -> bool {
+    if let Expr::Literal(crate::ast::stmt::Literal::Text(sym)) = expr {
+        let text = interner.resolve(*sym);
+        text.len() == 1 && text.is_ascii()
+    } else {
+        false
+    }
+}
+
+fn scan_single_char_candidates(
+    stmts: &[Stmt],
+    interner: &Interner,
+    candidates: &mut HashSet<Symbol>,
+    disqualified: &mut HashSet<Symbol>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { var, value, mutable, .. } => {
+                if *mutable && is_single_char_text_literal(value, interner) {
+                    candidates.insert(*var);
+                }
+                // Recurse into nested blocks in any case
+            }
+            Stmt::Set { target, value } => {
+                if candidates.contains(target) || !disqualified.contains(target) {
+                    if !is_single_char_text_literal(value, interner) {
+                        // Non-single-char assignment disqualifies
+                        disqualified.insert(*target);
+                    }
+                }
+            }
+            Stmt::If { then_block, else_block, .. } => {
+                scan_single_char_candidates(then_block, interner, candidates, disqualified);
+                if let Some(eb) = else_block {
+                    scan_single_char_candidates(eb, interner, candidates, disqualified);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+                scan_single_char_candidates(body, interner, candidates, disqualified);
+            }
+            Stmt::FunctionDef { body, .. } => {
+                scan_single_char_candidates(body, interner, candidates, disqualified);
+            }
+            Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
+                scan_single_char_candidates(tasks, interner, candidates, disqualified);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Check that a candidate variable is only used in contexts compatible with u8:
+/// - `Set text to text + ch` (self-append → push)
+/// - `Show ch`
+/// - Comparison (`ch equals "x"`)
+///
+/// Disqualify if used in:
+/// - Function call arguments
+/// - Return value
+/// - Assignment to another variable (`Let y be ch`)
+/// - Any other expression context that expects String
+fn check_single_char_usage(
+    stmts: &[Stmt],
+    candidates: &HashSet<Symbol>,
+    disqualified: &mut HashSet<Symbol>,
+) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Set { target, value } => {
+                // `Set ch to "x"` is fine (already validated in pass 1).
+                // `Set text to text + ch` is fine (self-append).
+                // But if ch appears in a non-append context in value, disqualify.
+                if !candidates.contains(target) {
+                    // target is not a candidate, check if value uses a candidate
+                    // in a non-append-compatible way
+                    check_expr_usage(value, candidates, disqualified, true);
+                }
+            }
+            Stmt::Show { object, .. } => {
+                // Show ch is fine — we'll emit `println!("{}", ch as char)`
+                // But don't check deeper — identifiers in Show are OK
+            }
+            Stmt::Let { value, .. } => {
+                // `Let y be ch` would assign a u8 to y, which may not work.
+                // Disqualify if a candidate appears directly as the value.
+                check_expr_usage_strict(value, candidates, disqualified);
+            }
+            Stmt::Return { value: Some(v) } => {
+                check_expr_usage_strict(v, candidates, disqualified);
+            }
+            Stmt::Call { args, .. } => {
+                for a in args.iter() {
+                    check_expr_usage_strict(a, candidates, disqualified);
+                }
+            }
+            Stmt::Push { value, .. } => {
+                // `Push ch to list` — disqualify since list expects String
+                check_expr_usage_strict(value, candidates, disqualified);
+            }
+            Stmt::If { cond, then_block, else_block } => {
+                // Comparisons in conditions are fine for u8
+                check_single_char_usage(then_block, candidates, disqualified);
+                if let Some(eb) = else_block {
+                    check_single_char_usage(eb, candidates, disqualified);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
+                check_single_char_usage(body, candidates, disqualified);
+            }
+            Stmt::FunctionDef { body, .. } => {
+                check_single_char_usage(body, candidates, disqualified);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Check an expression for usage of candidates in self-append context.
+/// `is_self_append` indicates the expression is the RHS of `Set text to <expr>`
+/// where text is a string (not a candidate). In that context, `text + ch` is fine.
+fn check_expr_usage(
+    expr: &Expr,
+    candidates: &HashSet<Symbol>,
+    disqualified: &mut HashSet<Symbol>,
+    is_self_append: bool,
+) {
+    match expr {
+        Expr::BinaryOp { op: crate::ast::stmt::BinaryOpKind::Add, left, right } if is_self_append => {
+            // In self-append: `text + ch` — ch as a direct identifier is fine
+            check_expr_usage(left, candidates, disqualified, true);
+            // right side: if it's a bare candidate identifier, that's fine (push)
+            if !matches!(right, Expr::Identifier(sym) if candidates.contains(sym)) {
+                check_expr_usage(right, candidates, disqualified, false);
+            }
+        }
+        Expr::Identifier(sym) if !is_self_append => {
+            // Bare candidate in non-append context — disqualify
+            if candidates.contains(sym) {
+                disqualified.insert(*sym);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Strictly disqualify any candidate that appears anywhere in this expression.
+fn check_expr_usage_strict(expr: &Expr, candidates: &HashSet<Symbol>, disqualified: &mut HashSet<Symbol>) {
+    match expr {
+        Expr::Identifier(sym) => {
+            if candidates.contains(sym) {
+                disqualified.insert(*sym);
+            }
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_expr_usage_strict(left, candidates, disqualified);
+            check_expr_usage_strict(right, candidates, disqualified);
+        }
+        Expr::Call { args, .. } => {
+            for a in args.iter() {
+                check_expr_usage_strict(a, candidates, disqualified);
+            }
+        }
+        Expr::Not { operand } => check_expr_usage_strict(operand, candidates, disqualified),
+        Expr::Index { collection, index } => {
+            check_expr_usage_strict(collection, candidates, disqualified);
+            check_expr_usage_strict(index, candidates, disqualified);
+        }
+        Expr::Length { collection } => check_expr_usage_strict(collection, candidates, disqualified),
+        Expr::List(items) => {
+            for item in items.iter() {
+                check_expr_usage_strict(item, candidates, disqualified);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(super) fn collect_crdt_register_fields(registry: &TypeRegistry, interner: &Interner) -> (HashSet<(String, String)>, HashSet<(String, String)>) {
     let mut lww_fields = HashSet::new();
     let mut mv_fields = HashSet::new();
@@ -741,13 +953,40 @@ pub(super) fn expr_contains_self_call(func_name: Symbol, expr: &Expr) -> bool {
     }
 }
 
+/// Check if an expression contains an `Expr::Index` that reads from the given collection symbol.
+/// Used by SetIndex to decide whether the value expression aliases the collection being written to,
+/// which requires a temporary binding to avoid borrow conflicts.
+pub(super) fn expr_indexes_collection(expr: &Expr, coll_sym: Symbol) -> bool {
+    match expr {
+        Expr::Index { collection, index } => {
+            let indexes_this = matches!(collection, Expr::Identifier(sym) if *sym == coll_sym);
+            indexes_this
+                || expr_indexes_collection(collection, coll_sym)
+                || expr_indexes_collection(index, coll_sym)
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            expr_indexes_collection(left, coll_sym) || expr_indexes_collection(right, coll_sym)
+        }
+        Expr::Call { args, .. } => {
+            args.iter().any(|a| expr_indexes_collection(a, coll_sym))
+        }
+        Expr::FieldAccess { object, .. } => expr_indexes_collection(object, coll_sym),
+        Expr::Length { collection } => expr_indexes_collection(collection, coll_sym),
+        Expr::Not { operand } => expr_indexes_collection(operand, coll_sym),
+        Expr::List(items) | Expr::Tuple(items) => {
+            items.iter().any(|i| expr_indexes_collection(i, coll_sym))
+        }
+        _ => false,
+    }
+}
+
 // =============================================================================
 // Inline Annotation Detection
 // =============================================================================
 
 pub(super) fn should_inline(name: Symbol, body: &[Stmt], is_native: bool, is_exported: bool, is_async: bool) -> bool {
     !is_native && !is_exported && !is_async
-        && body.len() <= 5
+        && body.len() <= 10
         && !body_contains_self_call(name, body)
 }
 
@@ -1073,6 +1312,15 @@ pub(super) fn vec_to_slice_type(vec_type: &str) -> String {
     }
 }
 
+/// Convert `Vec<T>` to `&mut [T]` for mutable borrow parameters.
+pub(super) fn vec_to_mut_slice_type(vec_type: &str) -> String {
+    if let Some(inner) = vec_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
+        format!("&mut [{}]", inner)
+    } else {
+        vec_type.to_string()
+    }
+}
+
 /// Extract a debug prefix string from an expression for `{var=}` format.
 pub(super) fn expr_debug_prefix(expr: &Expr, interner: &Interner) -> String {
     match expr {
@@ -1194,5 +1442,151 @@ fn scan_give_args_expr(fn_sym: Symbol, expr: &Expr, result: &mut HashSet<usize>)
             }
         }
         _ => {}
+    }
+}
+
+// =============================================================================
+// Closed-Form Double Recursion Detection
+// =============================================================================
+
+/// Result of detecting a closed-form double recursion pattern.
+/// For f(0) = base, f(d) = k + f(d-1) + f(d-1), the closed form is:
+/// f(d) = ((base + k) << d) - k
+pub(super) struct ClosedFormInfo {
+    pub base: i64,
+    pub k: i64,
+}
+
+/// Detect "double recursion with constant addend" pattern:
+///   f(0) = base
+///   f(d) = k + f(d-1) + f(d-1)
+/// where base and k are integer constants. Returns the closed-form parameters.
+///
+/// GCC/LLVM recognize this pattern and replace it with bit shifts at -O2.
+/// This detection lets Logos emit the same closed form.
+pub(super) fn detect_double_recursion_closed_form<'a>(
+    func_name: Symbol,
+    params: &[(Symbol, &'a TypeExpr<'a>)],
+    body: &'a [Stmt<'a>],
+    interner: &Interner,
+) -> Option<ClosedFormInfo> {
+    use crate::ast::stmt::BinaryOpKind;
+
+    if params.len() != 1 {
+        return None;
+    }
+    let param_sym = params[0].0;
+
+    // Body must be exactly: If { param == 0 → Return base }, Return(recursive_expr)
+    if body.len() != 2 {
+        return None;
+    }
+
+    // First statement: base case check
+    let base_value = match &body[0] {
+        Stmt::If { cond, then_block, else_block } => {
+            if else_block.is_some() {
+                return None;
+            }
+            if then_block.len() != 1 {
+                return None;
+            }
+            let base = match &then_block[0] {
+                Stmt::Return { value: Some(expr) } => cf_extract_literal_int(expr)?,
+                _ => return None,
+            };
+            match cond {
+                Expr::BinaryOp { op: BinaryOpKind::Eq, left, right } => {
+                    let ok = (cf_is_identifier(left, param_sym) && cf_is_literal_int(right, 0))
+                        || (cf_is_literal_int(left, 0) && cf_is_identifier(right, param_sym));
+                    if !ok { return None; }
+                }
+                _ => return None,
+            }
+            base
+        }
+        _ => return None,
+    };
+
+    // Second statement: recursive case Return
+    let recursive_expr = match &body[1] {
+        Stmt::Return { value: Some(expr) } => *expr,
+        _ => return None,
+    };
+
+    // Flatten the Add tree and analyze: must have exactly 2 self-calls with
+    // arg (param - 1), and any number of integer literal addends.
+    let mut self_call_count = 0usize;
+    let mut constant_sum = 0i64;
+    if !cf_analyze_add_tree(recursive_expr, func_name, param_sym, &mut self_call_count, &mut constant_sum) {
+        return None;
+    }
+
+    if self_call_count != 2 {
+        return None;
+    }
+
+    Some(ClosedFormInfo { base: base_value, k: constant_sum })
+}
+
+fn cf_extract_literal_int(expr: &Expr) -> Option<i64> {
+    if let Expr::Literal(crate::ast::stmt::Literal::Number(n)) = expr {
+        Some(*n)
+    } else {
+        None
+    }
+}
+
+fn cf_is_identifier(expr: &Expr, sym: Symbol) -> bool {
+    matches!(expr, Expr::Identifier(s) if *s == sym)
+}
+
+fn cf_is_literal_int(expr: &Expr, val: i64) -> bool {
+    matches!(expr, Expr::Literal(crate::ast::stmt::Literal::Number(n)) if *n == val)
+}
+
+fn cf_is_self_call_with_decrement(expr: &Expr, func_name: Symbol, param_sym: Symbol) -> bool {
+    use crate::ast::stmt::BinaryOpKind;
+    if let Expr::Call { function, args } = expr {
+        if *function != func_name || args.len() != 1 {
+            return false;
+        }
+        if let Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } = args[0] {
+            cf_is_identifier(left, param_sym) && cf_is_literal_int(right, 1)
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+/// Walk an Add-tree, counting self-calls and summing literal constants.
+/// Returns false if any leaf is neither a self-call(param-1) nor an integer literal.
+fn cf_analyze_add_tree(
+    expr: &Expr,
+    func_name: Symbol,
+    param_sym: Symbol,
+    self_calls: &mut usize,
+    constant_sum: &mut i64,
+) -> bool {
+    use crate::ast::stmt::BinaryOpKind;
+    match expr {
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            cf_analyze_add_tree(left, func_name, param_sym, self_calls, constant_sum)
+                && cf_analyze_add_tree(right, func_name, param_sym, self_calls, constant_sum)
+        }
+        _ if cf_is_self_call_with_decrement(expr, func_name, param_sym) => {
+            *self_calls += 1;
+            true
+        }
+        _ => {
+            if let Some(n) = cf_extract_literal_int(expr) {
+                *constant_sum += n;
+                true
+            } else {
+                false
+            }
+        }
     }
 }
