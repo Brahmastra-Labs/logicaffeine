@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] - 2026-02-28
+
+### Fixed
+- **Benchmark CI completely broken** — all hyperfine calls used `--timeout` flag which doesn't exist in any version of hyperfine, causing every benchmark to fail with zero data and empty geometric mean results. Removed the invalid flag; the `run_timeout` wrapper already handles timeouts via the system `timeout` command.
+
 ## [0.9.0] - 2026-02-27
 
 ### Added
