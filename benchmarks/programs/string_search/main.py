@@ -11,12 +11,14 @@ while pos < n:
         pos += 1
 text = ''.join(text)
 needle = "XXXXX"
+needle_len = 5
 count = 0
-i = 0
-while True:
-    idx = text.find(needle, i)
-    if idx == -1:
-        break
-    count += 1
-    i = idx + 1
+for i in range(n - needle_len + 1):
+    match = True
+    for j in range(needle_len):
+        if text[i + j] != needle[j]:
+            match = False
+            break
+    if match:
+        count += 1
 print(count)

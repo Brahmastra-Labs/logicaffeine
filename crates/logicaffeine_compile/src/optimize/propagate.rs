@@ -95,7 +95,7 @@ fn propagate_stmt<'a>(
             iterable,
             body: propagate_nested_block(body, env, mutated, expr_arena, stmt_arena, interner),
         },
-        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target } => {
+        Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } => {
             let func_mutated = collect_all_set_targets_from_block(body);
             let mut func_env: HashMap<Symbol, &'a Expr<'a>> = HashMap::new();
             let new_body: Vec<Stmt<'a>> = body.iter().cloned().map(|stmt| {
@@ -104,7 +104,7 @@ fn propagate_stmt<'a>(
             Stmt::FunctionDef {
                 name, params, generics,
                 body: stmt_arena.alloc_slice(new_body),
-                return_type, is_native, native_path, is_exported, export_target,
+                return_type, is_native, native_path, is_exported, export_target, opt_flags,
             }
         }
         Stmt::Inspect { target, arms, has_otherwise } => Stmt::Inspect {

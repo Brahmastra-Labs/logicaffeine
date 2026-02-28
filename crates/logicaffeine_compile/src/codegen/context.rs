@@ -170,6 +170,11 @@ impl<'a> RefinementContext<'a> {
         &self.variable_types
     }
 
+    /// Get mutable variable type map for restoring types after hoisting scope.
+    pub(super) fn get_variable_types_mut(&mut self) -> &mut HashMap<Symbol, String> {
+        &mut self.variable_types
+    }
+
     /// Find a variable name by its type (for resolving "the document" to "doc").
     pub(super) fn find_variable_by_type(&self, type_name: &str, interner: &Interner) -> Option<String> {
         let type_lower = type_name.to_lowercase();

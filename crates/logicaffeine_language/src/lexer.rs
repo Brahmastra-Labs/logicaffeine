@@ -1842,6 +1842,7 @@ impl<'a> Lexer<'a> {
                 "a" | "an" => BlockType::TypeDef,  // Inline type definitions: ## A Point has:
                 "policy" => BlockType::Policy,  // Security policy definitions
                 "requires" => BlockType::Requires,  // External crate dependencies
+                "no" => BlockType::No,  // Optimization annotation: ## No Memo, ## No TCO, etc.
                 _ => BlockType::Note, // Default unknown block types to Note
             };
 

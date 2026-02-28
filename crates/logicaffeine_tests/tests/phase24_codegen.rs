@@ -374,6 +374,7 @@ fn test_collect_async_functions_with_sleep() {
         native_path: None,
         is_exported: false,
         export_target: None,
+        opt_flags: HashSet::new(),
     };
 
     let stmts = vec![func_def];
@@ -406,6 +407,7 @@ fn test_collect_async_functions_with_launch_task() {
         native_path: None,
         is_exported: false,
         export_target: None,
+        opt_flags: HashSet::new(),
     };
 
     let stmts = vec![func_def];
@@ -436,6 +438,7 @@ fn test_collect_async_functions_transitive() {
         native_path: None,
         is_exported: false,
         export_target: None,
+        opt_flags: HashSet::new(),
     };
 
     // Create wrapper function that calls helper (should be transitively async)
@@ -455,6 +458,7 @@ fn test_collect_async_functions_transitive() {
         native_path: None,
         is_exported: false,
         export_target: None,
+        opt_flags: HashSet::new(),
     };
 
     let stmts = vec![helper_def, wrapper_def];

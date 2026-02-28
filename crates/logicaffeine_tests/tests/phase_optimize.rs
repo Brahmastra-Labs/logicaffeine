@@ -1200,7 +1200,7 @@ If a equals b:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".swap("), "Should optimize equality swap, got:\n{}", rust);
+    assert!(rust.contains("__swap_tmp"), "Should optimize equality swap with __swap_tmp, got:\n{}", rust);
 }
 
 #[test]
@@ -1216,7 +1216,7 @@ If a is not b:
 Show items.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".swap("), "Should optimize not-equal swap, got:\n{}", rust);
+    assert!(rust.contains("__swap_tmp"), "Should optimize not-equal swap with __swap_tmp, got:\n{}", rust);
 }
 
 // =============================================================================
@@ -1271,7 +1271,8 @@ While i is at most 3:
     Set i to i + 1.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains("for i in 1..4"), "Should emit for-range with indexing, got:\n{}", rust);
+    assert!(rust.contains("for i in 0..3"), "Should emit 0-based for-range with indexing, got:\n{}", rust);
+    assert!(rust.contains("items[i as usize]"), "Should emit direct index (no -1 subtract), got:\n{}", rust);
 }
 
 #[test]
@@ -1660,7 +1661,7 @@ While i is less than n - 1:
 Show item 1 of arr.
 "#;
     let rust = compile_to_rust(source).unwrap();
-    assert!(rust.contains(".swap("), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
+    assert!(rust.contains("__swap_tmp"), "Swap pattern should fire for nested while loop with inferred Vec type, got:\n{}", rust);
 }
 
 #[test]
@@ -1685,4 +1686,206 @@ While i is less than n - 1:
 Show item 1 of arr.
 "#;
     common::assert_exact_output(source, "1");
+}
+
+// =============================================================================
+// OPT: Single-char text variable → u8 byte
+// =============================================================================
+
+#[test]
+fn opt_single_char_var_emits_u8() {
+    let source = r#"## Main
+Let mutable text be "".
+Let mutable ch be "a".
+If 1 equals 1:
+    Set ch to "b".
+Set text to text + ch.
+Show text.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("let mut ch: u8 = b'a'") || rust.contains("let mut ch: u8 = b'a';"),
+        "Single-char text var should emit u8 byte, got:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn opt_single_char_var_push_emits_push_byte() {
+    let source = r#"## Main
+Let mutable text be "".
+Let mutable ch be "x".
+Set text to text + ch.
+Show text.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("text.push(ch as char)"),
+        "push_str(&ch) with single-char var should become push(ch as char), got:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn opt_single_char_var_conditional_assignment() {
+    let source = r#"## Main
+Let mutable text be "".
+Let mutable pos be 0.
+While pos is less than 5:
+    Let mutable ch be "a".
+    If pos % 5 equals 1:
+        Set ch to "b".
+    If pos % 5 equals 2:
+        Set ch to "c".
+    If pos % 5 equals 3:
+        Set ch to "d".
+    If pos % 5 equals 4:
+        Set ch to "e".
+    Set text to text + ch.
+    Set pos to pos + 1.
+Show text.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("u8 = b'"),
+        "All single-char assignments should produce u8, got:\n{}",
+        rust
+    );
+    assert!(
+        !rust.contains("String::from(\"a\")") && !rust.contains("String::from(\"b\")"),
+        "Should NOT emit String::from for single-char vars, got:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn opt_single_char_var_set_emits_byte_literal() {
+    let source = r#"## Main
+Let mutable ch be "a".
+Set ch to "z".
+Show ch.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("ch = b'z'"),
+        "Set of single-char var should emit byte literal, got:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn opt_single_char_var_not_applied_to_multi_char() {
+    let source = r#"## Main
+Let mutable ch be "ab".
+Set ch to "cd".
+Show ch.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("String::from") || rust.contains("\"ab\""),
+        "Multi-char var should NOT be optimized to u8, got:\n{}",
+        rust
+    );
+}
+
+// =============================================================================
+// OPT: String with_capacity from loop
+// =============================================================================
+
+// =============================================================================
+// OPT: Bare Slice Push Pattern (extend_from_slice)
+// =============================================================================
+
+#[test]
+fn opt_bare_slice_push_basic() {
+    // A bare While loop that pushes contiguous elements from one array to another
+    // should be optimized to extend_from_slice instead of individual pushes.
+    // The target Vec is created THEN modified (Push 0) before the copy loop,
+    // so try_emit_seq_from_slice_pattern bails out (dst referenced between
+    // creation and the While) and the bare pattern must fire.
+    let source = r#"## To native parseInt (s: Text) -> Int
+## To native args () -> Seq of Text
+
+## To copyRange (arr: Seq of Int, start: Int, end: Int) -> Seq of Int:
+    Let mutable result be a new Seq of Int.
+    Push 0 to result.
+    Let mutable i be start.
+    While i is at most end:
+        Push item i of arr to result.
+        Set i to i + 1.
+    Return result.
+
+## Main
+Let items be [10, 20, 30, 40, 50].
+Let half be copyRange(items, 2, 4).
+Show length of half.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("extend_from_slice"),
+        "Bare While push loop should be optimized to extend_from_slice, got:\n{}",
+        rust
+    );
+}
+
+#[test]
+fn opt_bare_slice_push_continuation() {
+    // After try_emit_seq_from_slice_pattern fires for the first half,
+    // the second half is a bare While that should also be optimized.
+    let source = r#"## To native parseInt (s: Text) -> Int
+## To native args () -> Seq of Text
+
+## To splitTwo (arr: Seq of Int, mid: Int) -> Seq of Int:
+    Let mutable left be a new Seq of Int.
+    Let mutable i be 1.
+    While i is at most mid:
+        Push item i of arr to left.
+        Set i to i + 1.
+    Let mutable right be a new Seq of Int.
+    While i is at most length of arr:
+        Push item i of arr to right.
+        Set i to i + 1.
+    Show length of left.
+    Return right.
+
+## Main
+Let items be [10, 20, 30, 40, 50, 60].
+Let r be splitTwo(items, 3).
+Show length of r.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    // Both halves should be optimized to direct slice operations (.to_vec() or extend_from_slice)
+    let to_vec_count = rust.matches(".to_vec()").count();
+    let extend_count = rust.matches("extend_from_slice").count();
+    assert!(
+        to_vec_count >= 2 || (to_vec_count >= 1 && extend_count >= 1),
+        "Both halves should use direct slice operations (.to_vec() or extend_from_slice), got:\n{}",
+        rust
+    );
+}
+
+// =============================================================================
+// OPT: String with_capacity from loop
+// =============================================================================
+
+#[test]
+fn opt_string_with_capacity_from_loop() {
+    let source = r#"## To native parseInt (s: Text) -> Int
+## To native args () -> Seq of Text
+
+## Main
+Let n be 100.
+Let mutable text be "".
+Let mutable i be 0.
+While i is less than n:
+    Set text to text + "x".
+    Set i to i + 1.
+Show length of text.
+"#;
+    let rust = compile_to_rust(source).unwrap();
+    assert!(
+        rust.contains("String::with_capacity("),
+        "Empty string followed by append loop should emit with_capacity, got:\n{}",
+        rust
+    );
 }

@@ -18,11 +18,11 @@
 //!                    └── zonk → TypeEnv (LogosType) → codegen
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::analysis::unify::{InferType, TyVar, TypeScheme, TypeError, UnificationTable, infer_to_logos, unify_numeric};
 use crate::analysis::{FnSig, LogosType, TypeDef, TypeEnv, TypeRegistry};
-use crate::ast::stmt::{BinaryOpKind, Expr, Pattern, Stmt};
+use crate::ast::stmt::{BinaryOpKind, Expr, OptFlag, Pattern, Stmt};
 use crate::intern::{Interner, Symbol};
 
 // ============================================================================
@@ -1067,6 +1067,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         }];
         let env = run(&stmts, &interner);
         let sig = env.lookup_fn(f).expect("function should be registered");
@@ -1094,6 +1095,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let result_var = interner.intern("result");
         let call = Expr::Call { function: f, args: vec![] };
@@ -1217,6 +1219,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
 
         // Note: let_r comes BEFORE fn_def in the slice
@@ -1249,6 +1252,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         }];
         let result = check_program(&stmts, &interner, &TypeRegistry::new());
         assert!(result.is_err(), "returning Text from Int function should fail");
@@ -1324,6 +1328,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let r = interner.intern("r");
         let lit = Expr::Literal(Literal::Number(42));
@@ -1356,6 +1361,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let r = interner.intern("r");
         let lit = Expr::Literal(Literal::Boolean(true));
@@ -1393,6 +1399,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let r = interner.intern("r");
         let lit_int = Expr::Literal(Literal::Number(42));
@@ -1427,6 +1434,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let r1 = interner.intern("r1");
         let r2 = interner.intern("r2");
@@ -1471,6 +1479,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let r = interner.intern("r");
         let lit5 = Expr::Literal(Literal::Number(5));
@@ -1506,6 +1515,7 @@ mod tests {
             native_path: None,
             is_exported: false,
             export_target: None,
+            opt_flags: HashSet::new(),
         };
         let r = interner.intern("r");
         let lit = Expr::Literal(Literal::Number(99));

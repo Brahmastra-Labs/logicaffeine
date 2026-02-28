@@ -4,14 +4,14 @@ use std::fmt::Write;
 use crate::analysis::registry::{FieldDef, TypeDef, TypeRegistry};
 use crate::analysis::policy::PolicyRegistry;
 use crate::analysis::types::RustNames;
-use crate::ast::stmt::{Expr, Stmt, TypeExpr};
+use crate::ast::stmt::{Expr, OptFlag, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 use crate::registry::SymbolRegistry;
 
 use super::context::{RefinementContext, VariableCapabilities, analyze_variable_capabilities};
 use crate::analysis::callgraph::CallGraph;
 use crate::analysis::liveness::LivenessResult;
-use crate::analysis::readonly::ReadonlyParams;
+use crate::analysis::readonly::{ReadonlyParams, MutableBorrowParams};
 
 use super::detection::{
     requires_async, requires_vfs, collect_mutable_vars,
@@ -20,7 +20,9 @@ use super::detection::{
     should_memoize, body_contains_self_call, should_inline,
     collect_pipe_sender_params, collect_pipe_vars,
     collect_mutable_vars_stmt, is_result_type,
-    vec_to_slice_type, collect_give_arg_indices,
+    vec_to_slice_type, vec_to_mut_slice_type, collect_give_arg_indices,
+    collect_single_char_text_vars,
+    detect_double_recursion_closed_form,
 };
 use super::expr::{codegen_expr, codegen_expr_with_async};
 use super::ffi::{
@@ -43,7 +45,12 @@ use super::{escape_rust_ident, is_rust_keyword};
 use super::{
     collect_c_export_ref_structs, codegen_c_accessors,
     try_emit_vec_fill_pattern, try_emit_for_range_pattern, try_emit_swap_pattern,
-    try_emit_seq_copy_pattern, try_emit_rotate_left_pattern,
+    try_emit_seq_copy_pattern, try_emit_seq_from_slice_pattern,
+    try_emit_bare_slice_push_pattern,
+    try_emit_vec_with_capacity_pattern, try_emit_merge_capacity_pattern,
+    try_emit_string_with_capacity_pattern,
+    try_emit_rotate_left_pattern,
+    try_emit_buffer_reuse_while,
     classify_type_for_c_abi, CAbiClass,
 };
 
@@ -194,9 +201,13 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
 
     let mut borrow_params_map: HashMap<Symbol, HashSet<usize>> = HashMap::new();
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, body, is_native, is_exported, .. } = stmt {
+        if let Stmt::FunctionDef { name, params, body, is_native, is_exported, opt_flags, .. } = stmt {
             // Skip native, exported, TCE, accumulator, and mutual TCE functions
             if *is_native || *is_exported || mutual_tce_members.contains(name) {
+                continue;
+            }
+            // Respect ## No Borrow / ## No Optimize annotations
+            if opt_flags.contains(&OptFlag::NoBorrow) || opt_flags.contains(&OptFlag::NoOptimize) {
                 continue;
             }
             if is_tail_recursive(*name, body) {
@@ -219,13 +230,45 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         }
     }
 
+    // Mutable borrow analysis: detect Seq params that are only mutated via SetIndex
+    // (element-only, no Push/Pop) and returned. These get &mut [T] instead of owned Vec<T>.
+    let mutable_borrow_params = MutableBorrowParams::analyze(stmts, &callgraph, type_env);
+
+    let mut mut_borrow_params_map: HashMap<Symbol, HashSet<usize>> = HashMap::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, params, body, is_native, is_exported, opt_flags, .. } = stmt {
+            if *is_native || *is_exported || mutual_tce_members.contains(name) {
+                continue;
+            }
+            // Respect ## No Borrow / ## No Optimize annotations
+            if opt_flags.contains(&OptFlag::NoBorrow) || opt_flags.contains(&OptFlag::NoOptimize) {
+                continue;
+            }
+            if is_tail_recursive(*name, body) || detect_accumulator_pattern(*name, body).is_some() {
+                continue;
+            }
+            // Skip if already has readonly borrow params (readonly takes precedence)
+            let readonly_indices = borrow_params_map.get(name).cloned().unwrap_or_default();
+            let indices: HashSet<usize> = params.iter().enumerate()
+                .filter(|(i, (sym, _))| {
+                    mutable_borrow_params.is_mutable_borrow(*name, *sym)
+                        && !readonly_indices.contains(i)
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if !indices.is_empty() {
+                mut_borrow_params_map.insert(*name, indices);
+            }
+        }
+    }
+
     // Pass 2: Compute liveness for all user-defined functions (backward dataflow).
     // Used by codegen_function_def to enable last-use move optimization (OPT-1C).
     let liveness = LivenessResult::analyze(stmts);
 
     // Phase 32/38: Emit function definitions before main
     for stmt in stmts {
-        if let Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target } = stmt {
+        if let Stmt::FunctionDef { name, params, generics, body, return_type, is_native, native_path, is_exported, export_target, opt_flags } = stmt {
             if mutual_tce_members.contains(name) {
                 // Part of a mutual pair — emit merged function when we see the first member
                 if !mutual_tce_emitted.contains(name) {
@@ -238,7 +281,7 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 }
                 // Skip individual emission — already emitted as part of merged pair
             } else {
-                output.push_str(&codegen_function_def(*name, generics, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env, &borrow_params_map, &liveness));
+                output.push_str(&codegen_function_def(*name, generics, params, body, return_type.as_ref().copied(), *is_native, *native_path, *is_exported, *export_target, interner, &lww_fields, &mv_fields, &async_functions, &boxed_fields, registry, &pure_functions, type_env, &borrow_params_map, &mut_borrow_params_map, &liveness, opt_flags));
             }
         }
     }
@@ -260,6 +303,9 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
         collect_mutable_vars_stmt(stmt, &mut main_mutable_vars);
     }
 
+    // OPT: Detect single-char text variables (emit u8 instead of String)
+    let single_char_vars = collect_single_char_text_vars(stmts, interner);
+
     // Main function
     // Phase 51: Use async main when async operations are present
     if requires_async(stmts) {
@@ -270,13 +316,22 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
     }
     // Phase 53: Inject VFS when file operations or persistence is used
     if requires_vfs(stmts) {
-        writeln!(output, "    let vfs = logicaffeine_system::fs::NativeVfs::new(\".\");").unwrap();
+        writeln!(output, "    let vfs: std::sync::Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> = std::sync::Arc::from(logicaffeine_system::fs::get_platform_vfs());").unwrap();
     }
     let mut main_ctx = RefinementContext::from_type_env(type_env);
+    // OPT: Register single-char text vars as u8 type for optimized codegen
+    for sym in &single_char_vars {
+        main_ctx.register_variable_type(*sym, "__single_char_u8".to_string());
+    }
     // Register function borrow info on main context for call-site optimization
     for (fn_sym, indices) in &borrow_params_map {
         let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
         main_ctx.register_variable_type(*fn_sym, format!("fn_borrow:{}", indices_str));
+    }
+    // Register mutable borrow info for call-site transformation
+    for (fn_sym, indices) in &mut_borrow_params_map {
+        let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        main_ctx.register_variable_type(*fn_sym, format!("fn_mut_borrow:{}", indices_str));
     }
     let mut main_synced_vars = HashSet::new();  // Phase 52: Track synced variables in main
     // Phase 56: Pre-scan for Mount+Sync combinations
@@ -290,8 +345,44 @@ pub fn codegen_program(stmts: &[Stmt], registry: &TypeRegistry, policies: &Polic
                 i += 1;
                 continue;
             }
-            // Peephole: Vec fill pattern optimization (most specific — check first)
+            // Peephole: seq-from-slice pattern (push-copy loop → slice.to_vec()) — check before vec_with_capacity since it's more specific
+            if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: Vec fill pattern (more specific, must run before with_capacity)
             if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, i, interner, 1, &mut main_ctx) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: Bare slice push pattern (extend_from_slice for bare While copy loops)
+            if let Some((code, skip)) = try_emit_bare_slice_push_pattern(&stmt_refs, i, interner, 1, main_ctx.get_variable_types()) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: Vec with_capacity pattern optimization
+            if let Some((code, skip)) = try_emit_vec_with_capacity_pattern(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: Merge Vec capacity pattern (capacity from source Vec lengths)
+            if let Some((code, skip)) = try_emit_merge_capacity_pattern(&stmt_refs, i, interner, 1, &mut main_ctx) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: String with_capacity pattern optimization
+            if let Some((code, skip)) = try_emit_string_with_capacity_pattern(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env) {
+                output.push_str(&code);
+                i += 1 + skip;
+                continue;
+            }
+            // Peephole: Buffer reuse (hoist inner buffer, clear+swap instead of alloc+move)
+            if let Some((code, skip)) = try_emit_buffer_reuse_while(&stmt_refs, i, interner, 1, &main_mutable_vars, &mut main_ctx, &lww_fields, &mv_fields, &mut main_synced_vars, &main_var_caps, &async_functions, &main_pipe_vars, &boxed_fields, registry, type_env) {
                 output.push_str(&code);
                 i += 1 + skip;
                 continue;
@@ -351,7 +442,9 @@ fn codegen_function_def(
     pure_functions: &HashSet<Symbol>,
     type_env: &crate::analysis::types::TypeEnv,
     borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
     liveness: &LivenessResult,
+    opt_flags: &HashSet<OptFlag>,
 ) -> String {
     let mut output = String::new();
     let names = RustNames::new(interner);
@@ -365,8 +458,9 @@ fn codegen_function_def(
     // FFI: Exported functions need special signatures
     let is_c_export_early = is_exported && matches!(export_target_lower.as_deref(), None | Some("c"));
 
-    // TCE: Detect tail recursion eligibility
-    let is_tce = !is_native && !is_c_export_early && is_tail_recursive(name, body);
+    // TCE: Detect tail recursion eligibility (respects ## No TCO / ## No Optimize)
+    let no_tco = opt_flags.contains(&OptFlag::NoTCO) || opt_flags.contains(&OptFlag::NoOptimize);
+    let is_tce = !is_native && !is_c_export_early && !no_tco && is_tail_recursive(name, body);
     let param_syms: Vec<Symbol> = params.iter().map(|(s, _)| *s).collect();
 
     // Accumulator Introduction: Detect non-tail single-call + / * patterns
@@ -377,14 +471,31 @@ fn codegen_function_def(
     };
     let is_acc = acc_info.is_some();
 
+    // Closed-form: Detect double recursion f(0)=base, f(d)=k+f(d-1)+f(d-1)
+    // Emits ((base+k) << d) - k instead of memoization — matches GCC/LLVM -O2.
+    let closed_form_info = if !is_tce && !is_acc && !is_native && !is_c_export_early {
+        detect_double_recursion_closed_form(name, params, body, interner)
+    } else {
+        None
+    };
+    let is_closed_form = closed_form_info.is_some();
+
     // Memoization: Detect pure multi-call recursive functions with hashable params
-    let is_memo = !is_tce && !is_acc && !is_native && !is_c_export_early
+    // Respects ## No Memo / ## No Optimize annotations
+    let no_memo = opt_flags.contains(&OptFlag::NoMemo) || opt_flags.contains(&OptFlag::NoOptimize);
+    let is_memo = !is_tce && !is_acc && !is_closed_form && !is_native && !is_c_export_early && !no_memo
         && should_memoize(name, body, params, return_type, pure_functions.contains(&name), interner);
 
     let needs_mut_params = is_tce || is_acc;
 
+    // Peephole: respect ## No Peephole / ## No Optimize annotations
+    let no_peephole = opt_flags.contains(&OptFlag::NoPeephole) || opt_flags.contains(&OptFlag::NoOptimize);
+
     // Get borrow indices for this function (empty set if none)
     let borrow_indices = borrow_params_map.get(&name).cloned().unwrap_or_default();
+
+    // Get mutable borrow indices (element-only mutation, return same param)
+    let mut_borrow_indices = mut_borrow_params_map.get(&name).cloned().unwrap_or_default();
 
     // Compute mutable vars early for param mutability detection
     let func_mutable_vars = collect_mutable_vars(body);
@@ -397,12 +508,16 @@ fn codegen_function_def(
             // Phase 54: If param is used as a pipe sender, wrap type in Sender<T>
             if pipe_sender_params.contains(param_name) {
                 format!("{}: tokio::sync::mpsc::Sender<{}>", pname, ty)
-            } else if needs_mut_params || func_mutable_vars.contains(param_name) {
-                format!("mut {}: {}", pname, ty)
             } else if borrow_indices.contains(&i) {
                 // Read-only Vec param → borrow as &[T]
                 let slice_ty = vec_to_slice_type(&ty);
                 format!("{}: {}", pname, slice_ty)
+            } else if mut_borrow_indices.contains(&i) {
+                // Element-only mutation Vec param → borrow as &mut [T]
+                let slice_ty = vec_to_mut_slice_type(&ty);
+                format!("{}: {}", pname, slice_ty)
+            } else if needs_mut_params || func_mutable_vars.contains(param_name) {
+                format!("mut {}: {}", pname, ty)
             } else {
                 format!("{}: {}", pname, ty)
             }
@@ -410,9 +525,16 @@ fn codegen_function_def(
         .collect();
 
     // Get return type string from TypeExpr or infer from body
-    let return_type_str = return_type
-        .map(|t| codegen_type_expr(t, interner))
-        .or_else(|| infer_return_type_from_body(body, interner));
+    // If this function has &mut borrow params and returns one of them,
+    // suppress the return type since the mutation happens in-place.
+    let has_mut_borrow = !mut_borrow_indices.is_empty();
+    let return_type_str = if has_mut_borrow {
+        None // No return type — mutation is in-place via &mut [T]
+    } else {
+        return_type
+            .map(|t| codegen_type_expr(t, interner))
+            .or_else(|| infer_return_type_from_body(body, interner))
+    };
 
     // Phase 51/54: Check if function is async (includes transitive async detection)
     let is_async = async_functions.contains(&name);
@@ -480,7 +602,8 @@ fn codegen_function_def(
     };
 
     // Emit #[inline] for small non-recursive, non-exported functions
-    if !is_tce && !is_acc && should_inline(name, body, is_native, is_exported, is_async) {
+    // Closed-form functions are tiny (2 lines) and should always inline.
+    if is_closed_form || (!is_tce && !is_acc && should_inline(name, body, is_native, is_exported, is_async)) {
         writeln!(output, "#[inline]").unwrap();
     }
 
@@ -542,16 +665,23 @@ fn codegen_function_def(
         }
 
         let mut func_ctx = RefinementContext::new();
+        // OPT: Detect single-char text vars in function body
+        let func_single_char_vars = collect_single_char_text_vars(body, interner);
+        for sym in &func_single_char_vars {
+            func_ctx.register_variable_type(*sym, "__single_char_u8".to_string());
+        }
         let mut func_synced_vars = HashSet::new();  // Phase 52: Track synced variables in function
         // Phase 56: Pre-scan for Mount+Sync combinations in function body
         let func_var_caps = analyze_variable_capabilities(body, interner);
 
         // Phase 50: Register parameter types for capability Check resolution
-        // Borrow-optimized params get &[T] type so downstream codegen handles them correctly
+        // Borrow-optimized params get &[T] or &mut [T] type so downstream codegen handles them correctly
         for (i, (param_name, param_type)) in params.iter().enumerate() {
             let type_name = codegen_type_expr(param_type, interner);
             if borrow_indices.contains(&i) {
                 func_ctx.register_variable_type(*param_name, vec_to_slice_type(&type_name));
+            } else if mut_borrow_indices.contains(&i) {
+                func_ctx.register_variable_type(*param_name, vec_to_mut_slice_type(&type_name));
             } else {
                 func_ctx.register_variable_type(*param_name, type_name);
             }
@@ -561,6 +691,10 @@ fn codegen_function_def(
         for (fn_sym, indices) in borrow_params_map {
             let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
             func_ctx.register_variable_type(*fn_sym, format!("fn_borrow:{}", indices_str));
+        }
+        for (fn_sym, indices) in mut_borrow_params_map {
+            let indices_str = indices.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+            func_ctx.register_variable_type(*fn_sym, format!("fn_mut_borrow:{}", indices_str));
         }
 
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
@@ -572,30 +706,62 @@ fn codegen_function_def(
             let stmt_refs: Vec<&Stmt> = body.iter().collect();
             let mut si = 0;
             while si < stmt_refs.len() {
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
+                if !no_peephole {
+                    if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_bare_slice_push_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_with_capacity_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_merge_capacity_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_string_with_capacity_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_buffer_reuse_while(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
                 }
                 output.push_str(&codegen_stmt_tce(stmt_refs[si], name, &param_syms, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
@@ -608,35 +774,77 @@ fn codegen_function_def(
             let stmt_refs: Vec<&Stmt> = body.iter().collect();
             let mut si = 0;
             while si < stmt_refs.len() {
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
+                if !no_peephole {
+                    if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_bare_slice_push_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_with_capacity_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_merge_capacity_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_string_with_capacity_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_buffer_reuse_while(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
                 }
                 output.push_str(&codegen_stmt_acc(stmt_refs[si], name, &param_syms, acc, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
             }
             writeln!(output, "    }}").unwrap();
+        } else if let Some(ref cf) = closed_form_info {
+            // Closed-form: f(d) = ((base + k) << d) - k
+            let param_name = names.ident(params[0].0);
+            let base_plus_k = cf.base + cf.k;
+            writeln!(output, "    if {} == 0 {{ return {}; }}", param_name, cf.base).unwrap();
+            if cf.k == 0 {
+                writeln!(output, "    ({}i64 << {})", base_plus_k, param_name).unwrap();
+            } else {
+                writeln!(output, "    ({}i64 << {}) - {}", base_plus_k, param_name, cf.k).unwrap();
+            }
         } else if is_memo {
             // Memoization: Wrap body in closure with thread-local cache
             let ret_ty = return_type_str.as_deref().unwrap_or("i64");
@@ -666,30 +874,62 @@ fn codegen_function_def(
             let stmt_refs: Vec<&Stmt> = body.iter().collect();
             let mut si = 0;
             while si < stmt_refs.len() {
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
+                if !no_peephole {
+                    if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_bare_slice_push_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_with_capacity_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_merge_capacity_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_string_with_capacity_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_buffer_reuse_while(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 2, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 2, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
                 }
                 output.push_str(&codegen_stmt(stmt_refs[si], interner, 2, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env));
                 si += 1;
@@ -701,30 +941,62 @@ fn codegen_function_def(
             let stmt_refs: Vec<&Stmt> = body.iter().collect();
             let mut si = 0;
             while si < stmt_refs.len() {
-                if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
-                }
-                if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
-                    output.push_str(&code);
-                    si += 1 + skip;
-                    continue;
+                if !no_peephole {
+                    if let Some((code, skip)) = try_emit_seq_from_slice_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_fill_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_bare_slice_push_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_vec_with_capacity_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_merge_capacity_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_string_with_capacity_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_buffer_reuse_while(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_for_range_pattern(&stmt_refs, si, interner, 1, &func_mutable_vars, &mut func_ctx, lww_fields, mv_fields, &mut func_synced_vars, &func_var_caps, async_functions, &func_pipe_vars, boxed_fields, registry, type_env) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_swap_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_seq_copy_pattern(&stmt_refs, si, interner, 1, &mut func_ctx) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
+                    if let Some((code, skip)) = try_emit_rotate_left_pattern(&stmt_refs, si, interner, 1, func_ctx.get_variable_types()) {
+                        output.push_str(&code);
+                        si += 1 + skip;
+                        continue;
+                    }
                 }
                 // OPT-1C: Set liveness for this statement so codegen_stmt can move
                 // dead non-Copy args instead of cloning them.

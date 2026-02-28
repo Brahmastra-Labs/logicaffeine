@@ -10,9 +10,31 @@
 //!
 //! The imperative AST is used in LOGOS mode for generating executable Rust code.
 
+use std::collections::HashSet;
+
 use super::logic::LogicExpr;
 use super::theorem::TheoremBlock;
 use logicaffeine_base::Symbol;
+
+/// Per-function optimization control flags.
+///
+/// Annotations placed above `## To` disable specific optimization passes
+/// for that function. This gives the programmer explicit control when
+/// an optimization hurts rather than helps (e.g., memoization on a function
+/// whose body is cheaper than a hash lookup).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum OptFlag {
+    /// `## No Memo` — disable auto-memoization (TLS FxHashMap cache)
+    NoMemo,
+    /// `## No TCO` — disable tail-call elimination (loop conversion)
+    NoTCO,
+    /// `## No Peephole` — disable peephole patterns (swap, vec-fill, for-range, etc.)
+    NoPeephole,
+    /// `## No Borrow` — disable readonly/mutable borrow analysis (&[T]/&mut [T] params)
+    NoBorrow,
+    /// `## No Optimize` — disable ALL of the above (master switch)
+    NoOptimize,
+}
 
 /// Type expression for explicit type annotations.
 ///
@@ -234,6 +256,8 @@ pub enum Stmt<'a> {
         is_exported: bool,
         /// Export target: None = C ABI (#[no_mangle] extern "C"), Some("wasm") = #[wasm_bindgen].
         export_target: Option<Symbol>,
+        /// Per-function optimization flags from `## No <X>` annotations.
+        opt_flags: HashSet<OptFlag>,
     },
 
     /// Pattern matching on sum types.

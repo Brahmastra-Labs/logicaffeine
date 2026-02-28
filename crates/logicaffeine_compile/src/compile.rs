@@ -678,6 +678,9 @@ edition = "2021"
 logicaffeine-data = { path = "./crates/logicaffeine_data" }
 logicaffeine-system = { path = "./crates/logicaffeine_system", features = ["full"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+logicaffeine-system = { path = "./crates/logicaffeine_system", features = ["full", "io-uring"] }
 "#);
 
     // Append user-declared dependencies from ## Requires blocks
@@ -702,6 +705,14 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
     let cargo_path = output_dir.join("Cargo.toml");
     let mut file = fs::File::create(&cargo_path).map_err(|e| CompileError::Io(e.to_string()))?;
     file.write_all(cargo_toml.as_bytes()).map_err(|e| CompileError::Io(e.to_string()))?;
+
+    // Write .cargo/config.toml with target-cpu=native for optimal codegen.
+    // Enables SIMD auto-vectorization and CPU-specific instruction selection.
+    let cargo_config_dir = output_dir.join(".cargo");
+    fs::create_dir_all(&cargo_config_dir).map_err(|e| CompileError::Io(e.to_string()))?;
+    let config_content = "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n";
+    let config_path = cargo_config_dir.join("config.toml");
+    fs::write(&config_path, config_content).map_err(|e| CompileError::Io(e.to_string()))?;
 
     // Copy runtime crates to output directory
     copy_runtime_crates(output_dir)?;

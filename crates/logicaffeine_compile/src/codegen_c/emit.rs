@@ -574,7 +574,7 @@ pub(super) fn codegen_interpolated_show_c(parts: &[crate::ast::stmt::StringPart]
 pub(super) fn codegen_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
     let pad = "    ".repeat(indent);
     match stmt {
-        Stmt::Let { var, value, ty, .. } => {
+        Stmt::Let { var, value, ty, mutable } => {
             let var_name = ctx.resolve(*var).to_string();
 
             // Determine C type
@@ -603,12 +603,40 @@ pub(super) fn codegen_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String,
                 }
             }
 
+            // Mutable strings must be heap-allocated so str_append can realloc
+            if *mutable && c_type == CType::String {
+                let val_str = codegen_expr(value, ctx);
+                writeln!(output, "{}char * {} = strdup({});", pad, var_name, val_str).unwrap();
+                ctx.vars.insert(*var, c_type);
+                return;
+            }
+
             let val_str = codegen_expr(value, ctx);
             let type_str = c_type_str_resolved(&c_type, ctx.interner);
             writeln!(output, "{}{} {} = {};", pad, type_str, var_name, val_str).unwrap();
             ctx.vars.insert(*var, c_type);
         }
         Stmt::Set { target, value } => {
+            // Detect self-append pattern: Set target to target + expr (string concat)
+            // Emit str_append(target, expr) instead of target = str_concat(target, expr)
+            if let Expr::BinaryOp { op: BinaryOpKind::Add, left, right } = value {
+                if let Expr::Identifier(left_sym) = left {
+                    if *left_sym == *target {
+                        let lt = infer_expr_type(left, ctx);
+                        let rt = infer_expr_type(right, ctx);
+                        if lt == CType::String || rt == CType::String {
+                            let var_name = ctx.resolve(*target);
+                            let rs = if rt == CType::String {
+                                codegen_expr(right, ctx)
+                            } else {
+                                format!("i64_to_str({})", codegen_expr(right, ctx))
+                            };
+                            writeln!(output, "{}{} = str_append({}, {});", pad, var_name, var_name, rs).unwrap();
+                            return;
+                        }
+                    }
+                }
+            }
             let val_str = codegen_expr(value, ctx);
             let var_name = ctx.resolve(*target);
             writeln!(output, "{}{} = {};", pad, var_name, val_str).unwrap();

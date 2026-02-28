@@ -377,6 +377,14 @@ static char *str_concat(const char *a, const char *b) {
     return r;
 }
 
+static char *str_append(char *s, const char *suffix) {
+    size_t slen = strlen(s);
+    size_t suffix_len = strlen(suffix);
+    s = (char *)realloc(s, slen + suffix_len + 1);
+    memcpy(s + slen, suffix, suffix_len + 1);
+    return s;
+}
+
 static char *i64_to_str(int64_t n) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%" PRId64, n);

@@ -261,6 +261,8 @@ impl LogosType {
     /// Handles strings like "i64", "f64", "String", "Vec<i64>",
     /// "std::collections::HashMap<String, i64>", etc.
     pub fn from_rust_type_str(s: &str) -> LogosType {
+        // Strip loop-bounds hoisting sentinel (e.g. "Vec<i64>|__hl:left_len" → "Vec<i64>").
+        let s = s.split("|__hl:").next().unwrap_or(s);
         match s {
             "i64" => LogosType::Int,
             "u64" => LogosType::Nat,

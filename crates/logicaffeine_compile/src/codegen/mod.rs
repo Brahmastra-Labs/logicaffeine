@@ -35,7 +35,7 @@
 //! - **Zone Safety**: Translates memory zones to Rust scopes
 //! - **CRDT Mutability**: Uses `.set()` for LWWRegister/MVRegister fields
 //! - **Async Detection**: Adds `#[tokio::main]` when async operations are present
-//! - **VFS Detection**: Injects `NativeVfs::new()` for file operations
+//! - **VFS Detection**: Injects `get_platform_vfs()` for file operations (io_uring on Linux, NativeVfs elsewhere)
 //! - **Mount+Sync Detection**: Uses `Distributed<T>` for combined persistence/sync
 //!
 //! # Refinement Context
@@ -105,8 +105,13 @@ pub(crate) use expr::{
 pub(crate) use stmt::{get_root_identifier, is_copy_type, has_copy_element_type, has_copy_value_type};
 pub(crate) use peephole::{
     try_emit_for_range_pattern, try_emit_vec_fill_pattern, try_emit_swap_pattern,
-    try_emit_seq_copy_pattern, try_emit_rotate_left_pattern,
-    body_mutates_collection, exprs_equal,
+    try_emit_seq_copy_pattern, try_emit_seq_from_slice_pattern,
+    try_emit_bare_slice_push_pattern,
+    try_emit_vec_with_capacity_pattern, try_emit_merge_capacity_pattern,
+    try_emit_string_with_capacity_pattern,
+    try_emit_rotate_left_pattern,
+    try_emit_buffer_reuse_while,
+    body_mutates_collection, body_modifies_var, exprs_equal,
 };
 pub(crate) use types::is_recursive_field;
 
