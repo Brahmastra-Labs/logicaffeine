@@ -43,11 +43,11 @@ BENCHMARKS=(
     loop_sum fib_iterative graph_bfs string_search
 )
 
-WARMUP="${BENCH_WARMUP:-5}"
-RUNS="${BENCH_RUNS:-20}"
+WARMUP="${BENCH_WARMUP:-2}"
+RUNS="${BENCH_RUNS:-10}"
 TIMEOUT="${BENCH_TIMEOUT:-120}"
 BUILD_TIMEOUT="${BUILD_TIMEOUT:-60}"
-HYPERFINE_TIMEOUT="${BENCH_HYPERFINE_TIMEOUT:-600}"  # 10 min per hyperfine invocation
+HYPERFINE_TIMEOUT="${BENCH_HYPERFINE_TIMEOUT:-300}"  # 5 min per hyperfine invocation
 SIZES_MODE="${BENCH_SIZES:-all}"  # "all" or "ref" (reference only)
 SKIP_LANGS="${SKIP_LANGS:-}"      # comma-separated list of langs to skip (e.g., "zig,nim")
 
