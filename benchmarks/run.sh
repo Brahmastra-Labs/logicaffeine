@@ -314,6 +314,10 @@ declare -A LANG_TIMEOUTS
 try_bench() {
     local lang_id="$1" label="$2" cmd="$3"
 
+    if skip_lang "$lang_id"; then
+        return
+    fi
+
     if [[ "${LANG_TIMEOUTS[${bench}_${lang_id}]:-}" == "1" ]]; then
         warn "  Skipping $label (timed out at smaller size)"
         return
