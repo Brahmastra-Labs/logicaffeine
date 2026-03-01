@@ -96,6 +96,7 @@ jobs:
       - name: Run benchmarks
         env:
           LOGOS_VERSION: ${{ steps.version.outputs.version }}
+          SKIP_LANGS: python,ruby
         run: bash benchmarks/run.sh
 
       - name: Upload artifact
